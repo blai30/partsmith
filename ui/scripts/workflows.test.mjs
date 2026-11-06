@@ -1,5 +1,5 @@
 // Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
-// 120 and 122 to 124 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
+// 120, 122 to 124 and 128 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
 // scripts/check-source-archive.sh and scripts/check-windows-imports.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -45,9 +45,9 @@ const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
 // The pins of OCCT that the archive's name and the fixtures of tests 86 and 87 read (sections 2.9 and 2.13).
 const OCCT_PINS = 'scripts/occt-version.sh'
 
-// The cache of the OCCT source archive (section 2.13): its folder, the key under which the sources jobs of ci.yml and
-// platforms.yml restore it and save it, and the two lines of the step that makes the archive on a miss, which
-// release.yml's sources job runs in every run.
+// The cache of the OCCT source archive (section 2.13): its folder, the key under which ci.yml's sources job restores it
+// and saves it, and the two lines of the step that makes the archive on a miss, which release.yml's sources job runs in
+// every run.
 const ARCHIVE_CACHE_PATH = '.occt/source'
 const ARCHIVE_CACHE_KEY =
   "occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}"
@@ -90,9 +90,12 @@ const SOURCES_JOB = 'sources'
 const SOURCES_FOLDER = 'sources'
 const SOURCE_ARTIFACTS = {
   'ci.yml': { name: 'Source archives (web)', artifact: 'sources-web' },
-  'platforms.yml': { name: 'Source archives (web)', artifact: 'sources-web' },
   'release.yml': { name: 'Source archives (desktop)', artifact: 'sources-desktop' },
 }
+
+// The workflow files that tests 85, 118 and 122 hold to the source rules of section 2.13: the two with a sources job,
+// and platforms.yml, which has had none since its web jobs moved into ci.yml (section 2.14, The move).
+const SOURCE_RULE_FILES = [...Object.keys(SOURCE_ARTIFACTS), 'platforms.yml']
 const PARTSMITH_WRITER = 'Write the Partsmith source archive'
 const PARTSMITH_WRITER_RUN = `${PARTSMITH_SCRIPT} ${SOURCES_FOLDER}`
 
@@ -184,33 +187,33 @@ const EXPECTED_TIMEOUTS = {
     e2e: 60,
     python: 60,
     desktop: 60,
+    'occt-platforms': 150,
+    'rust-platforms': 60,
+    'e2e-engines': 60,
     deploy: 60,
   },
   'release.yml': { verify: 60, sources: 60, bundle: 150, draft: 60 },
   'nightly.yml': { properties: 20 },
-  'platforms.yml': {
-    'occt-platforms': 150,
-    'rust-platforms': 60,
-    'full-rebuild': 60,
-    'occt-wasm': 150,
-    sources: 60,
-    'core-wasm': 60,
-    'e2e-engines': 60,
-  },
+  'platforms.yml': { 'occt-platforms': 150, 'full-rebuild': 60 },
 }
 
 // The artifacts each workflow file uploads, in the order of its steps (sections 2.4, 2.5 and 2.14): its source artifact
-// first, kept 8 days, and the others, kept 7 (section 2.13).
+// first, kept 8 days, and the others, kept 7 (section 2.13). platforms.yml uploads none since the move (section 2.14).
 const EXPECTED_UPLOADS = {
-  'ci.yml': ['sources-web', 'core-wasm', 'web-dist', 'playwright-report'],
+  'ci.yml': [
+    'sources-web',
+    'core-wasm',
+    'web-dist',
+    'playwright-report',
+    'playwright-report-${{ matrix.browser }}',
+  ],
   'release.yml': ['sources-desktop', 'bundle-${{ runner.os }}'],
-  'platforms.yml': ['sources-web', 'core-wasm', 'playwright-report-${{ matrix.browser }}'],
+  'platforms.yml': [],
 }
 
-// The jobs that download core-wasm into ui/public, by workflow file (sections 2.4 and 2.14).
+// The jobs of ci.yml that download core-wasm into ui/public (sections 2.4 and 2.14).
 const CORE_DOWNLOADS = {
-  'ci.yml': ['web', 'e2e'],
-  'platforms.yml': ['e2e-engines'],
+  'ci.yml': ['web', 'e2e', 'e2e-engines'],
 }
 
 // The pinned actions of section 2.2, each with its exact release.
@@ -233,8 +236,8 @@ const PINNED_ACTIONS = {
 // The workflow files of section 2.1.
 const WORKFLOW_FILES = ['ci.yml', 'release.yml', 'nightly.yml', 'platforms.yml']
 
-// The jobs that run on Windows and macOS (section 2.14), and rust-platforms' three test steps: the crate tests, then
-// the examples runner and clippy, which also run after failing crate tests.
+// The jobs of ci.yml that run on Windows and macOS (section 2.14), and rust-platforms' three test steps: the crate
+// tests, then the examples runner and clippy, which also run after failing crate tests.
 const PLATFORM_JOBS = ['occt-platforms', 'rust-platforms']
 const CRATE_TESTS =
   'cargo test --no-fail-fast -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop'
@@ -242,6 +245,44 @@ const EXAMPLES_RUNNER = 'cargo test -p partsmith-cli --test integration examples
 const PLATFORM_CLIPPY =
   'cargo clippy -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop --all-targets -- -D warnings'
 const AFTER_CRATE_TESTS = "${{ !cancelled() && steps.crates.outcome != 'skipped' }}"
+
+// The jobs that moved from platforms.yml into ci.yml in wave H, in their order there, each with its name, the name of
+// the checks that branch protection requires (section 2.14, The move, test 128).
+const MOVED_JOBS = {
+  'occt-platforms': 'OCCT (${{ matrix.runner }})',
+  'rust-platforms': 'Rust tests (${{ matrix.runner }})',
+  'e2e-engines': 'End-to-end tests (${{ matrix.browser }})',
+}
+
+// The two lines in which platforms.yml's copy of the macos-15 row of occt-platforms differs from ci.yml's job: its name
+// (choice 3) and its matrix (test 128).
+const COPY_NAME_LINE = '    name: OCCT for the full rebuild (${{ matrix.runner }})'
+const COPY_MATRIX_LINE = '        runner: [macos-15]'
+
+// The jobs that platforms.yml dropped with the move (test 128).
+const DROPPED_PLATFORMS_JOBS = [
+  'rust-platforms',
+  'e2e-engines',
+  'occt-wasm',
+  'sources',
+  'core-wasm',
+]
+
+// The needs of ci.yml's deploy, every job that gates it in order (section 2.4, test 60).
+const DEPLOY_NEEDS = [
+  'kernel-wasm',
+  'rust',
+  'deny',
+  'ui',
+  'schema',
+  'web',
+  'e2e',
+  'python',
+  'desktop',
+  'occt-platforms',
+  'rust-platforms',
+  'e2e-engines',
+]
 
 // The step of rust-platforms and of the release's bundle job that checks the imports of the Windows app, the condition
 // it runs on in rust-platforms, the app each job checks, and the command of the bundle job that it follows (section
@@ -495,6 +536,11 @@ function findJob(jobs, file, id) {
 /** The job `id` of the workflow file `file`; fails the test when the file has no such job. */
 async function workflowJob(file, id) {
   return findJob(workflowJobs(await workflowText(file)), file, id)
+}
+
+/** The ids of the jobs of the workflow file `file`, in order. */
+async function workflowJobIds(file) {
+  return workflowJobs(await workflowText(file)).map((job) => job.id)
 }
 
 /**
@@ -1303,19 +1349,14 @@ test('60: the platforms workflow reads the repository only, queues its runs and 
   )
 })
 
-test('60: the platforms jobs need only the jobs of their own workflow', async () => {
+test('60: the platforms workflow holds the copy of the macOS OCCT row and full-rebuild, which needs it', async () => {
   const jobs = workflowJobs(await workflowText('platforms.yml'))
 
   assert.deepEqual(
     jobs.map((job) => [job.id, jobNeeds(job)]),
     [
       ['occt-platforms', []],
-      ['rust-platforms', ['occt-platforms']],
       ['full-rebuild', ['occt-platforms']],
-      ['occt-wasm', []],
-      ['sources', []],
-      ['core-wasm', ['occt-wasm', 'sources']],
-      ['e2e-engines', ['core-wasm']],
     ],
   )
 })
@@ -1332,24 +1373,14 @@ test('60: no step of the platforms workflow is allowed to fail', async () => {
   }
 })
 
-test('60: no platforms job gates the deploy before its promotion', async () => {
+test('60: every promoted job gates the deploy, and no job of the platforms workflow does', async () => {
   const deploy = await workflowJob('ci.yml', 'deploy')
 
-  assert.deepEqual(jobNeeds(deploy), [
-    'kernel-wasm',
-    'rust',
-    'deny',
-    'ui',
-    'schema',
-    'web',
-    'e2e',
-    'python',
-    'desktop',
-  ])
+  assert.deepEqual(jobNeeds(deploy), DEPLOY_NEEDS)
 })
 
 test('61: the Windows and macOS jobs run in Git Bash on both runners, and one runner never cancels the other', async () => {
-  const jobs = await Promise.all(PLATFORM_JOBS.map((id) => workflowJob('platforms.yml', id)))
+  const jobs = await Promise.all(PLATFORM_JOBS.map((id) => workflowJob('ci.yml', id)))
   for (const job of jobs) {
     const { id } = job
 
@@ -1364,15 +1395,15 @@ test('61: the Windows and macOS jobs run in Git Bash on both runners, and one ru
 })
 
 test('61: the Rust tests run after a failed OCCT build on the other runner', async () => {
-  const job = await workflowJob('platforms.yml', 'rust-platforms')
+  const job = await workflowJob('ci.yml', 'rust-platforms')
 
   assert.equal(jobValue(job, 'if'), '${{ !cancelled() }}')
 })
 
-test("61: both platforms jobs use the OCCT cache key of the release's bundle job", async () => {
+test("61: both platform jobs use the OCCT cache key of the release's bundle job", async () => {
   const key = await bundleOcctKey()
-  const occt = jobSteps(await workflowJob('platforms.yml', 'occt-platforms'))
-  const rust = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const occt = jobSteps(await workflowJob('ci.yml', 'occt-platforms'))
+  const rust = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const cache = occt[cacheStep(occt, 'actions/cache', '.occt/native')]
   const restore = cacheOptions(rust, 'actions/cache/restore', '.occt/native')
 
@@ -1383,7 +1414,7 @@ test("61: both platforms jobs use the OCCT cache key of the release's bundle job
 })
 
 test('61: occt-platforms sets up the compiler and builds OCCT only on a cache miss', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'occt-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'occt-platforms'))
   const miss = "steps.occt.outputs.cache-hit != 'true'"
   const cache = cacheStep(steps, 'actions/cache', '.occt/native')
   const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd')
@@ -1409,7 +1440,7 @@ test('61: occt-platforms sets up the compiler and builds OCCT only on a cache mi
 })
 
 test('61: occt-platforms prints the free disk space after the build, also when it fails', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'occt-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'occt-platforms'))
   const last = steps.at(-1)
 
   assert.equal(stepValue(last, 'name'), 'Disk space after the build')
@@ -1418,7 +1449,7 @@ test('61: occt-platforms prints the free disk space after the build, also when i
 })
 
 test('61: rust-platforms links with MSVC on Windows as the release does', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const release = await bundleStep('Use the MSVC linker for Rust')
   const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd')
   const linker = namedStep(steps, 'Use the MSVC linker for Rust')
@@ -1430,7 +1461,7 @@ test('61: rust-platforms links with MSVC on Windows as the release does', async 
 })
 
 test('61: rust-platforms builds for the macOS deployment target of OCCT and the app', async (context) => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const step = steps[namedStep(steps, 'Set the deployment target')]
   const directory = await temporaryDirectory(context)
   const environmentFile = join(directory, 'github-env')
@@ -1447,7 +1478,7 @@ test('61: rust-platforms builds for the macOS deployment target of OCCT and the 
 })
 
 test('61: rust-platforms saves its Rust cache only on main, also when its tests fail', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const cache = usesStep(steps, 'Swatinem/rust-cache')
 
   assert.deepEqual(stepMapping(steps[cache], 'with'), {
@@ -1457,7 +1488,7 @@ test('61: rust-platforms saves its Rust cache only on main, also when its tests 
 })
 
 test('61: rust-platforms runs the crate tests, the examples runner and clippy, then prints the free disk space', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const crates = idStep(steps, 'crates')
   const [examples, clippy] = steps.slice(crates + 1)
   // The last step, whatever steps run between clippy and it, such as the import check of test 100.
@@ -1477,40 +1508,14 @@ test('61: rust-platforms runs the crate tests, the examples runner and clippy, t
 })
 
 test('61: a hung crate test ends its own step after 20 minutes, so the examples runner and clippy still run', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const crates = idStep(steps, 'crates')
 
   assert.equal(stepValue(steps[crates], 'timeout-minutes'), '20')
 })
 
-test('62: the platforms workflow builds OCCT for WebAssembly as CI does', async () => {
-  assert.deepEqual(
-    jobSteps(await workflowJob('platforms.yml', 'occt-wasm')),
-    jobSteps(await workflowJob('ci.yml', 'occt-wasm')),
-  )
-})
-
-test("62: the platforms workflow's core-wasm builds the web core without CI's native tests", async () => {
-  const job = await workflowJob('platforms.yml', 'core-wasm')
-  const steps = jobSteps(job)
-  const ciSteps = jobSteps(await workflowJob('ci.yml', 'core-wasm'))
-  const ciKey = cacheOptions(ciSteps, 'actions/cache/restore', '.occt/wasm').key
-  const restore = cacheOptions(steps, 'actions/cache/restore', '.occt/wasm')
-
-  assert.equal(restore.key, ciKey)
-  assert.equal(restore['fail-on-cache-miss'], 'true')
-  assert.equal(
-    mappingEntries(jobBlock(job, 'env') ?? []).OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN,
-    '${{ github.workspace }}/.occt/wasm',
-  )
-  commandStep(steps, 'scripts/build-wasm.sh')
-  for (const step of steps) {
-    assert.doesNotMatch(stepValue(step, 'run') ?? '', /cargo test/, 'core-wasm runs no cargo test')
-  }
-})
-
-test('62: e2e-engines runs the engine subset in Firefox and in WebKit', async () => {
-  const job = await workflowJob('platforms.yml', 'e2e-engines')
+test("62: e2e-engines runs the engine subset in Firefox and in WebKit against CI's core-wasm", async () => {
+  const job = await workflowJob('ci.yml', 'e2e-engines')
   const steps = jobSteps(job)
   const install = commandStep(steps, 'pnpm install --frozen-lockfile')
   const browsers = commandStep(steps, ENGINE_INSTALL)
@@ -1519,6 +1524,7 @@ test('62: e2e-engines runs the engine subset in Firefox and in WebKit', async ()
     'xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}',
   )
 
+  assert.deepEqual(jobNeeds(job), ['core-wasm'])
   assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04')
   assert.deepEqual(jobBlock(job, 'strategy'), [
     'fail-fast: false',
@@ -1690,7 +1696,7 @@ test('73: no test step of the python job may fail without failing the job', asyn
 })
 
 test('79: a slow mirror ends the browser install after 10 minutes, not the job', async () => {
-  const job = await workflowJob('platforms.yml', 'e2e-engines')
+  const job = await workflowJob('ci.yml', 'e2e-engines')
   const steps = jobSteps(job)
   const install = commandStep(steps, ENGINE_INSTALL)
 
@@ -1700,7 +1706,7 @@ test('79: a slow mirror ends the browser install after 10 minutes, not the job',
 })
 
 test('79: after a failed install, the report upload only warns that it found no files', async () => {
-  const steps = jobSteps(await workflowJob('platforms.yml', 'e2e-engines'))
+  const steps = jobSteps(await workflowJob('ci.yml', 'e2e-engines'))
   const upload = steps.at(-1)
 
   assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'))
@@ -1819,7 +1825,7 @@ async function sourcesJobs() {
 // jobs).
 const UNCACHED_ARCHIVE_FILE = 'release.yml'
 
-/** The sources jobs of `sourcesJobs` that restore the OCCT archive's cache: those of ci.yml and platforms.yml. */
+/** The sources jobs of `sourcesJobs` that restore the OCCT archive's cache: ci.yml's. */
 async function cachingSourcesJobs() {
   return (await sourcesJobs()).filter(({ file }) => file !== UNCACHED_ARCHIVE_FILE)
 }
@@ -1829,7 +1835,7 @@ function archiveStep(steps) {
   return commandStep(steps, ARCHIVE_STEP_RUN)
 }
 
-test('85: the sources jobs of ci.yml and platforms.yml restore the archive cache right after their checkout and make the archive on a miss', async () => {
+test("85: ci.yml's sources job restores the archive cache right after its checkout and makes the archive on a miss", async () => {
   for (const { file, steps } of await cachingSourcesJobs()) {
     const lookup = idStep(steps, 'occt-source')
     const archive = steps[lookup + 1]
@@ -1871,8 +1877,8 @@ test("85: release.yml's sources job restores no archive cache and makes the arch
   )
 })
 
-test('85: no job but sources names the archive cache or runs the archive script', async () => {
-  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+test('85: no job but sources names the archive cache or runs the archive script, and platforms.yml has no sources job', async () => {
+  for (const [file, text] of await workflowTexts(SOURCE_RULE_FILES)) {
     for (const job of workflowJobs(text).filter((listed) => listed.id !== SOURCES_JOB)) {
       for (const step of jobSteps(job)) {
         const stepText = step.join('\n')
@@ -1884,6 +1890,10 @@ test('85: no job but sources names the archive cache or runs the archive script'
       }
     }
   }
+  assert.ok(
+    !(await workflowJobIds('platforms.yml')).includes(SOURCES_JOB),
+    `platforms.yml has a job ${SOURCES_JOB}`,
+  )
 })
 
 test('85: web needs exactly core-wasm and sources', async () => {
@@ -1904,7 +1914,7 @@ test("86: each sources job writes the OCCT archive after the steps that make it 
     assert.equal(stepValue(steps[writer], 'working-directory'), undefined, file)
     runs.add(stepValue(steps[writer], 'run'))
   }
-  assert.equal(runs.size, 1, `the run of ${ARCHIVE_WRITER} differs between the three files`)
+  assert.equal(runs.size, 1, `the run of ${ARCHIVE_WRITER} differs between the two files`)
 })
 
 /** The tag, commit and SHA-256 of the archive that the Measured paragraph of section 2.13 records. */
@@ -2315,7 +2325,7 @@ test("87: the archive check fails with the OCCT-source error when only another v
   })
 })
 
-test("93: the web sources jobs install the toolchain, then write the dependency archives after Partsmith's and before the upload", async () => {
+test("93: the web sources job installs the toolchain, then writes the dependency archives after Partsmith's and before the upload", async () => {
   const webJobs = (await sourcesJobs()).filter(({ file }) => file !== 'release.yml')
   for (const { file, steps } of webJobs) {
     const toolchain = commandStep(steps, TOOLCHAIN_STEP)
@@ -2679,10 +2689,10 @@ test("95: the dependency writer's folder is dependencies/ of sources-web, which 
   assert.ok((await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')).includes('/dependencies/'))
 })
 
-/** The steps of rust-platforms in platforms.yml and of the bundle job in release.yml, as `{ platforms, release }`. */
+/** The steps of rust-platforms in ci.yml and of the bundle job in release.yml, as `{ platforms, release }`. */
 async function importCheckJobs() {
   const [platforms, release] = await Promise.all([
-    workflowJob('platforms.yml', 'rust-platforms'),
+    workflowJob('ci.yml', 'rust-platforms'),
     workflowJob('release.yml', 'bundle'),
   ])
   return { platforms: jobSteps(platforms), release: jobSteps(release) }
@@ -3076,12 +3086,12 @@ test("124: the CLI's check fails with Imports not checked, naming the program, w
   assert.ok(lastLine(result.stdout).includes('build the program run before this one'))
 })
 
-test('104: full-rebuild runs on macos-15 right after rust-platforms, after both OCCT rows, for the macOS of OCCT and the app', async () => {
+test('104: full-rebuild runs on macos-15 right after the copy of the macOS OCCT row, for the macOS of OCCT and the app', async () => {
   const jobs = workflowJobs(await workflowText('platforms.yml'))
   const ids = jobs.map((job) => job.id)
   const job = findJob(jobs, 'platforms.yml', FULL_REBUILD)
 
-  assert.equal(ids.indexOf(FULL_REBUILD), ids.indexOf('rust-platforms') + 1)
+  assert.equal(ids.indexOf(FULL_REBUILD), ids.indexOf('occt-platforms') + 1)
   assert.equal(jobValue(job, 'name'), 'Full rebuild of bench50 (macos-15)')
   assert.deepEqual(jobNeeds(job), ['occt-platforms'])
   assert.equal(jobValue(job, 'if'), '${{ !cancelled() }}')
@@ -3091,19 +3101,16 @@ test('104: full-rebuild runs on macos-15 right after rust-platforms, after both 
   assert.deepEqual(mappingEntries(jobBlock(job, 'env')), { MACOSX_DEPLOYMENT_TARGET: '"13.0"' })
 })
 
-test('104: platforms.yml keeps the macos-15 row of occt-platforms that full-rebuild needs, whatever promotion moved', async () => {
+test('104: platforms.yml keeps the macos-15 row of occt-platforms that full-rebuild needs, and that row alone', async () => {
   const jobs = workflowJobs(await workflowText('platforms.yml'))
   const runners = jobRunners(findJob(jobs, 'platforms.yml', 'occt-platforms'))
 
-  assert.ok(
-    runners.includes('macos-15'),
-    `occt-platforms runs on ${runners.join(', ')}, not on macos-15`,
-  )
+  assert.deepEqual(runners, ['macos-15'])
 })
 
 test('104: full-rebuild restores OCCT, sets up Rust and its own Rust cache, then times the full rebuild, in five steps', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', FULL_REBUILD))
-  const rustSteps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const rustSteps = jobSteps(await workflowJob('ci.yml', 'rust-platforms'))
   const [checkout, occt, toolchain, cache, timing] = steps
 
   assert.equal(steps.length, 5)
@@ -3260,7 +3267,7 @@ for (const [what, run] of [
   })
 }
 
-test('118: each workflow has a sources job on ubuntu-24.04, with its name, its needs and its steps in order', async () => {
+test('118: ci.yml and release.yml each have a sources job on ubuntu-24.04, with its name, its needs and its steps in order', async () => {
   for (const { file, job, steps } of await sourcesJobs()) {
     assert.equal(unquoted(jobValue(job, 'name') ?? ''), SOURCE_ARTIFACTS[file].name, file)
     assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04', file)
@@ -3276,7 +3283,7 @@ test('118: each workflow has a sources job on ubuntu-24.04, with its name, its n
       assert.equal(jobValue(job, 'if'), undefined, file)
     }
 
-    // The cache step comes before the archive step in ci.yml and platforms.yml. release.yml has none.
+    // The cache step comes before the archive step in ci.yml. release.yml has none.
     const cached = file !== UNCACHED_ARCHIVE_FILE
     const archive = cached ? 2 : 1
     const [toolchain, node, writer, partsmith, dependencies, upload] = steps.slice(archive + 1)
@@ -3323,13 +3330,12 @@ function withoutArchiveCache(steps) {
     )
 }
 
-test('118: the sources jobs of ci.yml and platforms.yml are the same, and release.yml differs only in its archive cache, scope and artifact', async () => {
-  const [ci, platforms, release] = await sourcesJobs()
+test("118: release.yml's sources job differs from ci.yml's only in its archive cache, scope and artifact", async () => {
+  const [ci, release] = await sourcesJobs()
   const expected = withoutArchiveCache(ci.steps)
   const writer = namedStep(expected, DEPENDENCY_WRITER)
   const upload = expected.length - 1
 
-  assert.deepEqual(platforms.steps, ci.steps)
   assert.equal(release.steps.length, expected.length)
   for (const [i, step] of release.steps.entries()) {
     if (i === writer) {
@@ -3374,16 +3380,25 @@ function waysToSources(jobs, id, seen = new Set()) {
   return above.length === 0 ? [] : [id, ...above.filter((listed) => listed !== SOURCES_JOB)]
 }
 
-test('118: every job that uploads an artifact reaches sources through its needs, and none runs after sources failed', async () => {
-  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
-    const jobs = workflowJobs(text)
-    const uploaders = jobs.filter(
-      (job) =>
-        job.id !== SOURCES_JOB &&
-        jobSteps(job).some((step) => usesAction(step, 'actions/upload-artifact')),
-    )
+/** The jobs of `jobs` other than sources that have a step that uses actions/upload-artifact, in order. */
+function uploadingJobs(jobs) {
+  return jobs.filter(
+    (job) =>
+      job.id !== SOURCES_JOB &&
+      jobSteps(job).some((step) => usesAction(step, 'actions/upload-artifact')),
+  )
+}
 
-    assert.ok(uploaders.length > 0, `${file} has no job that uploads an artifact`)
+test('118: every job that uploads an artifact reaches sources through its needs, and none runs after sources failed', async () => {
+  for (const [file, text] of await workflowTexts(SOURCE_RULE_FILES)) {
+    const jobs = workflowJobs(text)
+    const uploaders = uploadingJobs(jobs)
+
+    // platforms.yml uploads nothing since the move. A job that uploads there finds no sources job and fails the walk.
+    assert.ok(
+      uploaders.length > 0 || !Object.hasOwn(SOURCE_ARTIFACTS, file),
+      `${file} has no job that uploads an artifact`,
+    )
     for (const uploader of uploaders) {
       const way = waysToSources(jobs, uploader.id)
       assert.ok(
@@ -3407,17 +3422,13 @@ test("118: today's jobs that upload an artifact need what section 2.13 lists", a
       'core-wasm': ['occt-native', 'occt-wasm', 'sources'],
       web: ['core-wasm', 'sources'],
       e2e: ['core-wasm'],
+      'e2e-engines': ['core-wasm'],
     },
-    'platforms.yml': { 'core-wasm': ['occt-wasm', 'sources'], 'e2e-engines': ['core-wasm'] },
     'release.yml': { bundle: ['verify', 'sources'] },
+    'platforms.yml': {},
   }
   for (const [file, text] of await workflowTexts(Object.keys(expected))) {
-    const jobs = workflowJobs(text)
-    const uploaders = jobs.filter(
-      (job) =>
-        job.id !== SOURCES_JOB &&
-        jobSteps(job).some((step) => usesAction(step, 'actions/upload-artifact')),
-    )
+    const uploaders = uploadingJobs(workflowJobs(text))
 
     assert.deepEqual(
       Object.fromEntries(uploaders.map((job) => [job.id, jobNeeds(job)])),
@@ -3428,6 +3439,14 @@ test("118: today's jobs that upload an artifact need what section 2.13 lists", a
   const release = workflowJobs(await workflowText('release.yml'))
   assert.equal(jobValue(findJob(release, 'release.yml', 'bundle'), 'if'), BUNDLE_CONDITION)
   assert.deepEqual(jobNeeds(findJob(release, 'release.yml', 'draft')), ['bundle', 'sources'])
+})
+
+test('118: platforms.yml has no sources job and no step that uploads an artifact', async () => {
+  assert.ok(
+    !(await workflowJobIds('platforms.yml')).includes(SOURCES_JOB),
+    `platforms.yml has a job ${SOURCES_JOB}`,
+  )
+  assert.deepEqual(actionSteps(await workflowText('platforms.yml'), 'actions/upload-artifact'), [])
 })
 
 /** A job as `workflowJobs` reads it, with only the `needs` and `if` lines given. */
@@ -3703,7 +3722,7 @@ test('122: the check script exits 2 with its usage line for other than two argum
 })
 
 test('122: no step reads the commit of a source archive itself, and each archive check runs the check script once', async () => {
-  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+  for (const [file, text] of await workflowTexts(SOURCE_RULE_FILES)) {
     for (const job of workflowJobs(text)) {
       for (const step of jobSteps(job)) {
         assert.ok(
@@ -3729,4 +3748,145 @@ test('122: no step reads the commit of a source archive itself, and each archive
     const [file, , name] = checks[i]
     assert.equal(run.split(CHECK_SCRIPT).length - 1, 1, `${file}: ${name} runs ${CHECK_SCRIPT}`)
   }
+})
+
+/** The lines of a job without its comment lines and blank lines, in order. */
+function jobContentLines(job) {
+  return job.lines.filter((line) => !isBlankOrComment(line))
+}
+
+/**
+ * The lines in which the job `copy` differs from the job `original`, compared one by one in order without comment
+ * lines and blank lines, as `[original line, copy line]` pairs; a line that one job has and the other lacks pairs with
+ * undefined.
+ */
+function differingLines(original, copy) {
+  const originalLines = jobContentLines(original)
+  const copyLines = jobContentLines(copy)
+  const pairs = []
+  for (let i = 0; i < Math.max(originalLines.length, copyLines.length); i++) {
+    if (originalLines[i] !== copyLines[i]) {
+      pairs.push([originalLines[i], copyLines[i]])
+    }
+  }
+  return pairs
+}
+
+test('128: the moved jobs come right after desktop and right before deploy, named as the required checks', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+  const ids = jobs.map((job) => job.id)
+  const desktop = ids.indexOf(findJob(jobs, 'ci.yml', 'desktop').id)
+  const moved = Object.keys(MOVED_JOBS)
+
+  assert.deepEqual(ids.slice(desktop + 1, desktop + moved.length + 2), [...moved, 'deploy'])
+  for (const [id, name] of Object.entries(MOVED_JOBS)) {
+    assert.equal(unquoted(jobValue(findJob(jobs, 'ci.yml', id), 'name') ?? ''), name, id)
+  }
+})
+
+test('128: no line of the moved jobs reads a secret, so they run on a pull request from a fork', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+
+  for (const id of Object.keys(MOVED_JOBS)) {
+    const line = findJob(jobs, 'ci.yml', id).lines.find((jobLine) => jobLine.includes('secrets.'))
+    assert.equal(line, undefined, `${id} reads a secret in: ${line}`)
+  }
+})
+
+test('128: ci.yml still cancels a run of its ref that a newer one supersedes (choice 1)', async () => {
+  const concurrency = topLevelLines(await workflowText('ci.yml'), 'concurrency')
+
+  assert.deepEqual(mappingEntries(concurrency), {
+    group: 'ci-${{ github.ref }}',
+    'cancel-in-progress': 'true',
+  })
+})
+
+test('128: in ci.yml, occt-platforms needs nothing and rust-platforms needs it alone', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+
+  assert.deepEqual(jobNeeds(findJob(jobs, 'ci.yml', 'occt-platforms')), [])
+  assert.deepEqual(jobNeeds(findJob(jobs, 'ci.yml', 'rust-platforms')), ['occt-platforms'])
+})
+
+test('128: no step of the moved jobs is allowed to fail', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+
+  for (const id of Object.keys(MOVED_JOBS)) {
+    for (const step of jobSteps(findJob(jobs, 'ci.yml', id))) {
+      assert.equal(
+        stepValue(step, 'continue-on-error'),
+        undefined,
+        `a step of ${id} sets continue-on-error`,
+      )
+    }
+  }
+})
+
+test("128: platforms.yml's occt-platforms is ci.yml's but for its own name and its one macOS row (choice 3)", async () => {
+  const [ci, platforms] = await Promise.all([
+    workflowJob('ci.yml', 'occt-platforms'),
+    workflowJob('platforms.yml', 'occt-platforms'),
+  ])
+
+  assert.deepEqual(differingLines(ci, platforms), [
+    [`    name: ${MOVED_JOBS['occt-platforms']}`, COPY_NAME_LINE],
+    ['        runner: [windows-2025, macos-15]', COPY_MATRIX_LINE],
+  ])
+})
+
+test('128: platforms.yml dropped the moved jobs and the web jobs that only e2e-engines needed', async () => {
+  const ids = await workflowJobIds('platforms.yml')
+
+  for (const id of DROPPED_PLATFORMS_JOBS) {
+    assert.ok(!ids.includes(id), `platforms.yml has a job ${id}`)
+  }
+})
+
+test('128: full-rebuild is a job of platforms.yml alone', async () => {
+  for (const [file, text] of await workflowTexts(['ci.yml', 'nightly.yml', 'release.yml'])) {
+    const ids = workflowJobs(text).map((job) => job.id)
+    assert.ok(!ids.includes(FULL_REBUILD), `${file} has a job ${FULL_REBUILD}`)
+  }
+})
+
+test('128: no job of platforms.yml reports a check under the name of a job of ci.yml', async () => {
+  const [ci, platforms] = await Promise.all(['ci.yml', 'platforms.yml'].map(workflowText))
+  const ciNames = new Set(workflowJobs(ci).map((job) => jobValue(job, 'name')))
+
+  for (const job of workflowJobs(platforms)) {
+    const name = jobValue(job, 'name')
+    assert.ok(!ciNames.has(name), `platforms.yml's ${job.id} is named ${name}, as a job of ci.yml`)
+  }
+})
+
+test('128: the copy comparison leaves out comment and blank lines and pairs each line that differs', () => {
+  const original = {
+    id: 'job',
+    lines: [
+      '    name: A',
+      '    # Why it runs.',
+      '    runs-on: x',
+      '',
+      '    steps:',
+      '      - run: one',
+    ],
+  }
+  const copy = {
+    id: 'job',
+    lines: [
+      '    name: B',
+      '    runs-on: x',
+      '    # Another reason.',
+      '    steps:',
+      '      - run: one',
+      '      - run: two',
+    ],
+  }
+
+  assert.deepEqual(differingLines(original, copy), [
+    ['    name: A', '    name: B'],
+    [undefined, '      - run: two'],
+  ])
+  assert.deepEqual(differingLines(original, original), [])
 })

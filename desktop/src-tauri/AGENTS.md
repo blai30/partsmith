@@ -20,8 +20,8 @@ Spec: `docs/spec/desktop.md`. Decisions: ADR 0014 (Tauri, its dependencies, no f
 cargo test -p partsmith-desktop
 cargo test -p partsmith-desktop --test integration config::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-desktop --all-targets -- -D warnings
-# Tests 68 to 70 build only for Windows: the platforms workflow's rust-platforms job runs them on windows-2025 and the
-# Unix tests on macos-15, then this clippy on both (delivery.md 2.14)
+# Tests 68 to 70 build only for Windows: CI's rust-platforms job runs them on windows-2025 and the Unix tests on
+# macos-15, then this clippy on both (delivery.md 2.14)
 
 # The budgets of spec section 5 that Rust measures (Host::call overhead, Files::load)
 cargo bench -p partsmith-desktop --bench budgets

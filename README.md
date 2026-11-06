@@ -6,7 +6,7 @@ Open-source parametric CAD for people who design parts for 3D printing. Sketch, 
 
 ## Try it
 
-**On the web.** The web app is at [https://partsmith.pages.dev](https://partsmith.pages.dev). It deploys from `main` once CI passes there. Each pull request gets a preview, linked from the pull request. The web app runs in the current Chrome, Edge, Firefox and Safari on desktop computers, from Chrome and Edge 114, Firefox 128 and Safari 17, and every change is tested in Chromium and every week in Firefox and WebKit.
+**On the web.** The web app is at [https://partsmith.pages.dev](https://partsmith.pages.dev). It deploys from `main` once CI passes there. Each pull request gets a preview, linked from the pull request. The web app runs in the current Chrome, Edge, Firefox and Safari on desktop computers, from Chrome and Edge 114, Firefox 128 and Safari 17, and every change is tested in Chromium, and in Firefox and WebKit for the tests tagged `@engines`.
 
 **On the desktop.** Desktop builds appear on [GitHub Releases](https://github.com/blai30/partsmith/releases) once the first release is published; until then there is nothing to download. Each release holds:
 
@@ -18,7 +18,7 @@ These builds are not signed yet. On Windows, SmartScreen may say "Windows protec
 
 ## Building
 
-CI builds and tests every pull request from source on Linux. The [platforms workflow](.github/workflows/platforms.yml) builds and tests Windows and macOS every week, and the release workflow builds the Windows and macOS apps. On Linux you need:
+CI builds and tests every pull request from source on Linux. It also builds and tests the crates whose code differs by platform and the examples on Windows and macOS, and the release workflow builds the Windows and macOS apps. On Linux you need:
 
 - Git, CMake, Ninja and a C++17 compiler, for OCCT.
 - [rustup](https://rustup.rs), which installs the Rust of `rust-toolchain.toml` and its WebAssembly target (`rustup toolchain install` in the repository).

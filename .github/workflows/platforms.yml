@@ -1,11 +1,10 @@
 name: Platforms
 
-# What CI does not test on every pull request (delivery.md 2.14, ADR 0038): the crates whose code differs by platform
-# and the examples runner on Windows and macOS, and the end-to-end tests tagged @engines in Firefox and WebKit. It
-# also times the full rebuild of technical design section 14 on macOS (full-rebuild, ADR 0054).
-# It gates nothing: no job of ci.yml or release.yml waits for it. A job other than full-rebuild, or one row of its
-# matrix, moves into ci.yml once it has passed in the two latest runs on main
-# (gh run list --workflow platforms.yml --branch main), following the promotion steps of delivery.md 2.14.
+# Times the full rebuild of technical design section 14 on the macOS arm64 runner (full-rebuild, delivery.md 2.14,
+# ADR 0054), after a copy of the macos-15 row of ci.yml's occt-platforms. The Windows, macOS and engine jobs that ran
+# here moved into ci.yml in wave H (delivery.md 2.14, The move, ADR 0038). Neither job left here is promoted.
+# It gates nothing: no job of ci.yml or release.yml waits for it. A release waits for a passing run on its commit
+# (delivery.md 3.6).
 # Start a run with: gh workflow run platforms.yml --ref main
 on:
   schedule:
@@ -22,27 +21,27 @@ concurrency:
 permissions:
   contents: read
 
+# ci.yml's env, entry for entry (delivery.md 2.14).
 env:
   CARGO_TERM_COLOR: always
   OCCT_ROOT: ${{ github.workspace }}/.occt/native
-  # Without debug info the test binaries that link OCCT statically stay small and link fast (delivery.md 3.2).
   CARGO_PROFILE_DEV_DEBUG: "0"
 
 # Every job sets timeout-minutes, so a hung job ends long before GitHub's default of 360 minutes (delivery.md 2.14).
-# No step sets continue-on-error: a failure here is work to do, recorded in delivery.md open issue 1 or ui.md open
-# issue 41 until it is fixed.
+# No step sets continue-on-error: a failure here is work to do, recorded in delivery.md open issue 1 until it is fixed.
 jobs:
-  # A job of its own, so a cold OCCT build is saved even when the tests after it fail: actions/cache saves in its post
-  # step only when its job succeeds. The steps and the key are those of release.yml's bundle job. When this job or its
-  # macos-15 row moves into ci.yml, a copy of that row stays here for full-rebuild (delivery.md 2.14, promotion step 1).
+  # ci.yml's occt-platforms line for line, but for its name and its one row, the macos-15 row that full-rebuild needs
+  # (delivery.md 2.14, promotion step 1). Its own name keeps its check apart from ci.yml's OCCT (macos-15), which
+  # branch protection requires (delivery.md 2.14, The move, choice 3). Its Windows step never runs.
   occt-platforms:
-    name: OCCT (${{ matrix.runner }})
+    name: OCCT for the full rebuild (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [windows-2025, macos-15]
+        runner: [macos-15]
     runs-on: ${{ matrix.runner }}
-    # A cold occt-platforms job took 48 minutes on Windows and 21 on macOS (2026-10-26, delivery.md open issue 16).
+    # A cold occt-platforms job took 21 minutes on macOS (2026-10-26, delivery.md open issue 16) and 1 h 10 min 21 s
+    # on Windows (platforms run 14, delivery.md open issue 1 (e)).
     timeout-minutes: 150
     defaults:
       run:
@@ -73,85 +72,13 @@ jobs:
         if: always()
         run: df -h .
 
-  rust-platforms:
-    name: Rust tests (${{ matrix.runner }})
-    needs: occt-platforms
-    # needs waits for both OCCT rows; without this, one runner's failed build would skip the tests on both.
-    if: ${{ !cancelled() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [windows-2025, macos-15]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7.0.1
-      # MSVC on PATH for the shim of partsmith-occt-sys.
-      - if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1.13.0
-      # Git Bash puts GNU link (/usr/bin/link) ahead of MSVC's link.exe on PATH, and rustc takes the first one
-      # when VCINSTALLDIR is set, so Cargo gets the link.exe next to cl.exe, the one CMake uses for OCCT.
-      - if: runner.os == 'Windows'
-        name: Use the MSVC linker for Rust
-        run: |
-          linker="$(dirname "$(command -v cl)")/link.exe"
-          test -f "$linker"
-          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$linker")" >> "$GITHUB_ENV"
-      # The shim and the test binaries are built for the macOS that OCCT and the app are built for.
-      - if: runner.os == 'macOS'
-        name: Set the deployment target
-        run: echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
-      # Only a row whose own OCCT is missing fails here.
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
-          fail-on-cache-miss: true
-      - run: rustup show active-toolchain || rustup toolchain install
-      # Saved on main alone, where every later run can restore it, and also when the tests fail, since its post step
-      # otherwise saves only after a passing job: a run while a failure is being fixed then restores the dependency
-      # builds of the one before instead of building them cold (delivery.md 3.2).
-      - uses: Swatinem/rust-cache@v2.9.2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
-      # --no-fail-fast, so one failing test binary does not hide the others. A hung test binary ends this step, so the
-      # examples runner and clippy still run (delivery.md open issue 1 (g)).
-      - id: crates
-        timeout-minutes: 20
-        run: cargo test --no-fail-fast -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop
-      # The expected results blessed on Linux, at the tolerance of delivery.md 2.8. A block scalar, since a plain YAML
-      # value cannot end in a colon.
-      - if: ${{ !cancelled() && steps.crates.outcome != 'skipped' }}
-        run: |
-          cargo test -p partsmith-cli --test integration examples::
-      # CI's workspace clippy runs on Linux only and never sees code behind #[cfg(windows)] or
-      # #[cfg(target_os = "macos")], such as desktop.md tests 68 to 70.
-      - if: ${{ !cancelled() && steps.crates.outcome != 'skipped' }}
-        run: cargo clippy -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop --all-targets -- -D warnings
-      # The app that the crate tests built imports the Universal C Runtime of Windows and no DLL of the Visual C++
-      # Redistributable (delivery.md 3.6, ADR 0038).
-      - name: Check the imports of the app
-        if: ${{ !cancelled() && steps.crates.outcome != 'skipped' && runner.os == 'Windows' }}
-        run: scripts/check-windows-imports.sh target/debug/partsmith-desktop.exe
-      # The CLI that the examples runner ran. Its link takes the two link arguments of the Universal C Runtime from
-      # .cargo/config.toml alone, where tauri-build gives them to the app by itself (delivery.md 3.6).
-      - name: Check the imports of the CLI
-        if: ${{ !cancelled() && steps.crates.outcome != 'skipped' && runner.os == 'Windows' }}
-        run: scripts/check-windows-imports.sh target/debug/partsmith.exe
-      - name: Disk space after the tests
-        if: always()
-        run: df -h .
-
   # Technical design section 14's full-rebuild gate, judged on this macOS arm64 runner (delivery.md 2.14, ADR 0054).
   # It gates nothing and never moves into ci.yml: a median over the budget warns, and the owner decides.
   full-rebuild:
     name: Full rebuild of bench50 (macos-15)
     needs: occt-platforms
-    # needs waits for both OCCT rows; without this, a failed Windows build would skip the measurement.
+    # ADR 0054 decision 2. A copy that fails with its OCCT already saved (a failed checkout, say) does not skip the
+    # measurement. After a failed cold build the job fails at its restore, whose message names the missing cache.
     if: ${{ !cancelled() }}
     runs-on: macos-15
     timeout-minutes: 60
@@ -169,8 +96,8 @@ jobs:
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
-      # Release builds of the benchmark's dependencies, kept apart from rust-platforms' debug builds by rust-cache's job
-      # key, and saved on main alone.
+      # Release builds of the benchmark's dependencies, kept apart from the debug builds of ci.yml's rust-platforms by
+      # rust-cache's job key, and saved on main alone.
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -206,168 +133,3 @@ jobs:
             echo
             echo "$verdict"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # ci.yml's occt-wasm, step for step, so a run after GitHub dropped that cache (7 days unused) builds it.
-  occt-wasm:
-    name: OCCT (WebAssembly)
-    runs-on: ubuntu-24.04
-    # A cold OCCT build for WebAssembly takes about an hour and a half (88 minutes on 2026-10-13).
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - id: cache
-        uses: actions/cache@v6.1.0
-        with:
-          path: .occt/wasm
-          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
-      - if: steps.cache.outputs.cache-hit != 'true'
-        uses: mymindstorm/setup-emsdk@v16
-        with:
-          version: 4.0.15
-      - if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build
-          scripts/build-occt.sh wasm "$GITHUB_WORKSPACE/.occt/wasm"
-
-  # ci.yml's sources, step for step: the source of the core, uploaded before core-wasm and e2e-engines upload theirs
-  # (delivery.md 2.13, The source with every artifact).
-  sources:
-    name: Source archives (web)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7.0.1
-      # The OCCT source archive, made once per pin. The cache's post step saves it when the job passes.
-      - id: occt-source
-        uses: actions/cache@v6.1.0
-        with:
-          path: .occt/source
-          key: occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}
-      - if: steps.occt-source.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p .occt/source
-          scripts/occt-source-archive.sh .occt/source
-      # cargo vendor and cargo metadata of the dependency script need the toolchain of rust-toolchain.toml.
-      - run: rustup show active-toolchain || rustup toolchain install
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 22
-      # It checks the archive's commit, as deploy does, and prints its SHA-256. It warns, without failing, when
-      # the runner's git or gzip wrote other bytes than the ones 2.13 measured.
-      - name: Write the OCCT source archive
-        env:
-          OCCT_SOURCE_SHA256: bb71bf7473f9a278648f3ff96e28bd50afe49bf8d6e53ab55e883b54d0220155
-        run: |
-          source scripts/occt-version.sh
-          archive="occt-$OCCT_VERSION-source.tar.gz"
-          mkdir sources
-          cp ".occt/source/$archive" sources/
-          if ! scripts/check-source-archive.sh "sources/$archive" "$OCCT_COMMIT"; then
-            echo "::error title=OCCT source missing::sources/$archive from the cache .occt/source is not a whole gzip file or does not hold the source of the OCCT commit $OCCT_COMMIT, so nothing was uploaded. Delete that cache entry (gh cache list --key occt-source-) and run the job again, which makes the archive anew (docs/spec/delivery.md section 2.13)."
-            exit 1
-          fi
-          sha256="$(sha256sum "sources/$archive" | cut -d ' ' -f 1)"
-          echo "$sha256  $archive"
-          if [ "$sha256" != "$OCCT_SOURCE_SHA256" ]; then
-            echo "::warning title=OCCT source archive changed::$archive has the SHA-256 $sha256, not $OCCT_SOURCE_SHA256, the one docs/spec/delivery.md section 2.13 records. A new pin, git or gzip wrote other bytes: record the new SHA-256 there and in OCCT_SOURCE_SHA256 of each step Write the OCCT source archive."
-          fi
-      # git archive of the checked-out commit, GITHUB_SHA.
-      - name: Write the Partsmith source archive
-        run: scripts/partsmith-source-archive.sh sources
-      # The source of every Rust crate and npm package the web build is made from, as parts with their SHA256SUMS.
-      # LC_ALL has a line of its own: the shell sorts the glob in that locale too.
-      - name: Write the dependency source archives
-        run: |
-          mkdir sources/dependencies
-          node scripts/dependency-source-archive.mjs web sources/dependencies
-          cd sources/dependencies
-          export LC_ALL=C
-          sha256sum -- * > SHA256SUMS
-      # The files are gzip files and tars of gzip files, which zip does not shrink.
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: sources-web
-          path: sources/
-          retention-days: 8
-          if-no-files-found: error
-          compression-level: 0
-
-  # ci.yml's core-wasm without the native OCCT, the web_module round trip and the web_parity comparison, which CI runs
-  # on every change. It needs sources, as ci.yml's does.
-  core-wasm:
-    name: Web core (WebAssembly)
-    needs: [occt-wasm, sources]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN: ${{ github.workspace }}/.occt/wasm
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: .occt/wasm
-          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
-          fail-on-cache-miss: true
-      - uses: mymindstorm/setup-emsdk@v16
-        with:
-          version: 4.0.15
-      - run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.9.2
-      - run: scripts/build-wasm.sh
-      # The web notices go wherever the core goes. With two paths, the artifact is rooted at ui/public/.
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: core-wasm
-          path: |
-            ui/public/core/
-            ui/public/THIRD-PARTY-NOTICES.txt
-          retention-days: 7
-          if-no-files-found: error
-
-  # ci.yml's e2e for one engine. Playwright runs the firefox and webkit projects only when --project names them, and
-  # each runs the tests tagged @engines (ui.md 6.8). Firefox runs headed, so the run has a virtual display; WebKit
-  # stays headless.
-  e2e-engines:
-    name: End-to-end tests (${{ matrix.browser }})
-    needs: core-wasm
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [firefox, webkit]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: ui
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v8.0.2
-        with:
-          name: core-wasm
-          path: ui/public
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          package_json_file: ui/package.json
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      # Its time is apt's download from the Ubuntu mirror, under 3 minutes on most runs and up to 53 on a slow mirror
-      # (delivery.md 2.14 and open issue 16). The timeout ends such an install under this step's name, so the row fails
-      # at about 11 minutes instead of running into the job's 60.
-      - name: Install ${{ matrix.browser }} and its system packages
-        timeout-minutes: 10
-        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
-      - run: xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}
-      # Its traces can hold the files the page loaded, the core among them. It is kept 7 days like the core. The run's
-      # sources-web holds their source a day longer (delivery.md 2.13).
-      - if: failure()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: playwright-report-${{ matrix.browser }}
-          path: |
-            ui/playwright-report/
-            ui/test-results/
-          retention-days: 7
