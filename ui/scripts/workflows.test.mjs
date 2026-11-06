@@ -570,11 +570,11 @@ const LISTED_VERSIONS = [
 const CACHED_VERSIONS = LISTED_VERSIONS.map((name) => name.replaceAll(':', '%3a'))
 const OTHER_VERSION = 'libssl-dev_3.0.13-0ubuntu3.5_amd64.deb'
 
-// A package version that the runner image holds. apt skips its file, and an entry that holds it carries it forward
+// A package version that the runner image holds. apt skips its file. An entry that holds it carries it forward
 // (section 3.2, The copy out, test 134).
 const IMAGE_VERSION = 'libgtk-3-0t64_3.24.41-4ubuntu1.3_amd64.deb'
 
-// The arguments the copy out gives dpkg-query, the format with a backslash and an n at its end (test 134).
+// The arguments the copy out gives dpkg-query. The format ends with a backslash and an n (test 134).
 const DPKG_QUERY_ARGUMENTS = ['-W', '-f', '${Package}_${Version}_${Architecture}.deb\\n']
 
 // A stand-in for dpkg-query that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
@@ -4161,9 +4161,9 @@ async function copyOutRun() {
 /**
  * Runs e2e-engines' copy out of section 3.2 with `bash -e`, as GitHub runs a step with no `shell` (test 134). apt's
  * cache is a temporary folder with the files of `cache`, a file `lock` and a folder `partial/`. `~/apt-archives` holds
- * the files of `entry`, and does not exist when it is undefined. The stand-in dpkg-query lists `installed`, or exits 1
- * when `fails`. Returns the script's exit status and standard error, what it wrote to $GITHUB_OUTPUT, the files of
- * `~/apt-archives` as `folderFiles` gives them, and the arguments of each call of the stand-in.
+ * the files of `entry`. It does not exist when `entry` is undefined. The stand-in dpkg-query lists `installed`, or
+ * exits 1 when `fails`. Returns the script's exit status and standard error, what it wrote to $GITHUB_OUTPUT, the files
+ * of `~/apt-archives` as `folderFiles` gives them, and the arguments of each call of the stand-in.
  */
 async function runCopyOut(context, { cache, entry, installed = LISTED_VERSIONS, fails = false }) {
   const run = await copyOutRun()
@@ -4643,8 +4643,8 @@ function sentenceChanges(spec) {
 }
 
 /**
- * The text inside the parentheses of `exception` that hold `12 hours`, where the rerun window of section 2.13 is named;
- * undefined when no parentheses hold it (test 135).
+ * The text inside the parentheses of `exception` that hold `12 hours`; undefined when no parentheses hold it. Those
+ * parentheses name the rerun window of section 2.13 (test 135).
  */
 function rerunWindow(exception) {
   return [...exception.matchAll(/\(([^()]*)\)/g)]

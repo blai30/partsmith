@@ -148,8 +148,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7.0.1
-      # The newest apt archives of the Tauri Linux packages that ci.yml saved on main, restored before the install. The
-      # release saves none (delivery.md 3.2).
+      # The newest apt archives of the Tauri Linux packages that ci.yml saved on main are restored before the install.
+      # The release saves none (delivery.md 3.2).
       - name: Restore the apt archives of the Tauri Linux packages
         if: runner.os == 'Linux'
         id: apt-archives

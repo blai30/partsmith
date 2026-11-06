@@ -104,7 +104,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
-      # The apt cache of delivery.md 3.2: the .deb files of the Tauri Linux packages, one entry for rust and desktop.
+      # The apt cache of delivery.md 3.2: the .deb files of the Tauri Linux packages. One entry serves rust and desktop.
       # The newest entry is restored before the install. On main, a new entry is saved after it when the install
       # downloaded a package the entry lacked.
       - name: Restore the apt archives of the Tauri Linux packages
@@ -118,13 +118,13 @@ jobs:
         if: steps.apt-archives.outputs.cache-matched-key != ''
         run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
       # partsmith-desktop is a workspace member, so the workspace builds need Tauri's Linux packages. When the apt
-      # cache misses, its time is apt's download from the Ubuntu mirror: 26 min 26 s in the CI run on wave H2's branch,
-      # where desktop fetched the same packages in 7 s (delivery.md open issue 16). The job's 60 minutes bound it
+      # cache misses, its time is apt's download from the Ubuntu mirror: 26 min 26 s in the CI run on wave H2's branch.
+      # In that run, desktop fetched the same packages in 7 s (delivery.md open issue 16). The job's 60 minutes bound it
       # (delivery.md 3.2).
       - name: Install the Tauri Linux packages
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
-      # Saved right after the install, before cargo builds. The entry's files stay in ~/apt-archives, about 61 MB
-      # against the job's disk margin (delivery.md 3.2).
+      # Saved right after the install, before cargo builds. The entry's files stay in ~/apt-archives. They take about
+      # 61 MB of the job's disk margin (delivery.md 3.2).
       - name: Copy the apt archives out of apt's cache
         id: copy-out
         if: github.ref == 'refs/heads/main'
@@ -536,7 +536,7 @@ jobs:
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
       # The apt cache of delivery.md 3.2, as in rust. Both jobs restore and save one entry of the Tauri Linux packages.
-      # The second save of a run logs that its key is reserved, and passes.
+      # The second save of a run logs that its key is reserved. That save still passes.
       - name: Restore the apt archives of the Tauri Linux packages
         id: apt-archives
         uses: actions/cache/restore@v6.1.0
