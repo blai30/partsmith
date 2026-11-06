@@ -104,9 +104,49 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
-      # partsmith-desktop is a workspace member, so the workspace builds need Tauri's Linux packages.
+      # The apt cache of delivery.md 3.2: the .deb files of the Tauri Linux packages, one entry for rust and desktop.
+      # The newest entry is restored before the install. On main, a new entry is saved after it when the install
+      # downloaded a package the entry lacked.
+      - name: Restore the apt archives of the Tauri Linux packages
+        id: apt-archives
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-archives-ubuntu-24.04-tauri-${{ github.run_id }}
+          restore-keys: apt-archives-ubuntu-24.04-tauri-
+      - name: Copy the apt archives into apt's cache
+        if: steps.apt-archives.outputs.cache-matched-key != ''
+        run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
+      # partsmith-desktop is a workspace member, so the workspace builds need Tauri's Linux packages. When the apt
+      # cache misses, its time is apt's download from the Ubuntu mirror: 26 min 26 s in the CI run on wave H2's branch,
+      # where desktop fetched the same packages in 7 s (delivery.md open issue 16). The job's 60 minutes bound it
+      # (delivery.md 3.2).
       - name: Install the Tauri Linux packages
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
+      # Saved right after the install, before cargo builds. The entry's files stay in ~/apt-archives, about 61 MB
+      # against the job's disk margin (delivery.md 3.2).
+      - name: Copy the apt archives out of apt's cache
+        id: copy-out
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -o pipefail
+          export LC_ALL=C
+          dpkg-query -W -f '${Package}_${Version}_${Architecture}.deb\n' | sed 's/:/%3a/g' | sort > "$RUNNER_TEMP/apt-installed"
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -12 - "$RUNNER_TEMP/apt-installed" > "$RUNNER_TEMP/apt-current"
+          mkdir -p ~/apt-archives
+          find ~/apt-archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -23 "$RUNNER_TEMP/apt-current" - > "$RUNNER_TEMP/apt-downloaded"
+          if [ -s "$RUNNER_TEMP/apt-downloaded" ]; then
+            rm -rf ~/apt-archives
+            mkdir ~/apt-archives
+            (cd /var/cache/apt/archives && xargs -a "$RUNNER_TEMP/apt-current" cp -t ~/apt-archives)
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the apt archives of the Tauri Linux packages
+        if: steps.copy-out.outputs.downloaded == 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-archives.outputs.cache-primary-key }}
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --all --check
@@ -396,19 +436,15 @@ jobs:
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       # The apt cache of delivery.md 3.2, as in e2e-engines.
-      - name: Read the Playwright version
-        id: playwright
-        run: |
-          version=$(node -p "require('@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Restore the apt archives of chromium
         id: apt-archives
         uses: actions/cache/restore@v6.1.0
         with:
           path: ~/apt-archives
-          key: apt-archives-ubuntu-24.04-chromium-playwright-${{ steps.playwright.outputs.version }}
+          key: apt-archives-ubuntu-24.04-chromium-${{ github.run_id }}
+          restore-keys: apt-archives-ubuntu-24.04-chromium-
       - name: Copy the apt archives into apt's cache
-        if: steps.apt-archives.outputs.cache-hit == 'true'
+        if: steps.apt-archives.outputs.cache-matched-key != ''
         run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
       # When the apt cache misses, its time is apt's download from the Ubuntu mirror: 19 s in run 41785469932 and
       # 7 min 42 s in CI run 28 (delivery.md 2.4 and open issue 16). The timeout ends such an install under this step's
@@ -417,14 +453,23 @@ jobs:
         timeout-minutes: 10
         run: pnpm exec playwright install --with-deps chromium
       - name: Copy the apt archives out of apt's cache
-        if: steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        id: copy-out
+        if: github.ref == 'refs/heads/main'
         run: |
-          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
-            mkdir -p ~/apt-archives
-            cp /var/cache/apt/archives/*.deb ~/apt-archives/
+          set -o pipefail
+          export LC_ALL=C
+          dpkg-query -W -f '${Package}_${Version}_${Architecture}.deb\n' | sed 's/:/%3a/g' | sort > "$RUNNER_TEMP/apt-installed"
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -12 - "$RUNNER_TEMP/apt-installed" > "$RUNNER_TEMP/apt-current"
+          mkdir -p ~/apt-archives
+          find ~/apt-archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -23 "$RUNNER_TEMP/apt-current" - > "$RUNNER_TEMP/apt-downloaded"
+          if [ -s "$RUNNER_TEMP/apt-downloaded" ]; then
+            rm -rf ~/apt-archives
+            mkdir ~/apt-archives
+            (cd /var/cache/apt/archives && xargs -a "$RUNNER_TEMP/apt-current" cp -t ~/apt-archives)
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Save the apt archives of chromium
-        if: steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        if: steps.copy-out.outputs.downloaded == 'true'
         uses: actions/cache/save@v6.1.0
         with:
           path: ~/apt-archives
@@ -490,8 +535,44 @@ jobs:
           path: .occt/native
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
+      # The apt cache of delivery.md 3.2, as in rust. Both jobs restore and save one entry of the Tauri Linux packages.
+      # The second save of a run logs that its key is reserved, and passes.
+      - name: Restore the apt archives of the Tauri Linux packages
+        id: apt-archives
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-archives-ubuntu-24.04-tauri-${{ github.run_id }}
+          restore-keys: apt-archives-ubuntu-24.04-tauri-
+      - name: Copy the apt archives into apt's cache
+        if: steps.apt-archives.outputs.cache-matched-key != ''
+        run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
+      # When the apt cache misses, its time is apt's download from the Ubuntu mirror (delivery.md open issue 16). The
+      # job's 60 minutes bound it (delivery.md 3.2).
       - name: Install the Tauri Linux packages
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
+      - name: Copy the apt archives out of apt's cache
+        id: copy-out
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -o pipefail
+          export LC_ALL=C
+          dpkg-query -W -f '${Package}_${Version}_${Architecture}.deb\n' | sed 's/:/%3a/g' | sort > "$RUNNER_TEMP/apt-installed"
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -12 - "$RUNNER_TEMP/apt-installed" > "$RUNNER_TEMP/apt-current"
+          mkdir -p ~/apt-archives
+          find ~/apt-archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -23 "$RUNNER_TEMP/apt-current" - > "$RUNNER_TEMP/apt-downloaded"
+          if [ -s "$RUNNER_TEMP/apt-downloaded" ]; then
+            rm -rf ~/apt-archives
+            mkdir ~/apt-archives
+            (cd /var/cache/apt/archives && xargs -a "$RUNNER_TEMP/apt-current" cp -t ~/apt-archives)
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the apt archives of the Tauri Linux packages
+        if: steps.copy-out.outputs.downloaded == 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-archives.outputs.cache-primary-key }}
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - uses: pnpm/action-setup@v6.1.0
@@ -697,21 +778,18 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      # The apt cache of delivery.md 3.2: the .deb files of the browser's system packages, restored before the install
-      # and saved after it on main when the restore missed.
-      - name: Read the Playwright version
-        id: playwright
-        run: |
-          version=$(node -p "require('@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The apt cache of delivery.md 3.2: the .deb files of the browser's system packages. The newest entry is restored
+      # before the install. On main, a new entry is saved after it when the install downloaded a package the entry
+      # lacked.
       - name: Restore the apt archives of ${{ matrix.browser }}
         id: apt-archives
         uses: actions/cache/restore@v6.1.0
         with:
           path: ~/apt-archives
-          key: apt-archives-ubuntu-24.04-${{ matrix.browser }}-playwright-${{ steps.playwright.outputs.version }}
+          key: apt-archives-ubuntu-24.04-${{ matrix.browser }}-${{ github.run_id }}
+          restore-keys: apt-archives-ubuntu-24.04-${{ matrix.browser }}-
       - name: Copy the apt archives into apt's cache
-        if: steps.apt-archives.outputs.cache-hit == 'true'
+        if: steps.apt-archives.outputs.cache-matched-key != ''
         run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
       # When the apt cache misses, its time is apt's download from the Ubuntu mirror: under 3 minutes on most runs and
       # up to 53 on a slow mirror (delivery.md 2.14 and open issue 16). The timeout ends such an install under this
@@ -723,14 +801,23 @@ jobs:
       # Saved right after the install, not in a post step. A test that fails later still leaves the entry
       # (delivery.md 3.2).
       - name: Copy the apt archives out of apt's cache
-        if: steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        id: copy-out
+        if: github.ref == 'refs/heads/main'
         run: |
-          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
-            mkdir -p ~/apt-archives
-            cp /var/cache/apt/archives/*.deb ~/apt-archives/
+          set -o pipefail
+          export LC_ALL=C
+          dpkg-query -W -f '${Package}_${Version}_${Architecture}.deb\n' | sed 's/:/%3a/g' | sort > "$RUNNER_TEMP/apt-installed"
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -12 - "$RUNNER_TEMP/apt-installed" > "$RUNNER_TEMP/apt-current"
+          mkdir -p ~/apt-archives
+          find ~/apt-archives -maxdepth 1 -name '*.deb' -printf '%f\n' | sort | comm -23 "$RUNNER_TEMP/apt-current" - > "$RUNNER_TEMP/apt-downloaded"
+          if [ -s "$RUNNER_TEMP/apt-downloaded" ]; then
+            rm -rf ~/apt-archives
+            mkdir ~/apt-archives
+            (cd /var/cache/apt/archives && xargs -a "$RUNNER_TEMP/apt-current" cp -t ~/apt-archives)
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Save the apt archives of ${{ matrix.browser }}
-        if: steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        if: steps.copy-out.outputs.downloaded == 'true'
         uses: actions/cache/save@v6.1.0
         with:
           path: ~/apt-archives

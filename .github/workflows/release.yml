@@ -148,9 +148,24 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7.0.1
-      - if: runner.os == 'Linux'
-        name: Install the Tauri Linux packages and Ninja
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev ninja-build
+      # The newest apt archives of the Tauri Linux packages that ci.yml saved on main, restored before the install. The
+      # release saves none (delivery.md 3.2).
+      - name: Restore the apt archives of the Tauri Linux packages
+        if: runner.os == 'Linux'
+        id: apt-archives
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/apt-archives
+          key: apt-archives-ubuntu-24.04-tauri-${{ github.run_id }}
+          restore-keys: apt-archives-ubuntu-24.04-tauri-
+      - name: Copy the apt archives into apt's cache
+        if: runner.os == 'Linux' && steps.apt-archives.outputs.cache-matched-key != ''
+        run: sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
+      # When the apt cache misses, its time is apt's download from the Ubuntu mirror (delivery.md open issue 16). The
+      # job's 150 minutes bound it (delivery.md 3.2).
+      - name: Install the Tauri Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
       # MSVC, CMake and Ninja from Visual Studio on PATH.
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1.13.0
@@ -173,6 +188,10 @@ jobs:
         with:
           path: .occt/native
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+      # Only an OCCT build needs Ninja. The Tauri install above already ran apt-get update.
+      - name: Install Ninja
+        if: runner.os == 'Linux' && steps.occt.outputs.cache-hit != 'true'
+        run: sudo apt-get install -y ninja-build
       # OCCT_JOBS spares the script nproc, which macOS lacks.
       - if: steps.occt.outputs.cache-hit != 'true'
         env:

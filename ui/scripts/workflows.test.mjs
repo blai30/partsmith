@@ -16,7 +16,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
@@ -415,20 +415,63 @@ const E2E_JOBS = {
   e2e: { browser: 'chromium', tests: 'pnpm e2e' },
 }
 
-// The runner of both jobs, which the key of their apt cache names (section 3.2, test 130).
-const E2E_RUNNER = 'ubuntu-24.04'
+// The runner of every job with an apt cache. Its keys name it (section 3.2, tests 130, 132 and 133).
+const APT_RUNNER = 'ubuntu-24.04'
 
 // The step that installs the packages of ui/ before each browser install (sections 2.4 and 2.14).
 const PACKAGE_INSTALL = 'pnpm install --frozen-lockfile'
 
-// Where the apt cache keeps the archives on the runner, and the condition of the two steps that save them: a run on
-// main whose restore missed (section 3.2, test 130).
+// Where the apt cache keeps the archives on the runner, and where apt keeps the files it downloads (section 3.2).
 const APT_ARCHIVES = '~/apt-archives'
-const AFTER_MISS_ON_MAIN =
-  "steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'"
+const APT_CACHE = '/var/cache/apt/archives'
 
-// The first line of the YAML block of section 3.2 that holds the six steps of the apt cache (test 130).
-const APT_STEPS_FIRST_LINE = '- name: Read the Playwright version'
+// The conditions of the copy into apt's cache (a restore that found an entry), of the copy out (a run on main) and of
+// the save (an install that downloaded a package the entry lacked), section 3.2.
+const AFTER_RESTORE = "steps.apt-archives.outputs.cache-matched-key != ''"
+const ON_MAIN = "github.ref == 'refs/heads/main'"
+const AFTER_DOWNLOAD = "steps.copy-out.outputs.downloaded == 'true'"
+
+// The name of the copy out and its script, line by line (section 3.2, tests 130, 133 and 134).
+const COPY_OUT_NAME = "Copy the apt archives out of apt's cache"
+const COPY_OUT_SCRIPT = [
+  'set -o pipefail',
+  'export LC_ALL=C',
+  "dpkg-query -W -f '${Package}_${Version}_${Architecture}.deb\\n' | sed 's/:/%3a/g' | sort > \"$RUNNER_TEMP/apt-installed\"",
+  `find ${APT_CACHE} -maxdepth 1 -name '*.deb' -printf '%f\\n' | sort | comm -12 - "$RUNNER_TEMP/apt-installed" > "$RUNNER_TEMP/apt-current"`,
+  `mkdir -p ${APT_ARCHIVES}`,
+  `find ${APT_ARCHIVES} -maxdepth 1 -name '*.deb' -printf '%f\\n' | sort | comm -23 "$RUNNER_TEMP/apt-current" - > "$RUNNER_TEMP/apt-downloaded"`,
+  'if [ -s "$RUNNER_TEMP/apt-downloaded" ]; then',
+  `  rm -rf ${APT_ARCHIVES}`,
+  `  mkdir ${APT_ARCHIVES}`,
+  `  (cd ${APT_CACHE} && xargs -a "$RUNNER_TEMP/apt-current" cp -t ${APT_ARCHIVES})`,
+  '  echo "downloaded=true" >> "$GITHUB_OUTPUT"',
+  'fi',
+]
+
+// The first line of the YAML block of section 3.2 that holds the five steps of the apt cache (test 130).
+const APT_STEPS_FIRST_LINE = '- name: Restore the apt archives of ${{ matrix.browser }}'
+
+// The Tauri Linux packages: the name of their set in the keys, the words their restore and save name them by, their
+// install's step and command, and the jobs of ci.yml that run it (section 3.2, tests 132 and 133).
+const TAURI_SET = { name: 'tauri', label: 'the Tauri Linux packages' }
+const TAURI_INSTALL_NAME = 'Install the Tauri Linux packages'
+const TAURI_INSTALL =
+  'sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev'
+const TAURI_JOBS = ['rust', 'desktop']
+
+// The step of the release's bundle job that installs Ninja on Linux for a cold OCCT build, and that build's command
+// (sections 3.2 and 3.6, test 133).
+const NINJA_STEP = {
+  name: 'Install Ninja',
+  if: "runner.os == 'Linux' && steps.occt.outputs.cache-hit != 'true'",
+  run: 'sudo apt-get install -y ninja-build',
+}
+const OCCT_BUILD = 'scripts/build-occt.sh native "$OCCT_ROOT"'
+
+// The start of the paragraph of section 3.2 that gives each sentence of the workflows AGENTS.md it changes, and the
+// start of the promotion rule's exception in that file (test 135).
+const AGENTS_CHANGES_START = '`.github/workflows/AGENTS.md` changes in'
+const INSTALL_EXCEPTION_START = 'The one exception is'
 
 /** The command that installs `browser` with its system packages (sections 2.4 and 2.14). */
 function browserInstall(browser) {
@@ -440,61 +483,110 @@ function browserInstallName(browser) {
   return `Install ${browser} and its system packages`
 }
 
+/** The install step of section 3.2 for `browser`, as the object that `stepEntries` gives (tests 79 and 130). */
+function browserInstallStep(browser) {
+  return {
+    name: browserInstallName(browser),
+    'timeout-minutes': '10',
+    run: browserInstall(browser),
+  }
+}
+
+/** The install step of the Tauri Linux packages in rust and desktop, with no timeout of its own (test 132). */
+const TAURI_INSTALL_STEP = { name: TAURI_INSTALL_NAME, run: TAURI_INSTALL }
+
 /**
- * The six steps of section 3.2 that run between the package install and the tests of a job of E2E_JOBS, for the
- * browser `browser` on the runner `runner`, each as the object that `stepEntries` gives (test 130).
+ * The five steps of section 3.2 around the install step `install` of the set `set` (its `name` in the keys and the
+ * `label` its restore and save name it by) on the runner `runner`, each as the object that `stepEntries` gives (tests
+ * 130 and 132).
  */
-function aptCacheSteps(browser, runner) {
+function aptCacheSteps(set, runner, install) {
   return [
     {
-      name: 'Read the Playwright version',
-      id: 'playwright',
-      run: [
-        `version=$(node -p "require('@playwright/test/package.json').version")`,
-        'echo "version=$version" >> "$GITHUB_OUTPUT"',
-        '',
-      ].join('\n'),
-    },
-    {
-      name: `Restore the apt archives of ${browser}`,
+      name: `Restore the apt archives of ${set.label}`,
       id: 'apt-archives',
       uses: pinned('actions/cache/restore'),
       with: {
         path: APT_ARCHIVES,
-        key:
-          `apt-archives-${runner}-${browser}-playwright-` +
-          '${{ steps.playwright.outputs.version }}',
+        key: `apt-archives-${runner}-${set.name}-\${{ github.run_id }}`,
+        'restore-keys': `apt-archives-${runner}-${set.name}-`,
       },
     },
     {
       name: "Copy the apt archives into apt's cache",
-      if: "steps.apt-archives.outputs.cache-hit == 'true'",
-      run: 'sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/',
+      if: AFTER_RESTORE,
+      run: `sudo cp ${APT_ARCHIVES}/*.deb ${APT_CACHE}/`,
+    },
+    install,
+    {
+      name: COPY_OUT_NAME,
+      id: 'copy-out',
+      if: ON_MAIN,
+      run: `${COPY_OUT_SCRIPT.join('\n')}\n`,
     },
     {
-      name: browserInstallName(browser),
-      'timeout-minutes': '10',
-      run: browserInstall(browser),
-    },
-    {
-      name: "Copy the apt archives out of apt's cache",
-      if: AFTER_MISS_ON_MAIN,
-      run: [
-        "if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then",
-        '  mkdir -p ~/apt-archives',
-        '  cp /var/cache/apt/archives/*.deb ~/apt-archives/',
-        'fi',
-        '',
-      ].join('\n'),
-    },
-    {
-      name: `Save the apt archives of ${browser}`,
-      if: AFTER_MISS_ON_MAIN,
+      name: `Save the apt archives of ${set.label}`,
+      if: AFTER_DOWNLOAD,
       uses: pinned('actions/cache/save'),
       with: { path: APT_ARCHIVES, key: '${{ steps.apt-archives.outputs.cache-primary-key }}' },
     },
   ]
 }
+
+/** The browser of `e2e-engines`, as section 3.2 writes its steps (`${{ matrix.browser }}`). */
+const MATRIX_BROWSER = '${{ matrix.browser }}'
+
+/**
+ * The written lines `lines` of steps for the matrix's browser made into those for the Tauri Linux packages: each
+ * `${{ matrix.browser }}` becomes the set's label on a `name` line and its name on any other line (test 132).
+ */
+function tauriLines(lines) {
+  return lines.map((line) =>
+    line.replaceAll(
+      MATRIX_BROWSER,
+      /^(?:- |\s+)name: /.test(line) ? TAURI_SET.label : TAURI_SET.name,
+    ),
+  )
+}
+
+/**
+ * The five steps of section 3.2 in `steps`: the step whose `run` is `command`, the two steps right before it and the
+ * two right after it; fails the test when there are fewer (tests 132 and 133).
+ */
+function aptStepsAround(steps, command) {
+  const install = commandStep(steps, command)
+  assert.ok(install >= 2, `fewer than two steps come before ${command}`)
+  assert.ok(install + 3 <= steps.length, `fewer than two steps come after ${command}`)
+  return steps.slice(install - 2, install + 3)
+}
+
+// The package versions that the stand-in dpkg-query of test 134 lists, as dpkg-query prints them and out of byte
+// order (one with an epoch), the names apt gives their files in its cache, and another version of the second one.
+const LISTED_VERSIONS = [
+  'libxdo3_1:3.20160805.1-5build1_amd64.deb',
+  'libssl-dev_3.0.13-0ubuntu3.6_amd64.deb',
+  'librsvg2-dev_2.58.0+dfsg-1build1_amd64.deb',
+]
+const CACHED_VERSIONS = LISTED_VERSIONS.map((name) => name.replaceAll(':', '%3a'))
+const OTHER_VERSION = 'libssl-dev_3.0.13-0ubuntu3.5_amd64.deb'
+
+// A package version that the runner image holds. apt skips its file, and an entry that holds it carries it forward
+// (section 3.2, The copy out, test 134).
+const IMAGE_VERSION = 'libgtk-3-0t64_3.24.41-4ubuntu1.3_amd64.deb'
+
+// The arguments the copy out gives dpkg-query, the format with a backslash and an n at its end (test 134).
+const DPKG_QUERY_ARGUMENTS = ['-W', '-f', '${Package}_${Version}_${Architecture}.deb\\n']
+
+// A stand-in for dpkg-query that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
+// $STUB_ANSWER or, when $STUB_FAILS is 1, exits 1 with nothing printed (test 134).
+const DPKG_QUERY_STUB = `#!/usr/bin/env bash
+printf '%s\\0' "$@" >> "$STUB_CALLS"
+printf '\\n' >> "$STUB_CALLS"
+if [ "$STUB_FAILS" = 1 ]; then
+  exit 1
+fi
+printf '%s\\n' "$STUB_ANSWER"
+`
 
 // A stand-in for gh that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
 // $STUB_ANSWER or, when $STUB_FAILS is 1, fails as an API error does.
@@ -4031,42 +4123,112 @@ function fencedBlock(text, firstLine) {
   return start === -1 ? undefined : lines.slice(start, lines.indexOf('```', start))
 }
 
-/**
- * The version at which the importer `.` of a pnpm lock file's `text` locks the package `name`, among its dependencies
- * and dev dependencies, without the peers that pnpm writes after it in parentheses; undefined when it locks none.
- */
-function lockedVersion(text, name) {
-  const importer = blockBelow(text.split('\n'), '  .:', 4) ?? []
-  const keys = new Set([`  ${name}:`, `  '${name}':`])
-  const groups = new Set(['dependencies:', 'devDependencies:'])
-  let group
-  for (const [i, line] of importer.entries()) {
-    if (!line.startsWith(' ')) {
-      group = line
-    } else if (groups.has(group) && keys.has(line)) {
-      const version = indentedLines(importer, i)
-        .map((entry) => /^ {2}version: (.*)$/.exec(entry)?.[1])
-        .find((entry) => entry !== undefined)
-      return version?.replace(/\(.*$/, '')
+/** The names of the files in the folder `folder` with their texts, in byte order; undefined when it does not exist. */
+async function folderFiles(folder) {
+  const names = await readdir(folder).catch((error) => {
+    if (error.code === 'ENOENT') {
+      return undefined
     }
+    throw error
+  })
+  if (names === undefined) {
+    return undefined
   }
-  return undefined
+  const sorted = names.toSorted()
+  const texts = await Promise.all(sorted.map((name) => readFile(join(folder, name), 'utf8')))
+  return Object.fromEntries(sorted.map((name, i) => [name, texts[i]]))
+}
+
+/** Makes the folder `folder` and writes each file of `files`, a map of names to texts, into it. */
+async function writeFolder(folder, files) {
+  await mkdir(folder, { recursive: true })
+  await Promise.all(
+    Object.entries(files).map(([name, contents]) => writeFile(join(folder, name), contents)),
+  )
+}
+
+/** A map of each of `names` to a text that names it and `place`. A copy then shows where its bytes came from. */
+function filesNamed(names, place) {
+  return Object.fromEntries(names.map((name) => [name, `${name} from ${place}\n`]))
+}
+
+/** The `run` of e2e-engines' copy out of section 3.2 (tests 130 and 134). */
+async function copyOutRun() {
+  const steps = jobSteps(await workflowJob('ci.yml', 'e2e-engines'))
+  return stepValue(steps[namedStep(steps, COPY_OUT_NAME)], 'run')
+}
+
+/**
+ * Runs e2e-engines' copy out of section 3.2 with `bash -e`, as GitHub runs a step with no `shell` (test 134). apt's
+ * cache is a temporary folder with the files of `cache`, a file `lock` and a folder `partial/`. `~/apt-archives` holds
+ * the files of `entry`, and does not exist when it is undefined. The stand-in dpkg-query lists `installed`, or exits 1
+ * when `fails`. Returns the script's exit status and standard error, what it wrote to $GITHUB_OUTPUT, the files of
+ * `~/apt-archives` as `folderFiles` gives them, and the arguments of each call of the stand-in.
+ */
+async function runCopyOut(context, { cache, entry, installed = LISTED_VERSIONS, fails = false }) {
+  const run = await copyOutRun()
+  const directory = await temporaryDirectory(context)
+  const [aptCache, home, runnerTemp, stubs] = ['cache', 'home', 'runner-temp', 'stubs'].map(
+    (name) => join(directory, name),
+  )
+  const scriptPath = join(directory, 'copy-out.sh')
+  const outputPath = join(directory, 'github-output')
+  const callsPath = join(directory, 'calls')
+  await writeFolder(aptCache, { ...cache, lock: '' })
+  await mkdir(join(aptCache, 'partial'))
+  await mkdir(home)
+  if (entry !== undefined) {
+    await writeFolder(join(home, 'apt-archives'), entry)
+  }
+  await mkdir(runnerTemp)
+  await writeFolder(stubs, { 'dpkg-query': DPKG_QUERY_STUB })
+  await chmod(join(stubs, 'dpkg-query'), 0o755)
+  await writeFile(scriptPath, run.replaceAll(APT_CACHE, aptCache))
+  await writeFile(outputPath, '')
+  await writeFile(callsPath, '')
+
+  const result = spawnSync('bash', ['-e', scriptPath], {
+    cwd: directory,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${stubs}:${process.env.PATH}`,
+      HOME: home,
+      RUNNER_TEMP: runnerTemp,
+      GITHUB_OUTPUT: outputPath,
+      STUB_CALLS: callsPath,
+      STUB_ANSWER: installed.join('\n'),
+      STUB_FAILS: fails ? '1' : '0',
+    },
+  })
+
+  const calls = (await readFile(callsPath, 'utf8'))
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => line.split('\0').slice(0, -1))
+  return {
+    status: result.status,
+    stderr: result.stderr,
+    output: await readFile(outputPath, 'utf8'),
+    entry: await folderFiles(join(home, 'apt-archives')),
+    calls,
+  }
 }
 
 for (const [id, { browser, tests }] of Object.entries(E2E_JOBS)) {
-  test(`130: ${id} runs the six steps of section 3.2 for ${browser} between its package install and its tests`, async () => {
+  test(`130: ${id} runs the five steps of section 3.2 for ${browser} between its package install and its tests`, async () => {
     const job = await workflowJob('ci.yml', id)
     const runner = jobValue(job, 'runs-on')
 
-    assert.equal(runner, E2E_RUNNER)
+    assert.equal(runner, APT_RUNNER)
     assert.deepEqual(
       stepsAroundInstall(jobSteps(job), tests).map(stepEntries),
-      aptCacheSteps(browser, runner),
+      aptCacheSteps({ name: browser, label: browser }, runner, browserInstallStep(browser)),
     )
   })
 }
 
-test("130: e2e-engines' six steps are the YAML of section 3.2, line for line", async () => {
+test("130: e2e-engines' five steps are the YAML of section 3.2, line for line", async () => {
   const [job, spec] = await Promise.all([
     workflowJob('ci.yml', 'e2e-engines'),
     repositoryText('docs/spec/delivery.md'),
@@ -4080,7 +4242,7 @@ test("130: e2e-engines' six steps are the YAML of section 3.2, line for line", a
   )
 })
 
-test("130: e2e's six steps are e2e-engines' with chromium for the matrix's browser, comment and blank lines aside", async () => {
+test("130: e2e's five steps are e2e-engines' with chromium for the matrix's browser, comment and blank lines aside", async () => {
   const jobs = workflowJobs(await workflowText('ci.yml'))
   const [engines, chromium] = ['e2e-engines', 'e2e'].map((id) =>
     writtenSteps(stepsAroundInstall(jobSteps(findJob(jobs, 'ci.yml', id)), E2E_JOBS[id].tests)),
@@ -4092,57 +4254,37 @@ test("130: e2e's six steps are e2e-engines' with chromium for the matrix's brows
   )
 })
 
-test('130: no other job of the workflows installs a browser or names the apt archives', async () => {
+test('130: no other job of the workflows installs a browser, and only the jobs of section 3.2 name the apt archives', async () => {
+  const apt = { 'ci.yml': ['e2e', 'e2e-engines', ...TAURI_JOBS], 'release.yml': ['bundle'] }
   for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
     for (const job of workflowJobs(text)) {
-      if (file === 'ci.yml' && Object.hasOwn(E2E_JOBS, job.id)) {
-        continue
+      if (!(file === 'ci.yml' && Object.hasOwn(E2E_JOBS, job.id))) {
+        for (const step of jobSteps(job)) {
+          const run = stepValue(step, 'run') ?? ''
+          assert.ok(!run.includes('playwright install'), `${file}: ${job.id} runs ${run}`)
+        }
       }
-      for (const step of jobSteps(job)) {
-        const run = stepValue(step, 'run') ?? ''
-        assert.ok(!run.includes('playwright install'), `${file}: ${job.id} runs ${run}`)
+      if (!apt[file]?.includes(job.id)) {
+        const line = job.lines.find((jobLine) => jobLine.includes('apt-archives'))
+        assert.equal(line, undefined, `${file}: ${job.id} names the apt archives in: ${line}`)
       }
-      const line = job.lines.find((jobLine) => jobLine.includes('apt-archives'))
-      assert.equal(line, undefined, `${file}: ${job.id} names the apt archives in: ${line}`)
     }
   }
 })
 
-test('130: the version step writes the Playwright version that the lock file and package.json pin', async (context) => {
-  const [lock, manifest, job] = await Promise.all([
-    repositoryText('ui/pnpm-lock.yaml'),
-    repositoryText('ui/package.json'),
-    workflowJob('ci.yml', 'e2e-engines'),
-  ])
-  const steps = jobSteps(job)
-  const version = lockedVersion(lock, '@playwright/test')
-  const directory = await temporaryDirectory(context)
-  const scriptPath = join(directory, 'playwright-version.sh')
-  const outputPath = join(directory, 'github-output')
-  await writeFile(scriptPath, stepValue(steps[idStep(steps, 'playwright')], 'run'))
-  await writeFile(outputPath, '')
-
-  const result = spawnSync('bash', ['-e', scriptPath], {
-    cwd: join(repositoryRoot, 'ui'),
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
-      GITHUB_OUTPUT: outputPath,
-    },
-  })
-
-  assert.equal(result.status, 0, result.stderr)
-  assert.match(version ?? '', /^\d+\.\d+\.\d+$/)
-  assert.equal(JSON.parse(manifest).devDependencies['@playwright/test'], version)
-  assert.equal(await readFile(outputPath, 'utf8'), `version=${version}\n`)
+test('130: no step of a workflow reads the Playwright version for a key', async () => {
+  for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
+    for (const job of workflowJobs(text)) {
+      for (const step of jobSteps(job)) {
+        assert.notEqual(stepValue(step, 'id'), 'playwright', `${file}: ${job.id}`)
+      }
+    }
+  }
 })
 
 test("130: the copy out of apt's cache is a script that bash reads", async (context) => {
-  const steps = jobSteps(await workflowJob('ci.yml', 'e2e-engines'))
-  const copy = steps[namedStep(steps, "Copy the apt archives out of apt's cache")]
   const scriptPath = join(await temporaryDirectory(context), 'copy-out.sh')
-  await writeFile(scriptPath, stepValue(copy, 'run'))
+  await writeFile(scriptPath, await copyOutRun())
 
   const result = spawnSync('bash', ['-n', scriptPath], { encoding: 'utf8' })
 
@@ -4196,70 +4338,360 @@ test('130: writtenSteps writes each step as a workflow does and leaves out its c
 
 test('130: fencedBlock finds the code block that starts with a line, and only a code block', () => {
   const text = [
-    '- name: Read the Playwright version',
+    '- name: Restore',
     '',
     '```yaml',
     '- name: Other',
     '```',
     '',
     '```yaml',
-    '- name: Read the Playwright version',
-    '  id: playwright',
+    '- name: Restore',
+    '  id: apt-archives',
     '```',
   ].join('\n')
 
-  assert.deepEqual(fencedBlock(text, '- name: Read the Playwright version'), [
-    '- name: Read the Playwright version',
-    '  id: playwright',
-  ])
+  assert.deepEqual(fencedBlock(text, '- name: Restore'), ['- name: Restore', '  id: apt-archives'])
   assert.equal(fencedBlock(text, '- name: Missing'), undefined)
 })
 
-test('130: lockedVersion reads a package of the root importer without the peers after its version', () => {
-  const lock = [
-    "lockfileVersion: '9.0'",
-    '',
-    'importers:',
-    '',
-    '  .:',
-    '    dependencies:',
-    '      lucide-react:',
-    '        specifier: 1.55.0',
-    '        version: 1.55.0(react@19.3.0)',
-    '    devDependencies:',
-    "      '@playwright/test':",
-    '        specifier: 1.64.0',
-    '        version: 1.64.0',
-    '',
-    'packages:',
-  ].join('\n')
+test('130: aptCacheSteps names the restore and the save by the label of the set and keys them by its name', () => {
+  const install = { name: 'Install', run: 'install' }
+  const [restore, copyIn, step, copyOut, save] = aptCacheSteps(
+    { name: 'set', label: 'the set' },
+    'runner',
+    install,
+  )
 
-  assert.equal(lockedVersion(lock, '@playwright/test'), '1.64.0')
-  assert.equal(lockedVersion(lock, 'lucide-react'), '1.55.0')
+  assert.equal(restore.name, 'Restore the apt archives of the set')
+  assert.deepEqual(restore.with, {
+    path: APT_ARCHIVES,
+    key: 'apt-archives-runner-set-${{ github.run_id }}',
+    'restore-keys': 'apt-archives-runner-set-',
+  })
+  assert.equal(copyIn.if, AFTER_RESTORE)
+  assert.equal(step, install)
+  assert.equal(copyOut.run.split('\n').length, COPY_OUT_SCRIPT.length + 1)
+  assert.equal(save.name, 'Save the apt archives of the set')
+  assert.equal(save.if, AFTER_DOWNLOAD)
 })
 
-test('130: lockedVersion finds no version in another importer, in packages or in an empty importer', () => {
-  const lock = [
-    'importers:',
-    '',
-    '  .:',
-    '    devDependencies:',
-    '      vite:',
-    '        specifier: 8.3.4',
-    '        version: 8.3.4',
-    '',
-    '  docs:',
-    '    devDependencies:',
-    "      '@playwright/test':",
-    '        specifier: 1.63.0',
-    '        version: 1.63.0',
-    '',
-    'packages:',
-    '',
-    "  '@playwright/test@1.64.0':",
-    '    resolution: {integrity: sha512-x}',
-  ].join('\n')
+test('132: rust and desktop each install the Tauri Linux packages in one named step with no timeout, condition or allowed failure', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+  for (const id of TAURI_JOBS) {
+    const steps = jobSteps(findJob(jobs, 'ci.yml', id))
+    const installs = steps.filter((step) => stepValue(step, 'run') === TAURI_INSTALL)
 
-  assert.equal(lockedVersion(lock, '@playwright/test'), undefined)
-  assert.equal(lockedVersion('importers:\n\n  .: {}\n', 'vite'), undefined)
+    assert.equal(installs.length, 1, `${id} runs ${TAURI_INSTALL} in ${installs.length} steps`)
+    assert.deepEqual(stepEntries(installs[0]), TAURI_INSTALL_STEP, id)
+  }
+})
+
+for (const id of TAURI_JOBS) {
+  test(`132: ${id} runs the five steps of section 3.2 for the Tauri Linux packages around its install`, async () => {
+    const job = await workflowJob('ci.yml', id)
+    const runner = jobValue(job, 'runs-on')
+
+    assert.equal(runner, APT_RUNNER)
+    assert.deepEqual(
+      aptStepsAround(jobSteps(job), TAURI_INSTALL).map(stepEntries),
+      aptCacheSteps(TAURI_SET, runner, TAURI_INSTALL_STEP),
+    )
+  })
+
+  test(`132: the four apt cache steps of ${id} are e2e-engines' with the Tauri set for the matrix's browser, comment and blank lines aside`, async () => {
+    const jobs = workflowJobs(await workflowText('ci.yml'))
+    const [engines, tauri] = [
+      stepsAroundInstall(
+        jobSteps(findJob(jobs, 'ci.yml', 'e2e-engines')),
+        E2E_JOBS['e2e-engines'].tests,
+      ),
+      aptStepsAround(jobSteps(findJob(jobs, 'ci.yml', id)), TAURI_INSTALL),
+    ].map((steps) => writtenSteps([...steps.slice(0, 2), ...steps.slice(3)]))
+
+    assert.deepEqual(tauri, tauriLines(engines))
+  })
+}
+
+test('132: in rust the five steps come right after Free disk space and right before the toolchain', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust'))
+  const install = commandStep(steps, TAURI_INSTALL)
+
+  assert.equal(namedStep(steps, 'Free disk space'), install - 3)
+  assert.equal(commandStep(steps, TOOLCHAIN_STEP), install + 3)
+})
+
+test('132: in desktop the five steps come right after the restore of the OCCT install and right before the toolchain', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'desktop'))
+  const install = commandStep(steps, TAURI_INSTALL)
+  const restore = cacheStep(steps, 'actions/cache/restore', '.occt/native')
+
+  assert.equal(stepValue(steps[restore], 'uses'), pinned('actions/cache/restore'))
+  assert.equal(restore, install - 3)
+  assert.equal(commandStep(steps, TOOLCHAIN_STEP), install + 3)
+})
+
+test("132: rust's and desktop's five steps are the same, line for line, comment and blank lines aside", async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+  const [rust, desktop] = TAURI_JOBS.map((id) =>
+    writtenSteps(aptStepsAround(jobSteps(findJob(jobs, 'ci.yml', id)), TAURI_INSTALL)),
+  )
+
+  assert.deepEqual(desktop, rust)
+})
+
+test("132: tauriLines puts the set's label in name lines and its name in the other lines", () => {
+  const lines = [
+    `- name: Restore the apt archives of ${MATRIX_BROWSER}`,
+    `    key: apt-archives-ubuntu-24.04-${MATRIX_BROWSER}-\${{ github.run_id }}`,
+    `    restore-keys: apt-archives-ubuntu-24.04-${MATRIX_BROWSER}-`,
+    "  if: github.ref == 'refs/heads/main'",
+    `  name: Save the apt archives of ${MATRIX_BROWSER}`,
+  ]
+
+  assert.deepEqual(tauriLines(lines), [
+    '- name: Restore the apt archives of the Tauri Linux packages',
+    '    key: apt-archives-ubuntu-24.04-tauri-${{ github.run_id }}',
+    '    restore-keys: apt-archives-ubuntu-24.04-tauri-',
+    "  if: github.ref == 'refs/heads/main'",
+    '  name: Save the apt archives of the Tauri Linux packages',
+  ])
+})
+
+test('132: aptStepsAround takes the two steps before a command and the two after it, and needs both', () => {
+  const steps = ['a', 'b', 'c', 'd', 'e', 'f'].map((command) => [`run: ${command}`])
+
+  assert.deepEqual(aptStepsAround(steps, 'c'), steps.slice(0, 5))
+  assert.deepEqual(aptStepsAround(steps, 'd'), steps.slice(1, 6))
+  assert.throws(() => aptStepsAround(steps, 'b'), /fewer than two steps come before b/)
+  assert.throws(() => aptStepsAround(steps, 'e'), /fewer than two steps come after e/)
+})
+
+test("133: the bundle job restores the Tauri entry, copies it into apt's cache and installs the Tauri packages right after checkout, on Linux", async () => {
+  const [release, rust] = await Promise.all([
+    workflowJob('release.yml', 'bundle'),
+    workflowJob('ci.yml', 'rust'),
+  ])
+  const steps = jobSteps(release)
+  const [restore, copyIn, install] = aptStepsAround(jobSteps(rust), TAURI_INSTALL)
+    .slice(0, 3)
+    .map(stepEntries)
+
+  assert.equal(stepValue(steps[0], 'uses'), pinned('actions/checkout'))
+  assert.deepEqual(steps.slice(1, 4).map(stepEntries), [
+    { ...restore, if: "runner.os == 'Linux'" },
+    { ...copyIn, if: `runner.os == 'Linux' && ${AFTER_RESTORE}` },
+    { ...install, if: "runner.os == 'Linux'" },
+  ])
+})
+
+test('133: the bundle job saves no apt archives', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'bundle'))
+
+  for (const step of steps) {
+    const name = stepValue(step, 'name')
+    assert.ok(![COPY_OUT_NAME, `Save the apt archives of ${TAURI_SET.label}`].includes(name), name)
+    assert.notEqual(stepValue(step, 'id'), 'copy-out')
+    assert.ok(
+      !usesAction(step, 'actions/cache/save'),
+      `the bundle job uses ${stepValue(step, 'uses')}`,
+    )
+  }
+})
+
+test('133: the bundle job installs Ninja on Linux right before OCCT, and only when OCCT is built', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'bundle'))
+  const ninja = namedStep(steps, NINJA_STEP.name)
+
+  assert.equal(idStep(steps, 'occt'), ninja - 1)
+  assert.equal(commandStep(steps, OCCT_BUILD), ninja + 1)
+  assert.deepEqual(stepEntries(steps[ninja]), NINJA_STEP)
+})
+
+test('133: only the two install steps of the bundle job run apt-get, and only Install Ninja installs ninja-build', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'bundle'))
+  const running = (text) =>
+    steps
+      .filter((step) => (stepValue(step, 'run') ?? '').includes(text))
+      .map((step) => stepValue(step, 'name'))
+
+  assert.deepEqual(running('apt-get'), [TAURI_INSTALL_NAME, NINJA_STEP.name])
+  assert.deepEqual(running('ninja-build'), [NINJA_STEP.name])
+})
+
+test('133: the Linux bundle row runs on the runner that its apt keys name', async () => {
+  const rows = matrixRows(await workflowJob('release.yml', 'bundle'))
+
+  assert.equal(rows.find((row) => row.bundles === 'deb,rpm')?.runner, APT_RUNNER)
+})
+
+test('134: on a miss the copy out keeps the installed versions and says that the install downloaded them', async (context) => {
+  const cache = filesNamed([...CACHED_VERSIONS, OTHER_VERSION], "apt's cache")
+
+  const result = await runCopyOut(context, { cache })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, 'downloaded=true\n')
+  assert.deepEqual(result.entry, filesNamed(CACHED_VERSIONS.toSorted(), "apt's cache"))
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: on a hit with nothing new the copy out writes no output and keeps the entry', async (context) => {
+  const files = filesNamed(CACHED_VERSIONS, 'the entry')
+
+  const result = await runCopyOut(context, { cache: files, entry: files })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, '')
+  assert.deepEqual(result.entry, filesNamed(CACHED_VERSIONS.toSorted(), 'the entry'))
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: after an update the copy out keeps the installed versions alone and says that the install downloaded one', async (context) => {
+  const [first, updated, third] = CACHED_VERSIONS
+  const entry = filesNamed([first, OTHER_VERSION, third], 'the entry')
+
+  const result = await runCopyOut(context, {
+    cache: { ...entry, ...filesNamed([updated], "apt's cache") },
+    entry,
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, 'downloaded=true\n')
+  assert.deepEqual(result.entry, {
+    ...filesNamed([first, third], 'the entry'),
+    ...filesNamed([updated], "apt's cache"),
+  })
+  assert.deepEqual(Object.keys(result.entry), CACHED_VERSIONS.toSorted())
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: after an update the copy out also keeps a restored file of a package that the image holds at that version', async (context) => {
+  const [first, updated, third] = CACHED_VERSIONS
+  const entry = filesNamed([first, OTHER_VERSION, third, IMAGE_VERSION], 'the entry')
+
+  const result = await runCopyOut(context, {
+    cache: { ...entry, ...filesNamed([updated], "apt's cache") },
+    entry,
+    installed: [...LISTED_VERSIONS, IMAGE_VERSION],
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, 'downloaded=true\n')
+  assert.deepEqual(result.entry, {
+    ...filesNamed([first, third, IMAGE_VERSION], 'the entry'),
+    ...filesNamed([updated], "apt's cache"),
+  })
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: with nothing downloaded and no entry the copy out writes no output and leaves an empty folder', async (context) => {
+  const result = await runCopyOut(context, { cache: {} })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, '')
+  assert.deepEqual(result.entry, {})
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: with an entry that holds only a version nothing installed the copy out writes no output', async (context) => {
+  const files = filesNamed([OTHER_VERSION], 'the entry')
+
+  const result = await runCopyOut(context, { cache: files, entry: files })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.output, '')
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: a failing dpkg-query fails the copy out before it writes an output or makes the folder', async (context) => {
+  const cache = filesNamed([...CACHED_VERSIONS, OTHER_VERSION], "apt's cache")
+
+  const result = await runCopyOut(context, { cache, fails: true })
+
+  assert.notEqual(result.status, 0)
+  assert.equal(result.output, '')
+  assert.equal(result.entry, undefined)
+  assert.deepEqual(result.calls, [DPKG_QUERY_ARGUMENTS])
+})
+
+test('134: no line of the copy out runs sudo', async () => {
+  for (const line of (await copyOutRun()).split('\n')) {
+    assert.ok(!line.includes('sudo'), line)
+  }
+})
+
+test('134: the stand-in lists its versions out of byte order, one of them with an epoch', () => {
+  assert.notDeepEqual(LISTED_VERSIONS.toSorted(), LISTED_VERSIONS)
+  assert.deepEqual(
+    LISTED_VERSIONS.filter((name) => name.includes(':')),
+    ['libxdo3_1:3.20160805.1-5build1_amd64.deb'],
+  )
+  assert.ok(!CACHED_VERSIONS.some((name) => name.includes(':')))
+})
+
+/**
+ * The sentences of the workflows AGENTS.md that section 3.2 changes, as `{ before, after }`: each `"<old>" becomes
+ * "<new>"` of the paragraph that starts with AGENTS_CHANGES_START (test 135).
+ */
+function sentenceChanges(spec) {
+  const paragraph = spec.split('\n').find((line) => line.startsWith(AGENTS_CHANGES_START))
+  assert.ok(paragraph, `section 3.2 has no paragraph that starts with ${AGENTS_CHANGES_START}`)
+  return [...paragraph.matchAll(/"([^"]+)" becomes "([^"]+)"/g)].map(([, before, after]) => ({
+    before,
+    after,
+  }))
+}
+
+/**
+ * The text inside the parentheses of `exception` that hold `12 hours`, where the rerun window of section 2.13 is named;
+ * undefined when no parentheses hold it (test 135).
+ */
+function rerunWindow(exception) {
+  return [...exception.matchAll(/\(([^()]*)\)/g)]
+    .map(([, inside]) => inside)
+    .find((inside) => inside.includes('12 hours'))
+}
+
+test('135: the workflows AGENTS.md holds the new text of each sentence that section 3.2 changes, and not the old', async () => {
+  const [spec, agents] = await Promise.all([
+    repositoryText('docs/spec/delivery.md'),
+    repositoryText('.github/workflows/AGENTS.md'),
+  ])
+  const changes = sentenceChanges(spec)
+
+  assert.equal(changes.length, 2)
+  for (const { before, after } of changes) {
+    assert.ok(agents.includes(after), `the workflows AGENTS.md lacks: ${after}`)
+    assert.ok(!agents.includes(before), `the workflows AGENTS.md still holds: ${before}`)
+  }
+})
+
+test("135: the promotion rule's exception gives the 12 hours of section 2.13 to e2e and e2e-engines alone", async () => {
+  const agents = await repositoryText('.github/workflows/AGENTS.md')
+  const exception = agents
+    .split('\n')
+    .find((line) => line.includes(INSTALL_EXCEPTION_START))
+    ?.split(INSTALL_EXCEPTION_START)[1]
+  assert.ok(exception, `the workflows AGENTS.md has no line with ${INSTALL_EXCEPTION_START}`)
+  const window = rerunWindow(exception)
+
+  assert.equal(exception.split('12 hours').length, 2, exception)
+  assert.ok(
+    window?.startsWith('for '),
+    `no parentheses that start with "for" hold the 12 hours: ${exception}`,
+  )
+  for (const job of ['`e2e`', '`e2e-engines`']) {
+    assert.ok(window.includes(job), `${window} does not name ${job}`)
+  }
+  for (const job of ['`rust`', '`desktop`']) {
+    assert.ok(!window.includes(job), `${window} names ${job}`)
+  }
+})
+
+test('135: rerunWindow finds the parentheses that hold the 12 hours, and none when the 12 hours stand outside them', () => {
+  assert.equal(
+    rerunWindow('rerun (for `e2e`, within 12 hours of the end, or later) while newest (2.14).'),
+    'for `e2e`, within 12 hours of the end, or later',
+  )
+  assert.equal(rerunWindow('`e2e` or `rust`: rerun within 12 hours of the end (2.14).'), undefined)
 })
