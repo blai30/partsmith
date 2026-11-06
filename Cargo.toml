@@ -37,7 +37,7 @@ blake3 = "1"
 cxx = "1"
 cxx-build = "1"
 clap = { version = "4", features = ["derive"] }
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pyo3 = "0.29"
 proptest = "1"
 pretty_assertions = "1"

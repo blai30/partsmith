@@ -38,6 +38,10 @@ ROW_TESTS = [
 FIFTY_FEATURES = REPOSITORY_ROOT / "examples" / "bench" / "fifty-features" / "model.py"
 """The twin of the engine's reference part (engine.md section 5), the script of row 3."""
 
+ROW_3_BUDGET = 2100
+"""Row 3's budget in milliseconds: the engine's full-rebuild budget (1.8 s, technical design section 14) plus
+50 × 2 ms plus 200 ms (python-api.md section 5)."""
+
 IMPORT_TIMING = """\
 import time
 started = time.perf_counter()
@@ -143,7 +147,7 @@ def test_row_3_fifty_features():
             document.close()
         return elapsed
 
-    check_budget("A 50-feature script, end to end", median(samples(measure)), 1300)
+    check_budget("A 50-feature script, end to end", median(samples(measure)), ROW_3_BUDGET)
 
 
 @pytest.mark.budgets
@@ -186,6 +190,27 @@ def test_row_5_refs_of_12_edges():
             document.close()
 
     check_budget("Compiling a Selection of 12 edges to full references", median(samples(measure)), 15)
+
+
+# Row 3's budget follows the engine's full-rebuild budget.
+
+
+def test_row_3_is_the_engine_full_rebuild_budget_plus_300_ms():
+    design = (REPOSITORY_ROOT / "docs" / "design" / "technical-design.md").read_text(encoding="utf-8")
+    spec = (REPOSITORY_ROOT / "docs" / "spec" / "python-api.md").read_text(encoding="utf-8")
+    full_rebuild = re.search(r"^\| Full rebuild, 50-feature part \| ([0-9.]+) s\b", design, re.MULTILINE)
+    row = re.search(
+        r"^\| 3 \| A 50-feature script, end to end \| the engine's full-rebuild budget \(([0-9.]+) s\) "
+        r"plus 50 × 2 ms plus 200 ms: ([0-9]+) ms \|$",
+        spec,
+        re.MULTILINE,
+    )
+    assert full_rebuild, "technical design section 14 has a desktop budget for the full rebuild"
+    assert row, "python-api.md section 5 has row 3"
+
+    full_rebuild_milliseconds = round(float(full_rebuild[1]) * 1000)
+    assert round(float(row[1]) * 1000) == full_rebuild_milliseconds
+    assert int(row[2]) == ROW_3_BUDGET == full_rebuild_milliseconds + 50 * 2 + 200
 
 
 # Row 2's timed session.

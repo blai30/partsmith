@@ -8,7 +8,9 @@
 //! measured (the bench50 budgets need `examples/bench/fifty-features/model.ptsm`). The budgets hold
 //! for a release build on the reference machine (technical design section 14), single thread. The
 //! run of bench50 from an empty cache is judged on the macOS arm64 runner of `platforms.yml`
-//! instead (ADR 0054). Web budgets are three times these and are not measured here.
+//! instead (ADR 0054), with the budget ADR 0057 set from that runner's first median. Web budgets
+//! are three times these, except that the run of bench50 from an empty cache keeps its web budget
+//! of 3 s (technical design section 14). They are not measured here.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -482,7 +484,7 @@ fn main() -> ExitCode {
                         time
                     })
                 });
-                budgets.measure(bench50_operations[1], Duration::from_secs(1), || {
+                budgets.measure(bench50_operations[1], Duration::from_millis(1_800), || {
                     median_time(RUNS, Harness::builtins, |mut fresh| {
                         let run = fresh.run(&bench);
                         (fresh, run)

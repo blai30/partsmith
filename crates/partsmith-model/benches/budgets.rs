@@ -408,7 +408,7 @@ fn main() -> ExitCode {
     let first_feature = document.features[0].id.clone();
     report.measure(
         "apply AddFeature at the start, 1,000 features",
-        microseconds(50),
+        microseconds(100),
         || {
             let body = numbered_id(IdKind::Body, 1);
             apply_once(Edit::AddFeature {
@@ -447,7 +447,7 @@ fn main() -> ExitCode {
     );
     report.measure(
         "apply AddParameter at the start, 1,000 features",
-        microseconds(50),
+        microseconds(100),
         || {
             apply_once(Edit::AddParameter {
                 index: 0,

@@ -40,6 +40,10 @@
 //! they visit is visited once before, so both recomputes are cached and send the same events, and
 //! each sample is the first time less the second: the capture, with the cause made at the same
 //! transition.
+//!
+//! Since ADR 0057 the print analysis row times a body that fits the printer, a batch of 20 balls
+//! for `generic-fdm`, and a stress row times the 500 mm sphere for `generic-resin`, which slices
+//! into 10 000 layers. Each run of either row checks the body's `bed_fit` findings.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -109,6 +113,26 @@ impl Answer {
     /// The document handle of an open or new document.
     fn doc(&self) -> u64 {
         doc_handle(&self.0)
+    }
+
+    /// The codes of the `bed_fit` findings of the one body the `print_health` event reports.
+    fn bed_fit_codes(&self) -> Vec<&str> {
+        let bodies = self.0.event("print_health")["report"]["bodies"]
+            .as_array()
+            .expect("a print report lists its bodies");
+        assert_eq!(bodies.len(), 1, "the print report has one body");
+        let bed_fit = bodies[0]["report"]["checks"]
+            .as_array()
+            .expect("a body report lists its checks")
+            .iter()
+            .find(|check| check["check"] == "bed_fit")
+            .expect("the body report has a bed_fit check");
+        bed_fit["findings"]
+            .as_array()
+            .expect("a check lists its findings")
+            .iter()
+            .map(|finding| finding["code"].as_str().expect("a finding has a code"))
+            .collect()
     }
 
     /// The `mesh_id` of the model-layer `body_mesh` event of `body`.
@@ -362,16 +386,19 @@ fn message_codes(answer: &Answer, feature: &str) -> Vec<String> {
         .collect()
 }
 
+/// One direction of a linear pattern: `count` instances `spacing` apart along the origin's `axis`.
+fn pattern_direction(axis: &str, count: usize, spacing: &str) -> Value {
+    json!({
+        "axis": {"kind": "origin", "axis": axis},
+        "count": count.to_string(),
+        "spacing": spacing
+    })
+}
+
 /// A one-body document whose body is a box sized by the parameter `size` (10 mm), repeated
 /// `GRID_COUNT` times along X and along Y: 1014 faces.
 fn grid() -> String {
-    let direction = |axis: &str| {
-        json!({
-            "axis": {"kind": "origin", "axis": axis},
-            "count": GRID_COUNT.to_string(),
-            "spacing": "20 mm"
-        })
-    };
+    let direction = |axis| pattern_direction(axis, GRID_COUNT, "20 mm");
     json!({
         "format": "partsmith",
         "format_version": 1,
@@ -444,17 +471,12 @@ fn drag_sketch() -> String {
 /// the `generic-fdm` profile: 254 x 203 x 50 mm, within its build volume, with 250 layers and
 /// about 200 000 triangles.
 fn ball_batch() -> String {
-    let direction = |axis: &str, count: usize| {
-        json!({
-            "axis": {"kind": "origin", "axis": axis},
-            "count": count.to_string(),
-            "spacing": "51 mm"
-        })
-    };
+    let direction = |axis, count| pattern_direction(axis, count, "51 mm");
     json!({
         "format": "partsmith",
         "format_version": 1,
         "units": "mm",
+        "printer": "generic-fdm",
         "parameters": [],
         "bodies": [{"id": "b-1", "name": "Balls"}],
         "features": [
@@ -506,8 +528,9 @@ fn many_bodies() -> String {
 }
 
 /// The median time of `analyze_print` of the one body of `text`, as modeled, in a session that
-/// opened it.
-fn print_analysis_time(text: &str) -> Duration {
+/// opened it. Each run checks that the body's `bed_fit` findings are `bed_fit_codes`: none for a
+/// body that fits the printer.
+fn print_analysis_time(text: &str, bed_fit_codes: &[&str]) -> Duration {
     let mut driver = Driver::new();
     let doc = driver.open(text).doc();
     median(RUNS, |_| {
@@ -515,6 +538,11 @@ fn print_analysis_time(text: &str) -> Duration {
             "type": "analyze_print", "doc": doc, "orientation": {"kind": "as_modeled"}
         }));
         answer.ok();
+        assert_eq!(
+            answer.bed_fit_codes(),
+            bed_fit_codes,
+            "the bed_fit findings of the analyzed body"
+        );
         time
     })
 }
@@ -581,15 +609,19 @@ fn main() -> ExitCode {
                     time
                 })
             });
-            report.measure(reference_operations[1], Duration::from_secs(1), || {
-                median(RUNS, |_| {
-                    let mut driver = Driver::new();
-                    let (time, answer) =
-                        driver.timed(json!({"type": "open_document", "text": text, "assets": []}));
-                    answer.ok();
-                    time
-                })
-            });
+            report.measure(
+                reference_operations[1],
+                Duration::from_millis(2_200),
+                || {
+                    median(RUNS, |_| {
+                        let mut driver = Driver::new();
+                        let (time, answer) = driver
+                            .timed(json!({"type": "open_document", "text": text, "assets": []}));
+                        answer.ok();
+                        time
+                    })
+                },
+            );
             report.measure(reference_operations[2], Duration::from_millis(300), || {
                 let mut driver = Driver::new();
                 let mut doc = driver.open(&text).doc();
@@ -850,7 +882,7 @@ fn main() -> ExitCode {
                 time
             })
         });
-        report.measure(grid_operations[2], Duration::from_millis(10), || {
+        report.measure(grid_operations[2], Duration::from_millis(25), || {
             median(RUNS, |sample| {
                 regrow(&mut driver, doc, sample_offset + sample);
                 let (time, answer) = driver.timed(list.clone());
@@ -870,13 +902,13 @@ fn main() -> ExitCode {
 
     report.measure(
         "analyze_print of one 200 000-triangle body",
-        Duration::from_millis(300),
-        || print_analysis_time(&ball_batch()),
+        Duration::from_millis(1_700),
+        || print_analysis_time(&ball_batch(), &[]),
     );
     report.measure(
         "analyze_print of a 500 mm sphere, taller than the printer",
-        Duration::from_millis(1),
-        || print_analysis_time(&sphere()),
+        Duration::from_millis(2_500),
+        || print_analysis_time(&sphere(), &["footprint_too_large", "too_tall"]),
     );
 
     report.finish()

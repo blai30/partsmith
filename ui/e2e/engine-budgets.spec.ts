@@ -43,7 +43,7 @@ const DESKTOP_BENCH = new URL('../../crates/partsmith-engine/benches/budgets.rs'
 /** The name of row 1 in engine.md section 5's list. */
 const MEMORY_ROW_NAME = 'wasm memory with a 300-feature document open'
 
-/** Rows 2 to 17 of engine.md section 5's list, in its order, each with its web budget in milliseconds. */
+/** Rows 2 to 18 of engine.md section 5's list, in its order, each with its web budget in milliseconds. */
 const TIMED_ROW_BUDGETS: readonly (readonly [name: string, budget: number])[] = [
   [
     'apply_edits inside a transaction changing one parameter that affects the last 5 features of the reference part',
@@ -72,7 +72,8 @@ const TIMED_ROW_BUDGETS: readonly (readonly [name: string, budget: number])[] = 
   ['pick_reference, later picks in the same state', 2],
   ['list_elements of a 1000-face body, first call for a new state', 25],
   ['list_elements of a 1000-face body, repeated', 25],
-  ['analyze_print of one 200 000-triangle body', 900],
+  ['analyze_print of one 200 000-triangle body', 5_100],
+  ['analyze_print of a 500 mm sphere, taller than the printer', 7_500],
 ]
 
 /** The text in a request frame at which the stand-in core of test 157 stops. */

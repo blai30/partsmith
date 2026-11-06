@@ -1,6 +1,6 @@
 # 0020: Dependency log of the workspace
 
-Status: Accepted (owner, 2026-11-04), signed off as built
+Status: Accepted (owner, 2026-11-04), signed off as built. Its update of 2026-11-05 (`zip`'s feature `deflate-flate2-zlib-rs` in place of `deflate`, which drops `zopfli`) is Accepted (owner, 2026-11-05).
 
 ## Context
 
@@ -22,7 +22,7 @@ The workspace depends on exactly the external crates below. Every one is declare
 | `cxx` | 1.0.205 | MIT OR Apache-2.0 | normal: occt-sys | The safe Rust and C++ bridge to the OCCT shim (architecture.md, `partsmith-occt-sys`). | Named in architecture.md, not logged |
 | `cxx-build` | 1.0.205 | MIT OR Apache-2.0 | build: occt-sys | Generates and compiles the C++ side of that bridge in `build.rs`. | Not logged |
 | `clap` (features `derive`, `string`) | 4.6.7 | MIT OR Apache-2.0 | normal: cli | Command-line parsing of the `partsmith` CLI (cli.md); `string` lets the version text come from the engine at run time. | Not logged |
-| `zip` (default features off, feature `deflate`) | 9.0.3 | MIT | normal: io; dev: engine | Writing 3MF packages (io.md section 2.1); the engine's export tests read them back. | ADR 0012 |
+| `zip` (default features off, feature `deflate-flate2-zlib-rs`) | 9.0.3 | MIT | normal: io; dev: engine | Writing 3MF packages (io.md section 2.1); the engine's export tests read them back. | ADR 0012 |
 | `pyo3` (feature `abi3-py312` in py) | 0.29.3 | MIT OR Apache-2.0 | normal: py | The Python extension module `partsmith._core` (python-api.md, technical design section 4). | Named in architecture.md, not logged |
 | `tempfile` | 3.27.0 | MIT OR Apache-2.0 | normal: cli; dev: desktop | The CLI's atomic writes (a temporary file in the target folder, then a rename, cli.md); temporary folders in desktop tests. | ADR 0014 (desktop use only) |
 | `proptest` | 1.12.0 | MIT OR Apache-2.0 | dev: features, mesh, model, naming, print, protocol, recompute, sketch, wasm | Property tests that the specs require (for example model.md, sketch.md, protocol.md). | Named in the technical design, not logged |
@@ -35,6 +35,7 @@ The workspace depends on exactly the external crates below. Every one is declare
 - **Path dependencies.** The eleven `partsmith-*` entries of `[workspace.dependencies]` are the workspace's own crates; their edges are architecture.md's crate graph.
 - **Transitive check.** With all features, `Cargo.lock` resolves 348 external crates on x86_64 Linux, 309 on x86_64 Windows and 303 on arm64 macOS (481 over every platform). Every license among them satisfies `deny.toml`'s allow list, and `cargo deny --all-features check` (cargo-deny 0.20.2) passes advisories, bans, licenses and sources with no exception beyond the two advisory ignores ADR 0014 approved.
 - **Update (2026-10-16).** `zip` moves from 9.0.1 to 9.0.3 in `Cargo.lock` because crates.io yanked 9.0.1 and `deny.toml` denies yanked crates, which failed the `deny` job on `main`. The requirement `9` in the root manifest, the features and the license are unchanged; the notices were regenerated with `pnpm -C ui notices`. Signed off as built by the owner on 2026-11-04.
+- **Update (2026-11-05).** `zip` takes its feature `deflate-flate2-zlib-rs` in place of `deflate` in the root manifest (io.md open issue 5). It replaces the feature ADR 0012 named. `deflate` is `deflate-flate2-zlib-rs` plus `deflate-zopfli`, and `zip` 9.0.3 hands only a level above 9 to `zopfli`. Partsmith writes every 3MF part at level 6 (`DEFLATE_LEVEL`) through `flate2` with `zlib-rs`. `zopfli` 0.8.3 (Apache-2.0) was compiled into every build that links `partsmith-io` and never ran. In `Cargo.lock` only the `zip` entry changes, and `zopfli`'s own entry goes. Every crate keeps its version. `zopfli`'s dependencies `bumpalo`, `crc32fast`, `log` and `simd-adler32` stay in `Cargo.lock` for other crates. `zlib-rs` 0.6.8 (Zlib) was in the tree before and is on `deny.toml`'s allow list. `pnpm -C ui notices` regenerated both notices files. `zopfli` and `bumpalo` leave both, and `log` leaves the web notices: no other crate of those builds uses them. The crate archives of delivery.md 2.13 lose `zopfli` 0.8.3 too, and 2.13 records their new sizes. Test 21's header values, the golden 3MF files of engine.md test 160 and the 3MF export of each of the 270 examples that export kept their bytes, and `cargo deny check` passes. The owner reviewed and accepted the change on 2026-11-05 (Accepted (owner, 2026-11-05)), and wave G's zip track built it on 2026-11-06.
 - **Rule.** A crate is added to `[workspace.dependencies]` only together with the first crate that uses it, and removed when its last user goes. Each addition, removal or license change is a new row or a new ADR.
 
 ## Consequences

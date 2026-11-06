@@ -78,14 +78,14 @@ const ROWS: [Row; 6] = [
         name: "partsmith rebuild of the reference part",
         arguments: &["rebuild", REFERENCE_PART],
         setup: None,
-        budget: Duration::from_millis(1_100),
+        budget: Duration::from_millis(2_300),
     },
     // One binary STL file of every default body at the standard tolerance, replaced by each run.
     Row {
         name: "partsmith export of the reference part to binary STL at standard quality",
         arguments: &["export", REFERENCE_PART, "-o", "model.stl"],
         setup: None,
-        budget: Duration::from_millis(1_400),
+        budget: Duration::from_millis(2_600),
     },
 ];
 

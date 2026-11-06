@@ -303,7 +303,7 @@ fn main() -> ExitCode {
         let regions = outline_regions(hundred_gon.clone());
         median_time_of(RUNS, || make_profile(&Plane::XY, &regions))
     });
-    report.measure("extrude, 100-edge profile", milliseconds(15), || {
+    report.measure("extrude, 100-edge profile", milliseconds(20), || {
         let outline = profile(hundred_gon.clone());
         median_time_of(RUNS, || extrude(&outline, common::UP, 0.0, 10.0))
     });

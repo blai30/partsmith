@@ -34,7 +34,7 @@ export type MemoryRow = {
   readonly measure: (engine: Engine) => Promise<number>
 }
 
-/** Rows 2 to 17: each one's name, web budget in milliseconds, and the samples it measures. */
+/** Rows 2 to 18: each one's name, web budget in milliseconds, and the samples it measures. */
 export type TimedRow = {
   readonly name: string
   readonly budget: number
@@ -93,8 +93,14 @@ const GRID_COUNT = 13
 /** Features, each a box in its own body, of the memory document. */
 const MEMORY_FEATURES = 300
 
-/** Radius of the sphere whose `standard` display mesh with `generic-resin` has about 200 000 triangles. */
+/**
+ * Radius of the sphere whose `standard` display mesh with `generic-resin` has about 200 000 triangles. The sphere is
+ * 500 mm tall, taller than that printer's 160 mm.
+ */
 const SPHERE_RADIUS = '250 mm'
+
+/** Radius of each ball of the ball batch: 50 mm tall, like the body of print.md section 5. */
+const BALL_RADIUS = '25 mm'
 
 /** A length in millimeters written as a decimal number, which `without_millimeters` of budgets.rs writes bare. */
 const MILLIMETERS = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?) mm$/
@@ -462,9 +468,9 @@ function lidState(text: string, doc: number, width: string, count: string): Comm
   return { type: 'apply_edits', doc, edits: [lastFiveEdit(text, width), lidCountEdit(count)] }
 }
 
-/** One direction of the grid's pattern: `GRID_COUNT` instances 20 mm apart along `axis`. */
-function gridDirection(axis: 'X' | 'Y'): object {
-  return { axis: { kind: 'origin', axis }, count: String(GRID_COUNT), spacing: '20 mm' }
+/** One direction of a linear pattern: `count` instances `spacing` apart along the origin's `axis`. */
+function patternDirection(axis: 'X' | 'Y', count: number, spacing: string): object {
+  return { axis: { kind: 'origin', axis }, count: String(count), spacing }
 }
 
 /**
@@ -481,8 +487,8 @@ function grid(): string {
         id: 'f-lp1',
         type: 'linear_pattern',
         body: 'b-1',
-        direction: gridDirection('X'),
-        second_direction: gridDirection('Y'),
+        direction: patternDirection('X', GRID_COUNT, '20 mm'),
+        second_direction: patternDirection('Y', GRID_COUNT, '20 mm'),
       },
     ],
   })
@@ -558,6 +564,35 @@ function dragSketch(): string {
         plane: { kind: 'origin', plane: 'XY' },
         entities,
         constraints,
+      },
+    ],
+  })
+}
+
+/**
+ * One body of 20 balls of `BALL_RADIUS` on the bed, 5 along X and 4 along Y, 51 mm apart, for the `generic-fdm`
+ * profile: 254 x 203 x 50 mm, within its build volume, with 250 layers and about 200 000 triangles.
+ */
+function ballBatch(): string {
+  return documentText({
+    printer: 'generic-fdm',
+    parameters: [],
+    bodies: [{ id: 'b-1', name: 'Balls' }],
+    features: [
+      {
+        id: 'f-sph1',
+        type: 'sphere',
+        body: 'b-1',
+        radius: BALL_RADIUS,
+        position: ['0', '0', BALL_RADIUS],
+        op: 'new',
+      },
+      {
+        id: 'f-lp1',
+        type: 'linear_pattern',
+        body: 'b-1',
+        direction: patternDirection('X', 5, '51 mm'),
+        second_direction: patternDirection('Y', 4, '51 mm'),
       },
     ],
   })
@@ -824,11 +859,50 @@ function timeRepeatedLists(engine: Engine): Promise<number[]> {
   })
 }
 
-/** Row 17: the print analysis of the resin sphere as modeled. */
-function timePrintAnalysis(engine: Engine): Promise<number[]> {
-  return onDocument(engine, sphere(), (driver, doc) =>
-    timedSamples(driver, { type: 'analyze_print', doc, orientation: { kind: 'as_modeled' } }),
+/** The codes of the `bed_fit` findings of the one body the `print_health` event of `answer` reports. */
+function bedFitCodes(answer: Answer): string[] {
+  const health = eventsOf(answer, 'print_health')
+  expect(health, 'one print_health event').toHaveLength(1)
+  const { bodies } = health[0].report
+  expect(bodies, 'the print report has one body').toHaveLength(1)
+  const bedFit = bodies[0].report.checks.find((check) => check.check === 'bed_fit')
+  if (bedFit === undefined) {
+    throw new Error('the body report has no bed_fit check')
+  }
+  return bedFit.findings.map((finding) => finding.code)
+}
+
+/**
+ * The print analysis of the one body of `text` as modeled, in an instance that opened it. Each sample checks that the
+ * body's `bed_fit` findings are `bedFit`: none for a body that fits the printer.
+ */
+function timePrintAnalysisOf(
+  engine: Engine,
+  text: string,
+  bedFit: readonly string[],
+): Promise<number[]> {
+  return onDocument(engine, text, (driver, doc) =>
+    sampled(async () => {
+      const answer = await driver.send({
+        type: 'analyze_print',
+        doc,
+        orientation: { kind: 'as_modeled' },
+      })
+      const time = timeOf(answer)
+      expect(bedFitCodes(answer), 'the bed_fit findings of the analyzed body').toEqual(bedFit)
+      return time
+    }),
   )
+}
+
+/** Row 17: the print analysis of the ball batch, which fits `generic-fdm`. */
+function timePrintAnalysis(engine: Engine): Promise<number[]> {
+  return timePrintAnalysisOf(engine, ballBatch(), [])
+}
+
+/** Row 18: the print analysis of the 500 mm resin sphere, taller than the printer. */
+function timeTallPrintAnalysis(engine: Engine): Promise<number[]> {
+  return timePrintAnalysisOf(engine, sphere(), ['footprint_too_large', 'too_tall'])
 }
 
 /**
@@ -848,7 +922,7 @@ export const MEMORY_ROW: MemoryRow = {
   measure: measureMemory,
 }
 
-/** Rows 2 to 17 of engine.md section 5's list, in its order, each named as the desktop bench names it. */
+/** Rows 2 to 18 of engine.md section 5's list, in its order, each named as the desktop bench names it. */
 export const TIMED_ROWS: readonly TimedRow[] = [
   {
     name: 'apply_edits inside a transaction changing one parameter that affects the last 5 features of the reference part',
@@ -919,7 +993,12 @@ export const TIMED_ROWS: readonly TimedRow[] = [
   },
   {
     name: 'analyze_print of one 200 000-triangle body',
-    budget: 900,
+    budget: 5_100,
     measure: timePrintAnalysis,
+  },
+  {
+    name: 'analyze_print of a 500 mm sphere, taller than the printer',
+    budget: 7_500,
+    measure: timeTallPrintAnalysis,
   },
 ]
