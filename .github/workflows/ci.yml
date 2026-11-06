@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, claude/tender-sagan-4ek456]
+    branches: [main]
   pull_request:
 
 # A newer run of the same ref cancels this one, an OCCT build that has not ended included. The next run builds OCCT
