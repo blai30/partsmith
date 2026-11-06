@@ -1,0 +1,151 @@
+# Temporary experiment, removed in the next commit with ui/e2e-experiment/: why Firefox 157 sometimes starts
+# without WebGL2 in e2e-engines (platforms run 13, job 126318974727). Each row starts fresh Firefox browsers the
+# way e2e-engines starts them and records, per launch, whether a canvas gets WebGL2, Firefox's reason when it does
+# not, what Firefox's startup graphics probe logged and how long the runner stalled meanwhile. The job summaries
+# hold the tables.
+name: Firefox WebGL2 experiment
+
+on:
+  push:
+    branches: [claude/tender-sagan-4ek456]
+    paths:
+      - .github/workflows/firefox-webgl-experiment.yml
+      - ui/e2e-experiment/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firefox-webgl-experiment
+  cancel-in-progress: true
+
+jobs:
+  launches:
+    name: Launches (${{ matrix.runner && format('cold-start-{0}', matrix.runner) || matrix.variant }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # 48 cold-start runners. A runner's first wave is its first Firefox launch, as both launches of a passing
+        # e2e-engines job are, so these rows give 96 launches in the condition CI failed in once in about 31.
+        variant: [cold-start]
+        runner: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]
+        # workers: browsers started at the same moment in each wave (e2e-engines has 2 workers on its 4 CPUs).
+        # waves: at most this many waves (all rows stop after 14 minutes). delay: seconds the startup graphics
+        # probe sleeps before it runs. display none: no xvfb-run, as the first platforms run had it.
+        include:
+          # Its variant matches the cold-start runners, so this entry adds its values to each of them.
+          - { variant: cold-start, workers: 2, waves: 3 }
+          # Each entry below matches no runner above, so each is a runner of its own.
+          - { variant: current-2, workers: 2 }
+          - { variant: current-8, workers: 8 }
+          - { variant: force-2, workers: 2, flags: '--force-webgl' }
+          - { variant: force-8, workers: 8, flags: '--force-webgl' }
+          - { variant: slow-probe, workers: 2, waves: 15, delay: 10 }
+          - { variant: slow-probe-force, workers: 2, waves: 15, delay: 10, flags: '--force-webgl' }
+          - { variant: cold-cache-2, workers: 2, flags: '--drop-caches' }
+          - { variant: headless-2, workers: 2, flags: '--headless' }
+          - { variant: headless-no-display, workers: 2, waves: 5, flags: '--headless', display: none }
+    runs-on: ubuntu-24.04
+    # Install up to 10 minutes, launches up to 17, and the rest. The launch step's own timeout fails that step
+    # alone, so the kernel messages, the summary and the records of a stalled row are still kept.
+    timeout-minutes: 35
+    env:
+      ROW: ${{ matrix.runner && format('cold-start-{0}', matrix.runner) || matrix.variant }}
+    defaults:
+      run:
+        working-directory: ui
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          package_json_file: ui/package.json
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Install firefox and its system packages
+        timeout-minutes: 10
+        run: pnpm exec playwright install --with-deps firefox
+      - name: Record the runner and its graphics packages
+        run: |
+          echo "image ${ImageVersion:-unknown}, kernel $(uname -r), $(nproc) CPUs, $(free -m | awk '/Mem:/ {print $2}') MB of memory"
+          echo "pressure stall information: $(test -r /proc/pressure/io && echo available || echo missing)"
+          dpkg-query -W -f '${Package} ${Version}\n' | grep -E '^(libegl|libgl1|libglx|libgles|libgallium|libllvm|mesa|xvfb)' || true
+      # Only the glx probe, the one GfxInfo::GetData waits 4 s for; the vaapi, vulkan and v4l2 probes run the same
+      # binary with their own timeouts and stay as they are.
+      - name: Delay Firefox's startup graphics probe past Firefox's 4 s wait
+        if: matrix.delay
+        env:
+          DELAY: ${{ matrix.delay }}
+        run: |
+          for probe in ~/.cache/ms-playwright/firefox-*/firefox/gfxtest; do
+            mv "$probe" "$probe.real"
+            printf '#!/bin/sh\nif [ "$1" = glx ]; then sleep %s; fi\nexec "$0.real" "$@"\n' "$DELAY" > "$probe"
+            chmod +x "$probe"
+            cat "$probe"
+          done
+      - name: Launch Firefox
+        timeout-minutes: 17
+        env:
+          VARIANT: ${{ matrix.variant }}
+          WORKERS: ${{ matrix.workers }}
+          WAVES: ${{ matrix.waves || 1000 }}
+          FLAGS: ${{ matrix.flags }}
+          DISPLAY_SERVER: ${{ matrix.display || 'xvfb' }}
+        run: |
+          # FLAGS is a list of options, split on spaces on purpose.
+          arguments=(--variant "$VARIANT" --row "$ROW" --workers "$WORKERS" --waves "$WAVES" --minutes 14 $FLAGS)
+          if [ "$DISPLAY_SERVER" = none ]; then
+            node e2e-experiment/probe.mjs "${arguments[@]}"
+          else
+            xvfb-run --auto-servernum node e2e-experiment/probe.mjs "${arguments[@]}"
+          fi
+      # A crash of gfxtest or Mesa, an out-of-memory kill or a task stuck on the disk shows here, not in the
+      # browser's output.
+      - name: Record kernel messages about crashes, kills and hung tasks
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p test-results/firefox-webgl
+          sudo dmesg --ctime | grep -iE 'segfault|traps:|gfxtest|oom-kill|out of memory|killed process|blocked for more than' > "test-results/firefox-webgl/$ROW.kernel.log" || true
+          cat "test-results/firefox-webgl/$ROW.kernel.log"
+      # The log holds the whole report; the job summary takes at most 1 MiB.
+      - name: Summarize this row
+        if: ${{ !cancelled() }}
+        run: |
+          node e2e-experiment/report.mjs test-results/firefox-webgl/* > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md"
+          head -c 1000000 "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: firefox-webgl-${{ env.ROW }}
+          path: ui/test-results/firefox-webgl/
+          retention-days: 7
+
+  summary:
+    name: Summary of every row
+    needs: launches
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ui
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: firefox-webgl-*
+          path: ui/test-results/firefox-webgl
+          merge-multiple: true
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      - run: |
+          node e2e-experiment/report.mjs test-results/firefox-webgl/* > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md"
+          head -c 1000000 "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
