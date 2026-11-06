@@ -1,6 +1,6 @@
 # 0012: New dependencies for M1: blake3, zip and faer
 
-Status: Accepted (owner, 2026-11-04), signed off as built
+Status: Accepted (owner, 2026-11-04), signed off as built. The `zip` feature is superseded by [ADR 0020](0020-dependency-log.md)'s update of 2026-11-05 (`deflate-flate2-zlib-rs`).
 
 ## Context
 

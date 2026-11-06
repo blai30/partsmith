@@ -63,7 +63,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 - TypeScript strict mode, oxlint and oxfmt clean, function components and hooks. Follow [docs/guidelines/typescript.md](docs/guidelines/typescript.md) (use `type`, not `interface`), [docs/guidelines/tailwind-css.md](docs/guidelines/tailwind-css.md) (utility classes only, `clsx/lite` for conditional classes, no inline styles, no `px`) and [docs/guidelines/frontend-design.md](docs/guidelines/frontend-design.md) with the Partsmith direction in [docs/guidelines/README.md](docs/guidelines/README.md).
 - Names are words, not abbreviations (`material`, not `mat`). No single-letter names except `i` for loop indices and `x`, `y`, `z` for coordinates.
 - Comments are short, use `//` (doc comments use `///` or `/** */`), and sit on their own line above the code they describe, never trailing.
-- Never write the em dash character in any file. Use a colon, comma, parentheses or a new sentence instead.
+- Never write the em dash character in any file, except third-party license texts copied verbatim: the notices that `pnpm -C ui notices` writes and the copies it reads under `ui/scripts/notices/` (delivery.md 2.9).
 - American English spelling. UTF-8, LF line endings.
 - Markdown prose is not hard-wrapped: one line per paragraph or list item.
 - Commit messages are one line, with no trailers.
