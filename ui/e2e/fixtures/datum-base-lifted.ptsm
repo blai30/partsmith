@@ -32,7 +32,12 @@
       "id": "f-ext1",
       "type": "extrude",
       "body": "b-1",
-      "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1", "fp": "c=0,0|a=12.566371"}]},
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=0,0|a=12.566371"}
+        ]
+      },
       "extent": {"kind": "distance", "expr": "5 mm"},
       "op": "join"
     }
