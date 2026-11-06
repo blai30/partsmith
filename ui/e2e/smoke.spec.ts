@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { expect } from '@playwright/test'
 import {
+  expectReady,
   longTasks,
   measures,
   openApp,
   pageTime,
   percentile,
+  refuseWebGl2,
   reportedViolations,
   runCommand,
   test,
@@ -53,6 +55,14 @@ const ENGINE_TEST_IDS = [
 
 /** The projects of `ui/playwright.config.ts`, in order: Chromium runs every test, the other two the subset. */
 const PROJECTS = ['chromium', 'firefox', 'webkit']
+
+/** How `expectReady` fails at the unsupported page without WebGL2, before it names the browser's reason (ui.md 6.3). */
+const UNSUPPORTED_WEBGL2_FAILURE =
+  'The app shows its unsupported page instead of starting: Partsmith needs WebGL2 to draw the 3D view, and this browser does not provide it. Turn on hardware acceleration in your browser settings, or use a current version of Chrome, Edge, Firefox or Safari.'
+
+/** Firefox 157's `statusMessage` when its startup graphics probe failed (ui.md open issue 41). */
+const FIREFOX_WEBGL2_REFUSAL =
+  'WebGL creation failed: \n* AllowWebgl2:false restricts context creation on this system. ()'
 
 /**
  * One test of a listing in one project. Its place, the file, line and column of its declaration with its title, is the
@@ -114,10 +124,8 @@ function engineTestId(title: string): string {
 test(STARTUP_CHECK, { tag: '@engines' }, async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveTitle('Partsmith')
-  const app = page.getByTestId('app')
-  // Compiling the core's WebAssembly can take longer than the default expect timeout on a cold runner.
-  await expect(app).not.toHaveAttribute('data-core-status', 'loading', { timeout: 30_000 })
-  await expect(app).toHaveAttribute('data-core-status', 'ready')
+  // At the unsupported page, the failure names the browser's reason (ui.md 6.3, 6.8).
+  await expectReady(page)
   expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true)
   // The first frame with the startup document and the core ready (ui.md 2.18).
   await expect
@@ -197,6 +205,13 @@ test(
     expect(firefox.use.headless).toBe(false)
     expect(chromium.use.headless).toBeUndefined()
     expect(webkit.use.headless).toBeUndefined()
+    // Firefox turns off its own refusals of WebGL, its startup graphics probe's among them.
+    expect(firefox.use.launchOptions?.firefoxUserPrefs).toStrictEqual({
+      'webgl.force-enabled': true,
+    })
+    for (const engine of [chromium, webkit]) {
+      expect(engine.use.launchOptions?.firefoxUserPrefs, engine.name).toBeUndefined()
+    }
     expect(browserName).toBe(running.name)
   },
 )
@@ -270,4 +285,46 @@ test('E-164 the command opens the web notices in a new tab', async ({ page }) =>
 
   await expect(page.getByTestId('notification')).toHaveCount(0)
   await expect(page.getByTestId('document-name')).toHaveText('Untitled')
+})
+
+// The browser's reason for the unsupported page (ui.md 6.3, open issue 41).
+
+test('E-167 expectReady names why the browser refused WebGL2', async ({ page }) => {
+  await refuseWebGl2(page, { statusMessage: FIREFOX_WEBGL2_REFUSAL })
+  await expect(openApp(page)).rejects.toThrow(
+    new Error(`${UNSUPPORTED_WEBGL2_FAILURE} The browser said: ${FIREFOX_WEBGL2_REFUSAL}`),
+  )
+
+  // E-2's refusal fires no event.
+  const second = await page.context().newPage()
+  await refuseWebGl2(second)
+  await expect(openApp(second)).rejects.toThrow(
+    new Error(
+      `${UNSUPPORTED_WEBGL2_FAILURE} The browser fired no webglcontextcreationerror event.`,
+    ),
+  )
+
+  await Promise.all(
+    [page, second].flatMap((shown) => [
+      expect(shown.getByTestId('unsupported')).toBeVisible(),
+      expect(shown.getByTestId('app')).toHaveCount(0),
+    ]),
+  )
+})
+
+test('expectReady shows an empty reason as no reason given', async ({ page }) => {
+  await refuseWebGl2(page, { statusMessage: '' })
+  await expect(openApp(page)).rejects.toThrow(
+    new Error(`${UNSUPPORTED_WEBGL2_FAILURE} The browser said: no reason given`),
+  )
+})
+
+test('expectReady says when a new canvas gets the WebGL2 context the app was refused', async ({
+  page,
+}) => {
+  // Only the app's check of ui.md 3.1 is refused.
+  await refuseWebGl2(page, { calls: 1 })
+  await expect(openApp(page)).rejects.toThrow(
+    new Error(`${UNSUPPORTED_WEBGL2_FAILURE} A new canvas got a WebGL2 context.`),
+  )
 })

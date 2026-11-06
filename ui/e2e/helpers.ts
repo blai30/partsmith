@@ -151,15 +151,38 @@ export async function openApp(
 }
 
 /**
- * What the page shows of its startup (ui.md 3.1, 4.4), read in one go: the unsupported page's text
- * (null when that page is not shown) and the core status of `app` (`not rendered` before `app`
- * exists), where `failed` carries the fatal panel's text.
+ * What the page shows of its startup (ui.md 3.1, 4.4): the unsupported page's text with what a new
+ * canvas got when asked for WebGL2, or, when that page is not shown, the core status of `app`
+ * (`not rendered` before `app` exists), where `failed` carries the fatal panel's text.
  */
-function startupState(
-  page: Page,
-): Promise<{ readonly unsupported: string | null; readonly status: string }> {
+type StartupState =
+  | { readonly unsupported: string; readonly newCanvasAnswer: string }
+  | { readonly unsupported: null; readonly status: string }
+
+/** Reads the `StartupState` of the page in one go. */
+function startupState(page: Page): Promise<StartupState> {
   return page.evaluate(() => {
     const unsupported = document.querySelector('[data-testid="unsupported"]')?.textContent ?? null
+    if (unsupported !== null) {
+      // Asks a new canvas, never attached to the page, for WebGL2 as the app's check of ui.md 3.1
+      // does. The browser gives its reason for a refusal in this event and in a console warning,
+      // which the job log never shows (ui.md 6.3).
+      const probe = document.createElement('canvas')
+      const reasons: string[] = []
+      probe.addEventListener('webglcontextcreationerror', (event) => {
+        if (event instanceof WebGLContextEvent) {
+          reasons.push(event.statusMessage)
+        }
+      })
+      const created = probe.getContext('webgl2') !== null
+      const reason = reasons.at(0)
+      const newCanvasAnswer = created
+        ? 'A new canvas got a WebGL2 context.'
+        : reason === undefined
+          ? 'The browser fired no webglcontextcreationerror event.'
+          : `The browser said: ${reason === '' ? 'no reason given' : reason}`
+      return { unsupported, newCanvasAnswer }
+    }
     const status =
       document.querySelector('[data-testid="app"]')?.getAttribute('data-core-status') ??
       'not rendered'
@@ -173,24 +196,65 @@ function startupState(
 
 /**
  * Waits until the core runs and the startup document is open (ui.md 3.1, 6.3). The unsupported page
- * fails it at once with its text; a wait that ends without `ready`, at its timeout or the test's,
- * fails with the last status it read, the core's fatal text included.
+ * fails it at once with its text and the browser's reason for refusing WebGL2; a wait that ends
+ * without `ready`, at its timeout or the test's, fails with the last status it read, the core's
+ * fatal text included.
  */
 export async function expectReady(page: Page): Promise<void> {
   // Compiling the core's WebAssembly can take longer than the default expect timeout.
   await expect
     .poll(
       async () => {
-        const { unsupported, status } = await startupState(page)
+        const state = await startupState(page)
         // Nothing starts after the unsupported page, so waiting longer cannot help.
-        if (unsupported !== null) {
-          throw new Error(`The app shows its unsupported page instead of starting: ${unsupported}`)
+        if (state.unsupported !== null) {
+          throw new Error(
+            `The app shows its unsupported page instead of starting: ${state.unsupported} ${state.newCanvasAnswer}`,
+          )
         }
-        return status
+        return state.status
       },
       { timeout: OPEN_TIMEOUT_MILLISECONDS },
     )
     .toBe('ready')
+}
+
+/**
+ * Makes the browser refuse WebGL2 to the page (ui.md 6.3): an init script that, on every load and
+ * before the page's own scripts run, replaces `getContext` of `HTMLCanvasElement.prototype`.
+ * `getContext('webgl2')` returns null for the first `calls` calls of the load, or for every call
+ * without `calls`. With `statusMessage`, each refused call first fires `webglcontextcreationerror`
+ * at its canvas with that reason, as a browser does. Called before the page loads.
+ */
+export async function refuseWebGl2(
+  page: Page,
+  { statusMessage, calls }: { readonly statusMessage?: string; readonly calls?: number } = {},
+): Promise<void> {
+  await page.addInitScript(
+    (refusal) => {
+      const getContext = HTMLCanvasElement.prototype.getContext
+      let refused = 0
+      HTMLCanvasElement.prototype.getContext = function (
+        this: HTMLCanvasElement,
+        type: string,
+        ...rest: unknown[]
+      ) {
+        // Every other context type, and WebGL2 after the refused calls, still works.
+        if (type !== 'webgl2' || (refusal.calls !== null && refused >= refusal.calls)) {
+          return Reflect.apply(getContext, this, [type, ...rest])
+        }
+        refused += 1
+        if (refusal.statusMessage !== null) {
+          const event = new WebGLContextEvent('webglcontextcreationerror', {
+            statusMessage: refusal.statusMessage,
+          })
+          this.dispatchEvent(event)
+        }
+        return null
+      } as typeof getContext
+    },
+    { statusMessage: statusMessage ?? null, calls: calls ?? null },
+  )
 }
 
 /**

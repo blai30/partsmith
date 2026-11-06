@@ -49,8 +49,14 @@ export default defineConfig({
     },
     {
       name: 'firefox',
-      // Headless Firefox gave no WebGL2 on the runner, so it runs headed (ui.md 6.8).
-      use: { ...devices['Desktop Firefox'], headless: false },
+      // Runs headed under xvfb-run, as every run since the second has (ui.md 6.8). Firefox refuses WebGL for its
+      // whole life when its startup graphics probe takes longer than 4 s, as it can on a fresh runner. The preference
+      // turns that refusal off. The browser must still create the context, and a real GL failure still fails the test.
+      use: {
+        ...devices['Desktop Firefox'],
+        headless: false,
+        launchOptions: { firefoxUserPrefs: { 'webgl.force-enabled': true } },
+      },
       grep: /@engines/,
       default: false,
     },

@@ -14,6 +14,7 @@ import {
   inspectorInput,
   notification,
   openApp,
+  refuseWebGl2,
   renameBody,
   runCommand,
   sendRename,
@@ -119,17 +120,7 @@ test.describe('Startup and files', () => {
     'E-2 without WebGL2 only the unsupported page renders and no worker starts',
     { tag: '@engines' },
     async ({ page }) => {
-      await page.addInitScript(() => {
-        const getContext = HTMLCanvasElement.prototype.getContext
-        // Every other context type still works; only WebGL2 is missing.
-        HTMLCanvasElement.prototype.getContext = function (
-          this: HTMLCanvasElement,
-          type: string,
-          ...rest: unknown[]
-        ) {
-          return type === 'webgl2' ? null : Reflect.apply(getContext, this, [type, ...rest])
-        } as typeof getContext
-      })
+      await refuseWebGl2(page)
       await page.goto('/', { waitUntil: 'load' })
       const unsupported = page.getByTestId('unsupported')
       await expect(unsupported).toBeVisible()
