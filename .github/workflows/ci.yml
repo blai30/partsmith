@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# A newer run of the same ref cancels this one, an OCCT build that has not ended included, which the next run builds
+# A newer run of the same ref cancels this one, an OCCT build that has not ended included. The next run builds OCCT
 # again (delivery.md 2.14, choice 1).
 concurrency:
   group: ci-${{ github.ref }}
@@ -516,10 +516,10 @@ jobs:
 
   # The jobs on Windows and macOS and in Firefox and WebKit. They moved here from platforms.yml in wave H, once they
   # had passed its two latest runs on main (delivery.md 2.14, The move, ADR 0038). No step sets continue-on-error: a
-  # failure is fixed in the code or in a test, and recorded in delivery.md open issue 1 or ui.md open issue 41 until
-  # then.
-  # occt-platforms is a job of its own, so a cold OCCT build is saved even when the tests after it fail: actions/cache
-  # saves in its post step only when its job succeeds. The steps and the key are those of release.yml's bundle job.
+  # failure is fixed in the code or in a test. Until then it is recorded in delivery.md open issue 1 or ui.md open
+  # issue 41.
+  # occt-platforms is a job of its own: actions/cache saves in its post step only when its job succeeds. A cold OCCT
+  # build is then saved even when the tests after it fail. The steps and the key are those of release.yml's bundle job.
   # platforms.yml keeps a copy of its macos-15 row for full-rebuild (delivery.md 2.14, promotion step 1).
   occt-platforms:
     name: OCCT (${{ matrix.runner }})
@@ -580,7 +580,7 @@ jobs:
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1.13.0
       # Git Bash puts GNU link (/usr/bin/link) ahead of MSVC's link.exe on PATH, and rustc takes the first one
-      # when VCINSTALLDIR is set, so Cargo gets the link.exe next to cl.exe, the one CMake uses for OCCT.
+      # when VCINSTALLDIR is set. This step gives Cargo the link.exe next to cl.exe, the one CMake uses for OCCT.
       - if: runner.os == 'Windows'
         name: Use the MSVC linker for Rust
         run: |
@@ -598,15 +598,15 @@ jobs:
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
-      # Saved on main alone, where every later run can restore it, and also when the tests fail, since its post step
-      # otherwise saves only after a passing job: a run while a failure is being fixed then restores the dependency
+      # Saved on main alone, where every later run can restore it. Also saved when the tests fail, since its post step
+      # otherwise saves only after a passing job. A run while a failure is being fixed then restores the dependency
       # builds of the one before instead of building them cold (delivery.md 3.2). A run that a newer push cancels after
-      # a key miss saves a partial cache, which gh cache delete removes (delivery.md 2.14, choice 1).
+      # a key miss saves a partial cache. gh cache delete removes it (delivery.md 2.14, choice 1).
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
-      # --no-fail-fast, so one failing test binary does not hide the others. A hung test binary ends this step, so the
+      # With --no-fail-fast, one failing test binary does not hide the others. A hung test binary ends this step. The
       # examples runner and clippy still run (delivery.md open issue 1 (g)).
       - id: crates
         timeout-minutes: 20
@@ -635,8 +635,8 @@ jobs:
         run: df -h .
 
   # e2e for one engine, against this run's core-wasm. Playwright runs the firefox and webkit projects only when
-  # --project names them, and each runs the tests tagged @engines (ui.md 6.8). Firefox runs headed, so the run has a
-  # virtual display; WebKit stays headless.
+  # --project names them. Each runs the tests tagged @engines (ui.md 6.8). Firefox runs headed on the run's virtual
+  # display; WebKit stays headless.
   e2e-engines:
     name: End-to-end tests (${{ matrix.browser }})
     needs: core-wasm
@@ -665,7 +665,7 @@ jobs:
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       # Its time is apt's download from the Ubuntu mirror, under 3 minutes on most runs and up to 53 on a slow mirror
-      # (delivery.md 2.14 and open issue 16). The timeout ends such an install under this step's name, so the row fails
+      # (delivery.md 2.14 and open issue 16). The timeout ends such an install under this step's name. The row fails
       # at about 11 minutes instead of running into the job's 60. The failed rows are then rerun while the run is the
       # newest of its concurrency group (delivery.md 2.14).
       - name: Install ${{ matrix.browser }} and its system packages
