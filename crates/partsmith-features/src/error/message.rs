@@ -354,7 +354,7 @@ pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String {
 
 /// `value` as `format_value` writes it, with more decimals when the usual ones would move it by a hundredth of its
 /// distance to `other` or more: the fewest that keep it within that, up to 15 significant digits (section 3.12,
-/// "Values and bounds near each other"). So a message never shows a value that reads like its bound.
+/// "Values and bounds near each other"). A message never shows a value that reads like its bound.
 pub(crate) fn format_value_near(kind: FieldUnit, value: f64, other: f64, units: Units) -> String {
     match decimals_near(kind, value, other, units) {
         Some(decimals) => with_unit_label(
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn a_strict_bound_whose_text_would_fall_outside_it_moves_one_step_inside() {
-        // Written to the nearest, 1e-9 rad would be 0.000000057 deg, below the limit of 0.0000000572958 deg, and an
+        // Written to the nearest, 1e-9 rad would be 0.000000057 deg, below the limit of 0.0000000572958 deg. An
         // angle of 0.0000000571 deg would follow the advice and still fail.
         assert_eq!(
             format_bound(

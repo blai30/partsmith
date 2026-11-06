@@ -149,7 +149,7 @@ fn write_error(path: &Path) -> impl FnOnce(io::Error) -> CliError {
     move |source| CliError::Write { path, source }
 }
 
-/// Writes `contents` to `path` with the one write of cli.md section 3.7; a failure names the path
+/// Writes `contents` to `path` with the one write of cli.md section 3.7. A failure names the path
 /// as given, never a temporary file or the file a symbolic link leads to.
 pub fn write(path: &Path, contents: &[u8]) -> Result<(), CliError> {
     write_atomically(path, contents).map_err(write_error(path))

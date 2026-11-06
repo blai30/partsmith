@@ -1,6 +1,6 @@
 //! A cause and its actions (engine.md section 3.21, "Cause actions"): the cause keeps its text and
 //! what its primary change was, and its actions are made again from the current records after
-//! every recompute, so a revert that would change nothing, whose feature, parameter or neighbor is
+//! every recompute. A revert that would change nothing, whose feature, parameter or neighbor is
 //! gone, or that gives a datum plane a base it refuses (section 3.22), and `Undo` of an entry that
 //! is no longer the newest are left out.
 

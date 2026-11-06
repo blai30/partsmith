@@ -3276,7 +3276,7 @@ test('118: each workflow has a sources job on ubuntu-24.04, with its name, its n
       assert.equal(jobValue(job, 'if'), undefined, file)
     }
 
-    // The cache step comes before the archive step in ci.yml and platforms.yml, and release.yml has none.
+    // The cache step comes before the archive step in ci.yml and platforms.yml. release.yml has none.
     const cached = file !== UNCACHED_ARCHIVE_FILE
     const archive = cached ? 2 : 1
     const [toolchain, node, writer, partsmith, dependencies, upload] = steps.slice(archive + 1)

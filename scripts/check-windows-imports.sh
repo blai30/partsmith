@@ -2,7 +2,7 @@
 # Checks the imports of the Windows program <executable> with dumpbin (delivery.md section 3.6, The check of the
 # imports). It prints the listing. It exits 0 when the program imports a DLL of Windows' Universal C Runtime and no DLL
 # of the Visual C++ Redistributable. Otherwise it prints the error of delivery.md section 4 as a GitHub annotation, last
-# on standard output, and exits 1. It needs dumpbin on PATH, which ilammy/msvc-dev-cmd puts there, and runs in Git Bash.
+# on standard output, and exits 1. It needs dumpbin on PATH, which ilammy/msvc-dev-cmd puts there. It runs in Git Bash.
 #
 # Usage: scripts/check-windows-imports.sh <executable>
 set -euo pipefail
@@ -14,7 +14,7 @@ fi
 executable="$1"
 
 # Options start with -, since Git Bash turns an argument that starts with / into a path. dumpbin's exit status is not
-# used: the listing decides, and a missing dumpbin lists nothing.
+# used: the listing decides. A missing dumpbin lists nothing.
 listing="$(dumpbin -nologo -dependents "$executable" | tr -d '\r')" || true
 echo "$listing"
 # Each line of the listing without its leading spaces.

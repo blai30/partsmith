@@ -575,7 +575,7 @@ fn an_angle_within_the_angular_tolerance_states_that_tolerance() {
         bound_name: None,
     };
 
-    // 1e-9 rad is 0.0000000572958 deg. The bound is written above it, and every angle the advice names passes.
+    // 1e-9 rad is 0.0000000572958 deg. The bound is written above it. Every angle the advice names passes.
     assert_eq!(
         rendered(&error, "f-rev1"),
         "Angle must be greater than 0.000000058 deg, but it is 0.00000001 deg. Use a value greater than 0.000000058 deg."

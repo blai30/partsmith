@@ -647,4 +647,4 @@ The biggest risks are the OCCT-to-WASM build from Rust, topological naming robus
 - [ ] UI framework: SolidJS (proposed earlier) or React. Agents write React more reliably because far more React code exists to learn from, so React is now the leaning choice.
 - [ ] Who are the human reviewers at gates, and how many hours a week can they give (section 17)?
 - [ ] Agent compute budget. It sets how many agents run in parallel, and so how fast milestones land.
-- [ ] Domain name, and whether the GitHub org and Cloudflare account belong to a project organization or a person. The web app is at `https://partsmith.pages.dev` (confirmed by the owner on 2026-11-04), and the Cloudflare Pages project stays on the owner's own account (decided on 2026-11-05, delivery.md 8).
+- [ ] Domain name, and whether the GitHub org and Cloudflare account belong to a project organization or a person. The web app is at `https://partsmith.pages.dev` (confirmed by the owner on 2026-11-04). The Cloudflare Pages project stays on the owner's own account (decided on 2026-11-05, delivery.md 8).

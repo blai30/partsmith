@@ -415,7 +415,7 @@ test.describe('lost references and their fixes', () => {
     await expect(field).toHaveAttribute('data-active', 'true')
     await expect(field).toHaveAttribute('data-count', '1')
 
-    // The lift slides along the front side, so the front side did not move the datum's way.
+    // The lift slides along the front side. The front side did not move the datum's way.
     await fitView(page, 'Front')
     const mapping = toScreen(await canvas(page), { min: [-5, -5, 20], max: [5, 5, 30] }, 'Front')
     await clickAt(page, mapping.toPage([3, -5, 25]))

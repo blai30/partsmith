@@ -1,6 +1,6 @@
 //! A datum plane's new base (engine.md section 3.22, *A datum plane's new base*): while later
 //! features build on the sketches a datum plane passes its motion on to, a new base that changes
-//! that motion is refused. `attach_plane` answers a datum plane's pick with it, and the repair
+//! that motion is refused. `attach_plane` answers a datum plane's pick with it. The repair
 //! actions and the cause reverts that would store a refused base are left out.
 
 use std::cell::OnceCell;

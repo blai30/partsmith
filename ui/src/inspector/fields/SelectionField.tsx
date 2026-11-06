@@ -223,7 +223,7 @@ export function SelectionField({
         label: item.label,
         onSelect: () => {
           setActiveField(app, field.path)
-          // A choice lands in the order input was made, as a click does, and OK waits for it (3.6).
+          // A choice lands in the order input was made, as a click does. OK waits for it (3.6).
           landInTurn(app, () => capturePick(app, item)).catch(reportFailure('Choosing a selection'))
         },
       }))

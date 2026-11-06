@@ -29,8 +29,8 @@ const usageLine = 'usage: scripts/occt-source-archive.sh <directory>'
 const OCCT_URL = 'https://github.com/Open-Cascade-SAS/OCCT.git'
 
 // The files of the fixture's tagged commit, each with a text of its own and LF line endings. `.gitattributes` names
-// only *.bat and *.cmake, so no attribute covers the others, and the .cmake file has two lines and is text without an
-// eol attribute, whose line endings core.eol decides.
+// only *.bat and *.cmake. No attribute covers the others. The .cmake file has two lines and is text without an eol
+// attribute, whose line endings core.eol decides.
 const TAGGED_FILES = {
   '.clang-format': 'BasedOnStyle: Google\n',
   'CMakeLists.txt': 'project (OCCT)\n',

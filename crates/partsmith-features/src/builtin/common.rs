@@ -179,7 +179,7 @@ pub(crate) fn check_range(
 
 /// `value` when it meets `applied`, the bound a check applies a tolerance past the strict bound `written`, else
 /// `OutOfRange` at `field` (features.md section 3.4). The error names `written`, with `bound_name`, when the value fails
-/// it too, else `applied` with no name, so a message never states a bound the value meets.
+/// it too, else `applied` with no name. A message never states a bound the value meets.
 pub(crate) fn check_within_tolerance(
     context: &BuildContext<'_>,
     field: &str,
@@ -281,8 +281,8 @@ pub(crate) fn is_positive_length(length: f64) -> bool {
 }
 
 /// The declared length at `field`, which must be greater than 0 and within the modeling limit. A value below
-/// `LINEAR_TOLERANCE` is `OutOfRange` like 0, so it never reaches the kernel: `GreaterThan(0)` for 0 or less,
-/// `AtLeast(LINEAR_TOLERANCE)` above 0 (features.md section 3.4).
+/// `LINEAR_TOLERANCE` is `OutOfRange` like 0: `GreaterThan(0)` for 0 or less, `AtLeast(LINEAR_TOLERANCE)` above 0
+/// (features.md section 3.4). Such a value never reaches the kernel.
 pub(crate) fn positive_length(
     context: &BuildContext<'_>,
     field: &str,

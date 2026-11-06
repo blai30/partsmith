@@ -30,9 +30,9 @@ temporary="$archive.$$.partial"
 trap 'rm -f -- "$temporary"' EXIT
 # The -c options and GIT_ATTR_NOSYSTEM keep the configuration from changing the bytes: the line endings of files
 # without an eol attribute (core.autocrlf, and core.eol for text files), the file modes, and attributes such as
-# export-ignore from a global or system attributes file. git archive of a commit gives every entry the commit's time,
-# and gzip -n leaves the name and time out of its header. A shallow clone holds the commit and its tree, which is all
-# git archive reads.
+# export-ignore from a global or system attributes file. git archive of a commit gives every entry the commit's time.
+# gzip -n leaves the name and time out of its header. A shallow clone holds the commit and its tree, which is all git
+# archive reads.
 GIT_ATTR_NOSYSTEM=1 git -C "$root" -c core.autocrlf=false -c core.eol=lf -c tar.umask=0002 \
   -c core.attributesFile=/dev/null archive --format=tar --prefix="partsmith-$commit/" "$commit" |
   gzip -9 -n >"$temporary"

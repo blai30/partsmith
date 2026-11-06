@@ -36,7 +36,7 @@ const scriptPath = fileURLToPath(new URL(`../../${PARTSMITH_SCRIPT}`, import.met
 const usageLine = `usage: ${PARTSMITH_SCRIPT} <directory>`
 
 // The files of the fixture's first commit, each a short text with LF line endings. The second line of .gitattributes
-// takes the eol attribute off src/main.rs, so core.autocrlf and core.eol decide that file's line endings.
+// takes the eol attribute off src/main.rs. core.autocrlf and core.eol decide that file's line endings.
 const FIRST_FILES = {
   'README.md': '# Partsmith\n',
   'src/main.rs': 'fn main() {}\n',

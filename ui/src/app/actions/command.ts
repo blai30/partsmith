@@ -1462,8 +1462,8 @@ export async function capturePick(
 /**
  * A pick into the Base plane field of an edited datum plane (3.7): it lands once the core takes
  * it as the datum's new base, else its refusal shows. Until the core answers it is on its way as a
- * click on the model is (3.6), and a cancel meanwhile ends the command at once: the answer then
- * lands nothing.
+ * click on the model is (3.6). A cancel meanwhile ends the command at once: the answer then lands
+ * nothing.
  */
 async function pickBase(
   app: App,

@@ -361,8 +361,8 @@ jobs:
         timeout-minutes: 10
         run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
       - run: xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}
-      # Its traces can hold the files the page loaded, the core among them. It is kept 7 days like the core, and the
-      # run's sources-web holds their source a day longer (delivery.md 2.13).
+      # Its traces can hold the files the page loaded, the core among them. It is kept 7 days like the core. The run's
+      # sources-web holds their source a day longer (delivery.md 2.13).
       - if: failure()
         uses: actions/upload-artifact@v7.0.2
         with:

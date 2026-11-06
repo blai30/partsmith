@@ -70,7 +70,7 @@ jobs:
   sources:
     name: Source archives (desktop)
     needs: verify
-    # verify is skipped in a dry run, and the archives are still made.
+    # verify is skipped in a dry run. The archives are still made.
     if: ${{ !cancelled() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -234,7 +234,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The tagged commit, for its THIRD-PARTY-NOTICES.txt; checkout empties the workspace, so it comes first.
+      # The tagged commit, for its THIRD-PARTY-NOTICES.txt. It comes first because checkout empties the workspace.
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.2
         with:

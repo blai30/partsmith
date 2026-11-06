@@ -49,8 +49,8 @@ fn file_names(relative: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The object of desktop.md 2.8: the Windows installer compresses with zlib, and `build` has no `windows` key, which
-/// keeps tauri-build's `staticVCRuntime` at its default (desktop.md 2.2).
+/// The object of desktop.md 2.8: the Windows installer compresses with zlib, and `build` has no `windows` key.
+/// Without that key, tauri-build's `staticVCRuntime` stays at its default (desktop.md 2.2).
 fn expected_configuration() -> Value {
     json!({
         "$schema": "https://schema.tauri.app/config/2",

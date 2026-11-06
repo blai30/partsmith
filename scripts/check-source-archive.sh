@@ -15,6 +15,6 @@ commit="$2"
 
 # gzip -t reads all of the file: a cut-off archive still names the commit in its first header.
 gzip -t "$archive" 2>/dev/null || exit 1
-# git get-tar-commit-id exits after that header, and the gzip that feeds it may then report a broken pipe where SIGPIPE
-# is ignored. Only what git prints counts.
+# git get-tar-commit-id exits after that header. The gzip that feeds it may then report a broken pipe where SIGPIPE is
+# ignored. Only what git prints counts.
 [ "$(gzip -dc "$archive" 2>/dev/null | git get-tar-commit-id 2>/dev/null)" = "$commit" ]

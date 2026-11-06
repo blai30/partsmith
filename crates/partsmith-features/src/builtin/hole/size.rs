@@ -96,7 +96,7 @@ impl HoleSize {
             } => {
                 let head_diameter = wider("hole_type.diameter", head_diameter)?;
                 let head_depth = positive_length(context, "hole_type.depth", head_depth)?;
-                // The counterbore ends a tolerance above the shoulder, so the bore between them is long enough
+                // The counterbore ends a tolerance above the shoulder. The bore between them is then long enough
                 // for the kernel.
                 if let Some(depth) = depth {
                     check_within_tolerance(
@@ -121,7 +121,7 @@ impl HoleSize {
                 let head_diameter = wider("hole_type.diameter", head_diameter)?;
                 let head_angle = included_angle(context, "hole_type.angle", head_angle)?;
                 let slope = (head_angle / 2.0).tan();
-                // The cone ends a tolerance above the shoulder; the bound as written is the head diameter whose
+                // The cone ends a tolerance above the shoulder. The bound as written is the head diameter whose
                 // cone ends exactly at the shoulder.
                 if let Some(depth) = depth {
                     check_within_tolerance(

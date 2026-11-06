@@ -3667,7 +3667,7 @@ fn merged_tops(extruded: bool) -> String {
 
 #[test]
 fn t169_keep_this_match_is_not_offered_when_the_merged_name_moves_otherwise() {
-    // `f-box2` was made after the lift, so its top has no motion. The merged face keeps the name `f-box1/top`, whose
+    // `f-box2` was made after the lift. Its top has no motion. The merged face keeps the name `f-box1/top`, whose
     // motion is the lift's translation.
     let mut session = headless_session();
     let (_, sent, _) = opened(&mut session, &merged_tops(true));

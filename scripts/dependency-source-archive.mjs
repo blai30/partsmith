@@ -1,6 +1,6 @@
 // Writes the archives of the Rust crates and the npm packages that the desktop app's executables or the web build are
 // compiled from, made from Cargo.lock and ui/pnpm-lock.yaml, as parts under Cloudflare Pages' file limit. The npm
-// archives also hold the source of the code under MPL-2.0 in their native packages, and the desktop crate archive also
+// archives also hold the source of the code under MPL-2.0 in their native packages. The desktop crate archive also
 // holds tauri-cli and the crates of its own lock file. CI writes the web scope's into every web deployment. The
 // release workflow attaches the desktop scope's to every release (docs/spec/delivery.md section 2.13, ADR 0034).
 // Usage: node scripts/dependency-source-archive.mjs web|desktop <directory>
@@ -896,8 +896,8 @@ async function vendorTool(tool, vendor) {
 /**
  * Writes `rust-crates-{scope}` into `work` with `config.toml` and `vendor/`: every crate of Cargo.lock vendored, and
  * for `desktop` every crate of the lock file of `tool`, the extracted tauri-cli (null for `web`). Those of `crates`
- * and of the tool's lock file stay whole, without the files EXCLUDED_LICENSE_FILES names, and every other one becomes
- * a stub. The tool's own folder moves into `vendor/` last.
+ * and of the tool's lock file stay whole, without the files EXCLUDED_LICENSE_FILES names. Every other one becomes a
+ * stub. The tool's own folder moves into `vendor/` last.
  */
 async function vendorCrates(root, run, scope, work, crates, tool) {
   const folder = join(work, cratesFolder(scope))

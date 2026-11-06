@@ -10,8 +10,8 @@ import { showPickHint } from './notifications'
 import { planeTarget, sketchPlaneOf, unbuiltState } from './sketch-plane'
 
 // A datum plane's new base (ui.md 3.7, engine.md 3.22): while a command edits a datum plane, each
-// pick of its Base plane field asks the core before it lands, and a pick the core gives no plane
-// for is refused with a hint under the field. A pick of the edited datum itself is refused without
+// pick of its Base plane field asks the core before it lands. A pick the core gives no plane for
+// is refused with a hint under the field. A pick of the edited datum itself is refused without
 // asking. The Restore of such an edit asks for its saved base first. A candidate of the base's
 // repair that the core leaves without an action says why in its tooltip.
 
