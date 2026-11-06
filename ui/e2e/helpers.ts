@@ -151,9 +151,10 @@ export async function openApp(
 }
 
 /**
- * What the page shows of its startup (ui.md 3.1, 4.4): the unsupported page's text with what a new
- * canvas got when asked for WebGL2, or, when that page is not shown, the core status of `app`
- * (`not rendered` before `app` exists), where `failed` carries the fatal panel's text.
+ * What the page shows of its startup (ui.md 3.1, 4.4). When the unsupported page is shown, it is
+ * that page's text with what a new canvas got when asked for WebGL2. When it is not, it is the
+ * core status of `app` (`not rendered` before `app` exists), where `failed` carries the fatal
+ * panel's text.
  */
 type StartupState =
   | { readonly unsupported: string; readonly newCanvasAnswer: string }
@@ -165,8 +166,8 @@ function startupState(page: Page): Promise<StartupState> {
     const unsupported = document.querySelector('[data-testid="unsupported"]')?.textContent ?? null
     if (unsupported !== null) {
       // Asks a new canvas, never attached to the page, for WebGL2 as the app's check of ui.md 3.1
-      // does. The browser gives its reason for a refusal in this event and in a console warning,
-      // which the job log never shows (ui.md 6.3).
+      // does. The browser gives its reason for a refusal in this event and in a console warning.
+      // The job log never shows that warning (ui.md 6.3).
       const probe = document.createElement('canvas')
       const reasons: string[] = []
       probe.addEventListener('webglcontextcreationerror', (event) => {
@@ -220,8 +221,8 @@ export async function expectReady(page: Page): Promise<void> {
 }
 
 /**
- * Makes the browser refuse WebGL2 to the page (ui.md 6.3): an init script that, on every load and
- * before the page's own scripts run, replaces `getContext` of `HTMLCanvasElement.prototype`.
+ * Makes the browser refuse WebGL2 to the page (ui.md 6.3). It adds an init script that replaces
+ * `getContext` of `HTMLCanvasElement.prototype` on every load, before the page's own scripts run.
  * `getContext('webgl2')` returns null for the first `calls` calls of the load, or for every call
  * without `calls`. With `statusMessage`, each refused call first fires `webglcontextcreationerror`
  * at its canvas with that reason, as a browser does. Called before the page loads.
