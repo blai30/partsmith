@@ -1,5 +1,5 @@
 // Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
-// 120, 122 to 124 and 128 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
+// 120, 122 to 124, 128 and 130 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
 // scripts/check-source-archive.sh and scripts/check-windows-imports.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -16,7 +16,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
@@ -221,6 +221,7 @@ const PINNED_ACTIONS = {
   'actions/checkout': 'v7.0.1',
   'actions/cache': 'v6.1.0',
   'actions/cache/restore': 'v6.1.0',
+  'actions/cache/save': 'v6.1.0',
   'actions/setup-node': 'v7.1.0',
   'pnpm/action-setup': 'v6.1.0',
   'Swatinem/rust-cache': 'v2.9.2',
@@ -404,9 +405,96 @@ cat "$CARGO_STDERR" >&2
 exit "$CARGO_STATUS"
 `
 
-// The step of e2e-engines that installs its engine with the engine's system packages, and its name (section 2.14).
-const ENGINE_INSTALL = 'pnpm exec playwright install --with-deps ${{ matrix.browser }}'
-const ENGINE_INSTALL_STEP = 'Install ${{ matrix.browser }} and its system packages'
+// The jobs of ci.yml that run the E-tests, each with the browser its steps name (the matrix's in e2e-engines) and the
+// command of its test step (sections 2.4 and 2.14, tests 62, 79 and 130).
+const E2E_JOBS = {
+  'e2e-engines': {
+    browser: '${{ matrix.browser }}',
+    tests: 'xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}',
+  },
+  e2e: { browser: 'chromium', tests: 'pnpm e2e' },
+}
+
+// The runner of both jobs, which the key of their apt cache names (section 3.2, test 130).
+const E2E_RUNNER = 'ubuntu-24.04'
+
+// The step that installs the packages of ui/ before each browser install (sections 2.4 and 2.14).
+const PACKAGE_INSTALL = 'pnpm install --frozen-lockfile'
+
+// Where the apt cache keeps the archives on the runner, and the condition of the two steps that save them: a run on
+// main whose restore missed (section 3.2, test 130).
+const APT_ARCHIVES = '~/apt-archives'
+const AFTER_MISS_ON_MAIN =
+  "steps.apt-archives.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'"
+
+// The first line of the YAML block of section 3.2 that holds the six steps of the apt cache (test 130).
+const APT_STEPS_FIRST_LINE = '- name: Read the Playwright version'
+
+/** The command that installs `browser` with its system packages (sections 2.4 and 2.14). */
+function browserInstall(browser) {
+  return `pnpm exec playwright install --with-deps ${browser}`
+}
+
+/** The name of the step that installs `browser`, which GitHub's timeout error names (test 79). */
+function browserInstallName(browser) {
+  return `Install ${browser} and its system packages`
+}
+
+/**
+ * The six steps of section 3.2 that run between the package install and the tests of a job of E2E_JOBS, for the
+ * browser `browser` on the runner `runner`, each as the object that `stepEntries` gives (test 130).
+ */
+function aptCacheSteps(browser, runner) {
+  return [
+    {
+      name: 'Read the Playwright version',
+      id: 'playwright',
+      run: [
+        `version=$(node -p "require('@playwright/test/package.json').version")`,
+        'echo "version=$version" >> "$GITHUB_OUTPUT"',
+        '',
+      ].join('\n'),
+    },
+    {
+      name: `Restore the apt archives of ${browser}`,
+      id: 'apt-archives',
+      uses: pinned('actions/cache/restore'),
+      with: {
+        path: APT_ARCHIVES,
+        key:
+          `apt-archives-${runner}-${browser}-playwright-` +
+          '${{ steps.playwright.outputs.version }}',
+      },
+    },
+    {
+      name: "Copy the apt archives into apt's cache",
+      if: "steps.apt-archives.outputs.cache-hit == 'true'",
+      run: 'sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/',
+    },
+    {
+      name: browserInstallName(browser),
+      'timeout-minutes': '10',
+      run: browserInstall(browser),
+    },
+    {
+      name: "Copy the apt archives out of apt's cache",
+      if: AFTER_MISS_ON_MAIN,
+      run: [
+        "if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then",
+        '  mkdir -p ~/apt-archives',
+        '  cp /var/cache/apt/archives/*.deb ~/apt-archives/',
+        'fi',
+        '',
+      ].join('\n'),
+    },
+    {
+      name: `Save the apt archives of ${browser}`,
+      if: AFTER_MISS_ON_MAIN,
+      uses: pinned('actions/cache/save'),
+      with: { path: APT_ARCHIVES, key: '${{ steps.apt-archives.outputs.cache-primary-key }}' },
+    },
+  ]
+}
 
 // A stand-in for gh that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
 // $STUB_ANSWER or, when $STUB_FAILS is 1, fails as an API error does.
@@ -1517,12 +1605,10 @@ test('61: a hung crate test ends its own step after 20 minutes, so the examples 
 test("62: e2e-engines runs the engine subset in Firefox and in WebKit against CI's core-wasm", async () => {
   const job = await workflowJob('ci.yml', 'e2e-engines')
   const steps = jobSteps(job)
-  const install = commandStep(steps, 'pnpm install --frozen-lockfile')
-  const browsers = commandStep(steps, ENGINE_INSTALL)
-  const run = commandStep(
-    steps,
-    'xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}',
-  )
+  const { browser, tests } = E2E_JOBS['e2e-engines']
+  const install = commandStep(steps, PACKAGE_INSTALL)
+  const browsers = commandStep(steps, browserInstall(browser))
+  const run = commandStep(steps, tests)
 
   assert.deepEqual(jobNeeds(job), ['core-wasm'])
   assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04')
@@ -1695,22 +1781,30 @@ test('73: no test step of the python job may fail without failing the job', asyn
   }
 })
 
-test('79: a slow mirror ends the browser install after 10 minutes, not the job', async () => {
-  const job = await workflowJob('ci.yml', 'e2e-engines')
-  const steps = jobSteps(job)
-  const install = commandStep(steps, ENGINE_INSTALL)
+test('79: a slow mirror ends each browser install after 10 minutes, not the job', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
 
-  assert.equal(stepValue(steps[install], 'name'), ENGINE_INSTALL_STEP)
-  assert.equal(stepValue(steps[install], 'timeout-minutes'), '10')
-  assert.ok(10 < timeoutMinutes(job), "the browser install may take the whole job's time")
+  for (const [id, { browser }] of Object.entries(E2E_JOBS)) {
+    const job = findJob(jobs, 'ci.yml', id)
+    const steps = jobSteps(job)
+    const install = commandStep(steps, browserInstall(browser))
+
+    assert.equal(stepValue(steps[install], 'name'), browserInstallName(browser), id)
+    assert.equal(stepValue(steps[install], 'timeout-minutes'), '10', id)
+    assert.ok(10 < timeoutMinutes(job), `${id}: the browser install may take the whole job's time`)
+  }
 })
 
-test('79: after a failed install, the report upload only warns that it found no files', async () => {
-  const steps = jobSteps(await workflowJob('ci.yml', 'e2e-engines'))
-  const upload = steps.at(-1)
+test('79: after a failed install, each report upload only warns that it found no files', async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
 
-  assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'))
-  assert.equal(stepMapping(upload, 'with')['if-no-files-found'], undefined)
+  for (const id of Object.keys(E2E_JOBS)) {
+    const upload = jobSteps(findJob(jobs, 'ci.yml', id)).at(-1)
+
+    assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'), id)
+    assert.equal(stepValue(upload, 'if'), 'failure()', id)
+    assert.equal(stepMapping(upload, 'with')['if-no-files-found'], undefined, id)
+  }
 })
 
 test('81: the release matrix builds the bundles of section 3.6 and no AppImage', async () => {
@@ -3889,4 +3983,283 @@ test('128: the copy comparison leaves out comment and blank lines and pairs each
     [undefined, '      - run: two'],
   ])
   assert.deepEqual(differingLines(original, original), [])
+})
+
+/**
+ * The keys of a step and their values, as an object: a mapping such as `with` as the object of its entries, a block
+ * scalar as its text, and any other value as written. Comment lines and the lines of a block are no keys.
+ */
+function stepEntries(step) {
+  const entries = {}
+  for (const line of step) {
+    const key = /^([\w-]+):/.exec(line)?.[1]
+    if (key !== undefined) {
+      const value = stepValue(step, key)
+      entries[key] = value === '' ? stepMapping(step, key) : value
+    }
+  }
+  return entries
+}
+
+/**
+ * The steps of `steps` after the package install and before the step that runs `tests`, where section 3.2 puts the
+ * apt cache; fails the test when either step is missing or the tests come first.
+ */
+function stepsAroundInstall(steps, tests) {
+  const install = commandStep(steps, PACKAGE_INSTALL)
+  const run = commandStep(steps, tests)
+  assert.ok(install < run, `the tests (${tests}) run before ${PACKAGE_INSTALL}`)
+  return steps.slice(install + 1, run)
+}
+
+/**
+ * The steps `steps` as a workflow writes them, without their indentation: `- ` before each step's first line and two
+ * spaces before its other lines, with comment lines left out.
+ */
+function writtenSteps(steps) {
+  return steps.flatMap((step) =>
+    step
+      .filter((line) => !isBlankOrComment(line))
+      .map((line, i) => (i === 0 ? `- ${line}` : `  ${line}`)),
+  )
+}
+
+/** The lines of the fenced code block of a Markdown `text` whose first line is `firstLine`; undefined when there is none. */
+function fencedBlock(text, firstLine) {
+  const lines = text.split('\n')
+  const start = lines.findIndex((line, i) => line === firstLine && lines[i - 1]?.startsWith('```'))
+  return start === -1 ? undefined : lines.slice(start, lines.indexOf('```', start))
+}
+
+/**
+ * The version at which the importer `.` of a pnpm lock file's `text` locks the package `name`, among its dependencies
+ * and dev dependencies, without the peers that pnpm writes after it in parentheses; undefined when it locks none.
+ */
+function lockedVersion(text, name) {
+  const importer = blockBelow(text.split('\n'), '  .:', 4) ?? []
+  const keys = new Set([`  ${name}:`, `  '${name}':`])
+  const groups = new Set(['dependencies:', 'devDependencies:'])
+  let group
+  for (const [i, line] of importer.entries()) {
+    if (!line.startsWith(' ')) {
+      group = line
+    } else if (groups.has(group) && keys.has(line)) {
+      const version = indentedLines(importer, i)
+        .map((entry) => /^ {2}version: (.*)$/.exec(entry)?.[1])
+        .find((entry) => entry !== undefined)
+      return version?.replace(/\(.*$/, '')
+    }
+  }
+  return undefined
+}
+
+for (const [id, { browser, tests }] of Object.entries(E2E_JOBS)) {
+  test(`130: ${id} runs the six steps of section 3.2 for ${browser} between its package install and its tests`, async () => {
+    const job = await workflowJob('ci.yml', id)
+    const runner = jobValue(job, 'runs-on')
+
+    assert.equal(runner, E2E_RUNNER)
+    assert.deepEqual(
+      stepsAroundInstall(jobSteps(job), tests).map(stepEntries),
+      aptCacheSteps(browser, runner),
+    )
+  })
+}
+
+test("130: e2e-engines' six steps are the YAML of section 3.2, line for line", async () => {
+  const [job, spec] = await Promise.all([
+    workflowJob('ci.yml', 'e2e-engines'),
+    repositoryText('docs/spec/delivery.md'),
+  ])
+  const block = fencedBlock(spec, APT_STEPS_FIRST_LINE)
+
+  assert.ok(block, `section 3.2 has no YAML block that starts with ${APT_STEPS_FIRST_LINE}`)
+  assert.deepEqual(
+    writtenSteps(stepsAroundInstall(jobSteps(job), E2E_JOBS['e2e-engines'].tests)),
+    block.filter((line) => !isBlankOrComment(line)),
+  )
+})
+
+test("130: e2e's six steps are e2e-engines' with chromium for the matrix's browser, comment and blank lines aside", async () => {
+  const jobs = workflowJobs(await workflowText('ci.yml'))
+  const [engines, chromium] = ['e2e-engines', 'e2e'].map((id) =>
+    writtenSteps(stepsAroundInstall(jobSteps(findJob(jobs, 'ci.yml', id)), E2E_JOBS[id].tests)),
+  )
+
+  assert.deepEqual(
+    chromium,
+    engines.map((line) => line.replaceAll(E2E_JOBS['e2e-engines'].browser, E2E_JOBS.e2e.browser)),
+  )
+})
+
+test('130: no other job of the workflows installs a browser or names the apt archives', async () => {
+  for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
+    for (const job of workflowJobs(text)) {
+      if (file === 'ci.yml' && Object.hasOwn(E2E_JOBS, job.id)) {
+        continue
+      }
+      for (const step of jobSteps(job)) {
+        const run = stepValue(step, 'run') ?? ''
+        assert.ok(!run.includes('playwright install'), `${file}: ${job.id} runs ${run}`)
+      }
+      const line = job.lines.find((jobLine) => jobLine.includes('apt-archives'))
+      assert.equal(line, undefined, `${file}: ${job.id} names the apt archives in: ${line}`)
+    }
+  }
+})
+
+test('130: the version step writes the Playwright version that the lock file and package.json pin', async (context) => {
+  const [lock, manifest, job] = await Promise.all([
+    repositoryText('ui/pnpm-lock.yaml'),
+    repositoryText('ui/package.json'),
+    workflowJob('ci.yml', 'e2e-engines'),
+  ])
+  const steps = jobSteps(job)
+  const version = lockedVersion(lock, '@playwright/test')
+  const directory = await temporaryDirectory(context)
+  const scriptPath = join(directory, 'playwright-version.sh')
+  const outputPath = join(directory, 'github-output')
+  await writeFile(scriptPath, stepValue(steps[idStep(steps, 'playwright')], 'run'))
+  await writeFile(outputPath, '')
+
+  const result = spawnSync('bash', ['-e', scriptPath], {
+    cwd: join(repositoryRoot, 'ui'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
+      GITHUB_OUTPUT: outputPath,
+    },
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(version ?? '', /^\d+\.\d+\.\d+$/)
+  assert.equal(JSON.parse(manifest).devDependencies['@playwright/test'], version)
+  assert.equal(await readFile(outputPath, 'utf8'), `version=${version}\n`)
+})
+
+test("130: the copy out of apt's cache is a script that bash reads", async (context) => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'e2e-engines'))
+  const copy = steps[namedStep(steps, "Copy the apt archives out of apt's cache")]
+  const scriptPath = join(await temporaryDirectory(context), 'copy-out.sh')
+  await writeFile(scriptPath, stepValue(copy, 'run'))
+
+  const result = spawnSync('bash', ['-n', scriptPath], { encoding: 'utf8' })
+
+  assert.equal(result.status, 0, result.stderr)
+})
+
+test('130: stepEntries reads scalars, block scalars and mappings, and leaves out comments', () => {
+  const step = [
+    'name: Save',
+    '# Why it saves.',
+    'if: a == b',
+    'uses: actions/cache/save@v6.1.0',
+    'with:',
+    '  path: ~/apt-archives',
+    '  key: k',
+    'run: |',
+    '  echo one',
+    '  echo two',
+  ]
+
+  assert.deepEqual(stepEntries(step), {
+    name: 'Save',
+    if: 'a == b',
+    uses: 'actions/cache/save@v6.1.0',
+    with: { path: '~/apt-archives', key: 'k' },
+    run: 'echo one\necho two\n',
+  })
+})
+
+test('130: the steps around the install are those between the package install and the tests', () => {
+  const steps = [
+    ['uses: actions/checkout@v7.0.1'],
+    [`run: ${PACKAGE_INSTALL}`],
+    ['name: One', 'run: one'],
+    ['name: Two', 'run: two'],
+    ['run: pnpm e2e'],
+    ['if: failure()'],
+  ]
+
+  assert.deepEqual(stepsAroundInstall(steps, 'pnpm e2e'), [steps[2], steps[3]])
+  assert.deepEqual(stepsAroundInstall([steps[1], steps[4]], 'pnpm e2e'), [])
+  assert.throws(() => stepsAroundInstall([steps[4], steps[1]], 'pnpm e2e'), /run before/)
+  assert.throws(() => stepsAroundInstall([steps[1]], 'pnpm e2e'), /no step that runs pnpm e2e/)
+})
+
+test('130: writtenSteps writes each step as a workflow does and leaves out its comment lines', () => {
+  const steps = [['name: One', '# Why.', 'with:', '  key: k'], ['run: two']]
+
+  assert.deepEqual(writtenSteps(steps), ['- name: One', '  with:', '    key: k', '- run: two'])
+})
+
+test('130: fencedBlock finds the code block that starts with a line, and only a code block', () => {
+  const text = [
+    '- name: Read the Playwright version',
+    '',
+    '```yaml',
+    '- name: Other',
+    '```',
+    '',
+    '```yaml',
+    '- name: Read the Playwright version',
+    '  id: playwright',
+    '```',
+  ].join('\n')
+
+  assert.deepEqual(fencedBlock(text, '- name: Read the Playwright version'), [
+    '- name: Read the Playwright version',
+    '  id: playwright',
+  ])
+  assert.equal(fencedBlock(text, '- name: Missing'), undefined)
+})
+
+test('130: lockedVersion reads a package of the root importer without the peers after its version', () => {
+  const lock = [
+    "lockfileVersion: '9.0'",
+    '',
+    'importers:',
+    '',
+    '  .:',
+    '    dependencies:',
+    '      lucide-react:',
+    '        specifier: 1.55.0',
+    '        version: 1.55.0(react@19.3.0)',
+    '    devDependencies:',
+    "      '@playwright/test':",
+    '        specifier: 1.64.0',
+    '        version: 1.64.0',
+    '',
+    'packages:',
+  ].join('\n')
+
+  assert.equal(lockedVersion(lock, '@playwright/test'), '1.64.0')
+  assert.equal(lockedVersion(lock, 'lucide-react'), '1.55.0')
+})
+
+test('130: lockedVersion finds no version in another importer, in packages or in an empty importer', () => {
+  const lock = [
+    'importers:',
+    '',
+    '  .:',
+    '    devDependencies:',
+    '      vite:',
+    '        specifier: 8.3.4',
+    '        version: 8.3.4',
+    '',
+    '  docs:',
+    '    devDependencies:',
+    "      '@playwright/test':",
+    '        specifier: 1.63.0',
+    '        version: 1.63.0',
+    '',
+    'packages:',
+    '',
+    "  '@playwright/test@1.64.0':",
+    '    resolution: {integrity: sha512-x}',
+  ].join('\n')
+
+  assert.equal(lockedVersion(lock, '@playwright/test'), undefined)
+  assert.equal(lockedVersion('importers:\n\n  .: {}\n', 'vite'), undefined)
 })
