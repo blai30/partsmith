@@ -1,0 +1,82 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-rev1/lateral/e-1",
+              "f-rev1/lateral/e-2",
+              "f-rev1/lateral/e-3",
+              "f-rev1/lateral/e-4",
+              "f-rev1/start-cap",
+              "f-rev1/end-cap"
+            ],
+            "edges": [
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-1|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-1)",
+              "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)",
+              "edge(f-rev1/lateral/e-2|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-3|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
+              "edge(f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-2|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "vertex(f-rev1/lateral/e-2|f-rev1/lateral/e-3|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-2|f-rev1/lateral/e-3)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+            ]
+          }
+        },
+        "references": {
+          "/axis/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-cyl1/side"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

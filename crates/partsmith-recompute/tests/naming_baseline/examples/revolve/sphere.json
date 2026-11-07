@@ -1,0 +1,31 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-rev1/lateral/e-1"
+            ],
+            "edges": [
+              null,
+              null,
+              "edge(f-rev1/lateral/e-1)"
+            ],
+            "vertices": [
+              "vertex(f-rev1/lateral/e-1)#1",
+              "vertex(f-rev1/lateral/e-1)#2"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

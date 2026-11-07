@@ -7,9 +7,10 @@
 //! `measure.rs`, the build-time medians of the budgets in `timing.rs`, the helpers of the dress-up
 //! and combine features in `dressup.rs` and `combine.rs`, the canonical examples check in
 //! `examples.rs`, and the helpers of messages, fixes and picks in `messages.rs`. The records,
-//! documents and motion checks of the frames on the model (ADR 0023) are in `frames.rs`, and the
-//! records that a feature's document tests share with its release-only budgets (`budgets.rs`) in a
-//! module named after the feature.
+//! documents and motion checks of the frames on the model (ADR 0023) are in `frames.rs`, the
+//! naming baseline of naming.md test 196 in `naming_baseline.rs`, and the records that a feature's
+//! document tests share with its release-only budgets (`budgets.rs`) in a module named after the
+//! feature.
 
 // The test targets `integration` and `budgets` and the bench each use only some of these helpers.
 #![allow(dead_code)]
@@ -24,6 +25,7 @@ pub mod import;
 pub mod linear_pattern;
 mod measure;
 mod messages;
+pub mod naming_baseline;
 mod reports;
 pub mod shell;
 mod timing;
@@ -219,10 +221,13 @@ impl Run {
         Run::with_assets(document, &Assets::new())
     }
 
-    /// Runs `document` as `Run::new` does, with these asset bytes.
+    /// Runs `document` as `Run::new` does, with these asset bytes. In a test of the reference
+    /// stability corpus, the run is checked against the test's naming baseline file, or recorded
+    /// there (naming.md test 196).
     pub fn with_assets(document: Document, assets: &Assets) -> Run {
         let mut recompute = Recompute::new(Arc::new(Registry::with_builtins()));
         let report = run_document(&mut recompute, &document, assets);
+        naming_baseline::check_corpus_run(&document, &report);
         Run {
             document,
             recompute,
@@ -231,9 +236,11 @@ impl Run {
     }
 
     /// Runs the document again on the same recompute, so its cached results are reused, with these
-    /// asset bytes. The new report replaces the old one.
+    /// asset bytes. The new report replaces the old one. In a test of the reference stability
+    /// corpus, the run is checked or recorded as `with_assets` does.
     pub fn rerun(&mut self, assets: &Assets) {
         self.report = run_document(&mut self.recompute, &self.document, assets);
+        naming_baseline::check_corpus_run(&self.document, &self.report);
     }
 
     /// Loads and runs `examples/<relative_path>`.

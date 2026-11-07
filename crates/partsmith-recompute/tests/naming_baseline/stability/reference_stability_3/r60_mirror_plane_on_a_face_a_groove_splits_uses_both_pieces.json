@@ -1,0 +1,766 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-mir1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/bottom",
+              "f-box1/left@f-mir1:1",
+              "f-box1/back",
+              "f-box1/top",
+              "f-box1/front"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/bottom|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/front|f-box1/left@f-mir1:1)",
+              "edge(f-box1/left@f-mir1:1|f-box1/top)",
+              "edge(f-box1/back|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box1/front|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/front|f-box1/left@f-mir1:1|f-box1/top)",
+              "vertex(f-box1/back|f-box1/left@f-mir1:1|f-box1/top)"
+            ],
+            "aliases": {
+              "f-box1/back@f-mir1:1": [
+                "f-box1/back"
+              ],
+              "f-box1/bottom@f-mir1:1": [
+                "f-box1/bottom"
+              ],
+              "f-box1/front@f-mir1:1": [
+                "f-box1/front"
+              ],
+              "f-box1/top@f-mir1:1": [
+                "f-box1/top"
+              ]
+            },
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-box1/back@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/bottom@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/front@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/left@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/right@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/top@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "references": {
+          "/plane/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-box1/right"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-mir1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/bottom",
+              "f-box1/left@f-mir1:1",
+              "f-box1/back",
+              "f-box1/top",
+              "f-box1/front"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/bottom|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/front|f-box1/left@f-mir1:1)",
+              "edge(f-box1/left@f-mir1:1|f-box1/top)",
+              "edge(f-box1/back|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box1/front|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/front|f-box1/left@f-mir1:1|f-box1/top)",
+              "vertex(f-box1/back|f-box1/left@f-mir1:1|f-box1/top)"
+            ],
+            "aliases": {
+              "f-box1/back@f-mir1:1": [
+                "f-box1/back"
+              ],
+              "f-box1/bottom@f-mir1:1": [
+                "f-box1/bottom"
+              ],
+              "f-box1/front@f-mir1:1": [
+                "f-box1/front"
+              ],
+              "f-box1/top@f-mir1:1": [
+                "f-box1/top"
+              ]
+            },
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-box1/back@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/bottom@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/front@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/left@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/right@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/top@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "references": {
+          "/plane/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-box1/right"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-box2",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/front",
+              "f-box1/top",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/right#1",
+              "f-box2/bottom",
+              "f-box2/left",
+              "f-box2/top",
+              "f-box1/right#2"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right#1)",
+              "edge(f-box1/front|f-box2/bottom)",
+              "edge(f-box1/front|f-box2/left)",
+              "edge(f-box1/front|f-box2/top)",
+              "edge(f-box1/front|f-box1/right#2)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box1/right#2|f-box1/top)",
+              "edge(f-box1/back|f-box1/right#1)",
+              "edge(f-box1/back|f-box2/bottom)",
+              "edge(f-box1/back|f-box2/left)",
+              "edge(f-box1/back|f-box2/top)",
+              "edge(f-box1/back|f-box1/right#2)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/bottom|f-box1/right#1)",
+              "edge(f-box1/right#1|f-box2/bottom)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box1/right#2|f-box2/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right#1)",
+              "vertex(f-box1/front|f-box1/right#1|f-box2/bottom)",
+              "vertex(f-box1/front|f-box2/bottom|f-box2/left)",
+              "vertex(f-box1/front|f-box2/left|f-box2/top)",
+              "vertex(f-box1/front|f-box1/right#2|f-box2/top)",
+              "vertex(f-box1/front|f-box1/right#2|f-box1/top)",
+              "vertex(f-box1/back|f-box1/right#2|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right#1)",
+              "vertex(f-box1/back|f-box1/right#1|f-box2/bottom)",
+              "vertex(f-box1/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box1/back|f-box2/left|f-box2/top)",
+              "vertex(f-box1/back|f-box1/right#2|f-box2/top)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-mir1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/bottom",
+              "f-box1/left@f-mir1:1",
+              "f-box1/back",
+              "f-box2/left",
+              "f-box2/top",
+              "f-box2/left@f-mir1:1",
+              "f-box2/bottom",
+              "f-box1/top",
+              "f-box1/front"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/bottom|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/front|f-box1/left@f-mir1:1)",
+              "edge(f-box1/left@f-mir1:1|f-box1/top)",
+              "edge(f-box1/back|f-box1/left@f-mir1:1)",
+              "edge(f-box1/back|f-box2/bottom)",
+              "edge(f-box1/back|f-box2/left@f-mir1:1)",
+              "edge(f-box1/back|f-box2/top)",
+              "edge(f-box1/back|f-box2/left)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box1/front|f-box2/left)",
+              "edge(f-box1/front|f-box2/top)",
+              "edge(f-box2/left@f-mir1:1|f-box2/top)",
+              "edge(f-box2/bottom|f-box2/left@f-mir1:1)",
+              "edge(f-box1/front|f-box2/left@f-mir1:1)",
+              "edge(f-box1/front|f-box2/bottom)",
+              "edge(f-box1/front|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left@f-mir1:1)",
+              "vertex(f-box1/front|f-box1/left@f-mir1:1|f-box1/top)",
+              "vertex(f-box1/back|f-box1/left@f-mir1:1|f-box1/top)",
+              "vertex(f-box1/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box1/back|f-box2/bottom|f-box2/left@f-mir1:1)",
+              "vertex(f-box1/back|f-box2/left@f-mir1:1|f-box2/top)",
+              "vertex(f-box1/back|f-box2/left|f-box2/top)",
+              "vertex(f-box1/front|f-box2/left|f-box2/top)",
+              "vertex(f-box1/front|f-box2/bottom|f-box2/left)",
+              "vertex(f-box1/front|f-box2/left@f-mir1:1|f-box2/top)",
+              "vertex(f-box1/front|f-box2/bottom|f-box2/left@f-mir1:1)"
+            ],
+            "aliases": {
+              "f-box1/back@f-mir1:1": [
+                "f-box1/back"
+              ],
+              "f-box1/bottom@f-mir1:1": [
+                "f-box1/bottom"
+              ],
+              "f-box1/front@f-mir1:1": [
+                "f-box1/front"
+              ],
+              "f-box1/top@f-mir1:1": [
+                "f-box1/top"
+              ],
+              "f-box2/bottom@f-mir1:1": [
+                "f-box2/bottom"
+              ],
+              "f-box2/top@f-mir1:1": [
+                "f-box2/top"
+              ]
+            },
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-box1/back@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/bottom@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/front@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/left@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/right@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box1/top@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box2/bottom@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box2/left@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ],
+                "f-box2/top@f-mir1:1": [
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  30.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "references": {
+          "/plane/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-box1/right#1",
+              "f-box1/right#2"
+            ],
+            "method": "history",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,218 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom",
+              "f-cyl1/side@f-cp1:1",
+              "f-cyl1/top@f-cp1:1",
+              "f-cyl1/bottom@f-cp1:1",
+              "f-cyl1/side@f-cp1:2",
+              "f-cyl1/top@f-cp1:2",
+              "f-cyl1/bottom@f-cp1:2",
+              "f-cyl1/side@f-cp1:3",
+              "f-cyl1/top@f-cp1:3",
+              "f-cyl1/bottom@f-cp1:3"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "edge(f-cyl1/side@f-cp1:1)",
+              "edge(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)",
+              "edge(f-cyl1/side@f-cp1:2|f-cyl1/top@f-cp1:2)",
+              "edge(f-cyl1/side@f-cp1:2)",
+              "edge(f-cyl1/bottom@f-cp1:2|f-cyl1/side@f-cp1:2)",
+              "edge(f-cyl1/side@f-cp1:3|f-cyl1/top@f-cp1:3)",
+              "edge(f-cyl1/side@f-cp1:3)",
+              "edge(f-cyl1/bottom@f-cp1:3|f-cyl1/side@f-cp1:3)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "vertex(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)",
+              "vertex(f-cyl1/side@f-cp1:2|f-cyl1/top@f-cp1:2)",
+              "vertex(f-cyl1/bottom@f-cp1:2|f-cyl1/side@f-cp1:2)",
+              "vertex(f-cyl1/side@f-cp1:3|f-cyl1/top@f-cp1:3)",
+              "vertex(f-cyl1/bottom@f-cp1:3|f-cyl1/side@f-cp1:3)"
+            ],
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-cyl1/bottom@f-cp1:1": [
+                  6.123233995736766e-17,
+                  -1.0,
+                  0.0,
+                  1.0,
+                  6.123233995736766e-17,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/bottom@f-cp1:2": [
+                  -1.0,
+                  -1.2246467991473532e-16,
+                  0.0,
+                  1.2246467991473532e-16,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/bottom@f-cp1:3": [
+                  -1.8369701987210297e-16,
+                  1.0,
+                  0.0,
+                  -1.0,
+                  -1.8369701987210297e-16,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/side@f-cp1:1": [
+                  6.123233995736766e-17,
+                  -1.0,
+                  0.0,
+                  1.0,
+                  6.123233995736766e-17,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/side@f-cp1:2": [
+                  -1.0,
+                  -1.2246467991473532e-16,
+                  0.0,
+                  1.2246467991473532e-16,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/side@f-cp1:3": [
+                  -1.8369701987210297e-16,
+                  1.0,
+                  0.0,
+                  -1.0,
+                  -1.8369701987210297e-16,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/top@f-cp1:1": [
+                  6.123233995736766e-17,
+                  -1.0,
+                  0.0,
+                  1.0,
+                  6.123233995736766e-17,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/top@f-cp1:2": [
+                  -1.0,
+                  -1.2246467991473532e-16,
+                  0.0,
+                  1.2246467991473532e-16,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "f-cyl1/top@f-cp1:3": [
+                  -1.8369701987210297e-16,
+                  1.0,
+                  0.0,
+                  -1.0,
+                  -1.8369701987210297e-16,
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

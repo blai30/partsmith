@@ -1,0 +1,110 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-box2",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/front",
+              "f-box1/top",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/right",
+              "f-box2/front",
+              "f-box2/right",
+              "f-box2/back",
+              "f-box2/left"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/top|f-box2/front)",
+              "edge(f-box1/top|f-box2/right)",
+              "edge(f-box1/top|f-box2/back)",
+              "edge(f-box1/top|f-box2/left)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box2/front)",
+              "edge(f-box1/bottom|f-box2/right)",
+              "edge(f-box1/bottom|f-box2/back)",
+              "edge(f-box1/bottom|f-box2/left)",
+              "edge(f-box2/front|f-box2/right)",
+              "edge(f-box2/front|f-box2/left)",
+              "edge(f-box2/back|f-box2/right)",
+              "edge(f-box2/back|f-box2/left)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/top|f-box2/front|f-box2/right)",
+              "vertex(f-box1/top|f-box2/front|f-box2/left)",
+              "vertex(f-box1/top|f-box2/back|f-box2/right)",
+              "vertex(f-box1/top|f-box2/back|f-box2/left)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)",
+              "vertex(f-box1/bottom|f-box2/front|f-box2/right)",
+              "vertex(f-box1/bottom|f-box2/front|f-box2/left)",
+              "vertex(f-box1/bottom|f-box2/back|f-box2/right)",
+              "vertex(f-box1/bottom|f-box2/back|f-box2/left)"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

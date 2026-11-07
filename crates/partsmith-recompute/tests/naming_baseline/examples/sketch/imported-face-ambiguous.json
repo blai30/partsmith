@@ -1,0 +1,93 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-imp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#1",
+              "f-imp1/face#6",
+              "f-imp1/face#2",
+              "f-imp1/face#5",
+              "f-imp1/face#3",
+              "f-imp1/face#4"
+            ],
+            "edges": [
+              "edge(f-imp1/face#1|f-imp1/face#2)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#2|f-imp1/face#6)",
+              "edge(f-imp1/face#3|f-imp1/face#6)",
+              "edge(f-imp1/face#5|f-imp1/face#6)",
+              "edge(f-imp1/face#4|f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#3)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-imp1/face#4|f-imp1/face#5)"
+            ],
+            "vertices": [
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#3)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#4|f-imp1/face#5)",
+              "vertex(f-imp1/face#2|f-imp1/face#3|f-imp1/face#6)",
+              "vertex(f-imp1/face#2|f-imp1/face#4|f-imp1/face#6)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#6)",
+              "vertex(f-imp1/face#4|f-imp1/face#5|f-imp1/face#6)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {
+          "/plane/face": {
+            "kind": "ambiguous",
+            "candidates": [
+              {
+                "name": "f-imp1/face#1",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-imp1/face#2",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-imp1/face#3",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-imp1/face#4",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-imp1/face#5",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-imp1/face#6",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,111 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-rev1/lateral/e-1",
+              "f-rev1/lateral/e-2",
+              "f-rev1/lateral/e-6",
+              "f-rev1/lateral/e-3",
+              "f-rev1/lateral/e-4"
+            ],
+            "edges": [
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-6)",
+              "edge(f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-6)",
+              "edge(f-rev1/lateral/e-6)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "vertex(f-rev1/lateral/e-2|f-rev1/lateral/e-6)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-6)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+            ],
+            "successions": {
+              "f-rev1/lateral/e-2": [
+                "f-rev1/lateral/e-2",
+                "f-rev1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sh1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-rev1/lateral/e-1",
+              "f-sh1/inner/f-rev1/lateral/e-1",
+              "f-sh1/rim/f-rev1/lateral/e-2",
+              "f-sh1/rim/f-rev1/lateral/e-6",
+              "f-rev1/lateral/e-3",
+              "f-sh1/inner/f-rev1/lateral/e-3",
+              "f-rev1/lateral/e-4",
+              "f-sh1/inner/f-rev1/lateral/e-4"
+            ],
+            "edges": [
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-sh1/rim/f-rev1/lateral/e-2)",
+              "edge(f-sh1/inner/f-rev1/lateral/e-1|f-sh1/rim/f-rev1/lateral/e-2)",
+              "edge(f-sh1/inner/f-rev1/lateral/e-1|f-sh1/inner/f-rev1/lateral/e-4)",
+              "edge(f-sh1/rim/f-rev1/lateral/e-2)",
+              "edge(f-sh1/rim/f-rev1/lateral/e-6)",
+              "edge(f-rev1/lateral/e-3|f-sh1/rim/f-rev1/lateral/e-6)",
+              "edge(f-sh1/inner/f-rev1/lateral/e-3|f-sh1/rim/f-rev1/lateral/e-6)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-sh1/inner/f-rev1/lateral/e-3|f-sh1/inner/f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)",
+              "edge(f-sh1/inner/f-rev1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-sh1/rim/f-rev1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-rev1/lateral/e-1|f-sh1/rim/f-rev1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-rev1/lateral/e-1|f-sh1/inner/f-rev1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-rev1/lateral/e-3|f-sh1/rim/f-rev1/lateral/e-6)",
+              "vertex(f-rev1/lateral/e-3|f-sh1/rim/f-rev1/lateral/e-6)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-rev1/lateral/e-3|f-sh1/inner/f-rev1/lateral/e-4)"
+            ],
+            "successions": {
+              "f-rev1/lateral/e-2": [
+                "f-rev1/lateral/e-2",
+                "f-rev1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {
+          "/remove_faces/0": {
+            "kind": "resolved",
+            "elements": [
+              "f-rev1/lateral/e-2",
+              "f-rev1/lateral/e-6"
+            ],
+            "method": "history",
+            "confidence": 1.0,
+            "follow": "extended",
+            "via": [
+              "f-rev1/lateral/e-2"
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

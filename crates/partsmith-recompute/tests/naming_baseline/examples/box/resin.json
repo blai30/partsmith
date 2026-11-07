@@ -1,0 +1,106 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-box2",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-box2/left",
+              "f-box2/right",
+              "f-box2/front",
+              "f-box2/back",
+              "f-box2/bottom",
+              "f-box2/top"
+            ],
+            "edges": [
+              "edge(f-box2/front|f-box2/left)",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box2/back|f-box2/left)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box2/front|f-box2/right)",
+              "edge(f-box2/right|f-box2/top)",
+              "edge(f-box2/back|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/front)",
+              "edge(f-box2/front|f-box2/top)",
+              "edge(f-box2/back|f-box2/bottom)",
+              "edge(f-box2/back|f-box2/top)"
+            ],
+            "vertices": [
+              "vertex(f-box2/front|f-box2/left|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/left)",
+              "vertex(f-box2/back|f-box2/left|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box2/front|f-box2/right|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/right)",
+              "vertex(f-box2/back|f-box2/right|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-box2/left",
+              "f-box2/front",
+              "f-cha1/chamfer/edge(f-box2/bottom|f-box2/front)",
+              "f-box2/top",
+              "f-box2/bottom",
+              "f-box2/back",
+              "f-box2/right"
+            ],
+            "edges": [
+              "edge(f-box2/front|f-box2/left)",
+              "edge(f-box2/left|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box2/back|f-box2/left)",
+              "edge(f-box2/front|f-box2/right)",
+              "edge(f-box2/front|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "edge(f-box2/front|f-box2/top)",
+              "edge(f-box2/bottom|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "edge(f-box2/right|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "edge(f-box2/back|f-box2/top)",
+              "edge(f-box2/right|f-box2/top)",
+              "edge(f-box2/back|f-box2/bottom)",
+              "edge(f-box2/bottom|f-box2/right)",
+              "edge(f-box2/back|f-box2/right)"
+            ],
+            "vertices": [
+              "vertex(f-box2/front|f-box2/left|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "vertex(f-box2/front|f-box2/left|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/left|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "vertex(f-box2/back|f-box2/left|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box2/front|f-box2/right|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "vertex(f-box2/front|f-box2/right|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/right|f-cha1/chamfer/edge(f-box2/bottom|f-box2/front))",
+              "vertex(f-box2/back|f-box2/right|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/right)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-box2/bottom|f-box2/front)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

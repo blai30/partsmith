@@ -1,8 +1,21 @@
 //! Naming conformance of the built-in features (naming.md section 6, tests 81 to 90), run as
 //! documents (features.md section 6.1) with the ids naming.md shows. Element names come from the
 //! naming maps of the body reports; positions and normals from the kernel's element geometry.
+//! Test 196 checks every example against the naming baseline (`feature_support::naming_baseline`).
+
+use std::collections::BTreeSet;
+use std::ffi::OsStr;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{fs, thread};
 
 use crate::common;
+use crate::feature_support::naming_baseline::{
+    RECORD_IN_CI, StoredReference, baseline_files, corpus_tests, files_below, mismatches,
+    read_runs, record_mode, recording, run_entry, shown_path, stored_references, write_runs,
+};
+use crate::feature_support::{Assets, Run, examples_folder, load_example};
 
 use common::{
     Harness, assert_face_normal, assert_face_position, assert_has_element, bodies, document,
@@ -439,4 +452,225 @@ fn t090_a_split_numbers_the_pieces_and_names_the_section_faces_by_side() {
     assert_face_position(&face(upper, "f-box1/front#2"), 2, 20.0);
     assert_face_normal(&face(upper, "f-split1/split-positive"), [0.0, 0.0, -1.0]);
     assert_face_normal(&face(lower, "f-split1/split-negative"), [0.0, 0.0, 1.0]);
+}
+
+/// A failure of test 196: the file it is about, as failures name it, and its text.
+type Problem = (String, String);
+
+/// Every example: each `.ptsm` file under `examples/` outside `assets/` folders, as its path below
+/// `examples/` without `.ptsm`, sorted.
+fn examples() -> Vec<String> {
+    files_below(examples_folder())
+        .into_iter()
+        .filter(|file| !file.split('/').any(|part| part == "assets"))
+        .filter_map(|file| file.strip_suffix(".ptsm").map(str::to_owned))
+        .collect()
+}
+
+/// The asset bytes of an example: every file in its folder's `assets/`, by name, as `partsmith
+/// rebuild` reads them (cli.md section 2.3).
+fn example_assets(example: &str) -> Assets {
+    let folder = examples_folder().join(example).with_file_name("assets");
+    files_below(&folder)
+        .into_iter()
+        .map(|name| {
+            let path = folder.join(&name);
+            let bytes = fs::read(&path)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+            (name, Arc::from(bytes))
+        })
+        .collect()
+}
+
+/// Whether a baseline file, relative to the baseline folder, belongs to one of these examples or
+/// corpus tests (`<module>::<test>`).
+fn has_example_or_test(file: &str, examples: &BTreeSet<&str>, tests: &BTreeSet<String>) -> bool {
+    if let Some(example) = file
+        .strip_prefix("examples/")
+        .and_then(|rest| rest.strip_suffix(".json"))
+    {
+        return examples.contains(example);
+    }
+    file.strip_prefix("stability/")
+        .and_then(|rest| rest.strip_suffix(".json"))
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(module, test)| tests.contains(&format!("{module}::{test}")))
+}
+
+/// The problem of each baseline file whose example or test no longer exists.
+fn orphan_problems(examples: &[String]) -> Vec<Problem> {
+    let examples: BTreeSet<&str> = examples.iter().map(String::as_str).collect();
+    let tests = corpus_tests();
+    baseline_files()
+        .into_iter()
+        .filter(|file| !has_example_or_test(file, &examples, &tests))
+        .map(|file| {
+            let path = shown_path(&file);
+            let text = format!("The naming baseline file {path} has no example or test.");
+            (path, text)
+        })
+        .collect()
+}
+
+/// Runs an example once and records its baseline file, or compares the run with the file; an
+/// example without a file is not run unless recording.
+fn example_problems(example: &str, recording: bool) -> Vec<Problem> {
+    let relative = format!("examples/{example}.json");
+    let recorded = if recording {
+        None
+    } else {
+        match read_runs(&relative) {
+            Some(runs) => Some(runs),
+            None => return Vec::new(),
+        }
+    };
+    let document = load_example(&format!("{example}.ptsm"));
+    let run = Run::with_assets(document, &example_assets(example));
+    let runs = vec![run_entry(&run.document, &run.report)];
+    let Some(recorded) = recorded else {
+        write_runs(&relative, &runs);
+        return Vec::new();
+    };
+    let path = shown_path(&relative);
+    mismatches("", &Value::Array(runs), &Value::Array(recorded))
+        .into_iter()
+        .map(|mismatch| (path.clone(), format!("{path}: {mismatch}")))
+        .collect()
+}
+
+/// The problems of every example, run in parallel over `available_parallelism` workers.
+fn every_example_problems(examples: &[String], recording: bool) -> Vec<Problem> {
+    let next = AtomicUsize::new(0);
+    let workers = thread::available_parallelism().map_or(1, NonZeroUsize::get);
+    thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut problems = Vec::new();
+                    while let Some(example) = examples.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        problems.extend(example_problems(example, recording));
+                    }
+                    problems
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    })
+}
+
+#[test]
+fn t196_m1_names_and_resolutions_match_the_recorded_baseline() {
+    let recording = recording();
+    let examples = examples();
+
+    let mut problems = orphan_problems(&examples);
+    problems.extend(every_example_problems(&examples, recording));
+
+    problems.sort_by(|first, second| first.0.cmp(&second.0));
+    let texts: Vec<String> = problems.into_iter().map(|(_, text)| text).collect();
+    assert!(texts.is_empty(), "{}", texts.join("\n"));
+}
+
+#[test]
+fn recording_the_naming_baseline_is_refused_in_ci() {
+    let ci = Some(OsStr::new("true"));
+
+    assert_eq!(
+        RECORD_IN_CI,
+        "PARTSMITH_RECORD_NAMING_BASELINE is set in CI. Record the naming baseline locally and commit it."
+    );
+    assert_eq!(record_mode(Some(OsStr::new("1")), ci), Err(RECORD_IN_CI));
+    assert_eq!(record_mode(Some(OsStr::new("0")), ci), Err(RECORD_IN_CI));
+    assert_eq!(record_mode(None, ci), Ok(false));
+}
+
+#[test]
+fn the_naming_baseline_is_recorded_only_when_its_variable_is_1() {
+    assert_eq!(record_mode(Some(OsStr::new("1")), None), Ok(true));
+    assert_eq!(record_mode(Some(OsStr::new("0")), None), Ok(false));
+    assert_eq!(record_mode(None, None), Ok(false));
+}
+
+#[test]
+fn baseline_numbers_match_within_the_tolerance_and_integers_exactly() {
+    assert!(mismatches("", &json!(1.0000009), &json!(1.0)).is_empty());
+    assert!(mismatches("", &json!(1000.0009), &json!(1000.0)).is_empty());
+    assert_eq!(
+        mismatches("", &json!(1.000002), &json!(1.0)),
+        vec![" is 1.000002, expected 1.0"]
+    );
+    assert_eq!(
+        mismatches("/count", &json!(3), &json!(2)),
+        vec!["/count is 3, expected 2"]
+    );
+}
+
+#[test]
+fn a_baseline_mismatch_is_reported_at_its_json_pointer() {
+    let recorded = json!({"faces": ["f-box1/top", "f-box1/front"], "aliases": {}});
+    let fresh = json!({"faces": ["f-box1/top", "f-box1/back"], "direct": {}});
+
+    assert_eq!(
+        mismatches("/0", &fresh, &recorded),
+        vec![
+            r#"/0/faces/1 is "f-box1/back", expected "f-box1/front""#,
+            "/0/aliases is missing",
+            "/0/direct is unexpected",
+        ]
+    );
+}
+
+#[test]
+fn a_stored_reference_takes_the_body_of_the_nearest_object_around_it() {
+    let edge = json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"});
+    let face = json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"});
+    let params = json!({
+        "body": "b-1",
+        "edges": [edge],
+        "plane": {"kind": "face", "body": "b-2", "face": face},
+    });
+
+    let found = stored_references(params.as_object().expect("the params are an object"));
+
+    assert_eq!(
+        found,
+        vec![
+            StoredReference {
+                pointer: "/edges/0".to_owned(),
+                body: Some("b-1"),
+                value: &edge,
+            },
+            StoredReference {
+                pointer: "/plane/face".to_owned(),
+                body: Some("b-2"),
+                value: &face,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_baseline_file_belongs_to_an_example_or_a_corpus_test_that_exists() {
+    let examples = BTreeSet::from(["box/cube"]);
+    let tests = BTreeSet::from(["reference_stability_1::r01_line_redrawn".to_owned()]);
+
+    let belongs = |file: &str| has_example_or_test(file, &examples, &tests);
+
+    assert!(belongs("examples/box/cube.json"));
+    assert!(belongs(
+        "stability/reference_stability_1/r01_line_redrawn.json"
+    ));
+    assert!(!belongs("examples/box/gone.json"));
+    assert!(!belongs("stability/reference_stability_1/r99_gone.json"));
+    assert!(!belongs(
+        "stability/reference_stability_9/r01_line_redrawn.json"
+    ));
+    assert!(!belongs("notes.txt"));
 }

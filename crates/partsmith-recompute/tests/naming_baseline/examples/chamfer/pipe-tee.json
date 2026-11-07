@@ -1,0 +1,141 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cyl2",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/bottom",
+              "f-cyl1/top",
+              "f-cyl2/side",
+              "f-cyl2/top"
+            ],
+            "edges": [
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side|f-cyl2/side)",
+              "edge(f-cyl2/side)",
+              "edge(f-cyl2/side|f-cyl2/top)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl1/side|f-cyl2/side)",
+              "vertex(f-cyl2/side|f-cyl2/top)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-fil1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side)",
+              "f-cyl1/bottom",
+              "f-cyl1/top",
+              "f-cyl2/side",
+              "f-cyl2/top"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl2/side)",
+              "edge(f-cyl2/side|f-cyl2/top)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "vertex(f-cyl2/side|f-cyl2/top)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-cyl1/side|f-cyl2/side)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side)",
+              "f-cyl1/bottom",
+              "f-cyl1/top",
+              "f-cyl2/side",
+              "f-cyl2/top"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "edge(f-cyl2/side)",
+              "edge(f-cyl2/side|f-cyl2/top)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))",
+              "vertex(f-cyl2/side|f-cyl2/top)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-cyl2/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side))"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

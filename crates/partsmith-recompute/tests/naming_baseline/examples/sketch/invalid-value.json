@@ -1,0 +1,16 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext1",
+        "naming": {},
+        "references": {}
+      }
+    ]
+  }
+]

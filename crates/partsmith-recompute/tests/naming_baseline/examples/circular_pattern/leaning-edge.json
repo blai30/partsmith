@@ -1,0 +1,172 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk5",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext5",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-ext5/lateral/e-11",
+              "f-ext5/lateral/e-12",
+              "f-ext5/lateral/e-13",
+              "f-ext5/lateral/e-14",
+              "f-ext5/start-cap",
+              "f-ext5/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext5/lateral/e-11|f-ext5/lateral/e-14)",
+              "edge(f-ext5/lateral/e-11|f-ext5/lateral/e-12)",
+              "edge(f-ext5/lateral/e-11|f-ext5/start-cap)",
+              "edge(f-ext5/end-cap|f-ext5/lateral/e-11)",
+              "edge(f-ext5/lateral/e-12|f-ext5/lateral/e-13)",
+              "edge(f-ext5/lateral/e-12|f-ext5/start-cap)",
+              "edge(f-ext5/end-cap|f-ext5/lateral/e-12)",
+              "edge(f-ext5/lateral/e-13|f-ext5/lateral/e-14)",
+              "edge(f-ext5/lateral/e-13|f-ext5/start-cap)",
+              "edge(f-ext5/end-cap|f-ext5/lateral/e-13)",
+              "edge(f-ext5/lateral/e-14|f-ext5/start-cap)",
+              "edge(f-ext5/end-cap|f-ext5/lateral/e-14)"
+            ],
+            "vertices": [
+              "vertex(f-ext5/lateral/e-11|f-ext5/lateral/e-14|f-ext5/start-cap)",
+              "vertex(f-ext5/end-cap|f-ext5/lateral/e-11|f-ext5/lateral/e-14)",
+              "vertex(f-ext5/lateral/e-11|f-ext5/lateral/e-12|f-ext5/start-cap)",
+              "vertex(f-ext5/end-cap|f-ext5/lateral/e-11|f-ext5/lateral/e-12)",
+              "vertex(f-ext5/lateral/e-12|f-ext5/lateral/e-13|f-ext5/start-cap)",
+              "vertex(f-ext5/end-cap|f-ext5/lateral/e-12|f-ext5/lateral/e-13)",
+              "vertex(f-ext5/lateral/e-13|f-ext5/lateral/e-14|f-ext5/start-cap)",
+              "vertex(f-ext5/end-cap|f-ext5/lateral/e-13|f-ext5/lateral/e-14)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom",
+              "f-cyl1/side@f-cp1:1",
+              "f-cyl1/top@f-cp1:1",
+              "f-cyl1/bottom@f-cp1:1"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "edge(f-cyl1/side@f-cp1:1)",
+              "edge(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "vertex(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)"
+            ],
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-cyl1/bottom@f-cp1:1": [
+                  0.001109877913429584,
+                  -0.9994449069791543,
+                  -0.03329633740288568,
+                  0.9994449069791543,
+                  6.123233995736766e-17,
+                  0.03331483023263848,
+                  -0.03329633740288568,
+                  -0.03331483023263848,
+                  0.9988901220865705,
+                  -3.9955604883462805,
+                  3.9977796279166165,
+                  -0.13318534961154269
+                ],
+                "f-cyl1/side@f-cp1:1": [
+                  0.001109877913429584,
+                  -0.9994449069791543,
+                  -0.03329633740288568,
+                  0.9994449069791543,
+                  6.123233995736766e-17,
+                  0.03331483023263848,
+                  -0.03329633740288568,
+                  -0.03331483023263848,
+                  0.9988901220865705,
+                  -3.9955604883462805,
+                  3.9977796279166165,
+                  -0.13318534961154269
+                ],
+                "f-cyl1/top@f-cp1:1": [
+                  0.001109877913429584,
+                  -0.9994449069791543,
+                  -0.03329633740288568,
+                  0.9994449069791543,
+                  6.123233995736766e-17,
+                  0.03331483023263848,
+                  -0.03329633740288568,
+                  -0.03331483023263848,
+                  0.9988901220865705,
+                  -3.9955604883462805,
+                  3.9977796279166165,
+                  -0.13318534961154269
+                ]
+              }
+            }
+          }
+        },
+        "references": {
+          "/axis/edge": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-ext5/lateral/e-12|f-ext5/start-cap)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

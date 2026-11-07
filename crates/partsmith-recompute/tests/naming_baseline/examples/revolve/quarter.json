@@ -1,0 +1,51 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-rev1/lateral/e-1",
+              "f-rev1/lateral/e-2",
+              "f-rev1/lateral/e-3",
+              "f-rev1/lateral/e-4",
+              "f-rev1/start-cap",
+              "f-rev1/end-cap"
+            ],
+            "edges": [
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-1|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-1)",
+              "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)",
+              "edge(f-rev1/lateral/e-2|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-2)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-3|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
+              "edge(f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "edge(f-rev1/end-cap|f-rev1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-2|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-1|f-rev1/lateral/e-2)",
+              "vertex(f-rev1/lateral/e-2|f-rev1/lateral/e-3|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-2|f-rev1/lateral/e-3)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4|f-rev1/start-cap)",
+              "vertex(f-rev1/end-cap|f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

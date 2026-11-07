@@ -1,0 +1,24 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-tor1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-tor1/surface"
+            ],
+            "edges": [
+              "edge(f-tor1/surface)#1",
+              "edge(f-tor1/surface)#2"
+            ],
+            "vertices": [
+              "vertex(f-tor1/surface)"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

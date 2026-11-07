@@ -1,0 +1,27 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cone1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cone1/side",
+              "f-cone1/bottom"
+            ],
+            "edges": [
+              null,
+              "edge(f-cone1/side)",
+              "edge(f-cone1/bottom|f-cone1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cone1/side)",
+              "vertex(f-cone1/bottom|f-cone1/side)"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

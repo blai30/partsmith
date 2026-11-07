@@ -1,0 +1,31 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-dp1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-sph1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-sph1/surface"
+            ],
+            "edges": [
+              null,
+              "edge(f-sph1/surface)",
+              null
+            ],
+            "vertices": [
+              "vertex(f-sph1/surface)#2",
+              "vertex(f-sph1/surface)#1"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

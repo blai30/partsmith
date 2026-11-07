@@ -1,0 +1,33 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-dp1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      }
+    ]
+  }
+]

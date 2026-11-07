@@ -1,0 +1,141 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/front",
+              "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
+              "f-box1/bottom",
+              "f-box1/top",
+              "f-box1/back",
+              "f-box1/right"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/front|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/top|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "edge(f-box1/right|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/back|f-box1/top)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/left|f-box1/top|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/front|f-box1/right|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/right|f-box1/top|f-cha1/chamfer/edge(f-box1/front|f-box1/top))",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-box1/front|f-box1/top)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          },
+          "/edges/1": {
+            "kind": "missing",
+            "lost": {
+              "parts": [
+                "f-box1/nothing"
+              ]
+            },
+            "candidates": [
+              {
+                "name": "edge(f-box1/back|f-box1/top)",
+                "meaning": true,
+                "distance": 848.8227141164402,
+                "score": 0.012500000000000002
+              },
+              {
+                "name": "edge(f-box1/right|f-box1/top)",
+                "meaning": true,
+                "distance": 848.8227141164402,
+                "score": 0.012500000000000002
+              },
+              {
+                "name": "edge(f-box1/front|f-box1/top)",
+                "meaning": true,
+                "distance": 860.5230967266364,
+                "score": 0.012500000000000002
+              },
+              {
+                "name": "edge(f-box1/left|f-box1/top)",
+                "meaning": true,
+                "distance": 860.5230967266364,
+                "score": 0.012500000000000002
+              },
+              {
+                "name": "edge(f-box1/back|f-box1/right)",
+                "meaning": false,
+                "distance": 848.7048957087499,
+                "score": 0.325
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

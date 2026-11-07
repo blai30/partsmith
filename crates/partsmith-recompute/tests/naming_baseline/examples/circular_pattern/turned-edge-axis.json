@@ -1,0 +1,274 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-box2",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-box2/left",
+              "f-box2/right",
+              "f-box2/front",
+              "f-box2/back",
+              "f-box2/bottom",
+              "f-box2/top"
+            ],
+            "edges": [
+              "edge(f-box2/front|f-box2/left)",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box2/back|f-box2/left)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box2/front|f-box2/right)",
+              "edge(f-box2/right|f-box2/top)",
+              "edge(f-box2/back|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/front)",
+              "edge(f-box2/front|f-box2/top)",
+              "edge(f-box2/back|f-box2/bottom)",
+              "edge(f-box2/back|f-box2/top)"
+            ],
+            "vertices": [
+              "vertex(f-box2/front|f-box2/left|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/left)",
+              "vertex(f-box2/back|f-box2/left|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box2/front|f-box2/right|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/right)",
+              "vertex(f-box2/back|f-box2/right|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-mv1",
+        "naming": {
+          "b-2": {
+            "faces": [
+              "f-box2/left",
+              "f-box2/right",
+              "f-box2/front",
+              "f-box2/back",
+              "f-box2/bottom",
+              "f-box2/top"
+            ],
+            "edges": [
+              "edge(f-box2/front|f-box2/left)",
+              "edge(f-box2/left|f-box2/top)",
+              "edge(f-box2/back|f-box2/left)",
+              "edge(f-box2/bottom|f-box2/left)",
+              "edge(f-box2/front|f-box2/right)",
+              "edge(f-box2/right|f-box2/top)",
+              "edge(f-box2/back|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/right)",
+              "edge(f-box2/bottom|f-box2/front)",
+              "edge(f-box2/front|f-box2/top)",
+              "edge(f-box2/back|f-box2/bottom)",
+              "edge(f-box2/back|f-box2/top)"
+            ],
+            "vertices": [
+              "vertex(f-box2/front|f-box2/left|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/left)",
+              "vertex(f-box2/back|f-box2/left|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/left)",
+              "vertex(f-box2/front|f-box2/right|f-box2/top)",
+              "vertex(f-box2/bottom|f-box2/front|f-box2/right)",
+              "vertex(f-box2/back|f-box2/right|f-box2/top)",
+              "vertex(f-box2/back|f-box2/bottom|f-box2/right)"
+            ],
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.2246467991473532e-16,
+                0.0,
+                1.2246467991473532e-16,
+                -1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {}
+            }
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom",
+              "f-cyl1/side@f-cp1:1",
+              "f-cyl1/top@f-cp1:1",
+              "f-cyl1/bottom@f-cp1:1",
+              "f-cyl1/side@f-cp1:2",
+              "f-cyl1/top@f-cp1:2",
+              "f-cyl1/bottom@f-cp1:2"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)",
+              "edge(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "edge(f-cyl1/side@f-cp1:1)",
+              "edge(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)",
+              "edge(f-cyl1/side@f-cp1:2|f-cyl1/top@f-cp1:2)",
+              "edge(f-cyl1/side@f-cp1:2)",
+              "edge(f-cyl1/bottom@f-cp1:2|f-cyl1/side@f-cp1:2)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)",
+              "vertex(f-cyl1/side@f-cp1:1|f-cyl1/top@f-cp1:1)",
+              "vertex(f-cyl1/bottom@f-cp1:1|f-cyl1/side@f-cp1:1)",
+              "vertex(f-cyl1/side@f-cp1:2|f-cyl1/top@f-cp1:2)",
+              "vertex(f-cyl1/bottom@f-cp1:2|f-cyl1/side@f-cp1:2)"
+            ],
+            "motions": {
+              "base": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "own": {
+                "f-cyl1/bottom@f-cp1:1": [
+                  0.7071067811865476,
+                  0.7071067811865475,
+                  -8.659560562354932e-17,
+                  -0.7071067811865475,
+                  0.7071067811865476,
+                  3.5869074291185986e-17,
+                  8.659560562354932e-17,
+                  3.5869074291185986e-17,
+                  1.0,
+                  -6.972611193684197e-32,
+                  2.8881501215784496e-32,
+                  -3.5369638018480874e-48
+                ],
+                "f-cyl1/bottom@f-cp1:2": [
+                  6.123233995736766e-17,
+                  1.0,
+                  -1.2246467991473532e-16,
+                  -1.0,
+                  6.123233995736767e-17,
+                  1.224646799147353e-16,
+                  1.2246467991473532e-16,
+                  1.224646799147353e-16,
+                  1.0,
+                  -9.860761315262648e-32,
+                  9.860761315262646e-32,
+                  -1.2075949781892444e-47
+                ],
+                "f-cyl1/side@f-cp1:1": [
+                  0.7071067811865476,
+                  0.7071067811865475,
+                  -8.659560562354932e-17,
+                  -0.7071067811865475,
+                  0.7071067811865476,
+                  3.5869074291185986e-17,
+                  8.659560562354932e-17,
+                  3.5869074291185986e-17,
+                  1.0,
+                  -6.972611193684197e-32,
+                  2.8881501215784496e-32,
+                  -3.5369638018480874e-48
+                ],
+                "f-cyl1/side@f-cp1:2": [
+                  6.123233995736766e-17,
+                  1.0,
+                  -1.2246467991473532e-16,
+                  -1.0,
+                  6.123233995736767e-17,
+                  1.224646799147353e-16,
+                  1.2246467991473532e-16,
+                  1.224646799147353e-16,
+                  1.0,
+                  -9.860761315262648e-32,
+                  9.860761315262646e-32,
+                  -1.2075949781892444e-47
+                ],
+                "f-cyl1/top@f-cp1:1": [
+                  0.7071067811865476,
+                  0.7071067811865475,
+                  -8.659560562354932e-17,
+                  -0.7071067811865475,
+                  0.7071067811865476,
+                  3.5869074291185986e-17,
+                  8.659560562354932e-17,
+                  3.5869074291185986e-17,
+                  1.0,
+                  -6.972611193684197e-32,
+                  2.8881501215784496e-32,
+                  -3.5369638018480874e-48
+                ],
+                "f-cyl1/top@f-cp1:2": [
+                  6.123233995736766e-17,
+                  1.0,
+                  -1.2246467991473532e-16,
+                  -1.0,
+                  6.123233995736767e-17,
+                  1.224646799147353e-16,
+                  1.2246467991473532e-16,
+                  1.224646799147353e-16,
+                  1.0,
+                  -9.860761315262648e-32,
+                  9.860761315262646e-32,
+                  -1.2075949781892444e-47
+                ]
+              }
+            }
+          }
+        },
+        "references": {
+          "/axis/edge": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-box2/front|f-box2/left)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

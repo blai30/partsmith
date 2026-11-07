@@ -1,0 +1,92 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-box1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-box1/left",
+              "f-box1/right",
+              "f-box1/front",
+              "f-box1/back",
+              "f-box1/bottom",
+              "f-box1/top"
+            ],
+            "edges": [
+              "edge(f-box1/front|f-box1/left)",
+              "edge(f-box1/left|f-box1/top)",
+              "edge(f-box1/back|f-box1/left)",
+              "edge(f-box1/bottom|f-box1/left)",
+              "edge(f-box1/front|f-box1/right)",
+              "edge(f-box1/right|f-box1/top)",
+              "edge(f-box1/back|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/right)",
+              "edge(f-box1/bottom|f-box1/front)",
+              "edge(f-box1/front|f-box1/top)",
+              "edge(f-box1/back|f-box1/bottom)",
+              "edge(f-box1/back|f-box1/top)"
+            ],
+            "vertices": [
+              "vertex(f-box1/front|f-box1/left|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+              "vertex(f-box1/back|f-box1/left|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+              "vertex(f-box1/front|f-box1/right|f-box1/top)",
+              "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+              "vertex(f-box1/back|f-box1/right|f-box1/top)",
+              "vertex(f-box1/back|f-box1/bottom|f-box1/right)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {
+          "/plane/face": {
+            "kind": "missing",
+            "lost": {
+              "parts": [
+                "f-box1/nothing"
+              ]
+            },
+            "candidates": [
+              {
+                "name": "f-box1/back",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-box1/bottom",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-box1/front",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-box1/left",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              },
+              {
+                "name": "f-box1/right",
+                "meaning": true,
+                "distance": 0.0,
+                "score": 1.0
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

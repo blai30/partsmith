@@ -1,0 +1,362 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk2",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side#2",
+              "f-rev1/lateral/e-3",
+              "f-cyl1/top",
+              "f-rev1/lateral/e-4",
+              "f-rev1/lateral/e-1",
+              "f-cyl1/side#1",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side#2)",
+              "edge(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "edge(f-cyl1/side#2|f-cyl1/top)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)",
+              "edge(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "edge(f-cyl1/side#1)",
+              "edge(f-cyl1/bottom|f-cyl1/side#1)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "vertex(f-cyl1/side#2|f-cyl1/top)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "vertex(f-cyl1/bottom|f-cyl1/side#1)"
+            ]
+          }
+        },
+        "references": {
+          "/axis/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-cyl1/side"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk2",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side#2",
+              "f-rev1/lateral/e-3",
+              "f-cyl1/top",
+              "f-rev1/lateral/e-4",
+              "f-rev1/lateral/e-1",
+              "f-cyl1/side#1",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side#2)",
+              "edge(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "edge(f-cyl1/side#2|f-cyl1/top)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)",
+              "edge(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "edge(f-cyl1/side#1)",
+              "edge(f-cyl1/bottom|f-cyl1/side#1)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "vertex(f-cyl1/side#2|f-cyl1/top)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "vertex(f-cyl1/bottom|f-cyl1/side#1)"
+            ]
+          }
+        },
+        "references": {
+          "/axis/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-cyl1/side"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk2",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side#2",
+              "f-rev1/lateral/e-3",
+              "f-cyl1/top",
+              "f-rev1/lateral/e-4",
+              "f-rev1/lateral/e-1",
+              "f-cyl1/side#1",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side#2)",
+              "edge(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "edge(f-cyl1/side#2|f-cyl1/top)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)",
+              "edge(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "edge(f-cyl1/side#1)",
+              "edge(f-cyl1/bottom|f-cyl1/side#1)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side#2|f-rev1/lateral/e-3)",
+              "vertex(f-cyl1/side#2|f-cyl1/top)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-cyl1/side#1|f-rev1/lateral/e-1)",
+              "vertex(f-cyl1/bottom|f-cyl1/side#1)"
+            ]
+          }
+        },
+        "references": {
+          "/axis/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-cyl1/side"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-cyl1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side",
+              "f-cyl1/top",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side|f-cyl1/top)",
+              "edge(f-cyl1/side)",
+              "edge(f-cyl1/bottom|f-cyl1/side)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side|f-cyl1/top)",
+              "vertex(f-cyl1/bottom|f-cyl1/side)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk3",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev2",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side#2",
+              "f-rev2/lateral/e-3",
+              "f-cyl1/top",
+              "f-rev2/lateral/e-4",
+              "f-rev2/lateral/e-1",
+              "f-cyl1/side#1",
+              "f-cyl1/bottom"
+            ],
+            "edges": [
+              "edge(f-cyl1/side#2)",
+              "edge(f-cyl1/side#2|f-rev2/lateral/e-3)",
+              "edge(f-cyl1/side#2|f-cyl1/top)",
+              "edge(f-rev2/lateral/e-3|f-rev2/lateral/e-4)",
+              "edge(f-rev2/lateral/e-1|f-rev2/lateral/e-4)",
+              "edge(f-rev2/lateral/e-4)",
+              "edge(f-cyl1/side#1|f-rev2/lateral/e-1)",
+              "edge(f-cyl1/side#1)",
+              "edge(f-cyl1/bottom|f-cyl1/side#1)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side#2|f-rev2/lateral/e-3)",
+              "vertex(f-cyl1/side#2|f-cyl1/top)",
+              "vertex(f-rev2/lateral/e-3|f-rev2/lateral/e-4)",
+              "vertex(f-rev2/lateral/e-1|f-rev2/lateral/e-4)",
+              "vertex(f-cyl1/side#1|f-rev2/lateral/e-1)",
+              "vertex(f-cyl1/bottom|f-cyl1/side#1)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sk2",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-rev1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-cyl1/side#2#1",
+              "f-rev2/lateral/e-3",
+              "f-rev1/lateral/e-1",
+              "f-rev2/lateral/e-4",
+              "f-rev1/lateral/e-4",
+              "f-rev2/lateral/e-1",
+              "f-rev1/lateral/e-3",
+              "f-cyl1/side#1",
+              "f-cyl1/side#2#2",
+              "f-cyl1/bottom",
+              "f-cyl1/top"
+            ],
+            "edges": [
+              "edge(f-cyl1/side#2#1|f-rev2/lateral/e-3)",
+              "edge(f-cyl1/side#2#1)",
+              "edge(f-cyl1/side#2#1|f-rev1/lateral/e-1)",
+              "edge(f-rev2/lateral/e-3|f-rev2/lateral/e-4)",
+              "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "edge(f-rev2/lateral/e-1|f-rev2/lateral/e-4)",
+              "edge(f-rev2/lateral/e-4)",
+              "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "edge(f-rev1/lateral/e-4)",
+              "edge(f-cyl1/side#1|f-rev2/lateral/e-1)",
+              "edge(f-cyl1/side#2#2|f-rev1/lateral/e-3)",
+              "edge(f-cyl1/side#1)",
+              "edge(f-cyl1/bottom|f-cyl1/side#1)",
+              "edge(f-cyl1/side#2#2)",
+              "edge(f-cyl1/side#2#2|f-cyl1/top)"
+            ],
+            "vertices": [
+              "vertex(f-cyl1/side#2#1|f-rev2/lateral/e-3)",
+              "vertex(f-cyl1/side#2#1|f-rev1/lateral/e-1)",
+              "vertex(f-rev2/lateral/e-3|f-rev2/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-1|f-rev1/lateral/e-4)",
+              "vertex(f-rev2/lateral/e-1|f-rev2/lateral/e-4)",
+              "vertex(f-rev1/lateral/e-3|f-rev1/lateral/e-4)",
+              "vertex(f-cyl1/side#1|f-rev2/lateral/e-1)",
+              "vertex(f-cyl1/side#2#2|f-rev1/lateral/e-3)",
+              "vertex(f-cyl1/bottom|f-cyl1/side#1)",
+              "vertex(f-cyl1/side#2#2|f-cyl1/top)"
+            ]
+          }
+        },
+        "references": {
+          "/axis/face": {
+            "kind": "resolved",
+            "elements": [
+              "f-cyl1/side#1",
+              "f-cyl1/side#2"
+            ],
+            "method": "history",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

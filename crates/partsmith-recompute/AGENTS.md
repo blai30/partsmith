@@ -37,6 +37,8 @@ export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test -p partsmith-recompute
 cargo test -p partsmith-recompute --test integration feature_box::   # one file of tests/ other than budgets.rs, a module of tests/integration.rs (the feature budgets run with --test budgets)
 cargo test -p partsmith-recompute --test integration reference_stability_1::   # one third of the reference stability corpus (and _2::, _3::)
+# naming.md test 196: records the naming baseline once, on the code of a3f4573 (refused when CI is set); every other run compares with it
+PARTSMITH_RECORD_NAMING_BASELINE=1 cargo test -p partsmith-recompute --test integration -- naming_conformance::t196 reference_stability_
 # the release-only feature budgets (features.md section 6.1); a filter such as feature_box:: runs one feature's
 cargo test -p partsmith-recompute --release --test budgets
 cargo clippy -p partsmith-recompute --all-targets -- -D warnings

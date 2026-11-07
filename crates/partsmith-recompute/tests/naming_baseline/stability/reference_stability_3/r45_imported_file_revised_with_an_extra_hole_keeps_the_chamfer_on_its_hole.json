@@ -1,0 +1,341 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-imp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#1",
+              "f-imp1/face#4",
+              "f-imp1/face#3",
+              "f-imp1/face#5",
+              "f-imp1/face#2",
+              "f-imp1/face#7",
+              "f-imp1/face#6"
+            ],
+            "edges": [
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#2)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#4|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-imp1/face#3|f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-imp1/face#5|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#6)",
+              "edge(f-imp1/face#6)"
+            ],
+            "vertices": [
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#2|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#6)",
+              "vertex(f-imp1/face#2|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#6)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#3",
+              "f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)",
+              "f-imp1/face#1",
+              "f-imp1/face#4",
+              "f-imp1/face#7",
+              "f-imp1/face#5",
+              "f-imp1/face#6",
+              "f-imp1/face#2"
+            ],
+            "edges": [
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#3)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6))",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#6)",
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#2)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#4|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#7)",
+              "edge(f-imp1/face#5|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#6)"
+            ],
+            "vertices": [
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#3)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#6)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-imp1/face#2|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#6)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-imp1/face#3|f-imp1/face#6)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-imp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#1",
+              "f-imp1/face#4",
+              "f-imp1/face#3",
+              "f-imp1/face#5",
+              "f-imp1/face#2",
+              "f-imp1/face#7",
+              "f-imp1/face#6"
+            ],
+            "edges": [
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#2)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#4|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-imp1/face#3|f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-imp1/face#5|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#6)",
+              "edge(f-imp1/face#6)"
+            ],
+            "vertices": [
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#2|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#6)",
+              "vertex(f-imp1/face#2|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#6)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#3",
+              "f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)",
+              "f-imp1/face#1",
+              "f-imp1/face#4",
+              "f-imp1/face#7",
+              "f-imp1/face#5",
+              "f-imp1/face#6",
+              "f-imp1/face#2"
+            ],
+            "edges": [
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#3)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#7)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6))",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#6)",
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#2)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#4|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#7)",
+              "edge(f-imp1/face#5|f-imp1/face#7)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#6)"
+            ],
+            "vertices": [
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#3)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#3|f-imp1/face#6)|f-imp1/face#6)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-imp1/face#2|f-imp1/face#4|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#2|f-imp1/face#6)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-imp1/face#3|f-imp1/face#6)"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-imp1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#1",
+              "f-imp1/face#3",
+              "f-imp1/face#5",
+              "f-imp1/face#6",
+              "f-imp1/face#4",
+              "f-imp1/face#8",
+              "f-imp1/face#2",
+              "f-imp1/face#7"
+            ],
+            "edges": [
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#6)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-imp1/face#3|f-imp1/face#8)",
+              "edge(f-imp1/face#5|f-imp1/face#8)",
+              "edge(f-imp1/face#5|f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-imp1/face#5|f-imp1/face#7)",
+              "edge(f-imp1/face#4|f-imp1/face#6)",
+              "edge(f-imp1/face#6|f-imp1/face#8)",
+              "edge(f-imp1/face#4|f-imp1/face#8)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#4|f-imp1/face#7)",
+              "edge(f-imp1/face#2)",
+              "edge(f-imp1/face#7)"
+            ],
+            "vertices": [
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#4|f-imp1/face#6)",
+              "vertex(f-imp1/face#1|f-imp1/face#5|f-imp1/face#6)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#8)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#8)",
+              "vertex(f-imp1/face#5|f-imp1/face#6|f-imp1/face#8)",
+              "vertex(f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-imp1/face#5|f-imp1/face#7)",
+              "vertex(f-imp1/face#4|f-imp1/face#6|f-imp1/face#8)",
+              "vertex(f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#4|f-imp1/face#7)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-cha1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-imp1/face#5",
+              "f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7)",
+              "f-imp1/face#1",
+              "f-imp1/face#3",
+              "f-imp1/face#8",
+              "f-imp1/face#6",
+              "f-imp1/face#2",
+              "f-imp1/face#7",
+              "f-imp1/face#4"
+            ],
+            "edges": [
+              "edge(f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7)|f-imp1/face#5)",
+              "edge(f-imp1/face#1|f-imp1/face#5)",
+              "edge(f-imp1/face#3|f-imp1/face#5)",
+              "edge(f-imp1/face#5|f-imp1/face#8)",
+              "edge(f-imp1/face#5|f-imp1/face#6)",
+              "edge(f-imp1/face#2|f-imp1/face#5)",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7))",
+              "edge(f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7)|f-imp1/face#7)",
+              "edge(f-imp1/face#1|f-imp1/face#3)",
+              "edge(f-imp1/face#1|f-imp1/face#4)",
+              "edge(f-imp1/face#1|f-imp1/face#6)",
+              "edge(f-imp1/face#3|f-imp1/face#4)",
+              "edge(f-imp1/face#3|f-imp1/face#8)",
+              "edge(f-imp1/face#4|f-imp1/face#8)",
+              "edge(f-imp1/face#6|f-imp1/face#8)",
+              "edge(f-imp1/face#4|f-imp1/face#6)",
+              "edge(f-imp1/face#2)",
+              "edge(f-imp1/face#2|f-imp1/face#4)",
+              "edge(f-imp1/face#7)",
+              "edge(f-imp1/face#4|f-imp1/face#7)"
+            ],
+            "vertices": [
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7)|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#5)",
+              "vertex(f-imp1/face#1|f-imp1/face#5|f-imp1/face#6)",
+              "vertex(f-imp1/face#3|f-imp1/face#5|f-imp1/face#8)",
+              "vertex(f-imp1/face#5|f-imp1/face#6|f-imp1/face#8)",
+              "vertex(f-imp1/face#2|f-imp1/face#5)",
+              "vertex(f-cha1/chamfer/edge(f-imp1/face#5|f-imp1/face#7)|f-imp1/face#7)",
+              "vertex(f-imp1/face#1|f-imp1/face#3|f-imp1/face#4)",
+              "vertex(f-imp1/face#1|f-imp1/face#4|f-imp1/face#6)",
+              "vertex(f-imp1/face#3|f-imp1/face#4|f-imp1/face#8)",
+              "vertex(f-imp1/face#4|f-imp1/face#6|f-imp1/face#8)",
+              "vertex(f-imp1/face#2|f-imp1/face#4)",
+              "vertex(f-imp1/face#4|f-imp1/face#7)"
+            ]
+          }
+        },
+        "references": {
+          "/edges/0": {
+            "kind": "resolved",
+            "elements": [
+              "edge(f-imp1/face#5|f-imp1/face#7)"
+            ],
+            "method": "history",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]

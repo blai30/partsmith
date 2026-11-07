@@ -1,0 +1,570 @@
+[
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-ext1/lateral/e-2|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-2|f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-2|f-ext1/lateral/e-3)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sh1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-sh1/inner/f-ext1/lateral/e-1",
+              "f-sh1/rim/f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-3",
+              "f-sh1/inner/f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-sh1/inner/f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-sh1/inner/f-ext1/start-cap",
+              "f-ext1/end-cap",
+              "f-sh1/inner/f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)"
+            ]
+          }
+        },
+        "references": {
+          "/remove_faces/0": {
+            "kind": "resolved",
+            "elements": [
+              "f-ext1/lateral/e-2"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-ext1/lateral/e-2|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-2|f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-2|f-ext1/lateral/e-3)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+            ]
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sh1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-sh1/inner/f-ext1/lateral/e-1",
+              "f-sh1/rim/f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-3",
+              "f-sh1/inner/f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-sh1/inner/f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-sh1/inner/f-ext1/start-cap",
+              "f-ext1/end-cap",
+              "f-sh1/inner/f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)"
+            ]
+          }
+        },
+        "references": {
+          "/remove_faces/0": {
+            "kind": "resolved",
+            "elements": [
+              "f-ext1/lateral/e-2"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-6",
+              "f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-ext1/lateral/e-2|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-2|f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-2|f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+            ],
+            "successions": {
+              "f-ext1/lateral/e-2": [
+                "f-ext1/lateral/e-2",
+                "f-ext1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sh1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-sh1/inner/f-ext1/lateral/e-1",
+              "f-sh1/rim/f-ext1/lateral/e-2",
+              "f-sh1/rim/f-ext1/lateral/e-6",
+              "f-ext1/lateral/e-3",
+              "f-sh1/inner/f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-sh1/inner/f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-sh1/inner/f-ext1/start-cap",
+              "f-ext1/end-cap",
+              "f-sh1/inner/f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1)",
+              "edge(f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)#1",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)#2",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)"
+            ],
+            "successions": {
+              "f-ext1/lateral/e-2": [
+                "f-ext1/lateral/e-2",
+                "f-ext1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {
+          "/remove_faces/0": {
+            "kind": "resolved",
+            "elements": [
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-6"
+            ],
+            "method": "history",
+            "confidence": 1.0,
+            "follow": "extended",
+            "via": [
+              "f-ext1/lateral/e-2"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "features": [
+      {
+        "feature": "f-sk1",
+        "naming": {},
+        "references": {}
+      },
+      {
+        "feature": "f-ext1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-6",
+              "f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-ext1/lateral/e-2|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-2|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+              "vertex(f-ext1/lateral/e-2|f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-2|f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-6|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+            ],
+            "successions": {
+              "f-ext1/lateral/e-2": [
+                "f-ext1/lateral/e-2",
+                "f-ext1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {}
+      },
+      {
+        "feature": "f-sh1",
+        "naming": {
+          "b-1": {
+            "faces": [
+              "f-ext1/lateral/e-1",
+              "f-sh1/inner/f-ext1/lateral/e-1",
+              "f-sh1/rim/f-ext1/lateral/e-2",
+              "f-sh1/rim/f-ext1/lateral/e-6",
+              "f-ext1/lateral/e-3",
+              "f-sh1/inner/f-ext1/lateral/e-3",
+              "f-ext1/lateral/e-4",
+              "f-sh1/inner/f-ext1/lateral/e-4",
+              "f-ext1/start-cap",
+              "f-sh1/inner/f-ext1/start-cap",
+              "f-ext1/end-cap",
+              "f-sh1/inner/f-ext1/end-cap"
+            ],
+            "edges": [
+              "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1)",
+              "edge(f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)#1",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)#2",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "edge(f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "edge(f-ext1/end-cap|f-ext1/lateral/e-4)",
+              "edge(f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "edge(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-4)"
+            ],
+            "vertices": [
+              "vertex(f-ext1/lateral/e-1|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)",
+              "vertex(f-ext1/lateral/e-1|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/rim/f-ext1/lateral/e-2)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-1|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/rim/f-ext1/lateral/e-2|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/start-cap|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/rim/f-ext1/lateral/e-6)",
+              "vertex(f-ext1/lateral/e-3|f-ext1/lateral/e-4|f-ext1/start-cap)",
+              "vertex(f-ext1/end-cap|f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/end-cap|f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4)",
+              "vertex(f-sh1/inner/f-ext1/lateral/e-3|f-sh1/inner/f-ext1/lateral/e-4|f-sh1/inner/f-ext1/start-cap)"
+            ],
+            "successions": {
+              "f-ext1/lateral/e-2": [
+                "f-ext1/lateral/e-2",
+                "f-ext1/lateral/e-6"
+              ]
+            }
+          }
+        },
+        "references": {
+          "/remove_faces/0": {
+            "kind": "resolved",
+            "elements": [
+              "f-ext1/lateral/e-2",
+              "f-ext1/lateral/e-6"
+            ],
+            "method": "history",
+            "confidence": 1.0,
+            "follow": "extended",
+            "via": [
+              "f-ext1/lateral/e-2"
+            ]
+          },
+          "/remove_faces/1": {
+            "kind": "resolved",
+            "elements": [
+              "f-ext1/lateral/e-6"
+            ],
+            "method": "exact",
+            "confidence": 1.0
+          }
+        }
+      }
+    ]
+  }
+]
