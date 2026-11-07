@@ -1,6 +1,6 @@
 # Topological naming (`partsmith-naming`)
 
-This spec defines element names, naming maps, fingerprints, references and the resolver. It is the naming algorithm referred to in `AGENTS.md`: any change to a rule in sections 3.1 to 3.11 is a naming algorithm change and needs an ADR and human review. It implements the contract in `docs/design/architecture.md` (section "Topological naming") and technical design section 5, as decided in [ADR 0021](../adr/0021-resolve-references-by-meaning.md) (references resolve by meaning: names, history, anchors, merged names, continuations and relatives; fingerprints only rank candidates for the user), [ADR 0022](../adr/0022-split-regions-keep-their-area.md) (sketch successions, section 3.6.2) and [ADR 0023](../adr/0023-frames-live-on-the-model.md) (motions per face, sections 3.3 and 3.5.1). The fields references gain (`nb`, `merged`) are part of file format version 2 ([ADR 0025](../adr/0025-file-format-version-2.md)).
+This spec defines element names, naming maps, fingerprints, references and the resolver. It is the naming algorithm referred to in `AGENTS.md`: any change to a rule in sections 3.1 to 3.12 is a naming algorithm change and needs an ADR and human review. It implements the contract in `docs/design/architecture.md` (section "Topological naming") and technical design section 5, as decided in [ADR 0021](../adr/0021-resolve-references-by-meaning.md) (references resolve by meaning: names, history, anchors, merged names, continuations and relatives; fingerprints only rank candidates for the user), [ADR 0022](../adr/0022-split-regions-keep-their-area.md) (sketch successions, section 3.6.2) and [ADR 0023](../adr/0023-frames-live-on-the-model.md) (motions per face, sections 3.3 and 3.5.1). The fields references gain (`nb`, `merged`) are part of file format version 2 ([ADR 0025](../adr/0025-file-format-version-2.md)). Direct-generator names of edges and vertices (section 3.12) are M2's addition, decided in [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md).
 
 ## 1. Purpose and scope
 
@@ -23,6 +23,11 @@ This spec defines element names, naming maps, fingerprints, references and the r
 - Pattern of features and pattern of faces (only patterns of bodies are in M1).
 - Selector queries (`faces().top()`) as a reference form; in M1 the `q` of a reference is always an element name.
 - A persistent log of deleted elements. The resolver reports which parts of a lost name are gone (section 3.9), and recompute's loss diagnosis (recompute.md section 3.10) names the feature that removed them from the run itself, so no log is stored.
+
+**In M2 ([ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md), the M2 plan's item 2, wave 1):**
+
+- Direct-generator names for edges and vertices (section 3.12): the `edge:` and `vertex:` forms, given only to an edge or vertex that the face rule of section 3.3 leaves unnamed or names in an order-dependent form, added beside the names that rule gives. They are carried through every feature by kernel history, resolved by their own steps and written by picks where they are stronger. No element M1 names is renamed. No M1 feature makes one.
+- The contract for the features that make them in later waves: helix and coil (item 19), threads (item 20) and sweep (item 18) in wave 2. Each of their specs adds its rule to section 3.6. Sketch geometry projected from bodies (item 26, wave 3) stores its source edges and vertices as picks store them (section 3.12.5).
 
 ## 2. Public API
 
@@ -127,10 +132,12 @@ impl ElementName {
     pub fn piece_free(&self) -> Option<ElementName>;
     /// True when `self` is `ancestor` followed by one or more split suffixes.
     pub fn is_split_descendant_of(&self, ancestor: &ElementName) -> bool;
-    /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name.
+    /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name and for a
+    /// direct-generator name (section 3.12), which has no face list.
     pub fn face_terms(&self) -> Vec<ElementName>;
     /// The face parts of a name: the name itself for a face name, its face terms for an edge or vertex name. Unlike the
-    /// parts of a query (section 3.1), they never include an edge or vertex name with its own `#n`.
+    /// parts of a query (section 3.1), they never include an edge or vertex name with its own `#n`. Empty for a
+    /// direct-generator name.
     pub fn face_parts(&self) -> Vec<ElementName>;
     /// The name with one more split suffix `#index` appended (`index >= 1`).
     pub fn with_split(&self, index: u32) -> Result<ElementName, NamingError>;
@@ -143,12 +150,23 @@ impl ElementName {
     /// The vertex name for the given adjacent face names (sorted and deduplicated here).
     pub fn vertex(faces: &[ElementName]) -> Result<ElementName, NamingError>;
     /// Every feature and sketch generator the name depends on: those of each face term, of every nested name and
-    /// of every instance group, sorted and distinct. Engine queries use it to say what uses a feature (engine.md section 3.24).
+    /// of every instance group, sorted and distinct; for a direct-generator name, its feature with its sketch
+    /// generator and the features of its instance groups. Engine queries use it to say what uses a feature
+    /// (engine.md section 3.24).
     pub fn generators(&self) -> Vec<GeneratorUse>;
     /// The parts of a face name (section 3.1), borrowed from it: its feature, role, generator and own suffix groups;
     /// `None` for an edge or vertex name. Element descriptions (features.md section 3.12) and recompute's loss diagnosis
     /// read face names through it.
     pub fn face_name(&self) -> Option<FaceName<'_>>;
+    /// A direct-generator name `edge:<feature>/<role>[/<generator>]` or `vertex:<feature>/<role>[/<generator>]`
+    /// (section 3.12) for an edge or vertex a feature made from a sketch point or entity, or from its own construction
+    /// when `generator` is `None`. `kind` must be `Edge` or `Vertex`; `generator` must match `sketch-ref`.
+    pub fn direct(kind: ElementKind, feature: &Id, role: &str, generator: Option<&str>) -> Result<ElementName, NamingError>;
+    /// True for a direct-generator name: one that starts with `edge:` or `vertex:`.
+    pub fn is_direct(&self) -> bool;
+    /// The parts of a direct-generator name after its `edge:` or `vertex:` prefix, read as a face name is read
+    /// (feature, role, sketch generator, own `#n` and `@` groups, copies and maker); `None` for any other name.
+    pub fn direct_parts(&self) -> Option<FaceName<'_>>;
 }
 
 impl std::fmt::Display for ElementName { /* writes as_str() */ }
@@ -265,7 +283,7 @@ pub mod roles {
 }
 ```
 
-JSON: an element name serializes as a JSON string, for example `"f-ext1/end-cap#2"`. JSON Schema: `{"type": "string", "minLength": 3, "maxLength": 16384, "pattern": "^[A-Za-z0-9_./()|#@:-]+$"}` (the pattern is a necessary condition; full validation is section 3.1).
+JSON: an element name serializes as a JSON string, for example `"f-ext1/end-cap#2"`. JSON Schema: `{"type": "string", "minLength": 3, "maxLength": 16384, "pattern": "^[A-Za-z0-9_./()|#@:-]+$"}` (the pattern is a necessary condition; full validation is section 3.1). Direct-generator names (`"edge:f-hel1/helix"`) use only characters the pattern already allows. The schema does not change in M2.
 
 ### 2.3 Fingerprints
 
@@ -364,8 +382,8 @@ impl Merged { pub fn is_empty(&self) -> bool; }
 impl Reference {
     /// Builds a reference without anchors or merged names; fails if the query's element kind differs from the fingerprint's.
     pub fn new(query: ElementName, fingerprint: Fingerprint) -> Result<Reference, NamingError>;
-    /// The reference that denotes this element as it is now in `set`, with anchors and merged names (section 3.11).
-    /// Every pick and every stored fix uses it.
+    /// The reference that denotes this element as it is now in `set`, with anchors and merged names (section 3.11),
+    /// or by its direct-generator name where section 3.12.5 writes that. Every pick and every stored fix uses it.
     pub fn from_element(info: &ElementInfo, set: &ElementSet) -> Reference;
     /// The same reference without anchors and merged names, as element lists send it (engine.md section 3.9).
     pub fn short(&self) -> Reference;
@@ -382,7 +400,7 @@ JSON (canonical key order `q`, `fp`, `nb`, `merged`; `nb` and `merged` are omitt
 {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=50,10,10|a=2000|adj=4,4", "merged": {"f-box1/top": ["f-box1/top@f-lp1:*"]}}
 ```
 
-Deserialization checks that every `nb` key is an order-dependent part of `q`, or `q` itself when it has its own `#n` (section 3.1), that every anchor list is non-empty, sorted, distinct, at most `ANCHOR_LIMIT` long and holds valid piece-free face names, that every `merged` key is a face name occurring in `q`, and that every merged list is non-empty, sorted and distinct; a failed check gives `InvalidReference`. A merged name's text is `Copies` when it ends in `:*`: the text before the last `@` is `source`, which must be a face name, and the text between that `@` and `:*` is `feature`, which must be an id; any other text must be a face name (`Face`); anything else fails with `InvalidName`. Merged lists are sorted in `MergedName` order: every `Face` before every `Copies`, faces by name, copies by source then feature, in byte order.
+Deserialization checks that every `nb` key is an order-dependent part of `q`, or `q` itself when it has its own `#n` (section 3.1), that every anchor list is non-empty, sorted, distinct, at most `ANCHOR_LIMIT` long and holds valid piece-free face names, that every `merged` key is a face name occurring in `q`, and that every merged list is non-empty, sorted and distinct; a failed check gives `InvalidReference`. A merged name's text is `Copies` when it ends in `:*`: the text before the last `@` is `source`, which must be a face name, and the text between that `@` and `:*` is `feature`, which must be an id; any other text must be a face name (`Face`); anything else fails with `InvalidName`. Merged lists are sorted in `MergedName` order: every `Face` before every `Copies`, faces by name, copies by source then feature, in byte order. A reference whose `q` is a direct-generator name takes no `nb` and no `merged`. Either one fails with `InvalidReference` (section 3.12.5).
 
 A `Reference` carries no body, and names are unique per naming map, not per document (a kept boolean tool and the target can share names). So a stored `Reference` always sits next to a `body` field of its containing struct that names the body it is resolved in: features.md `PlaneRef::Face`, `AxisRef::Edge` and `AxisRef::Face`, sketch.md `SketchPlane::Face`, or the feature's own `body` param for reference lists such as fillet `edges` and shell `remove_faces`. There is no separate body-reference type; features resolve each reference against the element set of that one body (section 2.7).
 
@@ -397,6 +415,29 @@ pub enum FaceSource {
     /// A face descending (kept, modified, split or merged) from these input faces, each given by the index of its
     /// map in `inherited` (section 3.3) and its name there. Never empty.
     From(Vec<(u32, ElementName)>),
+}
+
+/// Where the direct-generator names of one output edge or vertex come from (section 3.12.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DirectSource {
+    /// The element has no generator of its own and descends from no input element.
+    None,
+    /// The current feature made the element from a generator: its direct-generator name before numbering, as
+    /// `ElementName::direct` gives it.
+    New(ElementName),
+    /// The element descends (kept, modified, split or merged) from these input elements of its kind, each given by
+    /// the index of its map in `inherited` and its 1-based index in that map. Never empty.
+    From(Vec<(u32, u32)>),
+}
+
+/// The direct sources of one output shape: one entry per edge and one per vertex, in index order. An empty list
+/// means `DirectSource::None` for every element of its kind, so `DirectSources::default()` gives no direct names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DirectSources {
+    /// One entry per edge, or none.
+    pub edges: Vec<DirectSource>,
+    /// One entry per vertex, or none.
+    pub vertices: Vec<DirectSource>,
 }
 
 /// Topology and geometry of one output shape, indexed like the kernel: entry `i` is element `i + 1`.
@@ -522,8 +563,21 @@ impl NamingMap {
         added_successions: &Successions,
         new_motion: &Motion,
     ) -> Result<NamingMap, NamingError>;
+    /// `build` with the direct sources of the shape's edges and vertices (section 3.12.2, step 9 of section 3.3).
+    /// `build` is this with `DirectSources::default()`.
+    pub fn build_with_direct(
+        faces: Vec<FaceSource>,
+        direct: DirectSources,
+        topology: &TopologyInfo,
+        inherited: &[&NamingMap],
+        added_successions: &Successions,
+        new_motion: &Motion,
+    ) -> Result<NamingMap, NamingError>;
     /// The name of element `index` (1-based) of `kind`; `None` if out of range or unnamed.
     pub fn name(&self, kind: ElementKind, index: u32) -> Option<&ElementName>;
+    /// The direct-generator names element `index` (1-based) of `kind` holds, sorted and distinct (section 3.12.2);
+    /// empty for a face, an index out of range and an element that holds none.
+    pub fn direct(&self, kind: ElementKind, index: u32) -> &[ElementName];
     /// The 1-based index of the element with this exact name, searched among elements of the name's kind.
     pub fn index(&self, name: &ElementName) -> Option<u32>;
     /// Number of elements of `kind` (named or not).
@@ -569,6 +623,8 @@ impl NamingMap {
 
 A map built after a merge carries its aliases as an object from former names to sorted lists of the names of the faces that carry them now, for example `"aliases": {"f-ext2/end-cap": ["f-ext1/end-cap"]}` in a map that has a face named `f-ext1/end-cap`, or `"aliases": {"f-box2/top": ["f-a1/top#2"]}` when the face it merged into is a piece. A map built from a profile with successions carries them in their order, for example `"successions": {"f-ext1/lateral/e-3": ["f-ext1/lateral/e-9", "f-ext1/lateral/e-10"]}`. A map with motions carries `"motions": {"base": [12 numbers], "own": {"<face name>": [12 numbers]}}`, omitted when the base is the identity and `own` is empty; when present it has both keys. Deserialization checks that every alias and succession key and target is a valid face name, that every alias target list is non-empty, sorted and distinct, that every succession list is non-empty and distinct (in any order), that every `own` key is a valid face name and that every motion holds 12 finite numbers; it stores negative zeros as zeros, as `Motion::new` does.
 
+A map in which some edge or vertex holds direct-generator names (section 3.12) carries them as `"direct": {"edges": [...], "vertices": [...]}`, after `motions`: one entry per element of the kind, in index order, `null` for an element that holds none, else its sorted, distinct list. A kind none of whose elements holds one has no key, and a map without any has no `direct` key, so every map M1 builds serializes as before. For a wire of one edge named by its direct name: `"edges": ["edge:f-hel1/helix"]` and `"direct": {"edges": [["edge:f-hel1/helix"]], "vertices": [["vertex:f-hel1/start"], ["vertex:f-hel1/end"]]}`. Deserialization checks that each list has the length of `edges` or `vertices`, that each entry is `null` or a non-empty, sorted and distinct list of direct-generator names of that kind, that an element whose name is a direct-generator name holds a list whose first entry is that name, and that an unnamed element holds none. A direct-generator name held by two elements of one kind fails with `DuplicateName`.
+
 ### 2.7 Element infos and element sets
 
 ```rust
@@ -587,6 +643,16 @@ pub struct ElementInfo {
     /// test of an edge with its own `#n` reads it (section 3.9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vertices: Vec<ElementName>,
+    /// For an edge or vertex, the direct-generator names it holds (`NamingMap::direct`), sorted and distinct; empty
+    /// for faces and for elements that hold none (section 3.12).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub direct: Vec<ElementName>,
+}
+
+impl ElementInfo {
+    /// The name `Reference::from_element` writes as `q` for this element (section 3.12.5): its first direct-generator
+    /// name when its name is that name, or when its name is order dependent and that first name is not; else its name.
+    pub fn reference_name(&self) -> &ElementName;
 }
 ```
 
@@ -634,12 +700,15 @@ impl NameSet {
     /// The faces that touch `face`, in byte order; none when `face` is no face of the set. Recompute's loss diagnosis
     /// finds the face that runs between the faces of a lost edge with it (recompute.md section 3.10, `between`).
     pub fn neighbors(&self, face: &ElementName) -> impl Iterator<Item = &ElementName>;
+    /// True when an edge or vertex of the set holds a direct-generator name that extends `direct` (section 3.12.4).
+    /// Recompute's loss diagnosis asks it of each map it walks for a lost direct-generator query.
+    pub fn carries(&self, direct: &ElementName) -> bool;
 }
 ```
 
 `ElementSet::new` keeps the given order within each kind and fails with `DuplicateName` when two elements of one kind share a name. Resolving never depends on the order of the infos or on the insertion order of the aliases and successions (section 3.9). `NameSet::new` cannot fail: a naming map's names are valid and unique by construction (section 3.3).
 
-Both constructors build, once per body state, every index a resolve needs, so candidates are never parsed during a resolve: the faces by their name and by their piece-free name; the faces with an element generator, and the keys with one, by their skeleton (section 3.9); the rim faces `<feature>/rim/<generator>` by the forms of their generator (step 3); the faces with a sketch generator by feature, generator and `@` groups (step 4); the face names by every feature of their `ElementName::generators` (step 5); and which faces touch. For the same body state, `NameSet::new` of its map and `ElementSet::new` of its element infos give the same families and the same answers to `touches`: an edge name lists exactly the faces its edge separates, and a face's adjacency lists the faces it shares a non-degenerate edge with. The anchor test of an edge with its own `#n` needs the vertex infos (section 3.9), so it is not available from names alone.
+Both constructors build, once per body state, every index a resolve needs, so candidates are never parsed during a resolve: the faces by their name and by their piece-free name; the faces with an element generator, and the keys with one, by their skeleton (section 3.9); the rim faces `<feature>/rim/<generator>` by the forms of their generator (step 3); the faces with a sketch generator by feature, generator and `@` groups (step 4); the face names by every feature of their `ElementName::generators` (step 5); which faces touch; and the edges and vertices by each direct-generator name they hold and by its piece-free form (section 3.12.4). For the same body state, `NameSet::new` of its map and `ElementSet::new` of its element infos give the same families and the same answers to `touches`: an edge name lists exactly the faces its edge separates, and a face's adjacency lists the faces it shares a non-degenerate edge with. The anchor test of an edge with its own `#n` needs the vertex infos (section 3.9), so it is not available from names alone.
 
 ### 2.8 Resolver
 
@@ -706,11 +775,12 @@ pub struct Candidate {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Lost {
     /// Parts of the query that are not present: no face in the body, and no continuation or relative resolved the
-    /// query. Never the query's own `#n` (section 3.9 step 5).
+    /// query. Never the query's own `#n` (section 3.9 step 5). For a direct-generator query, the query itself when no
+    /// element holds a direct-generator name that extends its piece-free form (section 3.12.4).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub parts: Vec<ElementName>,
     /// Order-dependent parts whose piece no longer exists, or, for fallback names, can no longer be confirmed by its
-    /// score (section 3.9 steps 1 to 3).
+    /// score (section 3.9 steps 1 to 3); an order-dependent direct-generator query whose piece is gone (section 3.12.4).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub pieces: Vec<ElementName>,
     /// True when every part exists but no element joins them (the faces no longer meet).
@@ -727,9 +797,11 @@ impl Lost {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchMethod {
-    /// The name matched, confirmed by its anchors when it is order dependent.
+    /// The name matched, confirmed by its anchors when it is order dependent, or the element holds the query as its
+    /// first direct-generator name (section 3.12.4).
     Exact,
-    /// Recorded history matched: pieces of a split, aliases of a merge, a recorded succession, merged names, a piece found by its anchors.
+    /// Recorded history matched: pieces of a split, aliases of a merge, a recorded succession, merged names, a piece found by its anchors,
+    /// the pieces of a direct-generator name or a direct-generator name merged into another element (section 3.12.4).
     History,
     /// A face that continues a removed face (a shell rim) matched.
     Continued,
@@ -788,11 +860,14 @@ element-name    = face-name / edge-name / vertex-name
 
 face-name       = feature-id "/" role [ "/" generator ] *face-suffix
 face-suffix     = split / instance
-edge-name       = "edge(" face-list ")" *split
-vertex-name     = "vertex(" face-list ")" *split
+edge-name       = edge-by-faces / "edge:" direct-body
+vertex-name     = vertex-by-faces / "vertex:" direct-body
+edge-by-faces   = "edge(" face-list ")" *split
+vertex-by-faces = "vertex(" face-list ")" *split
 face-list       = face-name *( "|" face-name )
+direct-body     = feature-id "/" role [ "/" sketch-ref ] *face-suffix
 
-generator       = sketch-ref / element-name
+generator       = sketch-ref / face-name / edge-by-faces / vertex-by-faces
 sketch-ref      = id [ "." word ]
 
 split           = "#" positive
@@ -813,9 +888,10 @@ Additional rules:
 1. Length: 3 to 16384 bytes. Parenthesis nesting depth (the number of open `edge(` or `vertex(` at any point) is at most 32. Names outside these limits are invalid.
 2. `positive` values must fit in `u32` (at most 4294967295).
 3. A `face-list` contains at least one face name. In a valid edge or vertex name the face names are distinct and in strictly ascending byte order. `ElementName::edge` and `ElementName::vertex` sort and deduplicate their input.
-4. Kind: a name starting with `edge(` is an edge name, a name starting with `vertex(` is a vertex name, any other valid name is a face name. Face names never start with either prefix because a feature id cannot contain `(`.
+4. Kind: a name starting with `edge(` or `edge:` is an edge name, a name starting with `vertex(` or `vertex:` is a vertex name, any other valid name is a face name. Face names never start with any of these prefixes because a feature id cannot contain `(` or `:`.
 5. Validation is linear in the name length. Implementations must not recurse per nested face-name generator without bound (validate the generator chain iteratively); recursion per parenthesis level is fine since depth is at most 32.
 6. The grammar does not say whether trailing `#n` or `@...` suffixes of a face name whose generator is itself an element name belong to the generator or to the outer name. Where it matters (the terms and skeletons of section 3.9), they belong to a face-name generator, which runs to the end of the name (the rim `f-sh1/rim/f-ext1/end-cap#2` has the generator `f-ext1/end-cap#2`), and, after an edge or vertex generator, which ends at its `)`, to the outer name, so they are part of its skeleton (the `@` groups of `f-c/chamfer/edge(f-a/x|f-b/y)@f-p:1`). Names are unique per naming map by construction (section 3.3).
+7. A direct-generator name is `edge:` or `vertex:` followed by its *body*, which has the form of a face name whose generator is a sketch reference or absent: its feature, role, sketch generator and suffix groups read as a face name's do (`ElementName::direct_parts`). A direct-generator name never stands as the generator of another name and never in a face list. It holds no parentheses, so it adds no nesting depth.
 
 Definitions used throughout:
 
@@ -825,11 +901,12 @@ Definitions used throughout:
 - **Face terms** of an edge or vertex name: the face names in its `face-list`, split at `|` characters at parenthesis depth 1 relative to the outer `edge(`/`vertex(`.
 - **Byte order:** lexicographic order of the UTF-8 bytes (Rust `str` ordering). `#` (0x23) sorts before every other character allowed in names, so a strict split descendant sorts immediately after its ancestor.
 - **Suffix groups** of a face name: the `#n` and `@<feature>:<instance>` groups after its role or generator, in written order. **Piece-free name:** the face name with every `#n` group removed, wherever it stands (`f-ext1/end-cap#1@f-lp1:1#2` gives `f-ext1/end-cap@f-lp1:1`). A face name `d` **extends** `t` when their piece-free names are equal, `d`'s suffix groups are `t`'s with zero or more `#n` groups appended to its runs of `#n` groups (a run is the `#n` groups before the first `@` group, between two `@` groups, or after the last), and, when they have an element generator, each face name in `d`'s generator extends the face name in `t`'s generator it pairs with, one to one (`f-ext1/end-cap#1@f-lp1:1` extends `f-ext1/end-cap@f-lp1:1`; `f-a/x#2#1` extends `f-a/x#2`, not `f-a/x#1`; `f-c/chamfer/edge(f-a/x#1|f-b/y)` does not extend `f-c/chamfer/edge(f-a/x#2|f-b/y)`). An edge or vertex name `d` extends `t` when `d` is `t` or a strict split descendant of it. The **pieces** of `t` are the names that extend it: `t` itself, or `t` split further.
+- **Direct-generator name** (direct name): an edge or vertex name in the `edge:` or `vertex:` form (rule 7, section 3.12). The other edge and vertex names, in the `edge(` or `vertex(` form, are *face-rule names*. A direct name `d` *extends* `t` when both have the same prefix and the body of `d` extends the body of `t` as one face name extends another (`edge:f-h/helix#1` extends `edge:f-h/helix`; `edge:f-h/helix@f-p:1` does not). Its *piece-free form* is the name with every `#n` group removed. A direct name has no face terms and no parts: section 3.12.4 resolves it, and its losses list the query itself (section 2.8). It is never a fallback name, whatever its role.
 - **Fallback name:** a face name whose role is `face` (section 3.6.14). It has no meaning beyond geometric order. An edge or vertex name with its own trailing `#n` whose face terms are all fallback names counts as a fallback name as a part of itself (see Parts): its number, too, only orders the lookalikes where two imported faces meet more than once.
 - **Parts** of a query: its face terms for an edge or vertex name, the name itself for a face name. The parts of an edge or vertex name with its own trailing `#n` also include the name itself. The **face names occurring in** a query are its parts and every face name nested in their generators.
 - **Candidate order:** candidates with `meaning` first; then, for a face query whose fingerprint has a direction, those whose fingerprint direction agrees with it (a dot product of at least `1 - 1e-9` for planes, an absolute dot product of at least `1 - 1e-9` for other kinds), so a face that faces the way the stored one did comes before nearer faces that do not; then by increasing `distance`; then by name in byte order.
 
-Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/lateral/e-1#2`, `f-hole1/bore/e-1.center`, `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-1)`, `f-sh1/inner/f-ext1/lateral/e-3`, `f-box1/top@f-pat1:2`, `f-box1/top@f-pat1:0.1`, `edge(f-cyl1/side)`, `edge(f-box1/front|f-box1/top)#2`, `vertex(f-box1/bottom|f-box1/front|f-box1/left)`.
+Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/lateral/e-1#2`, `f-hole1/bore/e-1.center`, `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-1)`, `f-sh1/inner/f-ext1/lateral/e-3`, `f-box1/top@f-pat1:2`, `f-box1/top@f-pat1:0.1`, `edge(f-cyl1/side)`, `edge(f-box1/front|f-box1/top)#2`, `vertex(f-box1/bottom|f-box1/front|f-box1/left)`, and the direct-generator names `edge:f-hel1/helix`, `vertex:f-hel1/start`, `edge:f-swp1/rail/e-1.end#2` and `edge:f-hel1/helix@f-lp1:1`.
 
 ### 3.2 Generated names
 
@@ -841,6 +918,8 @@ Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/late
 
 `role` must match `word`. The result is validated like any parsed name (length, depth).
 
+`ElementName::direct(kind, feature, role, generator)` returns `edge:<feature>/<role>` for `Edge` and `vertex:<feature>/<role>` for `Vertex` when `generator` is `None`, and `edge:<feature>/<role>/<generator>` or `vertex:<feature>/<role>/<generator>` otherwise. `Face` fails with `InvalidName` (`text` is `<feature>/<role>[/<generator>]`, reason `it is not an edge or vertex name`), a role that does not match `word` with `InvalidRole`, and a generator that does not match `sketch-ref` with `InvalidGenerator`.
+
 ### 3.3 Building a naming map
 
 `NamingMap::build(faces, topology, inherited, added_successions, new_motion)` runs these steps. All sorting is deterministic; nothing depends on hash order.
@@ -850,8 +929,8 @@ Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/late
    - `New(n)`: the base is `n`.
    - `From(v)`: deduplicate the names of `v`. If it has one name, the base is that name. Otherwise (a merge): if all names have the same split base, the base is that split base (pieces of one face rejoined); else the base is the smallest name by byte order, and for every name `s` whose piece-free name differs from the piece-free name of the chosen base, record the new alias `s -> [b]`, with `s` the source's full name and `b` the face's final name after step 3. Full names keep a merged piece apart from its siblings: when `f-ext1/end-cap#2` merges into `f-box2/top`, `f-ext1/end-cap#1` keeps its own meaning, and when `f-box2/top` merges into `f-a1/top#2`, it stands for that piece alone, whichever feature id sorts first.
 3. **Face split numbering.** Assign suffixes with the procedure *number duplicates* (below) using the face order keys of section 3.4.
-4. **Edge names.** For each edge in index order: if it is degenerate or has no adjacent face, it is unnamed (`None`). Otherwise its base is `ElementName::edge` of the final names of its adjacent faces (a seam edge, with one adjacent face, gets `edge(<face>)`). Number duplicates with the edge order keys.
-5. **Vertex names.** For each vertex in index order: if it has no adjacent face it is unnamed. Otherwise its base is `ElementName::vertex` of the final names of its adjacent faces. Number duplicates with the vertex order keys.
+4. **Edge names.** For each edge in index order: if it is degenerate or has no adjacent face, it is unnamed (`None`); step 9 can name one without adjacent faces by a direct-generator name. Otherwise its base is `ElementName::edge` of the final names of its adjacent faces (a seam edge, with one adjacent face, gets `edge(<face>)`). Number duplicates with the edge order keys.
+5. **Vertex names.** For each vertex in index order: if it has no adjacent face it is unnamed, unless step 9 names it by a direct-generator name. Otherwise its base is `ElementName::vertex` of the final names of its adjacent faces. Number duplicates with the vertex order keys.
 6. **Aliases and successions.** For every alias key, the target list is the union of its lists in every inherited map and in step 2, sorted and distinct, so the same maps in any order give the same aliases (reordering a boolean's tools changes nothing). Flatten: replace every target by its `chase` over the combined set, keeping the list sorted and distinct. Prune: remove every target that no output face extends (section 3.1), then every entry left without targets, then every entry whose key is the name of an output face. The output carries every succession of every inherited map and of `added_successions`, each list in its own order. Successions are never flattened or pruned: they last as long as the feature that recorded them (section 3.6.2), and `chase` follows them through the aliases at resolve time. When two sources give one key different lists (which no M1 feature does), the smallest list in lexicographic byte order of its names is kept, so the result never depends on the order of the inputs.
 7. **Check.** Every name must be valid (a name over 16384 bytes or depth 32 fails with `NameTooLong`), and names must be unique within each kind (guaranteed by step 3 to 5).
 8. **Motions.** A face's motion says how Move body features and copy transforms have moved it since it was built, or, for a face built on geometry that had already moved (a fillet on a moved body, an extrude of a sketch placed on a moved face), since that geometry was built. The map stores a `base` motion and `own` motions keyed by face names, full or piece-free; `motion(name)` is the own motion of the full name, else that of its piece-free name, else the base.
@@ -861,6 +940,7 @@ Examples of valid names: `f-ext1/end-cap`, `f-ext1/lateral/e-9e12`, `f-ext1/late
    - The own entries are written canonically: for each piece-free name, one entry under the piece-free name when every name with that piece-free name that has a motion above has the same one, otherwise one entry under each such full name; entries equal to the base are left out.
 
    Entries are never dropped because their name left the shape, so a face that a later feature removed or merged into another still has its motion, and a name the map never saw (its feature is gone) has the base: the motion of the body as a whole.
+9. **Direct names** (`build_with_direct` only). The direct-generator names of the edges and vertices, from `direct` and the inherited maps, by section 3.12.2. Steps 1 to 8 never read `direct`, so every name they give is the name `build` gives. `build` passes no direct sources, so this step names nothing there.
 
 **Number duplicates** (applied separately to faces, edges and vertices): repeat until no two named elements of the kind share a name: group elements by current name; for every group with more than one element, sort the group by order key ascending and append `#1`, `#2`, ... in that order. The loop terminates because every pass makes names strictly longer only for colliding elements; a second pass happens only when an appended name collides with an existing one (for example a new `X#1` meeting an inherited `X#1`), which then become `X#1#1` and `X#1#2`.
 
@@ -869,6 +949,7 @@ Consequences (invariants):
 - A name without `#` is stable as long as its sources are stable; adding unrelated features never renumbers it.
 - When exactly one piece of a split face survives, it keeps the unsuffixed name.
 - Inherited names keep their suffixes (`From([X#2])` yields `X#2` unless it collides), so unrelated downstream features never renumber pieces. Edges and vertices are always rederived from the current face names.
+- Direct-generator names never change a name that steps 4 and 5 give. They are carried by kernel history, never rederived (section 3.12.2).
 
 ### 3.4 Deterministic geometric order
 
