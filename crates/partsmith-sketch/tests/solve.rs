@@ -1,19 +1,22 @@
-//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103, 256 and 258).
+//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103, 256, 258, 259, 261, 262 and 336).
 
 use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::thread;
 
-use common::residuals::{assert_constraints_hold, assert_measured_match_values};
+use common::generator::{GeneratedCase, LARGEST_MOVE, generate};
+use common::residuals::{
+    assert_constraints_hold, assert_measured_match_values, solve_back_problems,
+};
 use common::{
     Sketch, TOLERANCE, angle, arc, arc_parts, as_construction, assert_bits, assert_bitwise,
     assert_close, assert_ids, assert_point_bitwise, assert_point_close, assert_translated, circle,
     circle_parts, coincident, collinear, concentric, diameter, distance_line, distance_point_line,
     distance_points, equal, find, fix, horizontal, horizontal_distance_line,
-    horizontal_distance_points, line, line_ends, measured, midpoint, parallel, perpendicular,
-    plate, point, point_at_angle, point_on_object, position, radius, symmetric, tangent,
-    translated, vertical, vertical_distance_line,
+    horizontal_distance_points, line, line_ends, measured, midpoint, moved_coordinates, parallel,
+    perpendicular, plate, point, point_at_angle, point_on_object, position, radius, symmetric,
+    tangent, translated, translation_problems, vertical, vertical_distance_line,
 };
 use partsmith_sketch::{EntityState, SketchEntity, SketchStatus, SolveResult};
 
@@ -995,4 +998,139 @@ fn t258_a_solution_next_to_a_fold_converges() {
         .abs()
         / direction[0].hypot(direction[1]);
     assert_close(height, 9.33e-4, 1e-5, "distance from e-2.end to e-1");
+}
+
+/// The bound of tests 259 and 262: twice the warm start's noise of 0.01 (section 6.13).
+const REPLAY_BOUND: f64 = 0.02;
+
+/// The generated case of `seed` (section 6.13) as a sketch: its warm start and values.
+fn generated(seed: u64) -> (GeneratedCase, Sketch) {
+    let case = generate(seed).unwrap_or_else(|| panic!("the generator keeps seed {seed}"));
+    let sketch = Sketch {
+        params: case.warm_start.clone(),
+        values: case.values.clone(),
+    };
+    (case, sketch)
+}
+
+/// Asserts that `failures` is empty; otherwise fails with each of them on a line of its own.
+#[track_caller]
+fn assert_no_failures(failures: &[String]) {
+    assert!(
+        failures.is_empty(),
+        "{} problems:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// Asserts that `check` finds nothing wrong with the case of any of `seeds`; otherwise fails with
+/// what it found, seed by seed.
+#[track_caller]
+fn assert_seeds_hold(seeds: &[u64], check: impl Fn(&GeneratedCase, &Sketch) -> Vec<String>) {
+    let failures: Vec<String> = seeds
+        .iter()
+        .flat_map(|&seed| {
+            let (case, sketch) = generated(seed);
+            check(&case, &sketch)
+                .into_iter()
+                .map(move |problem| format!("seed {seed}: {problem}"))
+        })
+        .collect();
+    assert_no_failures(&failures);
+}
+
+/// What tests 259, 262 and 336 find wrong with the solve of `case`'s warm start: test 189's checks,
+/// and every coordinate more than `bound` from the warm start's. Also returns the result.
+fn solve_near_the_warm_start(
+    case: &GeneratedCase,
+    sketch: &Sketch,
+    bound: f64,
+) -> (SolveResult, Vec<String>) {
+    let result = sketch.solve();
+    let mut problems = solve_back_problems(
+        &case.warm_start,
+        &case.warm_start.entities,
+        &result,
+        &case.values,
+    );
+    problems.extend(
+        moved_coordinates(&result.entities, &case.warm_start.entities, bound)
+            .into_iter()
+            .map(|moved| format!("from the warm start, {moved}")),
+    );
+    (result, problems)
+}
+
+#[test]
+fn t259_the_replayable_seeds_end_near_the_warm_start_and_the_known_solution() {
+    // The three slides of section 3.7.4, the five of open issue 21, seed 9841460 that stretched a
+    // free line by 460 and seed 5635218625053008121 that slid a free end 5.36.
+    let seeds = [
+        193903,
+        230290,
+        259081,
+        478151,
+        505952,
+        595598,
+        742663,
+        856226,
+        9841460,
+        5635218625053008121,
+    ];
+
+    assert_seeds_hold(&seeds, |case, sketch| {
+        let (result, mut problems) = solve_near_the_warm_start(case, sketch, REPLAY_BOUND);
+        problems.extend(
+            moved_coordinates(&result.entities, &case.known.entities, REPLAY_BOUND)
+                .into_iter()
+                .map(|moved| format!("from the known solution, {moved}")),
+        );
+        problems
+    });
+}
+
+#[test]
+fn t261_translated_slides_solve_to_the_moved_result() {
+    let cases = [
+        (9841460, [475.86452147398586, 146.63635321809318]),
+        (5635218625053008121, [0.0, 487.4378466513926]),
+        (12075137138286841106, [0.0, 6.013428068696318]),
+    ];
+
+    let failures: Vec<String> = cases
+        .iter()
+        .flat_map(|&(seed, offset)| {
+            let (_, sketch) = generated(seed);
+            let moved = Sketch {
+                params: translated(&sketch.params, offset),
+                values: sketch.values.clone(),
+            };
+            translation_problems(&sketch.solve(), &moved.solve(), offset)
+                .into_iter()
+                .map(move |problem| format!("seed {seed}, offset {offset:?}: {problem}"))
+        })
+        .collect();
+
+    assert_no_failures(&failures);
+}
+
+#[test]
+fn t262_repeated_dimensions_solve_near_the_warm_start() {
+    // Seed 37618 dimensions a line's length three times and a point's distance to it twice.
+    assert_seeds_hold(&[37618, 637669], |case, sketch| {
+        solve_near_the_warm_start(case, sketch, REPLAY_BOUND).1
+    });
+}
+
+#[test]
+fn t336_the_slides_of_seeds_one_to_two_million_stay_near_the_warm_start() {
+    // The solver of a3f4573 moved them 4.76, 0.88, 0.17, 0.16, 0.10, 0.39 and 0.17 from their warm starts.
+    let seeds = [
+        1036660, 1071907, 1228333, 1538706, 1583858, 1705412, 1735421,
+    ];
+
+    assert_seeds_hold(&seeds, |case, sketch| {
+        solve_near_the_warm_start(case, sketch, LARGEST_MOVE).1
+    });
 }

@@ -1,5 +1,5 @@
-//! Property tests (spec section 6.13, tests 189 to 196), plus properties of region loops (section 3.13.8) and of
-//! mirrored drawings (section 3.17).
+//! Property tests (spec section 6.13, tests 189 to 196 and 260), plus properties of region loops (section 3.13.8)
+//! and of mirrored drawings (section 3.17), and the ignored scan of the M2 plan's gate 8.
 //!
 //! Cases come from the known-solution generator in `common/generator.rs`; proptest draws its seeds.
 //! The case count follows proptest's configuration (256 by default, `PROPTEST_CASES` in the nightly job).
@@ -7,11 +7,18 @@
 use crate::common;
 
 use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
+use std::thread;
 
-use common::generator::{CONSTRAINT_TYPES, GeneratedCase, generate, reference_position};
+use common::generator::{
+    CONSTRAINT_TYPES, GeneratedCase, LARGEST_MOVE, generate, reference_position,
+};
 use common::random::Rng;
-use common::residuals::{assert_constraints_hold, assert_measured_match_values};
-use common::{TOLERANCE, assert_bitwise, assert_translated, id, line, translated};
+use common::residuals::{assert_constraints_hold, solve_back_problems};
+use common::{
+    Sketch, TOLERANCE, assert_bitwise, assert_translated, distance_points, id, line,
+    moved_coordinates, point, translated, translation_problems,
+};
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, KeyEdge, NativeSolver, PointRef, PointRole,
     RegionFingerprint, RegionKey, RegionLoop, SketchEntity, SketchParams, SketchStatus,
@@ -27,9 +34,16 @@ const ROLES: [PointRole; 4] = [
     PointRole::Center,
 ];
 
-fn solve(params: &SketchParams, values: &DimensionValues) -> SolveResult {
+/// `NativeSolver.solve`, with the error in words.
+fn try_solve(params: &SketchParams, values: &DimensionValues) -> Result<SolveResult, String> {
     NativeSolver
         .solve(params, values)
+        .map_err(|error| format!("the solve returns an error: {error}"))
+}
+
+/// `NativeSolver.solve`, panicking on an error.
+fn solve(params: &SketchParams, values: &DimensionValues) -> SolveResult {
+    try_solve(params, values)
         .unwrap_or_else(|error| panic!("a generated sketch solves without an error: {error}"))
 }
 
@@ -38,64 +52,91 @@ fn case_for(seed: u64) -> Result<GeneratedCase, TestCaseError> {
     generate(seed).ok_or_else(|| TestCaseError::reject("the generator discarded this case"))
 }
 
-/// The steps of test 189 on one solve result.
-#[track_caller]
-fn assert_solved_back(case: &GeneratedCase, fix_reference: &[SketchEntity], result: &SolveResult) {
-    assert!(!result.failed, "the solve converged");
-    assert!(
-        result.conflicting.is_empty(),
-        "conflicting: {:?}",
-        result.conflicting
-    );
-    assert_constraints_hold(
-        &case.warm_start,
-        fix_reference,
-        &result.entities,
-        &case.values,
-        TOLERANCE,
-    );
-    assert_measured_match_values(&case.warm_start, result, &case.values, TOLERANCE);
+/// `Ok` when a check found nothing wrong, else what it found in one error.
+fn passed(problems: Vec<String>) -> Result<(), String> {
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
 }
 
-/// Test 192 on one case: the warm start moved by `offset` solves to the original result moved by it.
+/// Test 189 on one solve of `case`: it converged and every constraint holds on its entities.
+fn solved_back(
+    case: &GeneratedCase,
+    fix_reference: &[SketchEntity],
+    result: &SolveResult,
+) -> Result<(), String> {
+    passed(solve_back_problems(
+        &case.warm_start,
+        fix_reference,
+        result,
+        &case.values,
+    ))
+}
+
+/// Test 260 on the solve of `case`'s warm start: no coordinate moved more than [`LARGEST_MOVE`].
+fn stayed_near_the_warm_start(case: &GeneratedCase, result: &SolveResult) -> Result<(), String> {
+    passed(moved_coordinates(
+        &result.entities,
+        &case.warm_start.entities,
+        LARGEST_MOVE,
+    ))
+}
+
+/// Test 192 on one case: the warm start moved by `offset` solves to `original`, the solve of the
+/// warm start, moved by it.
+fn translates(
+    case: &GeneratedCase,
+    original: &SolveResult,
+    offset: [f64; 2],
+) -> Result<(), String> {
+    let moved = try_solve(&translated(&case.warm_start, offset), &case.values)?;
+    passed(translation_problems(original, &moved, offset))
+}
+
+/// The point test 194's `choice` picks among `case`'s draggable points, or `None` when it has none.
+fn dragged_point(case: &GeneratedCase, choice: u64) -> Option<PointRef> {
+    let draggable = case.draggable_points();
+    let count = draggable.len() as u64;
+    (count > 0).then(|| draggable[(choice % count) as usize].clone())
+}
+
+/// Test 194 on one case: a drag frame `offset` away from `point` converges and satisfies every
+/// constraint.
+fn drags(case: &GeneratedCase, point: &PointRef, offset: [f64; 2]) -> Result<(), String> {
+    let target = DragTarget::Point {
+        point: point.clone(),
+    };
+    let mut session = NativeSolver
+        .begin_drag(&case.warm_start, &case.values, &target)
+        .map_err(|error| format!("the drag on {point} does not begin: {error}"))?;
+    let fix_reference = session.initial().entities.clone();
+    let start = reference_position(&fix_reference, point);
+    let cursor = [start[0] + offset[0], start[1] + offset[1]];
+    let result = session
+        .update(cursor)
+        .map_err(|error| format!("the drag frame at {cursor:?} fails: {error}"))?;
+    solved_back(case, &fix_reference, &result)
+}
+
+/// Test 192 on the case of `seed`, for the proptest and the recorded cases.
 fn check_translation(seed: u64, offset: [f64; 2]) -> Result<(), TestCaseError> {
     let case = case_for(seed)?;
 
     let original = solve(&case.warm_start, &case.values);
-    let moved = solve(&translated(&case.warm_start, offset), &case.values);
 
-    prop_assert!(!original.failed, "the original solve converged");
-    prop_assert!(!moved.failed, "the translated solve converged");
-    assert_translated(&moved.entities, &original.entities, offset, 1e-6);
-    Ok(())
+    translates(&case, &original, offset).map_err(TestCaseError::fail)
 }
 
-/// Test 194 on one case: a drag frame `offset` away from the point `choice` picks converges and
-/// satisfies every constraint.
+/// Test 194 on the case of `seed`, for the proptest and the recorded cases.
 fn check_drag_frame(seed: u64, choice: u64, offset: [f64; 2]) -> Result<(), TestCaseError> {
     let case = case_for(seed)?;
-    let draggable = case.draggable_points();
-    prop_assume!(!draggable.is_empty(), "the case has a point that can move");
-    let point: PointRef = draggable[(choice % draggable.len() as u64) as usize].clone();
+    let Some(point) = dragged_point(&case, choice) else {
+        return Err(TestCaseError::reject("the case has no point that can move"));
+    };
 
-    let mut session = NativeSolver
-        .begin_drag(
-            &case.warm_start,
-            &case.values,
-            &DragTarget::Point {
-                point: point.clone(),
-            },
-        )
-        .unwrap_or_else(|error| panic!("the drag on {point} begins: {error}"));
-    let fix_reference = session.initial().entities.clone();
-    let start = reference_position(&fix_reference, &point);
-    let cursor = [start[0] + offset[0], start[1] + offset[1]];
-    let result = session
-        .update(cursor)
-        .unwrap_or_else(|error| panic!("the drag frame at {cursor:?} succeeds: {error}"));
-
-    assert_solved_back(&case, &fix_reference, &result);
-    Ok(())
+    drags(&case, &point, offset).map_err(TestCaseError::fail)
 }
 
 /// Panics with the case's inputs when a check of a recorded case fails or rejects it.
@@ -126,7 +167,7 @@ proptest! {
 
         let result = solve(&case.warm_start, &case.values);
 
-        assert_solved_back(&case, &case.warm_start.entities, &result);
+        solved_back(&case, &case.warm_start.entities, &result).map_err(TestCaseError::fail)?;
     }
 
     #[test]
@@ -293,6 +334,15 @@ proptest! {
         prop_assert_eq!(parsed.centroid[0], round(centroid_u));
         prop_assert_eq!(parsed.centroid[1], round(centroid_v));
     }
+
+    #[test]
+    fn t260_solve_moves_no_coordinate_far_from_the_warm_start(seed in any::<u64>()) {
+        let case = case_for(seed)?;
+
+        let result = solve(&case.warm_start, &case.values);
+
+        stayed_near_the_warm_start(&case, &result).map_err(TestCaseError::fail)?;
+    }
 }
 
 proptest! {
@@ -436,5 +486,195 @@ fn generator_covers_every_constraint_type() {
     assert!(
         missing.is_empty(),
         "constraint types never generated: {missing:?}"
+    );
+}
+
+/// The seeds `scan_seeds` covers by default (spec section 6.13): the M2 plan's gate 8 scan.
+const SCAN_SEEDS: (u64, u64) = (0, 19_999_999);
+
+/// What the scan found in some seeds: the cases the generator kept and one line per failed check,
+/// in seed order.
+#[derive(Debug, Default)]
+struct Scan {
+    kept: u64,
+    failures: Vec<String>,
+}
+
+/// The seed in the environment variable `name`, or `default` when it is unset.
+fn scan_bound(name: &str, default: u64) -> u64 {
+    match std::env::var(name) {
+        Ok(text) => text
+            .trim()
+            .parse()
+            .unwrap_or_else(|error| panic!("{name} is a seed: {text:?} ({error})")),
+        Err(_) => default,
+    }
+}
+
+/// The seeds `first` to `last`, both included, split into at most `parts` ranges in order.
+fn seed_ranges(first: u64, last: u64, parts: u64) -> Vec<(u64, u64)> {
+    let extra = (last - first) / parts;
+    let mut ranges = Vec::new();
+    let mut start = first;
+    loop {
+        let end = start.saturating_add(extra).min(last);
+        ranges.push((start, end));
+        if end == last {
+            return ranges;
+        }
+        start = end + 1;
+    }
+}
+
+/// Tests 189, 260, 192 and 194 on the case of `seed`, with the offsets and the choice that
+/// `Rng::new(!seed)` draws (spec section 6.13): one line per check that failed.
+fn scan_case(seed: u64, case: &GeneratedCase) -> Vec<String> {
+    let mut failures = Vec::new();
+    let mut draws = Rng::new(!seed);
+    let offset = [draws.uniform(-500.0, 500.0), draws.uniform(-500.0, 500.0)];
+    match try_solve(&case.warm_start, &case.values) {
+        Ok(result) => {
+            if let Err(problem) = solved_back(case, &case.warm_start.entities, &result) {
+                failures.push(format!("seed {seed}: test 189: {problem}"));
+            }
+            if let Err(problem) = stayed_near_the_warm_start(case, &result) {
+                failures.push(format!("seed {seed}: test 260: {problem}"));
+            }
+            if let Err(problem) = translates(case, &result, offset) {
+                failures.push(format!(
+                    "seed {seed}, offset {offset:?}: test 192: {problem}"
+                ));
+            }
+        }
+        Err(problem) => failures.push(format!("seed {seed}: test 189: {problem}")),
+    }
+    let choice = draws.next_u64();
+    if let Some(point) = dragged_point(case, choice) {
+        let offset = [draws.uniform(-0.07, 0.07), draws.uniform(-0.07, 0.07)];
+        if let Err(problem) = drags(case, &point, offset) {
+            failures.push(format!(
+                "seed {seed}, choice {choice}, offset {offset:?}: test 194: {problem}"
+            ));
+        }
+    }
+    failures
+}
+
+/// The scan of the seeds `first` to `last`, both included.
+fn scan_range(first: u64, last: u64) -> Scan {
+    let mut scan = Scan::default();
+    for seed in first..=last {
+        if let Some(case) = generate(seed) {
+            scan.kept += 1;
+            scan.failures.extend(scan_case(seed, &case));
+        }
+    }
+    scan
+}
+
+/// The scan of the M2 plan's gate 8 (spec section 6.13): tests 189, 192, 194 and 260 on every case
+/// the generator keeps from the seeds `SCAN_FIRST` to `SCAN_LAST`, both included.
+#[test]
+#[ignore = "the M2 gate 8 scan of 20 million seeds; run it with --ignored in a release build"]
+fn scan_seeds() {
+    let first = scan_bound("SCAN_FIRST", SCAN_SEEDS.0);
+    let last = scan_bound("SCAN_LAST", SCAN_SEEDS.1);
+    assert!(
+        first <= last,
+        "SCAN_FIRST {first} is after SCAN_LAST {last}"
+    );
+    // This repository builds `wasm32-unknown-emscripten` without threads (test 97).
+    let threads = if cfg!(target_os = "emscripten") {
+        1
+    } else {
+        thread::available_parallelism().map_or(1, NonZeroUsize::get)
+    };
+
+    let ranges = seed_ranges(first, last, threads as u64);
+    let scans: Vec<Scan> = if let [(start, end)] = ranges[..] {
+        vec![scan_range(start, end)]
+    } else {
+        thread::scope(|scope| {
+            let workers: Vec<_> = ranges
+                .iter()
+                .map(|&(start, end)| scope.spawn(move || scan_range(start, end)))
+                .collect();
+            workers
+                .into_iter()
+                .map(|worker| worker.join().expect("a scan thread does not panic"))
+                .collect()
+        })
+    };
+
+    let kept: u64 = scans.iter().map(|scan| scan.kept).sum();
+    let failures: Vec<&String> = scans.iter().flat_map(|scan| &scan.failures).collect();
+    for failure in &failures {
+        println!("{failure}");
+    }
+    println!(
+        "seeds {first} to {last}: {kept} cases kept, failures: {}",
+        failures.len()
+    );
+    assert!(failures.is_empty(), "failures: {}", failures.len());
+}
+
+// The helpers of the scan.
+
+#[test]
+fn seed_ranges_cover_every_seed_once_in_order() {
+    for (first, last, parts) in [(0, 9, 4), (5, 5, 8), (0, 19_999_999, 3), (10, 12, 1)] {
+        let ranges = seed_ranges(first, last, parts);
+
+        assert!(ranges.len() as u64 <= parts, "{ranges:?}");
+        assert_eq!(ranges[0].0, first, "{ranges:?}");
+        assert_eq!(ranges[ranges.len() - 1].1, last, "{ranges:?}");
+        for pair in ranges.windows(2) {
+            assert_eq!(pair[1].0, pair[0].1 + 1, "{ranges:?}");
+        }
+    }
+}
+
+#[test]
+fn seed_ranges_reach_the_largest_seed() {
+    assert_eq!(
+        seed_ranges(u64::MAX - 1, u64::MAX, 1),
+        [(u64::MAX - 1, u64::MAX)]
+    );
+}
+
+/// Points `e-1` at the origin and `e-2` 10 from it on the u axis (`c-1`), as a generated case whose
+/// warm start has `e-2` at `(u, 0)`.
+fn two_points_case(u: f64) -> GeneratedCase {
+    let known = Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 10.0, 0.0)]).with_value(
+        "c-1",
+        distance_points("e-1", "e-2", "10 mm"),
+        10.0,
+    );
+    let warm_start = known.clone().replace_entity(point("e-2", u, 0.0));
+    GeneratedCase {
+        known: known.params,
+        warm_start: warm_start.params,
+        values: known.values,
+    }
+}
+
+#[test]
+fn a_scanned_case_that_holds_prints_no_failure() {
+    let case = two_points_case(10.005);
+
+    assert_eq!(scan_case(7, &case), Vec::<String>::new());
+}
+
+#[test]
+fn a_scanned_case_that_moves_too_far_names_its_seed_and_test_260() {
+    // The distance is 2 too long: the solve moves each point 1 along u.
+    let case = two_points_case(12.0);
+
+    let failures = scan_case(7, &case);
+
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(
+        failures[0].starts_with("seed 7: test 260: e-1 u moved "),
+        "{failures:?}"
     );
 }

@@ -1,5 +1,5 @@
 //! An independent re-implementation of the constraint rows of spec section 3.6.5, used to check
-//! solver output (tests 189, 194 and 198).
+//! solver output (tests 189, 194, 198, 259, 262 and 336).
 //!
 //! Warm-start choices (side, scale, tangent mode) are recomputed from the geometry being checked,
 //! and touch points follow the structural rule of section 3.6.4.
@@ -15,7 +15,7 @@ use partsmith_sketch::{
 use super::plane::{
     Vector, add, cross, dot, norm, safe_length, scale, signed_distance, subtract, unit,
 };
-use super::point_at_angle;
+use super::{TOLERANCE, point_at_angle};
 
 /// Geometry lookups on one list of entities.
 struct Shapes<'a> {
@@ -551,14 +551,14 @@ pub fn assert_constraints_hold(
     );
 }
 
-/// Asserts that every driving dimension's measured value equals its value within `tolerance` (angles modulo pi).
-#[track_caller]
-pub fn assert_measured_match_values(
+/// Every driving dimension whose measured value in `result` is not its value within `tolerance` (angles modulo pi).
+pub fn measured_mismatches(
     sketch: &SketchParams,
     result: &SolveResult,
     values: &DimensionValues,
     tolerance: f64,
-) {
+) -> Vec<String> {
+    let mut found = Vec::new();
     for constraint in &sketch.constraints {
         let Some(dimension) = constraint.dimension() else {
             continue;
@@ -567,21 +567,64 @@ pub fn assert_measured_match_values(
             continue;
         }
         let value = values[&constraint.id];
-        let measured = *result
-            .measured
-            .get(&constraint.id)
-            .unwrap_or_else(|| panic!("{} has a measured value", constraint.id));
+        let Some(&measured) = result.measured.get(&constraint.id) else {
+            found.push(format!("{} has no measured value", constraint.id));
+            continue;
+        };
         let difference = if matches!(constraint.kind, ConstraintKind::Angle { .. }) {
             let wrapped = (measured - value).rem_euclid(PI);
             wrapped.min(PI - wrapped)
         } else {
             (measured - value).abs()
         };
-        assert!(
-            difference <= tolerance,
-            "{} ({}): measured {measured} but the value is {value}",
-            constraint.id,
-            constraint.type_name()
-        );
+        // A NaN is never within the tolerance.
+        if difference.is_nan() || difference > tolerance {
+            found.push(format!(
+                "{} ({}): measured {measured} but the value is {value}",
+                constraint.id,
+                constraint.type_name()
+            ));
+        }
     }
+    found
+}
+
+/// Asserts that every driving dimension's measured value equals its value within `tolerance` (angles modulo pi).
+#[track_caller]
+pub fn assert_measured_match_values(
+    sketch: &SketchParams,
+    result: &SolveResult,
+    values: &DimensionValues,
+    tolerance: f64,
+) {
+    let found = measured_mismatches(sketch, result, values, tolerance);
+    assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// What test 189 finds wrong with `result`, a solve of `sketch` (spec section 6.13): a failed solve,
+/// conflicting constraints, rows that do not hold within [`TOLERANCE`] and driving dimensions whose
+/// measured value is not their value within it. `fix_reference` holds the geometry that `fix`
+/// constraints freeze.
+pub fn solve_back_problems(
+    sketch: &SketchParams,
+    fix_reference: &[SketchEntity],
+    result: &SolveResult,
+    values: &DimensionValues,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    if result.failed {
+        problems.push("the solve failed".to_owned());
+    }
+    if !result.conflicting.is_empty() {
+        problems.push(format!("conflicting: {:?}", result.conflicting));
+    }
+    problems.extend(violations(
+        sketch,
+        fix_reference,
+        &result.entities,
+        values,
+        TOLERANCE,
+    ));
+    problems.extend(measured_mismatches(sketch, result, values, TOLERANCE));
+    problems
 }

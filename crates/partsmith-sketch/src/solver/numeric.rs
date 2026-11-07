@@ -445,28 +445,64 @@ fn damped_step(evaluation: &Evaluation, damping: f64, variable_count: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constraint::ConstraintKind;
     use crate::params::{DimensionValues, SketchParams};
-    use crate::test_support::{horizontal_distance_beside_a_distance, triangle_next_to_a_fold};
+    use crate::solver::system::Component;
+    use crate::test_support::{
+        dimension_values, horizontal_distance_beside_a_distance, point, point_entity,
+        points_distance, repeated_dimensions_of_seed_37618, repeated_dimensions_of_seed_637669,
+        sketch, triangle_next_to_a_fold,
+    };
 
-    /// Runs `check` on the numerical problem of the first component of `sketch`, without drag
-    /// scaling, with its substitution and the warm start's variable values.
-    fn with_problem<T>(
-        sketch: &SketchParams,
-        values: &DimensionValues,
+    /// Runs `check` on the numerical problem of `component`, without drag scaling, with its
+    /// substitution and the warm start's variable values.
+    fn with_component_problem<T>(
+        system: &System,
+        component: &Component,
         check: impl FnOnce(&mut Problem<'_>, &Substitution, &[f64]) -> T,
     ) -> T {
-        let system = System::new(sketch, values, &sketch.entities);
-        let substitution = Substitution::new(&system, &system.components[0], &system.warm_start);
+        let substitution = Substitution::new(system, component, &system.warm_start);
         let start = substitution.variable_values();
         let mut factorization = SparseQr::default();
         let mut problem = Problem::new(
-            &system,
+            system,
             &substitution,
             vec![1.0; substitution.variable_count()],
             system.warm_start.clone(),
             &mut factorization,
         );
         check(&mut problem, &substitution, &start)
+    }
+
+    /// Runs `check` on the numerical problem of the first component of `sketch`, as
+    /// [`with_component_problem`] does.
+    fn with_problem<T>(
+        sketch: &SketchParams,
+        values: &DimensionValues,
+        check: impl FnOnce(&mut Problem<'_>, &Substitution, &[f64]) -> T,
+    ) -> T {
+        let system = System::new(sketch, values, &sketch.entities);
+        with_component_problem(&system, &system.components[0], check)
+    }
+
+    /// Whether the first trust-region pass, with the step tolerance, converges on each component of
+    /// `sketch` that is not untouched (section 3.7.2), in component order.
+    fn first_pass_converges(sketch: &SketchParams, values: &DimensionValues) -> Vec<bool> {
+        let system = System::new(sketch, values, &sketch.entities);
+        system
+            .components
+            .iter()
+            .filter(|component| {
+                !component.rows.iter().all(|&row| {
+                    system.rows[row].value(&system.warm_start).abs() <= SOLVER_TOLERANCE
+                })
+            })
+            .map(|component| {
+                with_component_problem(&system, component, |problem, _, start| {
+                    trust_region(problem, start, STEP_RANK_TOLERANCE).is_some()
+                })
+            })
+            .collect()
     }
 
     /// The first Gauss-Newton step of two points 10.5 apart in u and `10.5 * slope` in v, with a
@@ -514,24 +550,24 @@ mod tests {
     }
 
     #[test]
-    fn dog_leg_with_the_step_tolerance_stops_short_next_to_a_fold() {
+    fn the_first_pass_stops_short_next_to_a_fold() {
         // Test 258's solve: next to the fold the step tolerance leaves out a row whose residual
         // steps through the other rows cannot make up.
         let (sketch, values) = triangle_next_to_a_fold();
 
         let outcome = with_problem(&sketch, &values, |problem, _, start| {
-            dog_leg(problem, start, STEP_RANK_TOLERANCE)
+            trust_region(problem, start, STEP_RANK_TOLERANCE)
         });
 
         assert!(
             outcome.is_none(),
-            "dog-leg converged with the step tolerance"
+            "the trust region converged with the step tolerance"
         );
     }
 
     #[test]
     fn levenberg_marquardt_stops_short_next_to_a_fold() {
-        // With dog-leg's step tolerance and this, test 258 would fail without the second dog-leg pass.
+        // With the first pass and this, test 258 would fail without the second pass.
         let (sketch, values) = triangle_next_to_a_fold();
 
         let outcome = with_problem(&sketch, &values, |problem, _, start| {
@@ -542,24 +578,78 @@ mod tests {
     }
 
     #[test]
-    fn dog_leg_with_the_rank_tolerance_converges_next_to_a_fold() {
+    fn the_second_pass_converges_next_to_a_fold() {
         let (sketch, values) = triangle_next_to_a_fold();
 
         let outcome = with_problem(&sketch, &values, |problem, _, start| {
-            dog_leg(problem, start, RANK_TOLERANCE)
+            trust_region(problem, start, RANK_TOLERANCE)
         });
 
         assert!(
             outcome.is_some(),
-            "dog-leg did not converge with RANK_TOLERANCE"
+            "the trust region did not converge with RANK_TOLERANCE"
         );
     }
 
     #[test]
-    fn blend_lands_on_the_trust_radius() {
-        let step = blend(&[1.0, 0.0], &[3.0, 4.0], 2.0);
+    fn the_first_pass_converges_on_the_repeated_dimensions_of_seed_37618() {
+        // Test 262: the damped step minimizes the model over every row, the repeated ones included.
+        let (sketch, values) = repeated_dimensions_of_seed_37618();
 
-        assert!((length(&step) - 2.0).abs() < 1e-12);
+        assert_eq!(first_pass_converges(&sketch, &values), [true]);
+    }
+
+    #[test]
+    fn the_first_pass_converges_on_the_repeated_dimensions_of_seed_637669() {
+        // Test 262: the line with its repeated length and the circle with its radius.
+        let (sketch, values) = repeated_dimensions_of_seed_637669();
+
+        assert_eq!(first_pass_converges(&sketch, &values), [true, true]);
+    }
+
+    #[test]
+    fn the_trust_region_returns_a_start_that_has_converged() {
+        // Step 1 of each pass: every row already holds.
+        let (sketch, values) = horizontal_distance_beside_a_distance([10.0, 0.0], 10.0, 10.0);
+
+        let (outcome, start) = with_problem(&sketch, &values, |problem, _, start| {
+            (
+                trust_region(problem, start, STEP_RANK_TOLERANCE),
+                start.to_vec(),
+            )
+        });
+
+        let (variables, _) = outcome.expect("the start has converged");
+        assert_eq!(variables, start);
+    }
+
+    #[test]
+    fn the_trust_region_stops_when_no_variable_reaches_a_failing_row() {
+        // Step 1 of each pass: mu0 is 0 when every row that fails is constant. Two fixed points are
+        // 10 apart, with a distance of 5.
+        let params = sketch(
+            vec![
+                point_entity("e-1", [0.0, 0.0]),
+                point_entity("e-2", [10.0, 0.0]),
+            ],
+            vec![
+                ConstraintKind::Fix {
+                    target: point("e-1"),
+                },
+                ConstraintKind::Fix {
+                    target: point("e-2"),
+                },
+                points_distance("e-1", "e-2", 5.0),
+            ],
+        );
+        let values = dimension_values(&[("c-2", 5.0)]);
+
+        let outcome = with_problem(&params, &values, |problem, substitution, start| {
+            assert_eq!(substitution.variable_count(), 0, "every point is fixed");
+            trust_region(problem, start, STEP_RANK_TOLERANCE)
+        });
+
+        assert!(outcome.is_none(), "the trust region converged");
     }
 
     #[test]

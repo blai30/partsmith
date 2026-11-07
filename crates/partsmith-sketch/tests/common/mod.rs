@@ -889,19 +889,26 @@ fn angle_difference(first: f64, second: f64) -> f64 {
     wrapped.min(TAU - wrapped)
 }
 
-/// Asserts `moved` equals `original` moved by `offset`, within `tolerance`.
-#[track_caller]
-pub fn assert_translated(
+/// Every entity of `moved` that is not the same entity of `original` moved by `offset` within
+/// `tolerance`.
+pub fn translation_mismatches(
     moved: &[SketchEntity],
     original: &[SketchEntity],
     offset: [f64; 2],
     tolerance: f64,
-) {
-    assert_eq!(moved.len(), original.len());
+) -> Vec<String> {
+    if moved.len() != original.len() {
+        return vec![format!(
+            "{} entities after translation, {} before",
+            moved.len(),
+            original.len()
+        )];
+    }
     let close = |moved_point: [f64; 2], original_point: [f64; 2]| {
         (moved_point[0] - offset[0] - original_point[0]).abs() <= tolerance
             && (moved_point[1] - offset[1] - original_point[1]).abs() <= tolerance
     };
+    let mut found = Vec::new();
     for (moved_entity, original_entity) in moved.iter().zip(original) {
         let matches = match (&moved_entity.geometry, &original_entity.geometry) {
             (Geometry::Point { position }, Geometry::Point { position: other }) => {
@@ -942,12 +949,113 @@ pub fn assert_translated(
             }
             _ => false,
         };
-        assert!(
-            matches,
-            "{} after translation by {offset:?}: {:?}, expected {:?} moved",
-            moved_entity.id, moved_entity.geometry, original_entity.geometry
-        );
+        if !matches {
+            found.push(format!(
+                "{} after translation by {offset:?}: {:?}, expected {:?} moved",
+                moved_entity.id, moved_entity.geometry, original_entity.geometry
+            ));
+        }
     }
+    found
+}
+
+/// Asserts `moved` equals `original` moved by `offset`, within `tolerance`.
+#[track_caller]
+pub fn assert_translated(
+    moved: &[SketchEntity],
+    original: &[SketchEntity],
+    offset: [f64; 2],
+    tolerance: f64,
+) {
+    let found = translation_mismatches(moved, original, offset, tolerance);
+    assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// What test 192 finds wrong (spec section 6.13): `original` or `moved`, the solves of a sketch and
+/// of that sketch moved by `offset`, failed, or `moved` is not `original` moved by `offset` within 1e-6.
+pub fn translation_problems(
+    original: &SolveResult,
+    moved: &SolveResult,
+    offset: [f64; 2],
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    if original.failed {
+        problems.push("the original solve failed".to_owned());
+    }
+    if moved.failed {
+        problems.push("the translated solve failed".to_owned());
+    }
+    problems.extend(translation_mismatches(
+        &moved.entities,
+        &original.entities,
+        offset,
+        1e-6,
+    ));
+    problems
+}
+
+/// The coordinates tests 259, 260 and 336 compare, each with its name (spec section 6.6, test 259):
+/// a point's position, a line's start and end, a circle's center and radius, and an arc's center,
+/// radius and end points.
+pub fn coordinates(entity: &SketchEntity) -> Vec<(&'static str, f64)> {
+    match &entity.geometry {
+        Geometry::Point { position } => vec![("u", position[0]), ("v", position[1])],
+        Geometry::Line { start, end } => vec![
+            ("start u", start[0]),
+            ("start v", start[1]),
+            ("end u", end[0]),
+            ("end v", end[1]),
+        ],
+        Geometry::Circle { center, radius } => vec![
+            ("center u", center[0]),
+            ("center v", center[1]),
+            ("radius", *radius),
+        ],
+        Geometry::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => {
+            let start = point_at_angle(*center, *radius, *start_angle);
+            let end = point_at_angle(*center, *radius, *end_angle);
+            vec![
+                ("center u", center[0]),
+                ("center v", center[1]),
+                ("radius", *radius),
+                ("start u", start[0]),
+                ("start v", start[1]),
+                ("end u", end[0]),
+                ("end v", end[1]),
+            ]
+        }
+    }
+}
+
+/// Every coordinate of `entities`, as [`coordinates`] lists them, that is more than `bound` from the
+/// same coordinate of `reference`. Both hold the same entities in the same order.
+pub fn moved_coordinates(
+    entities: &[SketchEntity],
+    reference: &[SketchEntity],
+    bound: f64,
+) -> Vec<String> {
+    assert_eq!(entities.len(), reference.len(), "the same entities");
+    let mut moved = Vec::new();
+    for (entity, before) in entities.iter().zip(reference) {
+        for ((name, value), (_, original)) in
+            coordinates(entity).into_iter().zip(coordinates(before))
+        {
+            let distance = (value - original).abs();
+            // A NaN is never within the bound.
+            if distance.is_nan() || distance > bound {
+                moved.push(format!(
+                    "{} {name} moved {distance} (from {original} to {value})",
+                    entity.id
+                ));
+            }
+        }
+    }
+    moved
 }
 
 /// Asserts that a list of ids is exactly the expected texts.

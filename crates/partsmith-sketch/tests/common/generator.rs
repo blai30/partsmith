@@ -39,6 +39,10 @@ pub const CONSTRAINT_TYPES: [&str; 19] = [
     "angle",
 ];
 
+/// The farthest a solve of a generated case may move a coordinate from its warm start (spec
+/// section 6.13, test 260): ten times the warm start's noise, as in the discard rules.
+pub const LARGEST_MOVE: f64 = 0.1;
+
 /// One generated case.
 #[derive(Clone, Debug)]
 pub struct GeneratedCase {
