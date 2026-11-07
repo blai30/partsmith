@@ -1,7 +1,7 @@
 //! Drag solving with a weakly pinned target (spec section 3.9).
 
 use super::layout::Layout;
-use super::sparse_qr::SparseQr;
+use super::numeric::Factorizations;
 use super::system::System;
 use super::{
     DragSession, DragTarget, Outcome, SolveResult, measure, solve_checked, solve_component,
@@ -33,8 +33,8 @@ pub struct NativeDragSession {
     /// weight does not cause. Its frames are then not solved again without the weight (section 3.9,
     /// step 5).
     dragged_conflicting: bool,
-    /// The factorization of the dragged component, whose plans every frame reuses.
-    factorization: SparseQr,
+    /// The factorizations of the dragged component, whose plans and patterns every frame reuses.
+    factorizations: Factorizations,
 }
 
 /// The parameters a drag moves, by target kind; points are given by the parameter of their `x`.
@@ -87,7 +87,7 @@ impl NativeDragSession {
             initial,
             other_failed,
             dragged_conflicting,
-            factorization: SparseQr::default(),
+            factorizations: Factorizations::default(),
         })
     }
 
@@ -152,7 +152,7 @@ impl DragSession for NativeDragSession {
                 &warm,
                 &targets,
                 drag_weight,
-                &mut self.factorization,
+                &mut self.factorizations,
             )
         };
         // A frame that fails with the drag weight is solved again without it, unless its component
@@ -367,7 +367,7 @@ mod tests {
             &warm,
             &targets,
             DRAG_WEIGHT,
-            &mut session.factorization,
+            &mut session.factorizations,
         );
 
         assert_eq!(outcome, Outcome::Failed);

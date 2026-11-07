@@ -7,6 +7,7 @@
 use crate::common;
 
 use std::collections::BTreeSet;
+use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::thread;
 
@@ -500,6 +501,28 @@ struct Scan {
     failures: Vec<String>,
 }
 
+impl Scan {
+    /// Adds the scan of the seeds right after this one's.
+    fn append(&mut self, later: Scan) {
+        self.kept += later.kept;
+        self.failures.extend(later.failures);
+    }
+
+    /// Writes what spec section 6.13 prints for the seeds `first` to `last`: one line per failure,
+    /// then the range, the number of cases kept and the number of failures.
+    fn report(&self, out: &mut impl Write, first: u64, last: u64) -> io::Result<()> {
+        for failure in &self.failures {
+            writeln!(out, "{failure}")?;
+        }
+        writeln!(
+            out,
+            "seeds {first} to {last}: {} cases kept, failures: {}",
+            self.kept,
+            self.failures.len()
+        )
+    }
+}
+
 /// The seed in the environment variable `name`, or `default` when it is unset.
 fn scan_bound(name: &str, default: u64) -> u64 {
     match std::env::var(name) {
@@ -606,16 +629,19 @@ fn scan_seeds() {
         })
     };
 
-    let kept: u64 = scans.iter().map(|scan| scan.kept).sum();
-    let failures: Vec<&String> = scans.iter().flat_map(|scan| &scan.failures).collect();
-    for failure in &failures {
-        println!("{failure}");
+    let mut scan = Scan::default();
+    for part in scans {
+        scan.append(part);
     }
-    println!(
-        "seeds {first} to {last}: {kept} cases kept, failures: {}",
-        failures.len()
+    // libtest captures `println!` in a passing test. Its command has no `--nocapture`, so the lines
+    // go to stdout itself.
+    scan.report(&mut io::stdout().lock(), first, last)
+        .expect("stdout takes the scan's lines");
+    assert!(
+        scan.failures.is_empty(),
+        "failures: {}",
+        scan.failures.len()
     );
-    assert!(failures.is_empty(), "failures: {}", failures.len());
 }
 
 // The helpers of the scan.
@@ -632,6 +658,27 @@ fn seed_ranges_cover_every_seed_once_in_order() {
             assert_eq!(pair[1].0, pair[0].1 + 1, "{ranges:?}");
         }
     }
+}
+
+#[test]
+fn a_scan_reports_each_failure_then_the_range_and_the_counts() {
+    let mut scan = Scan {
+        kept: 2,
+        failures: vec!["seed 4: test 189: a".to_owned()],
+    };
+    scan.append(Scan {
+        kept: 1,
+        failures: vec!["seed 9: test 260: b".to_owned()],
+    });
+    let mut out = Vec::new();
+
+    scan.report(&mut out, 2, 11)
+        .expect("a vector takes the lines");
+
+    assert_eq!(
+        String::from_utf8(out).expect("the lines are text"),
+        "seed 4: test 189: a\nseed 9: test 260: b\nseeds 2 to 11: 3 cases kept, failures: 2\n"
+    );
 }
 
 #[test]

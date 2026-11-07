@@ -28,8 +28,7 @@ use crate::point_ref::PointRef;
 use crate::validation::check_values;
 use diagnosis::diagnose;
 use measure::measure;
-use numeric::{Outcome, Problem};
-use sparse_qr::SparseQr;
+use numeric::{Factorizations, Outcome, Problem};
 use substitution::Substitution;
 use system::{Component, System};
 
@@ -193,7 +192,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
     let warm = &system.warm_start;
     let mut solved = warm.clone();
     let mut failed_components = Vec::with_capacity(system.components.len());
-    let mut factorization = SparseQr::default();
+    let mut factorizations = Factorizations::default();
     for component in &system.components {
         let untouched = component
             .rows
@@ -202,7 +201,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
         let failed = if untouched {
             false
         } else {
-            match solve_component(&system, component, warm, &[], 1.0, &mut factorization) {
+            match solve_component(&system, component, warm, &[], 1.0, &mut factorizations) {
                 Outcome::Converged(x) => {
                     copy_parameters(component, &x, &mut solved);
                     false
@@ -237,8 +236,8 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
 ///
 /// `drag_targets` lists dragged parameters with their targets (section 3.9); it is empty outside a drag.
 /// The classes they start get `1 / drag_weight` in `D`: `DRAG_WEIGHT` pins them weakly, and 1 solves
-/// without the weight (section 3.9, step 5). `factorization` is reused between calls so that repeated
-/// solves of one component plan their factorizations once. A converged outcome holds the full
+/// without the weight (section 3.9, step 5). `factorizations` is reused between calls so that
+/// repeated solves of one component plan their factorizations once. A converged outcome holds the full
 /// parameter vector at the solution.
 fn solve_component(
     system: &System,
@@ -246,7 +245,7 @@ fn solve_component(
     warm: &[f64],
     drag_targets: &[(usize, f64)],
     drag_weight: f64,
-    factorization: &mut SparseQr,
+    factorizations: &mut Factorizations,
 ) -> Outcome {
     let mut substitution = Substitution::new(system, component, warm);
     let mut scales = vec![1.0; substitution.variable_count()];
@@ -254,7 +253,7 @@ fn solve_component(
         scales[variable] = 1.0 / drag_weight;
     }
     let start = substitution.variable_values();
-    let mut problem = Problem::new(system, &substitution, scales, warm.to_vec(), factorization);
+    let mut problem = Problem::new(system, &substitution, scales, warm.to_vec(), factorizations);
     match numeric::solve(&mut problem, &start) {
         Outcome::Converged(variables) => {
             Outcome::Converged(problem.parameters(&variables).to_vec())
@@ -306,8 +305,8 @@ mod tests {
 
     #[test]
     fn an_arc_that_barely_converges_is_returned_so_that_it_solves_back_to_itself() {
-        // A generated case whose dog-leg stops with residuals just under the tolerance; without the
-        // refinement, the arc conversion pushed a row over it and a second solve moved the geometry.
+        // A generated case on which dog-leg stopped with residuals just under the tolerance. Without
+        // the refinement, the arc conversion pushed a row over it and a second solve moved the arc.
         let sketch: SketchParams = serde_json::from_str(
             r#"{
               "plane": {"kind": "origin", "plane": "XY"},
