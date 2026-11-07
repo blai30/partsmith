@@ -199,7 +199,7 @@ pub fn write_step(bodies: &[StepExportBody<'_>], interrupt: &Interrupt) -> Resul
 pub fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<ImportedStep, IoError>;
 ```
 
-`Interrupt` is `partsmith_occt_sys::Interrupt` (kernel.md section 2.14). Since M2 both pass `interrupt` to the kernel's `write_step` and `read_step` (kernel.md section 3.13). A kernel error of kind `Canceled` comes back as `IoError::Kernel` unchanged, and the engine turns it into `EngineError::Canceled` (engine.md section 3.26). A caller that never stops passes `&Interrupt::new()`. Until M2 neither took an interrupt.
+`Interrupt` is `partsmith_occt_sys::Interrupt` (kernel.md section 2.14). Since M2 both pass `interrupt` to the kernel's `write_step` and `read_step` (kernel.md section 3.13). A kernel error of kind `Canceled` comes back as `IoError::Kernel` unchanged. The engine turns it into `EngineError::Canceled` (engine.md section 3.26). A caller that never stops passes `&Interrupt::new()`. Until M2 neither took an interrupt.
 
 ### 2.5 Errors
 

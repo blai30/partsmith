@@ -158,10 +158,10 @@ Options:
 
 - (a) **The webview's IndexedDB on both hosts** (chosen). The `partsmith` database goes to version 3 with a `printers` store, beside `recent` and `recovery` (ui.md section 2.15). The desktop webview keeps the database in the app data directory, as it keeps recent files and recovery (desktop.md section 3.9). The host adds nothing.
 - (b) **A profile folder the desktop host reads and writes**, such as `printers/` in the app data directory, through new host commands. It adds commands, permissions and a capability entry, and a path the webview reaches without a pick. The CLI and Python could read the same folder. The web app would still need (a).
-- (c) **A profile file the user picks**, opened through the existing grants each session. It needs a pick at every start before a document's printer resolves, and the web app has no grant that outlives a restart without File System Access.
+- (c) **A profile file the user picks**, opened through the existing grants each session. It needs a pick at every start before a document's printer resolves. The web app has no grant that outlives a restart without File System Access.
 - (d) **Local storage**, beside the settings. It holds strings only, is synchronous and is limited to a few megabytes. Clearing the settings would clear the printers.
 
-The owner's rule takes (a). Every option keeps profiles as plain JSON on the user's machine. (a) is the safest: the desktop webview reaches no new path and the host gains no command. It is the web's standard store for structured data that outlives a page, which the UI already uses for recent files and recovery. Slicers keep presets in a configuration folder, as (b) would. That reach is what (a) avoids, and a document that stores its profile does not need a shared folder to rebuild in the CLI or Python.
+The owner's rule takes (a). Every option keeps profiles as plain JSON on the user's machine. (a) is the safest: the desktop webview reaches no new path and the host gains no command. It is the web's standard store for structured data that outlives a page, which the UI already uses for recent files and recovery. Slicers keep presets in a configuration folder, as (b) would. That reach is what (a) avoids. A document that stores its profile does not need a shared folder to rebuild in the CLI or Python.
 
 Consequences:
 
