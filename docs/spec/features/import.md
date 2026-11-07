@@ -53,11 +53,15 @@ JSON (canonical key order):
 
 Label `Import`, category `create`, icon `import`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Brings the solids of a STEP file into a body.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `asset` | File | yes | | | |
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
 | `body` | Body | no | | `body` | |
+
+No field has help, a start value or a new body (since M2, features.md section 2.3).
 
 ### Python
 
@@ -124,11 +128,11 @@ Faces of the body keep their names through the boolean of a join, cut or interse
 Conventions from features.md section 6.1, with the asset map given per test. Bodies `[b-1]`. Fixtures:
 
 - `A`: the asset name made of 64 zeros followed by `.step`. The tests do not check that it is the hash of the bytes; the engine checks hashes when it accepts assets (engine.md section 3.14).
-- `BYTES`: `write_step(&[StepBody { shape: make_box(&Plane::XY, 10.0, 20.0, 30.0)?.shape, name: "Block".into(), color: None }])` (kernel.md section 2.12), a box spanning [0,10]x[0,20]x[0,30].
-- `TWO`: `write_step` of two bodies named `A` and `B`, each `make_box` of size 10, 10, 10: the first on `Plane::XY`, the second on `Plane::XY` with its origin moved to (50, 0, 0).
+- `BYTES`: `write_step(&[StepBody { shape: make_box(&Plane::XY, 10.0, 20.0, 30.0)?.shape, name: "Block".into(), color: None }], &Interrupt::new())` (kernel.md section 2.12), a box spanning [0,10]x[0,20]x[0,30].
+- `TWO`: `write_step` with `&Interrupt::new()` of two bodies named `A` and `B`, each `make_box` of size 10, 10, 10: the first on `Plane::XY`, the second on `Plane::XY` with its origin moved to (50, 0, 0).
 - `IMP(op)`: `{"id": "f-imp1", "type": "import", "body": "b-1", "asset": A, "op": op}`.
 - `FACES`: the shape of `make_profile(&Plane::XY, ..)` of two squares with 10 mm sides, [50,60]x[0,10] and [70,80]x[0,10] (kernel.md section 2.5): a compound of two faces that bound no solid.
-- `SKIPPED`: `write_step(&[StepBody { shape: compound(&[make_box(&Plane::XY, 10.0, 20.0, 30.0)?.shape, FACES])?.shape, name: "Block".into(), color: None }])`: the block of `BYTES` with the two faces beside it in the same part (kernel.md test 135).
+- `SKIPPED`: `write_step(&[StepBody { shape: compound(&[make_box(&Plane::XY, 10.0, 20.0, 30.0)?.shape, FACES])?.shape, name: "Block".into(), color: None }], &Interrupt::new())`: the block of `BYTES` with the two faces beside it in the same part (kernel.md test 135).
 - `ONE_FACE`: `SKIPPED` with only the first square, [50,60]x[0,10], beside the block (kernel.md test 139).
 - `VOID_TWICE`: the STEP text of kernel.md test 140: the block of `BYTES` with the closed cavity [2,8]x[2,18]x[2,28] (`HOLLOW`, written as one body named `Hollow`), its void listed twice, so its solid is still invalid after repair.
 - `BOTH`: the STEP text of kernel.md test 141: `VOID_TWICE` made from `HOLLOW` with the square of `ONE_FACE` in the same part.
@@ -156,6 +160,7 @@ The asset map is `{A: BYTES}` unless stated.
 15. **A solid that repair could not fix, joined.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "5", "0"], "op": "new"}` (the plate of test 7), then `IMP("join")`, with the asset map `{A: VOID_TWICE}`. Expected: status warning with one warning (`import_warning`), rendered as in test 13, the same for every op, with the detail of test 13, no pointer and no fixes, and the message passes the message lint and contains none of its detail's sentences; change `Join`. The test does not check the joined shape, which is what the kernel's join of the invalid solid gives (ADR 0045: the cavity was gone, volume 20000 where the valid `HOLLOW` gives 18272 and `closed_void`), so the message says that the shape this import gives may be wrong.
 16. **Import warnings before the body rules'.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["50", "50", "0"], "op": "new"}` (spanning [45,55]x[45,55]x[0,10], apart from the block), then `IMP("join")`, with the asset map `{A: ONE_FACE}`. Expected: status warning with the warnings `import_warning`, then `separate_solid` (section 3.3 step 2), the first rendered as in test 12; b-1 holds the box and the block as two solids, volume 7000.
 17. **A solid without volume.** `IMP("new")` with the asset map `{A: SELF_VOID}`. Expected: status warning with one warning (`import_warning`), rendered as in test 13, with the detail of test 13, no pointer and no fixes; b-1 holds that solid as the kernel read it: 1 solid, 6 faces named `f-imp1/face#1` to `f-imp1/face#6`, volume 0 within 1e-9, area 2200, `is_valid()` false, bbox [0,0,0]-[10,20,30]; change `New`. The copy features refuse to copy it ([mirror.md](mirror.md) test 14, [linear_pattern.md](linear_pattern.md) test 25, [circular_pattern.md](circular_pattern.md) test 19). They refuse a body that holds it beside a solid with volume too (`TWO_SELF_VOID`, linear_pattern.md test 26, circular_pattern.md test 20).
+18. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `import` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("import")` has the description of the Manifest section, and none of its hints has help, a start value or a new body.
 
 ## Open issues
 

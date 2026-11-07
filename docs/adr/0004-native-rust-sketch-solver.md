@@ -1,6 +1,6 @@
 # 0004: Native Rust sketch solver instead of PlaneGCS
 
-Status: Accepted (owner, 2026-11-04), signed off as built. Drag frames that do not converge with the weak pin are solved again without it, as amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md).
+Status: Accepted (owner, 2026-11-04), signed off as built. Drag frames that do not converge with the weak pin are solved again without it, as amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md). The trust region takes the exact step in place of dog-leg's blend, as amended by [ADR 0058](0058-exact-trust-region-step.md) (2026-11-07, Accepted (owner's rule of 2026-11-05)).
 
 ## Context
 

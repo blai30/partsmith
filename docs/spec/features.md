@@ -34,14 +34,34 @@ This spec defines the contract every feature type implements and every caller re
 - Fast proxy previews of expensive features during drags.
 - Dedicated Python forms for plugin features (they use the generic form in M1).
 
+### In M2
+
+M2's wave 1 adds, by [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md) (the M2 plan's item 2):
+
+- `direct_sources` in the naming bridge, and `name_shape` and `name_by_history` that carry the direct-generator names of edges and vertices through every kernel result a feature names (sections 2.11 and 3.9). Messages describe an element by its direct-generator name (section 3.12). No M1 feature makes one.
+
+By [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) (the M2 plan's item 3):
+
+- Curve chains of a sketch as a params type, `ChainProfileRef` (section 2.5), resolved by `BuildContext::chains` into `ResolvedChains` (sections 2.6 and 3.16), with the warning `chain_missing`, the error `chain_not_found` and `Noun::Curve` (section 4). Sweep paths (M2 item 18, wave 2), ribs and webs (item 28, wave 3) and thin-wall extrudes (item 29, wave 3) read their curves through it. Their own specs set what they build from them.
+- The region union of section 3.7, built by `partsmith_sketch::union_regions` (sketch.md section 3.19) in place of this crate's own code, with no change in behavior.
+
+By [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md) (the M2 plan's item 4):
+
+- `CancelToken::from_interrupt` and `CancelToken::interrupt`, `BuildContext::interrupt`, and a kernel call that stops becoming `FeatureError::Canceled` (sections 2.6 and 2.8).
+
+By [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md) (the M2 plan's item 6):
+
+- Every built-in manifest gives its feature's description and the help, start value and `creates_body` of its fields (section 2.3), as each feature spec lists them. The extrude, revolve and hole manifests mark `reverse` essential.
+- Registration checks each start value and `creates_body` against its hint (section 3.3).
+
 ## 2. Public API
 
 All types below live in `partsmith-features` unless a path says otherwise. Types from other crates:
 
-- `partsmith_model`: `Id`, `Expr`, `Units`, `Quantity`, `Dimension`, `Scope`, `ExprError`, `Document`, `FeatureRecord`, `FeatureInspector`, `FeatureLinks`, `ExprLink`, `FeatureParamsSchema`, `canonical::format_number`, and the manifest types `FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind`, `OptionHint` (`partsmith_model::manifest`, section 2.3).
-- `partsmith_naming`: `Reference`, `ElementName`, `ElementKind`, `ElementInfo`, `ElementSet`, `NameSet`, `NamingMap`, `FaceSource`, `Aliases`, `Successions`, `Motion`, `Fingerprint`, `Resolution`, `Candidate`, `Lost`, `MatchMethod`, `Follow`, `TopologyInfo`.
-- `partsmith_sketch`: `SketchParams`, `SketchPlane`, `HintFrame`, `Placement`, `OriginPlane`, `PointRef`, `SketchEntity`, `RegionRef`, `RegionMatch`, `RegionLoss`, `Succession`, `SolveResult`, `SolveIssue`, `Profile`, `ProfileFinding`, `SketchError`, `SketchFix`, `MessageContext`, `DimensionValues`, `NativeSolver`, `match_region`, `build_profile`. Region matching's `MatchMethod` is written `partsmith_sketch::MatchMethod` here, to tell it from naming's.
-- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `Point`, `Vector`, `KernelError`, `OpResult`, `OCCT_VERSION`, `LINEAR_TOLERANCE`.
+- `partsmith_model`: `Id`, `Expr`, `Units`, `Quantity`, `Dimension`, `Scope`, `ExprError`, `Document`, `FeatureRecord`, `FeatureInspector`, `FeatureLinks`, `ExprLink`, `FeatureParamsSchema`, `canonical::format_number`, and the manifest types `FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind`, `OptionHint`, and since M2 `StartValue` and `BodyCreation` (`partsmith_model::manifest`, section 2.3).
+- `partsmith_naming`: `Reference`, `ElementName`, `ElementKind`, `ElementInfo`, `ElementSet`, `NameSet`, `NamingMap`, `FaceSource`, `Aliases`, `Successions`, `Motion`, `Fingerprint`, `Resolution`, `Candidate`, `Lost`, `MatchMethod`, `Follow`, `TopologyInfo`, and from M2 `DirectSource` and `DirectSources` (naming.md section 2.5, [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md)).
+- `partsmith_sketch`: `SketchParams`, `SketchPlane`, `HintFrame`, `Placement`, `OriginPlane`, `PointRef`, `SketchEntity`, `RegionRef`, `RegionMatch`, `RegionLoss`, `Succession`, `SolveResult`, `SolveIssue`, `Profile`, `ProfileFinding`, `SketchError`, `SketchFix`, `MessageContext`, `DimensionValues`, `NativeSolver`, `match_region`, `build_profile`, and from M2 `ChainRef`, `Chain`, `ChainMatch`, `ChainLoss`, `match_chain` and `union_regions` (sketch.md sections 2.10 and 2.11). Region matching's `MatchMethod` is written `partsmith_sketch::MatchMethod` here, to tell it from naming's.
+- `partsmith_occt_sys`: `Shape`, `SubShape`, `SubShapeKind`, `Axis`, `Plane`, `Point`, `Vector`, `KernelError`, `OpResult`, `OCCT_VERSION`, `LINEAR_TOLERANCE`, and from M2 `KernelErrorKind` and kernel.md's `Interrupt`, the flag that kernel calls which poll OCCT's progress range read ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)).
 - `partsmith_mesh`: `BoundingBox`, the type `Shape::bounding_box` returns (kernel.md), which features that reach past a body (through-all extents, hole overlap tests) name.
 
 Every public type derives `Debug` and `Clone`. Types stored in documents or sent to hosts also derive `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema` and `PartialEq`, with snake_case field names.
@@ -52,16 +72,16 @@ Every public type derives `Debug` and `Clone`. Types stored in documents or sent
 partsmith_features
   feature      Feature, FEATURE_API_VERSION
   deps         Dependencies, Link, AssetLink, ExprUse
-  params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt, point, vector
-  context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, FacePlacement, FaceFallback, WithWarnings, CancelToken, MODEL_LIMIT
+  params       BodyOp, CopyOp, ProfileRef, ChainProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt, point, vector
+  context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, ResolvedChains, ResolvedChain, FacePlacement, FaceFallback, WithWarnings, CancelToken, MODEL_LIMIT
   output       FeatureOutput, OutputData, BodyUpdate, BodyChange, Measurements, AbsentFace, Absence, SketchResult, DatumResult, Tool, Direction, apply_op, apply_op_result, reverse_hits, VOLUME_TOLERANCE, has_volume
-  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, ImportContent, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, joined, describe_elements, describe_face, describe_copy, made_from_line, sketch_coordinates
+  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, ImportContent, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, ChainLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, joined, describe_elements, describe_face, describe_copy, made_from_line, sketch_coordinates
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
   python       PythonCall, PythonValue, PythonNames
   builtin      one module per built-in feature type (sketch, extrude, ...)
 ```
 
-The crate root re-exports every item listed above, the naming bridge (section 2.11: `topology_info`, `name_shape`, `name_by_history`, `modified_sources` and `Named`, from a private module), the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
+The crate root re-exports every item listed above, the naming bridge (section 2.11: `topology_info`, `name_shape`, `name_by_history`, `modified_sources`, `direct_sources` and `Named`, from a private module), `ProfileFaces` (section 2.6, from a private module), the manifest types of `partsmith_model::manifest` (section 2.3) and `partsmith_occt_sys::OCCT_VERSION`, and defines the crate version:
 
 ```rust
 /// Version of this crate. Recompute puts it and `OCCT_VERSION` into every cache key (recompute.md section 3.4).
@@ -117,33 +137,38 @@ Params structs follow these rules:
 
 ### 2.3 Manifest
 
-`FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind` and `OptionHint` are pure data defined in `partsmith_model::manifest` (model.md section 2.12), so `partsmith-protocol` carries them typed and the UI uses their generated TypeScript types. `partsmith-features` re-exports them. What this spec relies on:
+`FeatureManifest`, `Category`, `FieldHint`, `FieldUnit`, `SelectionKind`, `OptionHint`, `StartValue` and `BodyCreation` are pure data defined in `partsmith_model::manifest` (model.md section 2.12), so `partsmith-protocol` carries them typed and the UI uses their generated TypeScript types. `partsmith-features` re-exports them. What this spec relies on:
 
-- `FeatureManifest { label, category, icon, version, fields }`: the display name (also the base of default feature labels, section 3.12), the toolbar group, a kebab-case icon name, the params version (starting at 1, bumped only with a document migration) and the inspector fields in display order.
+- `FeatureManifest { label, description, category, icon, version, fields }`: the display name (also the base of default feature labels, section 3.12), what the feature does (since M2), the toolbar group, a kebab-case icon name, the params version (starting at 1, bumped only with a document migration) and the inspector fields in display order.
 - `Category`: `sketch`, `create` (add or remove material from scratch or from a sketch), `modify` (change existing bodies), `pattern` (mirrors and patterns), `construct` (construction geometry).
-- `FieldHint { path, label, essential, unit, selection, options }`: the field path (grammar in section 3.2), its label, whether it shows without the "More" toggle, the `FieldUnit` of an `Expr` field, the `SelectionKind` of a reference field, and `OptionHint { value, label }` labels for the values of an enumeration or tag field.
+- `FieldHint { path, label, essential, unit, selection, options, help, start, creates_body }`: the field path (grammar in section 3.2), its label, whether it shows without the "More" toggle, the `FieldUnit` of an `Expr` field, the `SelectionKind` of a reference field, and `OptionHint { value, label }` labels for the values of an enumeration or tag field; since M2 also its hover help, its `StartValue` and its `BodyCreation`.
+- `StartValue` (since M2): `Expr { expr }`, an expression that means the same in every document unit, for a hint with a unit; `Choice { value }`, one of the hint's options; `Multiple { field, factor }`, `factor` times the value of the expression field at `field`, for a hint with a unit.
+- `BodyCreation` (since M2): `WhileNew`, the field receives the body a host's command creates while `op` is `new`; `AtStart`, a new feature's field starts set to one.
 - `FieldUnit`: `Length`, `Angle`, `Scalar`, `Count`. It also types every expression use (section 2.4) and sets its evaluation (section 3.4).
 - `SelectionKind`: `body`, `sketch`, `sketch_region`, `sketch_point` (point entities, line and arc ends, arc and circle centers), `face`, `edge`, `plane` (an origin plane, a datum plane or a flat face), `axis` (an origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face).
 
-JSON form (the host receives manifests in the protocol's feature catalog):
+JSON form (the host receives manifests in the protocol's feature catalog; model.md section 2.12 has the whole extrude manifest):
 
 ```json
 {
   "label": "Extrude",
+  "description": "Pulls a closed sketch shape straight out into a solid, or cuts it into one.",
   "category": "create",
   "icon": "extrude",
   "version": 1,
   "fields": [
-    {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region"},
-    {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}]},
+    {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region", "help": "The closed sketch shapes to extrude. Click inside a shape to add it."},
+    {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}], "help": "Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body."},
     {"path": "extent.expr", "label": "Distance", "essential": true, "unit": "length"},
-    {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}]},
-    {"path": "body", "label": "Body", "selection": "body"}
+    {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}], "help": "New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap."},
+    {"path": "body", "label": "Body", "selection": "body", "help": "The body that Join, Cut and Intersect change."}
   ]
 }
 ```
 
-Each feature spec lists its complete manifest as a table.
+Each feature spec lists its complete manifest: the label, category, icon, version and description, a table of its fields, and since M2 a table of the help, start values and `creates_body` of the fields that have them. A field that the second table leaves out has none of the three.
+
+**Texts and start values of the built-ins** (since M2, [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). They are the ones the UI held in M1 (ui.md sections 2.10 and 2.12). A description says what the feature does, in the words of the interface, in one sentence of 1 to 120 characters that ends with a period. A help text says what a field does when its label alone does not, in at most two sentences that end with a period. Neither uses the words "omitted", "default", "params", "None" or "serde". A start value of a length field carries its unit. Every start value means the same in every document unit. The start values work on printed parts of 20 to 60 mm. There the host's general start of 10 mm would make the first fillet, chamfer or shell fail. Hosts read these values from the manifest and keep no copy (ui.md section 2.12).
 
 ### 2.4 Dependencies
 
@@ -232,6 +257,14 @@ pub struct ProfileRef {
     pub regions: Vec<RegionRef>,
 }
 
+/// Curve chains of one sketch used as a path or an open profile (M2, section 3.16).
+pub struct ChainProfileRef {
+    /// The sketch feature.
+    pub sketch: Id,
+    /// The chains, at least one, in pick order (sketch.md `ChainRef`: key text, fingerprint text and `closed`).
+    pub chains: Vec<ChainRef>,
+}
+
 /// A plane given by an origin plane, a datum plane, or a flat face of a body.
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlaneRef {
@@ -289,6 +322,7 @@ JSON examples:
 {"op": "cut"}
 {"op": "new", "target": "b-2"}
 {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}
+{"sketch": "f-sk2", "chains": [{"key": "e-1,~e-2", "fp": "s=0,0|e=40,30|l=70"}]}
 {"kind": "origin", "plane": "XY"}
 {"kind": "datum", "feature": "f-dp1"}
 {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=400"}}
@@ -303,7 +337,7 @@ JSON examples:
 
 Every stored `Reference` sits next to the id of its body: a `body` field in the same struct (`PlaneRef::Face`, `AxisRef::Edge`, `AxisRef::Face`, sketch.md's `SketchPlane::Face`), or the feature's own `body` param for reference lists (`edges`, `remove_faces`). There is no separate body-reference type.
 
-`RegionRef` (with its `outline`), `RegionKey` text, region fingerprint text, `Placement` JSON and `HintFrame` are defined in sketch.md; `Reference` JSON (with `nb` and `merged`) and fingerprint text in naming.md.
+`ChainProfileRef` (M2, [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)) serializes its fields in the order `sketch`, `chains`. A feature stores it in format version 3 documents only, from the first feature that takes curve chains (the sweep, M2 item 18). Its record shape goes to human review at the M2 gate with format version 3. `RegionRef` (with its `outline`), `RegionKey` text, region fingerprint text, `ChainRef` (with its `closed`), chain key and chain fingerprint text, `Placement` JSON and `HintFrame` are defined in sketch.md; `Reference` JSON (with `nb` and `merged`) and fingerprint text in naming.md.
 
 ### 2.6 Build context
 
@@ -365,6 +399,9 @@ impl<'a> BuildContext<'a> {
     /// Resolves the regions of a profile (section 3.7), with notices for split regions and warnings for resized,
     /// remapped, ambiguous or missing regions, and the successions of boundary matches.
     pub fn profile(&self, field: &str, profile: &ProfileRef) -> Result<ResolvedProfile<'_>, FeatureError>;
+    /// Resolves the curve chains of a chain profile (M2, section 3.16): a lost chain among several is skipped with a
+    /// warning; a list that resolves to nothing is an error that keeps every lost chain.
+    pub fn chains(&self, field: &str, chains: &ChainProfileRef) -> Result<ResolvedChains<'_>, FeatureError>;
     /// Resolves one required reference to its elements (section 3.8). Missing or ambiguous is an error; a guess, a
     /// widening or a follow adds its warning or notice to the result.
     pub fn resolve(&self, field: &str, body: &Id, reference: &Reference, kind: ElementKind) -> Result<Resolved, FeatureError>;
@@ -389,6 +426,8 @@ impl<'a> BuildContext<'a> {
 
     /// True once the run has been canceled. Long builds check it between steps.
     pub fn is_canceled(&self) -> bool;
+    /// The run's interrupt, which a build passes to every kernel call that polls (kernel.md). Since M2.
+    pub fn interrupt(&self) -> &Interrupt;
 }
 
 /// Evaluated values of one feature's declared expressions.
@@ -485,6 +524,43 @@ pub struct ResolvedProfile<'a> {
 impl ResolvedProfile<'_> {
     /// The warnings, then the notices: the messages a sweep reports first.
     pub fn into_messages(self) -> Vec<FeatureWarning>;
+    /// The union of the resolved regions (sketch.md section 3.19) as kernel faces, each curve tagged by its sketch
+    /// entity (section 3.7).
+    pub fn faces(&self) -> Result<ProfileFaces, FeatureError>;
+}
+
+/// The union of a profile's resolved regions as kernel faces on the sketch plane (section 3.7).
+pub struct ProfileFaces {
+    /// One planar face per part of the union. The tag of each curve indexes `entities`.
+    pub profile: partsmith_occt_sys::PlanarProfile,
+    /// The sketch entity each curve tag came from: tag `i` names `entities[i]`. Without duplicates, in order of first use.
+    pub entities: Vec<Id>,
+}
+
+/// Result of resolving a chain profile (M2, section 3.16).
+pub struct ResolvedChains<'a> {
+    /// The sketch result.
+    pub sketch: &'a SketchResult,
+    /// The chains that resolved, in list order. An entry whose key equals an earlier entry's key is left out.
+    pub chains: Vec<ResolvedChain>,
+    /// Successions of the resolved chains, sorted by entity, without duplicates. Always empty until M2 item 25
+    /// (sketch.md section 3.18.3).
+    pub successions: Vec<Succession>,
+    /// Warnings for chains that were skipped (`ChainMissing`), in list order.
+    pub warnings: Vec<FeatureWarning>,
+}
+
+/// One resolved chain and the entry it came from.
+pub struct ResolvedChain {
+    /// Position of its `ChainRef` in the list.
+    pub position: usize,
+    /// The chain, built from the sketch's solved entities (sketch.md section 3.18.2).
+    pub chain: Chain,
+}
+
+impl ResolvedChains<'_> {
+    /// The warnings: the messages a feature that reads chains reports first.
+    pub fn into_messages(self) -> Vec<FeatureWarning>;
 }
 
 /// A plane placed on a face (section 3.6).
@@ -520,17 +596,24 @@ pub struct WithWarnings<T> {
 
 /// Shared cancellation flag for one run. Cloning shares the flag.
 #[derive(Clone, Default)]
-pub struct CancelToken { /* Arc<AtomicBool> */ }
+pub struct CancelToken { /* kernel.md's Interrupt */ }
 
 impl CancelToken {
-    /// A token that is not canceled.
+    /// A token that is not canceled: `from_interrupt(Interrupt::new())`.
     pub fn new() -> Self;
-    /// Requests cancellation. Idempotent.
+    /// The token of one request, made by the engine from its host's flag (engine.md section 3.26). Since M2.
+    pub fn from_interrupt(interrupt: Interrupt) -> Self;
+    /// Requests cancellation (`Interrupt::request`). Idempotent.
     pub fn cancel(&self);
-    /// True once `cancel` was called on this token or a clone.
+    /// True once `cancel` was called on this token or a clone, or once the host's flag asks for it
+    /// (`Interrupt::is_requested`).
     pub fn is_canceled(&self) -> bool;
+    /// The interrupt that kernel calls which poll take. Since M2.
+    pub fn interrupt(&self) -> &Interrupt;
 }
 ```
+
+Since M2 every built-in passes `context.interrupt()` to each kernel call it makes that polls OCCT's progress range (kernel.md lists them). A call that stops returns an error of kind `KernelErrorKind::Canceled`. The build returns it with `?` as `FeatureError::Canceled`, and recompute reports the feature as not run (recompute.md section 3.5 steps 7 and 9).
 
 `SubShape` (kernel `SubShapeKind` plus 1-based `u32` index) never leaves `partsmith-features`; the context translates between element names and indices with `NamingMap::index` and `NamingMap::name`.
 
@@ -731,7 +814,7 @@ impl FieldRef {
 pub enum Bound { GreaterThan(f64), AtLeast(f64), LessThan(f64), AtMost(f64) }
 
 /// The kind of thing a selection or lookup expected, for messages.
-pub enum Noun { Body, Sketch, DatumPlane, Region, Point, Line, Face, Edge }
+pub enum Noun { Body, Sketch, DatumPlane, Region, Point, Line, Face, Edge, Curve }
 
 /// Why a feature ignored part of its input.
 pub enum IgnoredReason { SmoothEdge, TipAngleThroughAll }
@@ -858,6 +941,16 @@ pub struct RegionLost {
     pub candidates: Vec<Vec<usize>>,
 }
 
+/// A chain reference that resolved to no chain (M2, section 3.16).
+pub struct ChainLost {
+    /// Position in the chain profile's list.
+    pub position: usize,
+    /// The stored reference.
+    pub chain: ChainRef,
+    /// Why it cannot be built (sketch.md section 3.18).
+    pub loss: ChainLoss,
+}
+
 /// A one-click fix a host can apply (section 4.4). Built from the feature's own build; hosts receive small descriptors,
 /// and the engine labels a fix and builds its edits from the current records when it is applied (engine.md section 3.22).
 pub enum Fix {
@@ -925,7 +1018,11 @@ pub enum Repair {
         loss: Option<RegionLoss>,
     },
 }
+```
 
+`Repair` gains `Chain { pointer: String, sketch: Id, chain: ChainRef, loss: ChainLoss }` for a lost curve chain, with `pointer` the JSON Pointer of its `ChainRef` in the record (`/path/chains/0`). It is the contract of M2's chain repairs ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). It lands with the sweep's spec (M2 item 18, wave 2), together with its protocol wire form and the engine's projection (engine.md section 3.4), a protocol schema change for review at the M2 gate. Until then `repairs()` gives no repair for `ChainMissing` and `ChainNotFound`.
+
+```rust
 /// Looks up what messages need about the document: names, types, records and sketch results.
 pub trait Names {
     /// The body's name, if the body exists.
@@ -1081,7 +1178,8 @@ impl FeatureError {
     pub fn repair(&self) -> Option<Repair>;
 }
 
-/// A kernel failure becomes `Kernel { error }`, so `?` works on kernel calls.
+/// A kernel failure becomes `Kernel { error }`, so `?` works on kernel calls. Since M2, an error of kind
+/// `KernelErrorKind::Canceled` becomes `Canceled`, never a kernel failure.
 impl From<KernelError> for FeatureError { /* ... */ }
 
 /// A naming failure becomes `NameTooDeep` for a name too long to build (section 4.1), and `Internal` otherwise, which
@@ -1108,9 +1206,9 @@ impl FeatureWarning {
 }
 ```
 
-`FeatureError` and `FeatureWarning` are `#[non_exhaustive]` enums deriving `Debug`, `Clone`, `PartialEq` and `thiserror::Error` (errors), with the variants in section 4. They store ids, names, references and internal-unit numbers, never display names, formatted values or diagnoses, so a cached error renders correctly after a rename, a units change or an edit elsewhere in the timeline. `Display` renders the same text as `render` with each id in place of its name, values in millimeter units, `this feature` for `{this}` and no diagnosis; it is for logs, never shown to users. Errors that wrap a `KernelError` return it from `std::error::Error::source`. `BodyNotValid` returns its `cause` when it has one. `Loss`, `LossCandidate`, `RegionLost`, `Limit`, `Fix`, `Place`, `FallbackCause`, `Placed`, `NoEffectHow` and `Severity` derive `Debug`, `Clone` and `PartialEq`, and `FallbackCause` and `Severity` also `Copy` and `Eq`; none is serialized (the engine projects fixes and repairs into protocol types, engine.md sections 3.4 and 3.22). `ImportContent` derives `Clone`, `Copy`, `Debug`, `PartialEq` and `Eq`; it is not serialized.
+`FeatureError` and `FeatureWarning` are `#[non_exhaustive]` enums deriving `Debug`, `Clone`, `PartialEq` and `thiserror::Error` (errors), with the variants in section 4. They store ids, names, references and internal-unit numbers, never display names, formatted values or diagnoses, so a cached error renders correctly after a rename, a units change or an edit elsewhere in the timeline. `Display` renders the same text as `render` with each id in place of its name, values in millimeter units, `this feature` for `{this}` and no diagnosis; it is for logs, never shown to users. Errors that wrap a `KernelError` return it from `std::error::Error::source`. `BodyNotValid` returns its `cause` when it has one. `Loss`, `LossCandidate`, `RegionLost`, `ChainLost`, `Limit`, `Fix`, `Place`, `FallbackCause`, `Placed`, `NoEffectHow` and `Severity` derive `Debug`, `Clone` and `PartialEq`, and `FallbackCause` and `Severity` also `Copy` and `Eq`; none is serialized (the engine projects fixes and repairs into protocol types, engine.md sections 3.4 and 3.22). `ImportContent` derives `Clone`, `Copy`, `Debug`, `PartialEq` and `Eq`; it is not serialized.
 
-**Detail.** `detail()` gives the text a bug report needs, in this form: `Kernel`, and the "too large" errors with no `max`, the kernel error's `detail()` (kernel.md section 4.3); `Internal` its message (a panic message included); `InvalidParams` its parser text; `UndeclaredDependency` its `what`; `AssetMissing` the asset name; `UnknownEntity` and `PointMissing` the entity or point reference; `NameTooDeep` the length in bytes; `ImportWarning` the `detail` it carries (`read_step: ` and the kernel's sentences, [features/import.md](features/import.md) section 3.3); `BodyNotValid` with a `cause`, that error's `detail()`; sketch errors and warnings the sketch crate's detail (sketch.md section 4.4); every message with losses one entry per loss, joined by `; `: the field path, ` q=` and the query, ` resolution=missing` or `ambiguous`, then ` lost.parts=`, ` lost.pieces=` (names joined by `,`) and ` lost.unmet=true` when set, then ` candidates=` and each candidate's query and score with 6 decimals as `<q>:<score>`, joined by `,`, for example `edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing lost.unmet=true`. A guess writes ` guess=` and its `score` with 6 decimals in place of the resolution, then its alternatives as candidates: `edges[0] q=edge(f-box1/front|f-box1/top#1) guess=0.700000 candidates=edge(f-box1/front|f-box1/top#2):0.900000`. Every other error and warning has no detail.
+**Detail.** `detail()` gives the text a bug report needs, in this form: `Kernel`, and the "too large" errors with no `max`, the kernel error's `detail()` (kernel.md section 4.3); `Internal` its message (a panic message included); `InvalidParams` its parser text; `UndeclaredDependency` its `what`; `AssetMissing` the asset name; `UnknownEntity` and `PointMissing` the entity or point reference; `NameTooDeep` the length in bytes; `ImportWarning` the `detail` it carries (`read_step: ` and the kernel's sentences, [features/import.md](features/import.md) section 3.3); `BodyNotValid` with a `cause`, that error's `detail()`; sketch errors and warnings the sketch crate's detail (sketch.md section 4.4); `ChainMissing` its field path (`path.chains[1]`), ` key=` and the key text, a space and the loss's detail (sketch.md section 4.4); `ChainNotFound` one entry per `ChainLost`, joined by `; `: its field path followed by `.chains[<position>]`, ` key=` and the key text, a space and the loss's detail, for example `path.chains[0] key=e-1,~e-2 disconnected end=e-1.end start=e-2.end gap=0.3`; every message with losses one entry per loss, joined by `; `: the field path, ` q=` and the query, ` resolution=missing` or `ambiguous`, then ` lost.parts=`, ` lost.pieces=` (names joined by `,`) and ` lost.unmet=true` when set, then ` candidates=` and each candidate's query and score with 6 decimals as `<q>:<score>`, joined by `,`, for example `edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing lost.unmet=true`. A guess writes ` guess=` and its `score` with 6 decimals in place of the resolution, then its alternatives as candidates: `edges[0] q=edge(f-box1/front|f-box1/top#1) guess=0.700000 candidates=edge(f-box1/front|f-box1/top#2):0.900000`. Every other error and warning has no detail.
 
 ### 2.9 Registry
 
@@ -1335,20 +1433,29 @@ pub struct Named {
     pub topology: Arc<TopologyInfo>,
 }
 
-/// Names every element of `shape` from one source per face, in face index order (naming.md section 3.3, `NamingMap::build`).
-/// `inherited` are the naming maps of every input, the body the feature writes first, which `FaceSource::From` entries
-/// index; `successions` are the sketch successions the feature records (extrude and revolve, section 3.9); `new_motion`
-/// is the motion of the geometry its new faces are built on (section 3.9).
-pub fn name_shape(shape: &Shape, faces: Vec<FaceSource>, inherited: &[&NamingMap], successions: &Successions, new_motion: &Motion) -> Result<Named, FeatureError>;
+/// Names every element of `shape` from one source per face, in face index order, and one direct source per edge and
+/// vertex (naming.md sections 3.3 and 3.12, `NamingMap::build_with_direct`). `inherited` are the naming maps of every
+/// input, the body the feature writes first, which `FaceSource::From` and `DirectSource::From` entries index;
+/// `successions` are the sketch successions the feature records (extrude and revolve, section 3.9); `new_motion` is
+/// the motion of the geometry its new faces are built on (section 3.9).
+pub fn name_shape(shape: &Shape, faces: Vec<FaceSource>, direct: DirectSources, inherited: &[&NamingMap], successions: &Successions, new_motion: &Motion) -> Result<Named, FeatureError>;
 
 /// For each face of `result.shape`, in index order, the input faces whose `modified` list contains it, in input order,
 /// each as the index of its input in `inputs` and its name there (the form `FaceSource::From` takes). `inputs` names
 /// the operation's history inputs in order; a different count is `Internal`.
 pub fn modified_sources(result: &OpResult, inputs: &[&NamingMap]) -> Result<Vec<Vec<(u32, ElementName)>>, FeatureError>;
 
+/// For each edge and each vertex of `result.shape`, in index order, the input elements of its kind whose `modified`
+/// list contains it, in input order, each as the index of its input in `inputs` and its element index there
+/// (`DirectSource::From`), or `DirectSource::None` when no input element lists it (naming.md section 3.12.2). It reads
+/// the fates in one pass, as `modified_sources` does. `inputs` names the operation's history inputs in order; a
+/// different count is `Internal`. Since M2.
+pub fn direct_sources(result: &OpResult, inputs: &[&NamingMap]) -> Result<DirectSources, FeatureError>;
+
 /// Names a kernel result by the boolean rule (naming.md section 3.6): each face descends from the input faces whose
-/// `modified` lists contain it, and a face without one gets the fallback name `<feature>/face` with `new_motion`. The
-/// inputs' aliases, successions and motions are inherited.
+/// `modified` lists contain it, and a face without one gets the fallback name `<feature>/face` with `new_motion`. Each
+/// edge and vertex carries the direct-generator names of the input elements whose `modified` lists contain it
+/// (`direct_sources`, naming.md section 3.12). The inputs' aliases, successions and motions are inherited.
 pub fn name_by_history(feature: &Id, result: &OpResult, inputs: &[&NamingMap], new_motion: &Motion) -> Result<Named, FeatureError>;
 ```
 
@@ -1391,6 +1498,19 @@ Registration checks, so a bad feature fails at startup rather than at schema gen
 - No root property is reserved (`ReservedField`).
 - Every `$defs` name already registered by another type has an identical schema (`SchemaConflict`); identical definitions are shared.
 - The manifest matches the schema (`ManifestMismatch`): every hint path exists (`[*]` and `[index]` match array items); every top-level property is covered by a hint whose path is the property or starts with it followed by `.` or `[`; every hint with `unit` points at an `Expr`; every hint with `options` points at a string enumeration or tag field and lists exactly its values.
+- Since M2 ([ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)), each hint's `start` and `creates_body` fit the hint (`ManifestMismatch` with the hint's path and the problem text given here). They are checked for each hint after the checks above, `start` first, in the order of this list. The first problem found is the one returned.
+  - `Expr` on a hint without `unit`: `its start value is an expression, but it has no unit`. `Multiple` on a hint without `unit`: `its start value follows another field, but it has no unit`.
+  - `Expr { expr }` on a hint with unit `u` is evaluated twice with `Expr::evaluate(scope, Some(d))`, where `d` is the dimension of `u` (section 3.4) and `scope` has no parameters and `EmptyContext` (expressions.md), once with `Units::Mm` and once with `Units::In`. If either evaluation fails (a text that does not parse, a parameter or a dotted name, another dimension), gives a value that is not finite, or for `Count` gives a value that is not a whole number from 0 to `u32::MAX` within section 3.4's tolerance of 1e-9, the problem is `its start value '{expr}' is not a fixed {noun}`. `{noun}` is `length`, `angle`, `plain number` or `whole number` for `Length`, `Angle`, `Scalar` and `Count`. If the two values differ, the problem is `its start value '{expr}' depends on the document units`.
+  - `Choice { value }` on a hint whose `options` do not list `value`, a hint without options included: `its start value '{value}' is not one of its options`.
+  - `Multiple { field, .. }` whose `field` is the hint's own path, or names no hint of the manifest with the same `unit`: `its start value follows '{field}', which is not another field with the same unit`.
+  - `Multiple { field, .. }` whose `field` names a hint whose own `start` is a `Multiple`: `its start value follows '{field}', whose own start value follows another field`.
+  - `Multiple { factor, .. }` with a `factor` that is not finite or not above 0: `its start value's factor {factor} is not a finite number above 0`, with `{factor}` written by Rust's `Display` of `f64` (`0`, `-1`, `NaN`).
+  - `creates_body` on a hint whose `selection` is not `body`: `it receives a new body, but its selection is not a body`.
+  - `creates_body` on a hint whose field is an array or whose path has a `[*]` or `[index]` segment (a list of bodies or one of its items): `it receives a new body, but the field holds a list`.
+  - `creates_body: WhileNew` in a manifest without a hint at the path `op` whose options list `new`: `it receives a new body while op is new, but no op field has the option new`.
+  - `creates_body` on a hint after an earlier hint of the manifest that has one: `another field already receives the new body`.
+
+  Texts are not checked: a host shows any `description` and `help`. The built-ins keep the rules of section 2.3 (tests 47 and 49).
 
 ### 3.4 Expression evaluation
 
@@ -1480,7 +1600,7 @@ Solid features (extrude, revolve, primitives, import) name a target `body` and a
 
 Two refs resolving to the same region use it once, and successions with equal entity and list are kept once. If no region resolves, `ProfileNotFound` with a `RegionLost` per stored region in profile order (its `RegionLoss` or its candidate sets), so nothing is dropped. An empty `regions` list is rejected at validation (`EmptySelection`).
 
-The profile a feature sweeps is the **union of the resolved regions**: boundary pieces that two resolved regions share are dropped, and the remaining pieces are chained into the outer loops and holes of the union (so a rectangle-with-hole region plus the disc filling the hole is the whole rectangle). Each remaining piece keeps the sketch entity id it came from, which names the face it generates. Consecutive pieces of a loop (the last and the first included) that come from the same entity and continue the same line or circle are then merged into one curve: the pieces of a line become one segment and the pieces of an arc or circle one arc. This applies to every loop of the union, also to a single region whose side other curves split into pieces. Only a loop made of that one entity all the way round becomes the whole circle; otherwise a merged curve never ends where it starts. Where the union's boundary touches itself at a point of a circle (a circle touching another curve, with selected regions around it on both sides), the boundary runs round the circle between two visits to that point, and merging stops before the run would close, so the circle keeps two or more arcs there. Pieces of one entity with another piece between them stay separate. The union is built in the sketch plane, then turned into kernel faces with `make_profile` (curves tagged by entity), so no lateral face is ever generated from a shared boundary, and a union of regions split by a line gives one lateral face per entity, as the single region covering the same area does (naming.md section 3.6.2).
+The profile a feature sweeps is the **union of the resolved regions**, which `partsmith_sketch::union_regions` builds in the sketch plane (sketch.md section 3.19). The rules of the union moved there in M2 with no change in behavior ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)): boundary pieces that two resolved regions share are dropped, the remaining pieces are chained into the outer loops and holes of the union, consecutive pieces of one entity that continue its line or circle are merged into one curve, and each piece keeps the sketch entity id it came from, which names the face it generates. `ResolvedProfile::faces` reads the regions at `ResolvedProfile::regions` in that order, builds their union, and passes the parts in order, each as one `PlanarRegion` (its outer loop, then its holes), to one kernel `make_profile` call (kernel.md section 3.4.2) on the kernel `Plane` of the sketch's placement, each curve converted as sketch.md section 3.15 says and tagged by its entity, with tags numbered in order of first use (`ProfileFaces::entities`). So no lateral face is ever generated from a shared boundary, and a union of regions split by a line gives one lateral face per entity, as the single region covering the same area does (naming.md section 3.6.2). An index the sketch's profile does not have is `Internal` with the detail `the profile has no region {index}`, and a `UnionError` is `Internal` with its own text as the detail, `the selected profile regions do not form a planar arrangement`, as before the move.
 
 ### 3.8 Sub-shape references
 
@@ -1504,22 +1624,23 @@ Warnings and notices are never stored back into the document: a reference change
 
 ### 3.9 Naming
 
-Every built-in feature names its output elements with `NamingMap::build`, choosing each output face's `FaceSource` by the rule for its feature kind in naming.md section 3.6, from the kernel's face roles (`SweepFace`, `PrimitiveFace`, `SectionFace`) and history. Each feature spec restates the resulting face names for test authors; where they differ, naming.md wins. The patterns are:
+Every built-in feature names its output elements with `NamingMap::build` (since M2 `NamingMap::build_with_direct`, naming.md section 3.12.2), choosing each output face's `FaceSource` by the rule for its feature kind in naming.md section 3.6, from the kernel's face roles (`SweepFace`, `PrimitiveFace`, `SectionFace`) and history. Each feature spec restates the resulting face names for test authors; where they differ, naming.md wins. The patterns are:
 
 - Faces a feature creates: `<feature id>/<role>` or `<feature id>/<role>/<generator>`, where `<generator>` is a sketch entity id, a sketch `PointRef`, or an input element name (`f-ext1/lateral/e-1`, `f-hole1/bore/e-p1`, `f-fil1/fillet/edge(f-box1/front|f-box1/top)`).
 - Faces that come from an input body keep their names through kernel history (modified elements keep the name; deleted elements disappear; merged faces follow naming.md's alias rule).
 - Copies made by mirror and patterns take the source names with an instance suffix: `<name>@<feature id>:<instance>` (`f-box1/top@f-lp1:2`, `f-box1/top@f-lp1:2.1`, `f-box1/top@f-mir1:1`).
-- Edges and vertices are always named from their adjacent faces (`edge(<face a>|<face b>)`, sorted; seams `edge(<face>)`).
+- Edges and vertices are named from their adjacent faces (`edge(<face a>|<face b>)`, sorted; seams `edge(<face>)`). They also carry the direct-generator names of the input edges and vertices they descend from (`edge:<feature>/<role>[/<generator>]`, naming.md section 3.12, [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md)). An edge or vertex without adjacent faces is named by its first direct-generator name (naming.md section 3.12.2). No M1 feature makes new ones.
 - Split pieces get `#n` suffixes in naming.md's geometric order.
 
 Element names never contain kernel indices.
 
-What each feature passes to `NamingMap::build` (through `name_shape` and `name_by_history`, section 2.11) besides the face sources:
+What each feature passes to `NamingMap::build_with_direct` (through `name_shape` and `name_by_history`, section 2.11) besides the face sources:
 
 - **Inherited maps and map indices.** `inherited` is every input naming map of the operation, the body the feature writes first, and every `FaceSource::From` source names the index of its map there (`modified_sources` gives them), so a boolean's tools in any order give the same map (naming.md section 3.3).
 - **Successions.** Extrude and revolve pass the successions of their profile (`ResolvedProfile::successions`) as `added_successions`: one per succession `m -> [n1, ..., nk]`, `<feature>/lateral/<m> -> [<feature>/lateral/<n1>, ..., <feature>/lateral/<nk>]` in the order of `Succession::now` (naming.md section 3.6.2). Every other feature passes none.
 - **Motion of new faces** (`new_motion`, naming.md section 3.6): for extrude, revolve and hole, the `motion` of their sketch's result (`SketchResult::motion`, section 2.7); for fillet, chamfer, shell and split body, the base motion of the body's map (`BodyState::motion` of a name the map never saw); otherwise the identity (primitives and imports, placed in world coordinates; boolean, mirror, patterns and move body, which name every face `From`).
 - **Copies and moves.** A mirror or pattern copy's map is `NamingMap::with_instance(feature, instance, transform)` with the copy's transform as a `Motion` (naming.md section 3.5.1), and move body's output map is `NamingMap::moved(transform)` (naming.md section 3.6.12), so faces keep the motion that face placements and axes read (section 3.6).
+- **Direct sources** (naming.md section 3.12.2). Every feature passes `direct_sources` of each kernel result it names by history. A result named without inherited maps passes `DirectSources::default()`: primitives, imports, and the shapes that extrude, revolve and hole build before their boolean. Mirror, patterns and move body carry direct-generator names through `NamingMap::with_instance` and `NamingMap::moved`, and split body through `NamingMap::project`.
 
 ### 3.10 Kernel results
 
@@ -1585,6 +1706,7 @@ Examples: the generic form `feature("box", id="f-box1", body="b-1", size=["10", 
 - **Edges**, by the first rule that applies: (1) between two faces one cut left: `the bottom edge of the cut made by 'Extrude 2'`; (2) a circle edge between a planar face with a direction word and a round face: `the top rim of the hole at (7, 0)`, `the top rim of the cut made by 'Extrude 2'`, `the top rim of 'Extrude 2'`, with the planar face's word and the round face's owner, except that a hole's counterbore or countersink is named by its own words (`the top rim of the counterbore of the hole at (0, 0)`, while the bore is the hole's: `the top rim of the hole at (0, 0)`); (3) between a face a cut left and a face of the body with a direction word: `the top edge of the cut made by 'Extrude 2'`, with the body face's word (`the front edge of the cut made by 'Extrude 1'`); (4) between two faces of one feature that both have direction words: `the front top edge of 'Box 1'`, `the back top edge of 'Extrude 1'` (front or back, then left or right, then top or bottom); (5) between a face with a direction word and a face described by its entity: `the top edge of 'Extrude 1' along the line from (80, 40) to (70, 50) in 'Sketch 1'`, and when the sketch no longer has the entity, `along a line of 'Sketch 1'` for an edge whose stored fingerprint is a `line`, else `along a curve of 'Sketch 1'`; (6) otherwise, when neither face is a fallback name, `the edge between {face} and {face}`. Primitive faces use their role as their word. A face is *round* for rule (2) when it is in the state and its fingerprint is a cylinder, cone, sphere or torus; a face that is not in the state is round when it is a hole's bore, counterbore or countersink, or a lateral face of an extrude or revolve whose entity the feature's sketch still has as a circle or an arc. A lateral face whose entity is gone is never round, so the top edge of a deleted arc reads by rule (5) (corpus R51), and a hole's rim keeps its words when the hole is gone (corpus R43). An edge with a face term that is a fallback name falls to the position rule below (corpus R46).
 - **Vertices.** `the front left top corner of 'Box 1'` when its three faces belong to one feature and have direction words, else, where two or more faces meet, `the corner where {face}, {face} and {face} meet`.
 - **Missing features.** A face of a feature that is not in the document: `a face of a feature that is not in this document`; an edge or vertex with a face term of such a feature: `an edge of a feature that is not in this document` (`a corner of ...`). This rule comes before every other.
+- **Direct-generator names** (naming.md section 3.12). An edge or vertex whose stored name is a direct-generator name reads by the feature that `ElementName::direct_parts` names, with the fallback rule's position clause: `an edge of 'Helix 1' near (40, 0, 30)`, `a corner of 'Helix 1' near (40, 0, 0)`. When that feature is not in the document, the missing-features rule applies (`an edge of a feature that is not in this document`). The features of the M2 plan's items 18 to 20 add words for their roles. An element whose stored name follows the face rule keeps its words, whatever direct-generator names it also holds.
 - **Fallback and clashes.** When no rule applies: `an edge of 'Box 1' near (40, 0, 30)`, from the fingerprint centroid in world coordinates, or `a round edge of 'Import 1' near (30, 10, 5)` when the edge's fingerprint is a circle; a vertex on one face, such as the pole of a sphere, reads `a corner of 'Sphere 1' near (0, 0, 5)`. When two elements in one message or candidate list would read the same, each gets its entity clause (`along the line from (80, 50) to (50, 50) in 'Sketch 1'`) or, failing that, its position clause (`near (65, 0, 30)`).
 
 **Message structure** (house rules in [the error guidelines](../guidelines/errors.md)): what happened, naming the element and the features by label; why, naming the feature that caused it (from the feature itself or recompute's diagnosis); at most two sentences. What to do is carried by `fixes` (section 4.4); a sentence says it only when no fix covers it. Technical text goes to `detail`. Every template of section 4, rendered, passes the message lint of the guidelines: no match of `repair panel`, `\bop (new|join|cut|intersect)\b`, `\b[fbec]-[0-9a-z]+\b`, `(Edge|Face|Vertex|Curve) [0-9]`, `[0-9]+% match`, a backtick or `os error`.
@@ -1679,6 +1801,21 @@ Fixes, each only when it holds:
 
 `SeparateSolid` (section 3.5) uses the same attach rule. Newcomer error corpus NC02 to NC04 and NC12 pin these messages and fixes.
 
+### 3.16 Curve chains (M2)
+
+A feature that takes curves which bound no region, as a path or as an open profile, stores a `ChainProfileRef` (section 2.5) and resolves it with `ctx.chains(field, chains)` ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). The sweep's path (M2 item 18, wave 2), the profile of a rib or web (item 28, wave 3) and the profile of a thin-wall extrude (item 29, wave 3) are such fields. Each of those specs says whether its field takes open chains, closed chains or several, and what the feature builds, names and words from them. It names faces after `ProfileEdge::entity`, never after an edge's position in a chain.
+
+`ctx.chains(field, chains)` reads the sketch with `ctx.sketch("<field>.sketch", &chains.sketch)` and matches each `ChainRef` at position `i` of `chains.chains` with `partsmith_sketch::match_chain(&sketch.solved.entities, chain_ref)` (sketch.md section 3.18.3):
+
+| Match | Effect |
+| --- | --- |
+| `Resolved` | used, no warning; its successions (empty until M2 item 25) are added to `ResolvedChains::successions` |
+| `Missing` | skipped; warning `ChainMissing` with `field` `ctx.field("<field>.chains[<i>]")` (as `RegionMissing` takes `<field>.regions[<i>]`), `position` `i`, its `ChainRef` and its `ChainLoss`, and the fixes below |
+
+Two entries with equal keys use the chain once, at the first entry's position. If no chain resolves, the result is `ChainNotFound` with `field` `ctx.field(field)`, as `ProfileNotFound` has, and a `ChainLost` for every entry in list order. Nothing is dropped. The warnings of the entries are then not returned: the error keeps their losses. An empty `chains` list is rejected at validation: a feature's `validate` gives `EmptySelection` with `Noun::Curve`, as extrude's does for an empty `regions` list. Nothing about a chain is written back into the document: a stored chain changes only through a pick or a fix the user applies.
+
+The fixes of a lost chain, in this order: `ConnectEnds { sketch, first, second }` when its `ChainLoss::fixes()` gives one (two ends of different entities at most `CONNECT_DISTANCE` apart); `Show { feature: sketch, entity }` with the entity of `ChainLoss::entity()`, or none; then `Pick { pointer }` of the entry, `<field pointer>/chains/<i>`.
+
 ## 4. Errors and warnings
 
 Messages below are templates, rendered with a `RenderContext` (section 2.8). `{label}` is the field's manifest label; `{body}` and `{feature}` render the current body name or feature label; `{this}` and `{This}` name the feature by its type; `{Element}` is the capitalized description of the stored element followed by ` selected for {label}`, and `{element}` the description alone (section 3.12); values render with `format_value` and the strict-bound rule of section 3.12. `{reason}` is the explanation recompute's diagnosis gives for the loss (`Explanation::text`, recompute.md section 3.10); without one it is `can no longer be found, and Partsmith could not tell why`. `{after}` is ` after '{feature}' changed` when the diagnosis names that feature (`Explanation::after`), else empty. A message whose text names a loss explained as upstream (`Explanation::upstream`: the reason `UpstreamFailed`) ends with the sentence ` Fix '{root}' first.`, with `{root}` the feature of that explanation's `Show` fix, as `upstream_failed` does: the reference may still be right, so the way out is to fix the root (corpus R47: `... is missing because 'Extrude 3' cannot be built while 'Sketch 3' has an error. Fix 'Sketch 3' first.`). `{entity}` is a sketch entity by kind and coordinates (section 3.12, sketch.md section 4). Fixes are listed in the order offered (section 4.4); "host" fixes are added by hosts, not by `fixes`. Every rendered row passes the message lint of section 3.12. Each feature spec lists the instances it raises.
@@ -1712,6 +1849,7 @@ Messages below are templates, rendered with a `RenderContext` (section 2.8). `{l
 | `references_not_found` | `ReferencesNotFound { field: FieldRef, kind: ElementKind, losses: Vec<Loss> }` | one loss: `{Element} {reason}.`, or for an ambiguous loss `{Element} now matches {n} {kind}s{after}. Pick the one you mean.` several: `None of the {count} {kind}s selected for {label} are left: {element} {reason}, and {count - 1} more.` with the first loss's element and reason (for an ambiguous first loss, `now matches {n} {kind}s{after}` as its reason) | per loss, in order: `UseReferences` per candidate with `meaning`, its reason's fixes, `UseReferences` per other candidate, `Pick` (section 4.4) |
 | `reference_not_found` | `ReferenceNotFound { field: FieldRef, loss: Loss }` | `{Element} {reason}.` ambiguous: `{Element} now matches {n} {kind}s{after}. Pick the one you mean.` | `UseReferences` per candidate with `meaning`, the reason's fixes, `UseReferences` per other candidate, `Pick` (section 4.4) |
 | `profile_not_found` | `ProfileNotFound { field: FieldRef, sketch: Id, regions: Vec<RegionLost> }` | one region: `The region of '{sketch}' selected for {label} is gone because {region reason}.`, or when several sets of regions fit it: `The region of '{sketch}' selected for {label} now matches {n} separate areas. Pick the one you mean.` several: `None of the {n} regions of '{sketch}' selected for {label} are left, because {region reasons}.` `{region reason}` is `part of its outline was deleted` (`Deleted`), `its outline was drawn again` (`Redrawn`) or `its outline is no longer closed` (`Open`); `{region reasons}` is `parts of their outline were deleted`, `their outline was drawn again` or `their outline is no longer closed` when every region has that loss, else `their outlines were edited`. The cause line names the deleted curve with its coordinates (engine.md section 3.21) | `UseRegions` for each candidate set, `Show` of the sketch, `Pick` |
+| `chain_not_found` | `ChainNotFound { field: FieldRef, sketch: Id, chains: Vec<ChainLost> }` (M2, section 3.16) | one chain: `The curves of '{sketch}' selected for {label} cannot be used because {chain reason}.` several: `None of the {n} chains of curves of '{sketch}' selected for {label} can be used. The curves of the first cannot be used because {chain reason}.` `{chain reason}` is `ChainLoss::render` of the first chain's loss (sketch.md section 4.5), rendered with the sketch's `MessageContext` (below) | the fixes of section 3.16 for the first chain |
 | `not_planar` | `NotPlanar { field: FieldRef, element: Reference }` | `{Element} is not flat. Pick a flat face, a datum plane or an origin plane.` | `Pick` |
 | `not_coplanar` | `NotCoplanar { field: FieldRef, body: Id, reference: Reference, faces: Vec<Reference> }` (`reference` is the stored reference, for the repair's loss) | `The face selected for {label} now matches {n} faces that do not lie in one plane. Pick the one you mean.` | `UseReferences` for each face, `Pick` |
 | `not_straight` | `NotStraight { field: FieldRef, element: Reference }` | `{Element} is not straight. Pick a straight edge, a sketch line or an origin axis.` | `Pick` |
@@ -1739,7 +1877,7 @@ Messages below are templates, rendered with a `RenderContext` (section 2.8). `{l
 
 The fixes and repair of `not_coplanar` and `not_collinear` point at the stored reference inside the plane or axis param (`/base/face`, `/direction/axis/edge`), which `UseReferences` replaces and `Pick` re-picks; feature specs name the param as their field ("field `base`"), as they name a list for its entries.
 
-Recompute raises `AssetMissing`, `UnknownFeature`, `ForwardReference`, `UpstreamFailed`, `UpstreamSuppressed` and `UnknownBody` before building (recompute.md section 3.3), with the field of the link that failed. A `NamingError::NameTooLong` from naming a feature's output (naming.md section 3.3 step 7) becomes `NameTooDeep`; any other `NamingError` is `Internal`. `Noun` renders `body`, `sketch`, `datum plane`, `region`, `point`, `line`, `face`, `edge`. `ElementKind` renders `face`, `edge`, `vertex`.
+Recompute raises `AssetMissing`, `UnknownFeature`, `ForwardReference`, `UpstreamFailed`, `UpstreamSuppressed` and `UnknownBody` before building (recompute.md section 3.3), with the field of the link that failed. A `NamingError::NameTooLong` from naming a feature's output (naming.md section 3.3 step 7) becomes `NameTooDeep`; any other `NamingError` is `Internal`. `Noun` renders `body`, `sketch`, `datum plane`, `region`, `point`, `line`, `face`, `edge`, `curve`. `ElementKind` renders `face`, `edge`, `vertex`.
 
 `OutOfRange` messages, where `{b}` is the formatted bound, and `{name}` is the bound name followed by the bound in parentheses when `bound_name` is set (`the hole diameter (6 mm)`), else just `{b}`:
 
@@ -1768,6 +1906,7 @@ A value and a bound near each other are written with the digits that tell them a
 | `region_remapped` | warning | `RegionRemapped { field: FieldRef, position: usize, sketch: Id, region: RegionRef }` | `The outline of the region of '{sketch}' selected for {label} was drawn again, so the region with the same size and place is used. Check it, then keep it or pick it again.` | `KeepRegions`, `Pick` |
 | `region_ambiguous` | warning | `RegionAmbiguous { field: FieldRef, position: usize, sketch: Id, region: RegionRef, candidates: Vec<Vec<usize>> }` | `The region of '{sketch}' selected for {label} now matches {n} separate areas, so it was skipped. Pick the one you mean.` | `UseRegions` per candidate set, `Pick` |
 | `region_missing` | warning | `RegionMissing { field: FieldRef, position: usize, sketch: Id, region: RegionRef, loss: RegionLoss }` | `The region of '{sketch}' selected for {label} is gone because {region reason}, so it was skipped.` | `Show` of the sketch, `Pick` |
+| `chain_missing` | warning | `ChainMissing { field: FieldRef, position: usize, sketch: Id, chain: ChainRef, loss: ChainLoss }` (M2, section 3.16) | `The curves of '{sketch}' selected for {label} cannot be used because {chain reason}. They were skipped.` | the fixes of section 3.16 |
 | `plane_fallback` | warning | `PlaneFallback { field: FieldRef, body: Id, reference: Reference, loss: Option<Loss>, cause: FallbackCause, placed: Placed }` | [features/sketch.md](features/sketch.md) section 3.5 | `Attach` per candidate face, the reason's fixes, `Pick` |
 | `sketch_turned_over` | warning | `SketchTurnedOver { field: FieldRef, body: Id, reference: Reference }` | `The face this sketch is on, {element}, now faces the other way, so the drawing is mirrored on it.` | `TurnDrawingBack`, `Pick` |
 | `no_effect` | warning | `NoEffect { body: Id, how: NoEffectHow, reverse_hits: bool, attach: Option<(Id, Reference)> }` | section 3.15 | section 3.15 |
@@ -1791,9 +1930,9 @@ In `reference_followed` and `reference_widened`, `{new}` describes the elements 
 | `SmoothEdge` | `One of the edges selected for {label} is smooth (its faces meet without a corner), so it was skipped.` |
 | `TipAngleThroughAll` | `{label} is ignored because the hole goes through all.` |
 
-Lists render comma separated (keys in single quotes: `'taper_angle', 'thin'`). `UnknownParams` is added by recompute from `Validated::unknown_keys` and `Validated::suggestions`, not by features. Sketch errors, issues and warnings render with a sketch.md `MessageContext` made of the sketch's label, its params (`Names::feature_record`), the solved entities and measured values of its result in the run when there is one (`Names::sketch_result`), the dimension values the variant carries, and the document units; their fixes are the sketch crate's `SketchFix` turned into `Fix` with the sketch's id.
+Lists render comma separated (keys in single quotes: `'taper_angle', 'thin'`). `UnknownParams` is added by recompute from `Validated::unknown_keys` and `Validated::suggestions`, not by features. Sketch errors, issues and warnings, and the chain reasons of `chain_not_found` and `chain_missing`, render with a sketch.md `MessageContext` made of the sketch's label, its params (`Names::feature_record`), the solved entities and measured values of its result in the run when there is one (`Names::sketch_result`), the dimension values the variant carries, and the document units; their fixes are the sketch crate's `SketchFix` turned into `Fix` with the sketch's id.
 
-`repairs()` and `repair()` give `Element` for `ReferenceLost`, `ReferenceGuessed` (a loss whose candidates are the alternatives, `ambiguous` true and `lost` empty), `ReferenceWidened` (a loss whose candidates are the elements it now covers, `ambiguous` true and `lost` empty), `PlaneFallback` when it has a loss, `ReferenceNotFound`, `ReferencesNotFound` (one per loss), `NotCoplanar` and `NotCollinear` (an ambiguous loss whose candidates are the faces or elements), and `Region` for `RegionRemapped`, `RegionResized`, `RegionSplit` (each with `ambiguous` true, since the regions are still used), `RegionAmbiguous` (`ambiguous` true), `RegionMissing` and `ProfileNotFound` (one per region, `ambiguous` true for a region that several sets fit), each with the JSON Pointer of the list entry (`/edges/1`, `/profile/regions/0`, `/plane/face`). So a repair is `missing` for hosts (engine.md section 3.4) only when nothing is used in the reference's place: a guessed or widened reference and a split, resized or matched-again region still exist and only need a check.
+`repairs()` and `repair()` give `Element` for `ReferenceLost`, `ReferenceGuessed` (a loss whose candidates are the alternatives, `ambiguous` true and `lost` empty), `ReferenceWidened` (a loss whose candidates are the elements it now covers, `ambiguous` true and `lost` empty), `PlaneFallback` when it has a loss, `ReferenceNotFound`, `ReferencesNotFound` (one per loss), `NotCoplanar` and `NotCollinear` (an ambiguous loss whose candidates are the faces or elements), and `Region` for `RegionRemapped`, `RegionResized`, `RegionSplit` (each with `ambiguous` true, since the regions are still used), `RegionAmbiguous` (`ambiguous` true), `RegionMissing` and `ProfileNotFound` (one per region, `ambiguous` true for a region that several sets fit), each with the JSON Pointer of the list entry (`/edges/1`, `/profile/regions/0`, `/plane/face`). So a repair is `missing` for hosts (engine.md section 3.4) only when nothing is used in the reference's place: a guessed or widened reference and a split, resized or matched-again region still exist and only need a check. `ChainMissing` and `ChainNotFound` give no repair until `Repair::Chain` lands with the sweep's spec (section 2.8).
 
 ### 4.3 The "too large" search
 
@@ -1917,7 +2056,7 @@ with `units` changed only where a test says so. A test document written before f
 12. An extrude record with `"op": "merge"` returns `InvalidParams` whose detail is `'merge' is not a valid choice for 'op'` and whose field is `op` (label `Operation`), rendered `Operation of this extrude cannot be read, so it was not built. Set Operation again.` with no fix.
 13. A fillet record with `"edges": []` returns `EmptySelection` with field path `edges`; rendered: `Select at least one edge for Edges.`
 14. An extrude record with `"extent": {"kind": "distance", "expr": "30 mmm"}` canonicalizes successfully; the error appears only when it is built.
-15. `params_schemas()` returns 20 entries sorted by `kind`; each schema is an object schema without `additionalProperties: false`, with `title` equal to the manifest label. `partsmith_model::ptsm_schema(&registry.params_schemas())` succeeds, and its `/$defs/feature.extrude/properties` contains `body`, `profile`, `extent` and `op`. The property `translation` of `move_body` and the property `position` of `box`, `cylinder`, `sphere`, `cone` and `torus` are arrays of exactly 3 items with `"default": ["0", "0", "0"]`, not in `required`, also in the composed schema (`/$defs/feature.move_body/properties/translation/default`), and `validate_and_canonicalize` of a record of each type with that property at `["0", "0", "0"]` omits it.
+15. `params_schemas()` returns 20 entries sorted by `kind`; each schema is an object schema without `additionalProperties: false`, with `title` equal to the manifest label. `partsmith_model::ptsm_schema(&registry.params_schemas(), &P)` succeeds, where `P` is the stand-in printer profile schema `{"type": "object"}` of file-format.md section 6, and its `/$defs/feature.extrude/properties` contains `body`, `profile`, `extent` and `op`. The property `translation` of `move_body` and the property `position` of `box`, `cylinder`, `sphere`, `cone` and `torus` are arrays of exactly 3 items with `"default": ["0", "0", "0"]`, not in `required`, also in the composed schema (`/$defs/feature.move_body/properties/translation/default`), and `validate_and_canonicalize` of a record of each type with that property at `["0", "0", "0"]` omits it.
 16. `dependencies` of the extrude record of [features/extrude.md](features/extrude.md) test 1 is `features [("f-sk1", "profile.sketch")]`, `bodies_read []`, `bodies_written [("b-1", "body")]`, `expressions [("extent.expr", "30 mm", Length)]`, `declared_ids []`, `assets []`. `FeatureInspector::inspect` of the same record returns `FeatureLinks { declared_ids: [], bodies: ["b-1"], features: ["f-sk1"], expressions: [ExprLink { pointer: "/extent/expr", expr: "30 mm", unit: Length }] }`. For the sketch record of [features/sketch.md](features/sketch.md) test 1, `declared_ids` is `["e-1", "e-2", "e-3", "e-4"]`.
 17. `python_generic(record).render(0)` of the extrude record of [features/extrude.md](features/extrude.md) test 1 with `"name": "Base"` is exactly:
 
@@ -2055,12 +2194,68 @@ These render errors and warnings with a `RenderContext` built from the documents
 18. Import warnings (section 4.2). These four samples, rendered on the import `f-imp1` ('Import 1'), are the `ImportWarning` samples of `tests/common/samples.rs` that test 14 lints: `ImportWarning { content: InvalidSolids, count: 2, detail: "read_step: Solid 1 is not valid after repair; booleans with it may fail. Solid 2 is not valid after repair; booleans with it may fail." }` renders `This import kept 2 solids of the STEP file that are not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.`; `{ InvalidSolids, 1, "read_step: Solid 1 is not valid after repair; booleans with it may fail." }` renders `This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.`; `{ SkippedShapes, 3, "read_step: Skipped 3 shapes that are not closed solids." }` renders `This import left out 3 shapes of the STEP file that are not closed solids.`; and `{ SkippedShapes, 1, "read_step: Skipped 1 shape that is not a closed solid." }` renders `This import left out 1 shape of the STEP file that is not a closed solid.` Each has code `import_warning`, severity `Warning`, no field, no suggestion, no fixes and no repair, its `detail()` is the detail it carries, its `Display` equals its rendered text, and no rendered text contains `read_step`, `Skipped`, `Solid 1` or `after repair`.
 19. Bodies that are not valid (sections 2.7, 3.5 and 4.1). On a mirror `f-mir1` whose body b-1 is named `Block`, with the import `f-imp1` ('Import 1', whose record has type `import`), `BodyNotValid { field: body (Body), body: b-1, made_by: f-imp1, cause: None }` renders `Body 'Block' holds a solid from 'Import 1' that is not valid, so this mirror cannot copy it. Repair the STEP file, or export it again from the program that made it.` [Show 'Import 1'], with pointer `/body`, no suggestion, no repair, no `detail()` and no `source`; on a linear pattern and on a circular pattern the same with `this linear pattern` and `this circular pattern`. With `made_by: f-bool1` ('Boolean 1', whose record has type `boolean`) it renders `Body 'Block' holds a solid that is not valid, so this mirror cannot copy it. Repair the STEP file it came from, or export it again from the program that made it.` [Show 'Boolean 1'], and so does a `made_by` whose record the names do not hold. `Display` gives `Body 'b-1' holds a solid that is not valid, so this feature cannot copy it. Repair the STEP file it came from, or export it again from the program that made it.` for either `made_by`. With `cause: Some(KernelError { operation: Transform, kind: InvalidInputShape, exception: "Partsmith_InvalidInputShape", message: "BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran" })` its text and fixes are the same, its `detail()` is `transform invalid_input_shape: Partsmith_InvalidInputShape: BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran`, and `std::error::Error::source` returns that error. It has code `body_not_valid` and severity `Error`, every rendered text passes the message lint, and none contains `Partsmith_`, `ShapeFix`, `BRep` or `input 1`. This test is the home of `has_volume`'s cases, which engine.md test 164 listed before the function moved here: without volume (`false`) for (0, 2200) and (-0, 2200) (features/import.md's `SELF_VOID`), for `SELF_VOID` of `box.ptsm` (0, 5200) and (-0, 5200), and for the rounding left of a shell and its void, `SELF_VOID_FILLET`'s (1.8189894035458565e-12, 5163.946891450772), the 213.7 x 177.1 x 93.3 mm box's (1.1641532182693481e-10, 148615.82), the cylinder of radius 137.3 mm and height 191.7 mm's (2.3283064365386963e-10, 283822.16174033505) and the box's with the opposite sign (-1.1641532182693481e-10, 148615.82); with volume (`true`) for (1008, 3536) (`VOID_TWICE`), (6000, 2200) (`BYTES`), `box.ptsm` (24000, 5200), the same solid turned inside out (-24000, 5200), a 0.01 mm cube (1e-6, 6e-4) and a 100 x 100 x 0.001 mm sheet (10, 20000.4). The limit grows with the area: with area 10000 (1e-3 mm³ at the limit), a volume of 5e-4 has none and one of 2e-3 has volume.
 
+### 6.6 Curve chains and the region union (M2)
+
+Sections 3.7 and 3.16 and [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md). These build a `BuildContext` as section 6.3 does, for a test feature `f-test1` whose manifest labels its field `path` Path, with the sketch `f-sk2` ('Sketch 2', on the XY plane) declared and built from the sketch of sketch.md section 6.23 that the test names (`PATH`, `ELBOW`), and its keys and references as written there. Messages render with a `RenderContext` whose names know `f-sk2`, its record and its result, in mm.
+
+32. One chain (3.16). `ctx.chains("path", {sketch: f-sk2, chains: [{key: e-1,e-2,e-3, fp: s=0,0|e=50,40|l=85.707963}]})` on `PATH` gives one `ResolvedChain` at position 0 whose chain equals `build_chain(PATH, e-1,e-2,e-3)`, with no warnings and no successions.
+33. A lost chain among several is skipped (3.16). On `PATH`, the chains `[e-1,e-2,e-3, e-1,e-9]` (the second with `fp: s=0,0|e=40,0|l=40`) give one chain at position 0 and one warning: `ChainMissing` at position 1, whose `field.pointer()` is `/path/chains/1`, with the loss `Deleted { entities: [e-9], all: false }`, rendered `The curves of 'Sketch 2' selected for Path cannot be used because one of them is no longer in the sketch. They were skipped.`, with the fixes `[Show { feature: f-sk2, entity: None }, Pick { pointer: "/path/chains/1" }]`.
+34. One chain, none left (3.16 and 4.1). On `ELBOW` with `e-2` ending at (40, 0.3), the chains `[{key: e-1,~e-2, fp: s=0,0|e=40,30|l=70}]` give `ChainNotFound { field: path, sketch: f-sk2, chains: [ChainLost { position: 0, .. }] }`, whose `field.pointer()` is `/path`, with the loss `Disconnected { end: e-1.end, start: e-2.end, gap: 0.3 }`, rendered `The curves of 'Sketch 2' selected for Path cannot be used because the end of the line from (0, 0) to (40, 0) and the end of the line from (40, 30) to (40, 0.3) are 0.3 mm apart.`, with the fixes `[ConnectEnds { sketch: f-sk2, first: e-1.end, second: e-2.end }, Show { feature: f-sk2, entity: Some(e-2) }, Pick { pointer: "/path/chains/0" }]`.
+35. Several chains, none left (3.16 and 4.1). On `PATH`, the chains `[e-8,e-9, e-1,e-9]` give `ChainNotFound` with two `ChainLost` at positions 0 and 1, rendered `None of the 2 chains of curves of 'Sketch 2' selected for Path can be used. The curves of the first cannot be used because none of them is in the sketch anymore.`, with the fixes `[Show { feature: f-sk2, entity: None }, Pick { pointer: "/path/chains/0" }]`, and no warning besides the error.
+36. Equal keys (3.16). On `PATH`, the chains `[e-1,e-2,e-3, e-1,e-2,e-3]` give one chain, at position 0, and no warning.
+37. Details (section 2.8). The error of test 34 has `detail()` `path.chains[0] key=e-1,~e-2 disconnected end=e-1.end start=e-2.end gap=0.3`, and the warning of test 33 `path.chains[1] key=e-1,e-9 deleted entities=e-9 all=false`.
+38. Codes, severities and repairs (sections 2.8 and 4). `ChainMissing` has the code `chain_missing` and severity `Warning`, `ChainNotFound` the code `chain_not_found` and severity `Error`, and neither gives a repair.
+39. An empty list (4.1). `EmptySelection { field: path, noun: Curve }` renders `Select at least one curve for Path.`
+40. The union's errors keep their details (3.7). A `ResolvedProfile` whose sketch result's profile holds only the hand-built region of sketch.md test 300, with `regions` `[0]`, gives from `faces()` an `Internal` error whose detail is `the selected profile regions do not form a planar arrangement`. One with `regions` `[5]` on a profile of two regions gives `Internal` with the detail `the profile has no region 5`.
+41. Params JSON (section 2.5). `{"sketch": "f-sk2", "chains": [{"key": "e-1,~e-2", "fp": "s=0,0|e=40,30|l=70"}]}` deserializes as a `ChainProfileRef` and serializes back with the same members in the same order. With `"outline": "e-1"` in the chain it fails to deserialize.
+42. Message lint (sections 3.12 and 4). `tests/common/samples.rs` holds a `ChainMissing` and a `ChainNotFound` for each kind of `ChainLoss` of sketch.md section 4.5, and test 14 of section 6.5 lints every one of them as rendered here.
+
+### 6.7 Cancel tokens (M2)
+
+Section 2.6 and [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md). They live in `crates/partsmith-features/tests/`, beside the build context tests of section 6.3. `word` is an `Arc<AtomicU64>`. `wait_for_interrupt` is kernel.md's kernel call for tests that polls OCCT's progress range.
+
+43. A token made from a host's word: `CancelToken::from_interrupt(Interrupt::word(word, 5))` has `is_canceled()` false while `word` holds 4 and true once `word` holds 5.
+44. `cancel` reaches the interrupt: after `cancel()` on a clone of `CancelToken::new()`, `token.interrupt().is_requested()` is true on the original.
+45. A build whose kernel call stops: a test feature whose build calls `wait_for_interrupt(ctx.interrupt(), 10 s)` and returns its error with `?`, built with a token that another thread cancels 50 ms after the build starts, returns `Err(FeatureError::Canceled)` within 1 s of the cancel.
+
+### 6.8 Manifest hints (M2)
+
+Sections 2.3 and 3.3 and [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md). They live in `crates/partsmith-features/tests/registry_registration.rs`. "Its feature spec's tables" are the Manifest section of `docs/spec/features/<type>.md`: the description line, the table of fields and the table of help, start values and new bodies.
+
+46. The built-in descriptions: for every type of `Registry::with_builtins()`, `manifest().description` is exactly the description its feature spec lists.
+47. The style of the descriptions (section 2.3): every built-in description has 1 to 120 characters, ends with `.` and contains none of the words `omitted`, `default`, `params`, `None` or `serde`, matched as whole words with their case (`/\b(omitted|default|params|None|serde)\b/`).
+48. The built-in help: for every built-in type and every hint of its manifest, `help` is exactly the help its feature spec's tables list for that path, and `None` for a path they list none for.
+49. The style of the help (section 2.3): every built-in help text ends with `.`, holds at most two sentences (at most one `. ` before its end) and contains none of the words of test 47.
+50. The built-in start values: for every built-in type and every hint, `start` is the start value its feature spec's tables list, and `None` for every other hint. Among them: fillet `radius` is `Expr { expr: "1 mm" }`, revolve `extent.kind` is `Choice { value: "full" }` and hole `hole_type.diameter` is `Multiple { field: "diameter", factor: 2.0 }`.
+51. The built-in new-body fields: `creates_body` is `WhileNew` on the `target` hint of `mirror`, `linear_pattern` and `circular_pattern`, `AtStart` on the `target` hint of `split_body`, and `None` on every other hint of every built-in type.
+52. Reverse is essential: the `reverse` hint of `extrude`, `revolve` and `hole` has `essential` true. The `reverse` hint of `circular_pattern` and the `direction.reverse` and `second_direction.reverse` hints of `linear_pattern` keep `essential` false.
+
+Tests 53 to 61 register a test feature `start_demo` on `Registry::new()`. Its params struct has, in this order, `distance: Expr`, `depth: Expr`, `angle: Expr`, `count: Expr`, `label: String`, `mode: Mode` (a snake_case string enumeration of `fast` and `fine`), `target: Option<Id>`, `other: Option<Id>`, `tools: Vec<Id>` and `op: BodyOp`. All are required but `target` and `other`. Its manifest has one hint per field in the same order, each with the field's name as its path: `distance` and `depth` with unit `length`, `angle` with unit `angle`, `count` with unit `count`, `label` with nothing more, `mode` with the options `fast` Fast and `fine` Fine, `target`, `other` and `tools` with selection `body`, and `op` with the options `new` New body, `join` Join, `cut` Cut and `intersect` Intersect. As written, it registers. Each test changes the hints as it says. "Gives `{problem}` at `{path}`" means `register` returns `ManifestMismatch { type_name: "start_demo", path, problem }`.
+
+53. A start expression or multiple on a hint without a unit: with `start: Expr { expr: "2 mm" }` on `label`, it gives `its start value is an expression, but it has no unit` at `label`, and the error's `Display` is `The manifest of 'start_demo' has a problem with field 'label': its start value is an expression, but it has no unit. Fix the manifest or the params struct.` With `start: Multiple { field: "distance", factor: 2.0 }` on `label`, it gives `its start value follows another field, but it has no unit` at `label`.
+54. A start expression that is not a fixed value: on `distance`, each of `Expr { expr: "2 mmm" }`, `Expr { expr: "wall" }`, `Expr { expr: "printer.nozzle" }` and `Expr { expr: "3 deg" }` gives `its start value '{expr}' is not a fixed length` at `distance`, with its text in place of `{expr}`. On `count`, `Expr { expr: "2.5" }` gives `its start value '2.5' is not a fixed whole number` at `count`, and `Expr { expr: "-1" }` gives the same with `-1`.
+55. A start expression that depends on the document units: `Expr { expr: "2" }` on `distance` gives `its start value '2' depends on the document units` at `distance`. With `Expr { expr: "2" }` on `count`, `Expr { expr: "90" }` on `angle` and `Expr { expr: "2.5 mm" }` on `depth`, it registers.
+56. A start choice: `Choice { value: "slow" }` on `mode` gives `its start value 'slow' is not one of its options` at `mode`, and `Choice { value: "fine" }` on `distance` gives `its start value 'fine' is not one of its options` at `distance`. With `Choice { value: "fine" }` on `mode`, it registers.
+57. A multiple of a field that does not fit: on `depth`, `Multiple { field: "angle", factor: 2.0 }`, `Multiple { field: "depth", factor: 2.0 }` and `Multiple { field: "width", factor: 2.0 }` give `its start value follows '{field}', which is not another field with the same unit` at `depth`, with `angle`, `depth` and `width` in place of `{field}`. With `Multiple { field: "distance", factor: 2.0 }` on `depth`, it registers.
+58. A multiple of a multiple: with `Multiple { field: "depth", factor: 2.0 }` on `distance` and `Multiple { field: "distance", factor: 2.0 }` on `depth`, it gives `its start value follows 'depth', whose own start value follows another field` at `distance`, the first of the two hints.
+59. A factor that is not above 0: on `depth`, `Multiple { field: "distance", factor: 0.0 }` gives `its start value's factor 0 is not a finite number above 0` at `depth`, and `factor: f64::NAN` gives the same with `NaN`.
+60. A new body in a field that is not one body: `creates_body: AtStart` on `label` gives `it receives a new body, but its selection is not a body` at `label`. On `tools` it gives `it receives a new body, but the field holds a list` at `tools`. With the hint `tools` replaced by a hint `tools[*]` of selection `body` with `creates_body: AtStart`, it gives the same problem at `tools[*]`.
+61. Two fields that receive the new body: with `creates_body: AtStart` on `target` and on `other`, it gives `another field already receives the new body` at `other`. With `creates_body: WhileNew` on `target` alone, it registers.
+62. A new body with Operation New body, but no such Operation: a test feature `copy_demo` whose params are `body: Id`, `target: Option<Id>` and `mode: Mode`, with hints `body` and `target` of selection `body` and `mode` with the options of tests 53 to 61, and `creates_body: WhileNew` on `target`, gives `it receives a new body while op is new, but no op field has the option new` at `target`. With `AtStart` in its place, it registers.
+63. The built-ins pass the new checks: `register_builtins` on `Registry::new()` returns `Ok(())`, and `Registry::with_builtins().types()` still lists the 20 types of section 6.2 test 1.
+
+### 6.9 Naming bridge (M2)
+
+Sections 2.11 and 3.9, naming.md section 3.12 and [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md). It lives in `crates/partsmith-features/tests/`, beside the build context tests of section 6.3. Naming.md tests 192 to 195 check the names that features carry through booleans, dress-up features, splits, copies and moves.
+
+64. `direct_sources` of a fuse. `A` is the kernel box `make_box(&Plane::XY, 10.0, 20.0, 30.0)`. `B` is the kernel box of size 10, 10, 10 on `Plane::XY` with its origin moved to (50, 0, 0), apart from `A`. `MA` is the naming map of `A` by the box rule for `f-box1`, read from cache JSON (naming.md section 2.6) in which the edge `edge(f-box1/front|f-box1/top)` holds `edge:f-t/front-top`. `MB` is the naming map of `B` by the box rule for `f-box2`, with no direct-generator names. `R` is the kernel `fuse` of `A` with the tool `B` and `&Interrupt::new()`. `direct_sources(&R, &[&MA, &MB])` has 24 edge entries and 16 vertex entries. Each entry is `From` with exactly one pair: `(0, i)` for an element that the fate of element `i` of `A` lists in `modified`, `(1, j)` for one that the fate of element `j` of `B` lists. `name_by_history(f-fuse1, &R, &[&MA, &MB], &Motion::IDENTITY)` names the edge that `edge(f-box1/front|f-box1/top)` became `edge(f-box1/front|f-box1/top)`, with `NamingMap::direct` of it `[edge:f-t/front-top]`. No other element of that map holds a direct-generator name. `direct_sources(&R, &[&MA])` fails with `Internal`.
+
 ## Open issues
 
 1. **Contract additions (ADR 0011, signed off by the owner on 2026-11-04).** The architecture's original trait has `TYPE`, `Params`, `manifest`, `dependencies` and `build`. This spec adds the provided methods `validate` (static rules beyond serde) and `python` (dedicated Python forms) with the seven `PythonNames` lookups (section 2.10; `regions` and `default_op` go beyond the five first proposed, because omitting `regions=` and `op` needs timeline knowledge only the script generator has), `Dependencies::declared_ids` (so the registry can implement model.md's `FeatureInspector`) and `assets` (for the `import` feature), and `BodyChange::Modify` (fillet, shell, move) and `Clear` (consumed boolean tools) besides new, join, cut and intersect. architecture.md lists them and ADR 0011 records them.
 2. **Expression conversion.** Count fields evaluate with expected dimension `NONE` and then require a whole number; this spec adds the 1e-9 integer tolerance, the `u32` range and the per-feature minimum (section 3.4), which expressions.md does not define.
 3. **Examples layout.** Resolved by [delivery.md](delivery.md) section 2.8: every `.ptsm` under `examples/` is an example, with `<stem>.expected.json` and `<stem>.py` next to it.
-4. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior.
+4. **Region union.** The union of selected regions (section 3.7) is computed by `partsmith-features` from sketch.md's `ProfileLoop`s because sketch.md lists a region-union helper as later. Moving it into the sketch crate later would not change behavior. **Resolved in M2's wave 1 ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)).** The union and its merging move from `crates/partsmith-features/src/profile.rs` into `partsmith-sketch` as `union_regions` (sketch.md sections 2.11 and 3.19), with the rules section 3.7 stated before the move. `ProfileFaces` and `ResolvedProfile::faces` stay here and turn its parts into kernel faces. Behavior does not change: the unit tests of the union become sketch.md tests 289 to 298, test 40 of section 6.6 pins the `Internal` error, and features/extrude.md tests 18 and 40 to 44, features/revolve.md test 25 and their examples pass unchanged.
 5. **Hole budget over on a 200-face body (decided by the owner on 2026-11-05: revised to what is measured; resolved).** features/hole.md test 33, a hole feature with ten holes in a 200 x 200 x 10 plate with 194 holes (section 5, 80 ms), builds in 273 ms, against 463 ms before October 13 (release builds on the 4-core reference container at load 1 to 5, medians of five alternating runs of the release test before and after). Before, about half of the kernel `cut` was the kernel's own validity check rather than OCCT's boolean (a profile put the cut at 87.5% of the build: 48.9% the check, 41.0% the boolean), and most of the check was the orientation of the wires of the plate's two faces with 204 holes each, with OCCT projecting the curves of their edges on the plane again for every wire (21.4% of the build). The kernel now stores those curves on the result before checking it (kernel.md section 3.5 item 5), and the hole decides its tools before naming the cut (features/hole.md open issue 6). The boolean alone stays near 200 ms on this plate, so the budget needs a decision: a faster boolean on large bodies, or a budget set against this measurement; release test 33 fails until then. Every other budget of this section held on October 12 (medians of three): primitives 0.08 to 0.39 ms (2 ms), extrude of test 1 1.1 ms (3 ms) and its through-all cut 5.6 ms (30 ms), revolve 1.0 ms (5 ms), move body 0.06 ms (5 ms), boolean join 8.0 ms (15 ms), mirror 3.4 ms (15 ms), circular pattern of six 3.3 ms (40 ms), linear pattern of 100 115 ms (500 ms), split body 5.2 ms (15 ms), fillet of 12 edges 14 ms (100 ms), chamfer of the top loop 4.1 ms (60 ms), shell 6.2 ms (50 ms), hole with two points 8.3 ms (25 ms), failing fillet, chamfer and shell with their searches 72, 53 and 65 ms (1.2 s), datum plane 0.001 ms (1 ms), sketch 0.03 ms (2 ms), `BodyState::elements` of a 200-face body 4 ms (10 ms), and the framework budgets of `crates/partsmith-features/tests/budgets.rs`. Decided by the owner on 2026-11-05: ten holes in the 194-hole plate get a budget of about 300 ms, what is measured. Release test 33 passes again. On 2026-11-05 three runs of the release test read medians of 258.2, 260.0 and 264.1 ms. 300 ms is under that median plus the 20 percent of [ADR 0057](../adr/0057-budgets-set-from-the-measured-median-plus-20-percent.md), 312 ms. Section 5's row is the rule's number, 320 ms. Test 33 passes. A faster boolean on large bodies is later work.
 6. **Carried measurements and the boolean result API (ADR 0018, signed off by the owner on 2026-11-04).** Section 2.7 adds `Measurements` and the field `BodyUpdate::measured`, section 2.6 adds `BodyState::from_update`, `topology` and `measurements`, and section 2.7 adds `apply_op_result`, for open issue 5 and recompute.md open issue 4 (ADR 0018). Naming a result reads its topology and fingerprints from the kernel, and the body rules read its volume; the next feature on the body read both again (its references need the element infos, its body rules the volume), and so did hosts that list elements. The updates now carry them to the body's next state. `apply_op_result` lets hole read the cut's history before applying the body rules, instead of computing each tool's shared volume with a separate `common` (features/hole.md section 3.3 step 5). Adding a public field to `BodyUpdate` changes how plugins construct it (they add `measured: Measurements::default()`), which ADR 0018 records. The owner signed it off as built on 2026-11-04. `BodyState::from_update` drops measurements whose topology does not have the shape's element counts, which another shape's measurements copied by mistake usually have (test 23); measurements of another shape with the same counts cannot be told apart cheaply.
 7. **Rendering and fixes take a `RenderContext` (signed off with ADR 0024 by the owner on 2026-11-04).** The reference stability study (section 3.4, F3) gives `fixes(&self, units)` and leaves recompute to merge the reason's fixes. Section 4.4's order interleaves them (candidates that keep a face of the lost element, then the reason's timeline fixes, then the other candidates), `{this}` needs the feature's type, `Move` fixes need the feature's id, element descriptions need the body states, and the "Set Radius of 'Fillet 1'" fix of section 4.3 must read that fillet's record. So `render` and `fixes` take a `RenderContext` with the feature, the names, the units, the body states and recompute's `Diagnosis` (section 2.8), and the order of fixes is defined once, here. Recompute builds the `Diagnosis` from its loss diagnosis (recompute.md section 3.10) and passes `DocumentNames` with the run's outputs; `suggestion(units)` keeps its signature.

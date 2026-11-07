@@ -56,6 +56,8 @@ JSON:
 
 Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Adds a cylinder of the given radius and height.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `radius` | Radius | yes | length | | |
@@ -63,6 +65,8 @@ Label `Cylinder`, category `create`, icon `cylinder`, version 1.
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
 | `plane`, `position[0..2]` | features.md section 3.14 | no | | | |
 | `body` | Body | no | | `body` | |
+
+No field has help, a start value or a new body (since M2, features.md section 2.3).
 
 ### Python
 
@@ -118,6 +122,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CYL`: `{"id": "f-cyl1
 10. **Intersect.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}`, `CYL` with `"height": "20", "position": ["0", "0", "-5"], "op": "intersect"` (z -5..15, through the box), as `examples/cylinder/intersect`. Expected: ok; volume 785.398163 (the part of the cylinder inside the box, as test 1), 3 faces, bbox [-5,-5,0]-[5,5,10]; change `Intersect`; `f-cyl1/side` cylindrical with radius 5 and area 314.159265; `f-box1/bottom` planar at z=0 and `f-box1/top` planar at z=10, each with area 78.539816; no face named `f-cyl1/top` or `f-cyl1/bottom`.
 11. **On a datum.** `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "5", "flip": true}` (origin (0,0,5), normal (0,0,-1)), `CYL` with `"plane": {"kind": "datum", "feature": "f-dp1"}`, as `examples/cylinder/on-datum`. Expected: ok; volume 785.398163, 3 faces, bbox [-5,-5,-5]-[5,5,5]: the cylinder stands on the datum and grows along its normal, down; `f-cyl1/bottom` planar at z=5 with outward normal (0,0,1); `f-cyl1/top` planar at z=-5 with outward normal (0,0,-1); dependencies `features == ["f-dp1"]`.
 12. **On a face of the body.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"}` (spans [-10,-10,0]-[10,10,20]), `CYL` with `"plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/right", "fp": "plane|n=1,0,0|c=10,0,10|a=400"}}, "position": ["0", "10", "0"], "op": "join"`, as `examples/cylinder/on-face`. The face placement rule (features.md section 3.6) gives the frame origin (10,0,0), x-axis (0,1,0) (world +X is perpendicular to the face), normal (1,0,0) and y-axis (0,0,1), so the position is world (10,0,10), the center of the face. Expected: ok; volume 8785.398163, 8 faces, bbox [-10,-10,0]-[20,10,20]; change `Join`; `f-cyl1/side` cylindrical with radius 5, its axis along (1,0,0) on the line y=0, z=10; `f-cyl1/top` planar at x=20 with outward normal (1,0,0) and area 78.539816; no face named `f-cyl1/bottom` (it lies on the face, which keeps its name `f-box1/right` with area 321.460184); dependencies `bodies_read == []`, `bodies_written == ["b-1"]` (the face's body is the target, features.md section 3.14).
+13. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `cylinder` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("cylinder")` has the description of the Manifest section, and none of its hints has help, a start value or a new body.
 
 ## Open issues
 

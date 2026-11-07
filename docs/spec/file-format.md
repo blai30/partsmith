@@ -18,13 +18,20 @@ In this milestone (M1):
 - JSON Schema generation for `.ptsm` from the model types plus every registered feature's params schema (`ptsm_schema`, `ptsm_schema_text`), written by the CLI to `docs/format/ptsm.schema.json`.
 - The `assets/` folder next to the document and content-hash references to imported files (section 3.11).
 
+In M2 ([ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md)):
+
+- `format_version` 3 and a second migration step, from version 2, which changes nothing but the version (section 3.9).
+- The printer profile a document stores when it names a profile that is not built in (`printer_profile`, section 3.2, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)).
+- The records each M2 spec adds to version 3 before its code, until the M2 gate freezes version 3 (section 3.9).
+- The printer profile's schema in the `.ptsm` JSON Schema (section 3.10).
+
 Explicitly later (not in M1):
 
 - `.ptsz` bundles (ZIP of recipe, assets and optional cache).
 - The `.ptsm-cache/` folder (per-feature B-rep, display meshes, thumbnail).
-- Multi-document projects: references between files by relative path and id.
+- Multi-document projects: references between files by relative path and id. [ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md) fixes their scope rules now (section 3.12), and M4's components spec adds their records with a format version of its own.
 - The git merge driver.
-- A migration that rewrites document content (the step from version 1 only changes the version number).
+- A migration that rewrites document content (the steps from versions 1 and 2 only change the version number).
 - A published `$id` URL for the schema (waits on the project domain).
 - Visual diff of two documents.
 
@@ -35,8 +42,8 @@ All items are re-exported from the crate root; the writer helpers live in the mo
 ```rust
 /// Value of the `format` field.
 pub const FORMAT: &str = "partsmith";
-/// Format version this build writes.
-pub const FORMAT_VERSION: u32 = 2;
+/// Format version this build writes (3 from M2, ADR 0061; 2 in M1).
+pub const FORMAT_VERSION: u32 = 3;
 /// Oldest format version this build can migrate from.
 pub const OLDEST_FORMAT_VERSION: u32 = 1;
 /// File extension, without the dot.
@@ -67,8 +74,11 @@ pub struct MigrationStep {
     pub migrate: fn(serde_json::Value) -> Result<serde_json::Value, String>,
 }
 
-/// The built-in chain: one step from version 1 that returns the document unchanged (section 3.9).
-pub const MIGRATIONS: &[MigrationStep] = &[MigrationStep { from: 1, migrate: migrate_from_1 }];
+/// The built-in chain: the steps from versions 1 and 2, each of which returns the document unchanged (section 3.9).
+pub const MIGRATIONS: &[MigrationStep] = &[
+    MigrationStep { from: 1, migrate: migrate_from_1 },
+    MigrationStep { from: 2, migrate: migrate_from_2 },
+];
 
 /// Brings raw document JSON to FORMAT_VERSION with the built-in chain; returns the original version if it changed.
 pub fn migrate(document: serde_json::Value) -> Result<(serde_json::Value, Option<u32>), LoadError>;
@@ -89,10 +99,11 @@ pub struct FeatureParamsSchema {
     pub schema: schemars::Schema,
 }
 
-/// Builds the `.ptsm` JSON Schema (section 3.10).
-pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<schemars::Schema, SchemaError>;
+/// Builds the `.ptsm` JSON Schema (section 3.10). `printer_profile` is the schema of print.md's written form
+/// (`PrinterProfile`), which partsmith-model cannot name itself: the engine passes it (engine.md section 2).
+pub fn ptsm_schema(features: &[FeatureParamsSchema], printer_profile: &schemars::Schema) -> Result<schemars::Schema, SchemaError>;
 /// The same schema as canonical text, ready to write to docs/format/ptsm.schema.json.
-pub fn ptsm_schema_text(features: &[FeatureParamsSchema]) -> Result<String, SchemaError>;
+pub fn ptsm_schema_text(features: &[FeatureParamsSchema], printer_profile: &schemars::Schema) -> Result<String, SchemaError>;
 
 pub mod canonical {
     /// Width limit for one-line containers, in characters.
@@ -137,6 +148,7 @@ Keys are written in struct declaration order. A field is omitted exactly when th
 | `format_version` | integer | yes | `MissingFormatVersion` | always |
 | `units` | `"mm"`, `"cm"`, `"m"` or `"in"` | yes | `Invalid` | always |
 | `printer` | string | no | no printer | when present |
+| `printer_profile` | object, print.md's written form | no | no stored profile | when present |
 | `parameters` | array of `Parameter` | no | empty | always, even when empty |
 | `bodies` | array of `Body` | no | empty | always, even when empty |
 | `features` | array of `FeatureRecord` | no | empty | always, even when empty |
@@ -174,8 +186,9 @@ Keys are written in struct declaration order. A field is omitted exactly when th
 
 Rules:
 
-- On load, an explicit `null` for an optional string or id field (`printer`, `rollback`, `comment`, `material`, `color`, feature `name`) means absent. `null` for `visible`, `suppressed`, `role`, `units` or an array is an `Invalid` error.
+- On load, an explicit `null` for an optional string or id field (`printer`, `rollback`, `comment`, `material`, `color`, feature `name`) or for `printer_profile` means absent. `null` for `visible`, `suppressed`, `role`, `units` or an array is an `Invalid` error.
 - On load, `Document`, `Parameter` and `Body` reject unknown keys (`Invalid` with the key's path). A `FeatureRecord` cannot: every key other than its four record keys is a param.
+- `printer_profile` holds the printer profile that `printer` names, in print.md's written form (print.md sections 2.2 and 3.1), when that profile is not built in ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). Any other JSON value than an object is an `Invalid` error with the path `printer_profile`. The model checks only how it relates to `printer`: `printer` is present, and the object's `id` member is a string equal to `printer` (model.md section 3.6, rules 9 and 10). The object's other members are not read by `load` or `save`, which keep them in the order and form they have in memory, as they keep feature params. The engine checks the whole profile against print.md's written form when it opens, formats or validates a text, and rewrites the members into the written form's key order (`id`, `name`, `technology`, `bed`, `nozzle_diameter`, `layer_height`, `max_overhang_angle`, `max_bridge_length`, `fit`; engine.md section 3.2). A version 2 document never has this key.
 - Feature params keep the order they have in memory. The model never reorders them. The feature registry canonicalizes them (the order of the feature's typed params struct, then unknown keys in their original order) when it validates a loaded document or an edit; `partsmith fmt` runs load, registry canonicalization, then save.
 
 ### 3.3 Numbers
@@ -267,7 +280,7 @@ to_string(value) = write(value, 0, 0, true) followed by one line feed
 
 Consequences:
 
-- The root container is always expanded (unless empty), so every `.ptsm` file starts with `{` on its own line followed by `  "format": "partsmith",` and `  "format_version": 2,`.
+- The root container is always expanded (unless empty), so every `.ptsm` file starts with `{` on its own line followed by `  "format": "partsmith",` and `  "format_version": 3,`.
 - Every record list (`parameters`, `bodies`, `features`, sketch `entities` and `constraints`) is an array of objects, so it is always expanded with one record per line, and each leaf record prints on one line when it fits.
 - A record that contains an array of objects (a sketch with entities, a shell with face references) is expanded one member per line, and so is any record whose one-line form is too wide; its scalar and small members stay on one line each.
 - The layout decision for a value depends only on the value, its indentation and its key, never on its siblings or on whether it is last.
@@ -281,7 +294,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [],
@@ -294,7 +307,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "printer": "generic-fdm",
   "parameters": [
@@ -352,7 +365,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -387,7 +400,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [
     {"id": "p-1", "name": "a", "expr": "1", "comment": "Fits exactly xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
@@ -408,7 +421,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -435,7 +448,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -450,7 +463,7 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "in",
   "parameters": [],
   "bodies": [],
@@ -493,12 +506,12 @@ Each example is the exact output of `save` (or `canonical::to_string`), shown wi
  "features":[{"type":"box","id":"f-1","suppressed":false,"name":null,"size":["10 mm","10 mm","2 mm"],"x":1.0,"label":"café \/ bar"}]}
 ```
 
-loads, and `save` of the result is exactly (282 bytes): record keys in declaration order, defaults and nulls dropped, the color lowercased, `1.0` written as `1`, escapes rewritten, the missing `parameters` written as `[]`, and the params `size`, `x`, `label` kept in their file order.
+loads, and `save` of the result is exactly (282 bytes): the version 2 input migrated to version 3 (section 3.9), record keys in declaration order, defaults and nulls dropped, the color lowercased, `1.0` written as `1`, escapes rewritten, the missing `parameters` written as `[]`, and the params `size`, `x`, `label` kept in their file order.
 
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -530,7 +543,7 @@ loads, and `save` of the result is exactly (282 bytes): record keys in declarati
 ```json
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -640,6 +653,33 @@ loads, and `save` of the result is exactly (282 bytes): record keys in declarati
 }
 ```
 
+**E11. A stored printer profile**, 588 bytes. The document names the printer `my-mk4`, which is not built in. It stores that profile in print.md's written form (section 3.2). The profile is the input `{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220}, "layer_height": 0.15, "fit": {"slip": 0.15, "loose": 0.3}}` with every other value from `generic-fdm` (print.md section 3.1). It is expanded because its one-line form is too wide; `bed` and `fit` stay on one line each.
+
+```json
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "printer": "my-mk4",
+  "printer_profile": {
+    "id": "my-mk4",
+    "name": "My MK4",
+    "technology": "fdm",
+    "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
+    "nozzle_diameter": 0.4,
+    "layer_height": 0.15,
+    "max_overhang_angle": 0.7853981633974483,
+    "max_bridge_length": 10,
+    "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
+  },
+  "parameters": [
+    {"id": "p-clear", "name": "clearance", "expr": "printer.fit.slip"}
+  ],
+  "bodies": [],
+  "features": []
+}
+```
+
 ### 3.7 Loading
 
 `load(text)` runs these steps in order and returns the first error:
@@ -654,7 +694,7 @@ loads, and `save` of the result is exactly (282 bytes): record keys in declarati
 
 `load_bytes(bytes)` drops a leading `EF BB BF`, returns `NotUtf8 { offset }` (offset of the first invalid byte in `bytes`) if the rest is not UTF-8, and otherwise calls `load`.
 
-Loading never consults the feature registry. A file with unknown feature types or invalid params loads; the registry reports those through `Document::validate` and recompute.
+Loading never consults the feature registry. A file with unknown feature types or invalid params loads; the registry reports those through `Document::validate` and recompute. Loading never consults partsmith-print either: a stored printer profile that print.md would refuse loads, and the engine refuses it when it opens the text (engine.md section 3.2).
 
 ### 3.8 Round-trip guarantees
 
@@ -668,7 +708,7 @@ These guarantees cover params key order as stored. Full canonical form for hand-
 
 ### 3.9 Versioning and migration
 
-- `format_version` is a non-negative integer. This build reads and writes version 2 (`FORMAT_VERSION`) and can migrate from `OLDEST_FORMAT_VERSION` (1).
+- `format_version` is a non-negative integer. This build reads and writes version 3 (`FORMAT_VERSION`) and can migrate from `OLDEST_FORMAT_VERSION` (1). An M1 build read and wrote version 2.
 - Any change to the meaning or shape of saved documents that older readers would misread bumps `FORMAT_VERSION` and adds one `MigrationStep` from the old version. Changes need a format ADR and human review (AGENTS.md).
 - Migrations work on raw JSON (`serde_json::Value`), before typed deserialization, so old shapes never need Rust types.
 
@@ -676,10 +716,30 @@ These guarantees cover params key order as stored. Full canonical form for hand-
 | --- | --- |
 | 1 | The M1 document. |
 | 2 | Optional fields inside feature params, each omitted when absent ([ADR 0025](../adr/0025-file-format-version-2.md)): `nb` (anchors) and `merged` (merged names) on face, edge and vertex references, in the key order `q`, `fp`, `nb`, `merged` (naming.md section 2.4); `outline` on region references, after `key` and `fp` (sketch.md section 2.7); `fallback_frame` on face sketch planes, after `fallback`, omitted for `"world"` (sketch.md section 2.2); `direction` on edge and face axes (features.md section 2.5). |
+| 3 | Declared in M2's wave 1 and frozen at the M2 gate ([ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md)), with these records so far. The printer profile a document stores ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)): `printer_profile`, after `printer`, an object in print.md's written form, present only when `printer` names a profile that is not built in (section 3.2). The sketch entity records of wave 1's sketch contracts step ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md), sketch.md sections 2.12 and 3.20), each written once the item that builds it lands: the entity types `ellipse`, `elliptical_arc`, `parabola`, `hyperbola`, `conic`, `bspline`, `fit_spline` and `fixed_spline` (M2 item 14) and `text` (item 27), each record's keys in the order of sketch.md section 2.12 with `link` and `construction` last; the member `link` of an entity, a `SketchLink` tagged `kind` (`edge`, `vertex`, `section`, `silhouette` or `sketch`), omitted when absent (item 26); and the point roles `vertex`, `focus` and `control` of `PointRef` (item 14). No new field holds a kernel index or indexes glyphs or characters. A text names its font by an asset name or a built-in name that fixes the font's bytes. The chain reference of a sketch's curves ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)): `ChainProfileRef`, an object with `sketch` and then `chains`, a list of `ChainRef` objects with `key` (the chain key text of sketch.md section 3.18.1), `fp` (the chain fingerprint text of sketch.md section 3.18.5) and `closed`, omitted when false (features.md section 2.5). Only a feature that takes curve chains stores it, from the sweep on (M2 item 18). Direct-generator names in the `q` of edge and vertex references: `edge:` or `vertex:`, then `<feature>/<role>[/<sketch-ref>]` and the name's `#n` and `@<feature>:<instance>` groups (naming.md section 3.12, [ADR 0060](../adr/0060-direct-generator-names-for-edges-and-vertices.md)). No field is added, and the schemas of `ElementName` and `Reference` do not change. Such a reference has no `nb` and no `merged`. A version 2 document holds none: M1 builds write none, and the step from version 2 changes only the version. Each later M2 spec adds here the feature records of its feature types and the new params and values of existing types, before its code (the rules below). Every key, record and value of version 3 keeps the scope rules of section 3.12 ([ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md)). |
 
 **The step from version 1** (`migrate_from_1`, private) returns the document unchanged; the chain then sets `format_version` to 2. Every version 1 document means the same at version 2, because each field version 2 adds keeps the version 1 meaning when it is absent: a face sketch's fallback is in world coordinates, a reference has no anchors or merged names, and a region reference has no outline. One rule is new: an edge or face axis without `direction` is oriented by the direction of its stored fingerprint (features.md section 3.6), where version 1 made the first nonzero component of the axis positive. The two agree except for an axis whose direction has crossed a coordinate plane since it was picked, such as an edge that leaned 1 mm the other way (reference stability corpus R38): there the version 1 rule flipped the axis, which was the bug, and version 2 keeps the side it was picked on ([ADR 0023](../adr/0023-frames-live-on-the-model.md)). So opening a version 1 document and saving it without edits changes only its `format_version` line, and it rebuilds with the same placements, volumes and statuses as before version 2 existed (test 57), except for such an axis. The loader never reads these fields: they live in feature params, which `load` and `save` keep as they are (section 3.2), and their shapes and checks belong to naming.md, sketch.md and features.md. New picks and attaches write them; nothing adds them to an existing reference on its own.
 
-A build that reads only version 1 rejects a version 2 file with `NewerFormatVersion` in step 2 below, before it deserializes anything, instead of failing on an unknown field inside a reference or a sketch plane.
+**The step from version 2** (`migrate_from_2`, private) returns the document unchanged; the chain then sets `format_version` to 3. Every version 2 document means the same at version 3, because version 3 adds only keys, records and values that a version 2 document cannot hold, and each keeps the version 2 meaning when it is absent. A version 2 document stores no printer profile. Its `printer` resolves by id as before: a profile the session holds, then a built-in profile, then the default FDM profile with the `unknown_printer_profile` warning (engine.md section 3.7). Opening a version 2 document and saving it without edits changes only its `format_version` line (test 59). It rebuilds with the same values, statuses and messages, except for the new words of that warning (engine.md section 3.4). A version 1 document passes both steps. The step from version 2 reads nothing. It keeps every key it is given, including keys no version defines.
+
+**Version 3 grows until the M2 gate** ([ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md)). Wave 1 declares it with the printer profile and the sketch entity records. Later M2 specs add their records before their code. These rules hold until the gate freezes it:
+
+1. The spec that adds a key, record or value to version 3 lists it in the row of version 3 above, in the same change that adds it to that spec.
+2. Each addition is an optional key that is omitted when absent and keeps the earlier meaning then, a new record type, or a new value of a tagged enum. A key, record or value that a version 3 build has written keeps its shape and meaning until the gate. A change that would alter one waits for version 4 and its own migration step.
+3. Every version 3 file written before the gate therefore opens in every later build with the same meaning. This matters because the production web deployment of `main` writes version 3 from the merge of wave 1 on (delivery.md section 3.3).
+4. No build that writes version 3 is tagged before the M2 gate commit. The first tag comes from a commit that writes version 2 (delivery.md section 3.6, release checklist item 3).
+5. At the gate, human review accepts version 3 with every record in its row. From then on, a change that this section says needs a new version needs version 4.
+
+**What needs a new version after the gate.** A new feature type alone does not. An older build loads its record, reports `unknown_type` on it with features.md's message ("This document has a feature of type 'sweep', which this version of Partsmith does not have. Update Partsmith, or delete the feature."), builds the rest, and saves the record unchanged (section 3.2, engine.md section 3.2). Nothing is misread. These need one:
+
+- A new key in the params of an existing feature type. An older build ignores the key with the `unknown_params` warning and builds another shape.
+- A new value of an enum that an existing record already holds, such as a new extent `kind`. An older build cannot read the record, and its message does not say to update.
+- A new sketch entity or constraint type. An older build cannot read the sketch, and every feature that uses it fails.
+- A new key of `Document`, `Parameter` or `Body`. An older build refuses the file with an `Invalid` error whose message does not say to update.
+- A new form of element name in a reference's `q`. An older build cannot parse the name, and the feature that holds the reference fails with `invalid_params`, whose message does not say to update.
+- A rule of print.md section 3.1 that refuses a stored printer profile that an earlier build accepted (print.md section 3.1, stored profiles).
+
+A build that reads only version 1 rejects a version 2 file with `NewerFormatVersion` in step 2 below, before it deserializes anything, instead of failing on an unknown field inside a reference or a sketch plane. In the same way an M1 build, which reads up to version 2, rejects every version 3 file with `This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it.` It never opens the file. It therefore never drops a stored printer profile or a record it cannot read when it saves.
 
 `migrate_with(document, current, oldest, steps)`:
 
@@ -688,11 +748,11 @@ A build that reads only version 1 rejects a version 2 file with `NewerFormatVers
 3. For `v` from `version` to `current - 1`: find the step with `from == v` (the slice may be in any order); if there is none, `MissingMigration { from: v }`. Call its function; on `Err(message)` return `Migration { from: v, to: v + 1, message }`; if it returns something other than a JSON object, return `Migration { from: v, to: v + 1, message: "The upgraded document is not a JSON object." }`. Then set the root `format_version` to `v + 1`, whatever the step wrote there.
 4. Return the migrated document with `Some(version)`.
 
-`migrate(document)` is `migrate_with(document, FORMAT_VERSION, OLDEST_FORMAT_VERSION, MIGRATIONS)`. It returns version 2 documents unchanged with `None`, brings version 1 documents to version 2 with `Some(1)`, and rejects every other version. When `load` migrates, the engine tells the user that saving will write the new version.
+`migrate(document)` is `migrate_with(document, FORMAT_VERSION, OLDEST_FORMAT_VERSION, MIGRATIONS)`. It returns version 3 documents unchanged with `None`, brings version 1 and version 2 documents to version 3 with `Some(1)` and `Some(2)`, and rejects every other version. When `load` migrates, the engine tells the user that saving will write the new version.
 
 ### 3.10 JSON Schema
 
-`ptsm_schema(features)` returns a JSON Schema (draft 2020-12) of canonical `.ptsm` documents. It describes what `save` writes; the loader accepts slightly more (section 3.2: nulls, a BOM, non-canonical numbers and key order).
+`ptsm_schema(features, printer_profile)` returns a JSON Schema (draft 2020-12) of canonical `.ptsm` documents. It describes what `save` writes; the loader accepts slightly more (section 3.2: nulls, a BOM, non-canonical numbers and key order).
 
 Input checks, returning the first error:
 
@@ -703,9 +763,9 @@ Output, with root keys in this order:
 
 - `$schema`: `"https://json-schema.org/draft/2020-12/schema"`.
 - `title`: `"Partsmith document"`.
-- `description`: `"A Partsmith .ptsm document, format version 2."` (the number is `FORMAT_VERSION`).
+- `description`: `"A Partsmith .ptsm document, format version 3."` (the number is `FORMAT_VERSION`).
 - `type`: `"object"`.
-- `properties`, in this order: `format` is `{"const": "partsmith"}`; `format_version` is `{"const": 2}` (`FORMAT_VERSION`); `units` is `{"$ref": "#/$defs/Units"}`; `printer` is `{"type": "string"}`; `parameters`, `bodies` and `features` are `{"type": "array", "items": {"$ref": "#/$defs/Parameter"}}` (and `Body`, `FeatureRecord`); `rollback` is `{"$ref": "#/$defs/Id"}`.
+- `properties`, in this order: `format` is `{"const": "partsmith"}`; `format_version` is `{"const": 3}` (`FORMAT_VERSION`); `units` is `{"$ref": "#/$defs/Units"}`; `printer` is `{"type": "string"}`; `printer_profile` is `{"$ref": "#/$defs/PrinterProfile"}`; `parameters`, `bodies` and `features` are `{"type": "array", "items": {"$ref": "#/$defs/Parameter"}}` (and `Body`, `FeatureRecord`); `rollback` is `{"$ref": "#/$defs/Id"}`.
 - `required`: `["format", "format_version", "units"]`.
 - `additionalProperties`: `false`.
 - `$defs`: every definition below, with keys sorted by byte order.
@@ -729,7 +789,9 @@ Each feature's params schema is added as `$defs["feature.<kind>"]` with its root
 
 Feature records of a type with no params schema (for example a plugin that is not installed) match no `allOf` branch and are validated only against the record keys.
 
-`ptsm_schema_text(features)` is `canonical::to_string` of the schema: deterministic, independent of the order of `features`, and ending with one line feed. The CLI's `schema --write` writes it to `docs/format/ptsm.schema.json`, and CI fails when the committed file differs.
+The `printer_profile` schema is added as `$defs["PrinterProfile"]` with its root `$schema`, `$defs` and `title` keys removed. Its `$defs` entries are hoisted into the root `$defs` by the rule of the feature schemas above: an identical entry is shared, and a different one is `ConflictingDefinition { name }`. The engine passes the schema that schemars generates for print.md's `PrinterProfile`, whose JSON Schema is its written form in both contracts (print.md section 2.2): it requires `id`, `name`, `technology`, `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit`, and it closes the profile, `FitClasses` and `Bed` to unknown members. Its `id` refers to `#/$defs/Id`, which is identical to the model definition. The two share that one entry. A `PrinterProfile` already in the root `$defs` with another value is `ConflictingDefinition { name: "PrinterProfile" }`. No input check of the list above applies to this schema.
+
+`ptsm_schema_text(features, printer_profile)` is `canonical::to_string` of the schema: deterministic, independent of the order of `features`, and ending with one line feed. The CLI's `schema --write` writes it to `docs/format/ptsm.schema.json`, and CI fails when the committed file differs.
 
 ### 3.11 Assets
 
@@ -738,6 +800,8 @@ Imported files (in M1, the STEP files of the `import` feature, features/import.m
 - The model never reads or writes assets: `load` and `save` work on the text alone, and a document whose assets are missing loads. The engine supplies asset bytes to recompute and returns the assets a document references when it saves (engine.md section 3.14); hosts read and write the folder.
 - A document references exactly the assets named by its features' `Dependencies::assets` (features.md section 2.4). A missing referenced asset is reported on the feature that reads it (`asset_missing`), not as a load error.
 - Because names are content hashes, a valid asset never changes in place, the same file imported twice is stored once, and several documents in one folder can share `assets/`.
+- Since M2 an asset's extension is its kind: `step`, `ttf` or `otf` ([ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets). The font kinds hold the fonts that wave 3's sketch text reads (m2-plan.md item 27). Nothing in the `.ptsm` text changes: the model reads no asset name and checks no kind (test 70), and the hosts' pattern `^[0-9a-f]{64}\.[a-z0-9]+$` (cli.md section 2.3, python-api.md section 3.1) already matches them.
+- Since M2 a host learns the asset names a document reads from the core (`missing_assets` of `document_changed`, protocol.md section 2.7) and adds files to an open document with `add_assets` (protocol.md command 38, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)). The UI reads no `.ptsm` text to find them (ui.md section 1).
 
 **Writing a document with its assets.** A host that writes the result of `save_document` (engine.md section 3.14) to a file in a folder it can write writes it in this order, so the document is replaced only after every asset `save_document` returned is in `assets/`, and a failed or interrupted save leaves the previous document in place ([ADR 0036](../adr/0036-hosts-write-assets-first-and-check-them-against-the-engine.md)):
 
@@ -755,6 +819,18 @@ A host that cannot write the document's folder (the web with only the file handl
 
 Tests 97 to 102 of python-api.md test this order for Python, test 103 the export errors of the same atomic write, and tests 118 to 122 its write through a link. ui.md tests U-226, U-227, U-230, U-231 and E-151 and desktop.md tests 57 to 61 test it for the web and desktop hosts. desktop.md tests 51 and 72 test the desktop's write through a link.
 
+### 3.12 Scope
+
+A scope is one set of `parameters`, `bodies` and `features`, with the records nested in them, one origin and one timeline ([ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md)). A document's top-level arrays are its root scope. Format versions 1 to 3 hold the root scope alone. M4's components add scopes, with a format version of their own. Every key, record and value of versions 1 to 3 keeps these rules, and the critic of each M2 spec checks them:
+
+1. A record belongs to the scope whose array holds it. No record names its scope. A new record goes into `parameters`, `bodies` or `features`, or nests inside a feature record.
+2. Every reference that versions 1 to 3 hold is unqualified. It resolves in the scope of the record that holds it. It names its target by id, `PointRef`, region key, element reference, parameter name, asset name or built-in name, never by its position in a list or by its display name. It holds no document, file, scope or occurrence.
+3. A face, edge or vertex reference sits beside a `body` field in the same object (spec README decision D2). That object is where M4 puts the occurrence path of a reference that reads a body of another scope. The `body` a feature writes, and the references to that body's elements beside it, never take one ([ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md) decision 4).
+4. Ids are unique within a scope. Versions 1 to 3 hold one scope. For them model.md section 3.1's rule is unchanged.
+5. Every stored coordinate, direction, placement and fingerprint is in sketch coordinates, in body coordinates, in a frame that an element the record references defines (such as a referenced face's parameter plane), or in world coordinates. World coordinates are the coordinates of the document's origin. They include a face sketch's `fallback` with `fallback_frame` `world`, a primitive's `plane` and `position`, the origin planes and axes, `move_body`'s `translation`, and a fingerprint's centroid and direction. A face sketch's `fallback` with `fallback_frame` `body` and the `direction` of an edge or face axis are in body coordinates (sketch.md section 2.2, features.md section 2.5). No record holds a coordinate in the frame of another document, file or occurrence.
+6. `format`, `format_version`, `units`, `printer`, `printer_profile` and `rollback` belong to the file, not to a scope. A new document-level key holds a property of the file, never records that other records reference. No record stores a file path, a document name, a URL or a session handle. A file reaches a document only as an asset.
+7. Reserved names. No key of a document is named `occurrence`, at any depth, and no document root holds `components`, `occurrences` or `joints` (tests 71 and 72). M4 adds them with a format version of its own. The step that migrates a document into that version changes only the version number.
+
 ## 4. Errors
 
 `{m}` stands for a `StructureError` message (model.md section 4.5).
@@ -767,8 +843,8 @@ Tests 97 to 102 of python-api.md test this order for Python, test 103 the export
 | `Syntax { line: usize, column: usize, message: String }` | `The file is not valid JSON at line {line}, column {column}: {message}.` (`message` is the JSON parser's description) |
 | `DuplicateKey { key: String, line: usize, column: usize }` | `The key "{key}" appears twice in the same object (line {line}). Remove one of them.` |
 | `NotPartsmith` | `This is not a Partsmith document: the top level must be an object whose "format" is "partsmith".` |
-| `MissingFormatVersion` | `The document has no "format_version". Add "format_version": 2 after "format".` (the number is `FORMAT_VERSION`) |
-| `InvalidFormatVersion { found: String }` | `"format_version" must be a whole number such as 2, not {found}.` (the number is `FORMAT_VERSION`) |
+| `MissingFormatVersion` | `The document has no "format_version". Add "format_version": 3 after "format".` (the number is `FORMAT_VERSION`) |
+| `InvalidFormatVersion { found: String }` | `"format_version" must be a whole number such as 3, not {found}.` (the number is `FORMAT_VERSION`) |
 | `NewerFormatVersion { found: u64, supported: u32 }` | `This file uses format version {found}, which is newer than this version of Partsmith supports (up to {supported}). Update Partsmith to open it.` |
 | `UnsupportedFormatVersion { found: u64, oldest: u32 }` | `Format version {found} is too old to open. The oldest version this Partsmith can open is {oldest}.` |
 | `MissingMigration { from: u32 }` | `There is no upgrade from format version {from} to {from + 1}. This is a bug in Partsmith; please report it.` |
@@ -819,7 +895,7 @@ The layout algorithm must be linear in the output size times the nesting depth; 
 
 ## 6. Acceptance tests
 
-E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text shown plus a final line feed. `load(t)` stands for `load(t).unwrap().document` where a test expects success.
+E1 to E11 are the examples in section 3.6. "The E2 text" means the exact text shown plus a final line feed. `load(t)` stands for `load(t).unwrap().document` where a test expects success.
 
 ### Writer and layout
 
@@ -848,7 +924,7 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 20. A feature param holding 100 nested arrays loads; one holding 200 nested arrays is `Err(Syntax { .. })` and does not overflow the stack.
 21. `load("[]")`, `load("{}")`, and E1 with `"format": "other"` or `"format": 1` are each `Err(NotPartsmith)`.
 22. E1 without `format_version` is `Err(MissingFormatVersion)`; with `"format_version": "1"` it is `Err(InvalidFormatVersion { found: "\"1\"" })`; with `1.5`, `InvalidFormatVersion { found: "1.5" }`; with `-1`, `InvalidFormatVersion { found: "-1" }`; with `1.0` it loads with `migrated_from == Some(1)`.
-23. E1 with `"format_version": 3` is `Err(NewerFormatVersion { found: 3, supported: 2 })` with message `This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it.`; with `0` it is `Err(UnsupportedFormatVersion { found: 0, oldest: 1 })`.
+23. E1 with `"format_version": 4` is `Err(NewerFormatVersion { found: 4, supported: 3 })` with message `This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it.`; with `0` it is `Err(UnsupportedFormatVersion { found: 0, oldest: 1 })`. (Before format version 3, the same test used `3` and `supported: 2`.)
 24. Each of these is `Err(Invalid { path, .. })` with the given path: root key `"colour": 1` added (`colour`); `"units": "mmm"` (`units`, message contains `'mmm' is not a document unit`); body `{"id": "b-1", "name": "A", "colour": "#000000"}` (`bodies[0].colour`); parameter id `"p 1"` (`parameters[0].id`, message contains `The id 'p 1' contains ' '`); body color `"#12345"` (`bodies[0].color`); parameter `"expr": 2` (`parameters[0].expr`); body `"visible": null` (`bodies[0].visible`); a feature without `type` as the third feature (`features[2]`, message contains `type`).
 25. E1 without `units` is `Err(Invalid { path: "", .. })` whose message contains `units`.
 26. E1 with `"bodies": [{"id": "b-1", "name": "A"}, {"id": "b-1", "name": "B"}]` is `Err(Structure([DuplicateId { id: b-1 }]))` with message `This document has a problem: The id b-1 is used by more than one record. Give the later record a new id.`
@@ -870,7 +946,7 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 
 ### Migration
 
-39. `migrate(serde_json::from_str(E1))` returns the value unchanged and `None`; with E1's `format_version` set to 1, `migrate` returns E1's value, at version 2, and `Some(1)`.
+39. `migrate(serde_json::from_str(E1))` returns the value unchanged and `None`; with E1's `format_version` set to 1, `migrate` returns E1's value, at version 3, and `Some(1)`; with it set to 2, E1's value at version 3 and `Some(2)`.
 40. With steps `S1 = { from: 1, migrate: adds root key "a": 1 }` and `S2 = { from: 2, migrate: renames root key "a" to "b" }`, `migrate_with(doc at version 1, 3, 1, &[S2, S1])` returns a document with `"b": 1`, no `"a"`, `"format_version": 3`, and `Some(1)`.
 41. The same with the document at version 2 applies only `S2` (the result has no `"b"` because there was no `"a"`) and returns `Some(2)`.
 42. `migrate_with(doc at version 1, 3, 1, &[S1])` is `Err(MissingMigration { from: 2 })`.
@@ -880,9 +956,11 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 
 ### JSON Schema
 
-46. `ptsm_schema(&[])` has, at these JSON pointers: `/$schema` = `"https://json-schema.org/draft/2020-12/schema"`; `/title` = `"Partsmith document"`; `/type` = `"object"`; `/properties/format/const` = `"partsmith"`; `/properties/format_version/const` = `2`; `/required` = `["format", "format_version", "units"]`; `/additionalProperties` = `false`; `/properties/rollback/$ref` = `"#/$defs/Id"`.
+In tests 46 to 53, `P` is the stand-in printer profile schema `{"type": "object"}`, and `ptsm_schema(x)` and `ptsm_schema_text(x)` stand for `ptsm_schema(x, &P)` and `ptsm_schema_text(x, &P)`.
+
+46. `ptsm_schema(&[])` has, at these JSON pointers: `/$schema` = `"https://json-schema.org/draft/2020-12/schema"`; `/title` = `"Partsmith document"`; `/type` = `"object"`; `/properties/format/const` = `"partsmith"`; `/properties/format_version/const` = `3`; `/required` = `["format", "format_version", "units"]`; `/additionalProperties` = `false`; `/properties/rollback/$ref` = `"#/$defs/Id"`; `/properties/printer_profile/$ref` = `"#/$defs/PrinterProfile"`.
 47. In `ptsm_schema(&[])`: `/$defs/Id/pattern` = `"^[A-Za-z0-9_-]{1,64}$"`; `/$defs/Color/pattern` = `"^#[0-9A-Fa-f]{6}$"`; `/$defs/Units/enum` = `["mm", "cm", "m", "in"]`; `/$defs/BodyRole/enum` has the five roles in declaration order; `/$defs/Parameter/required` = `["id", "name", "expr"]`; `/$defs/Body/required` = `["id", "name"]`; `/$defs/FeatureRecord/required` = `["id", "type"]`; `/$defs/FeatureRecord/allOf` is absent.
-48. The keys of `/$defs` in `ptsm_schema(&[])` are exactly `["Body", "BodyRole", "Color", "Expr", "FeatureRecord", "Id", "Parameter", "Units"]` in that order, and the root keys are in the order of section 3.10.
+48. The keys of `/$defs` in `ptsm_schema(&[])` are exactly `["Body", "BodyRole", "Color", "Expr", "FeatureRecord", "Id", "Parameter", "PrinterProfile", "Units"]` in that order, `/$defs/PrinterProfile` is `{"type": "object"}` (`P`), and the root keys are in the order of section 3.10.
 49. With params schemas for kinds `extrude` and `box` (given in that order, each `{"type": "object", "properties": {"depth": {"type": "string"}}}`): `/$defs/FeatureRecord/allOf/0/if/properties/type/const` = `"box"`, `/$defs/FeatureRecord/allOf/0/then/$ref` = `"#/$defs/feature.box"`, `/allOf/1` is for `extrude`, and `/$defs/feature.box/properties/depth/type` = `"string"`.
 50. A params schema for `extrude` with `"$schema"`, a `"$defs": {"Extent": {"type": "object"}}` and a property `{"$ref": "#/$defs/Extent"}` yields root `/$defs/Extent` = `{"type": "object"}`, and `/$defs/feature.extrude` has neither `$schema` nor `$defs`.
 51. Two params schemas whose `$defs` both contain an identical `Extent` give one shared `Extent`; if the two differ, the result is `Err(ConflictingDefinition { name: "Extent" })`; a params schema defining `Id` as `{"type": "integer"}` gives `Err(ConflictingDefinition { name: "Id" })`.
@@ -893,9 +971,33 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 
 54. A version 1 document changes only its version: E2 with its line 3 changed to `  "format_version": 1,` loads with `migrated_from == Some(1)` and a document equal to `load(E2)`, and `save` of it is exactly the E2 text, so input and output differ only in that line. The same holds for E10 at version 1: the step from version 1 never reads feature params.
 55. E10 loads with `migrated_from == None`, and `save` of it is exactly the E10 text (3081 bytes): `nb`, `merged`, `outline`, `fallback_frame` and `direction` round-trip byte for byte, in their key order.
-56. A build that reads only version 1 stops cleanly: `migrate_with(serde_json::from_str(E10), 1, 1, &[])` is `Err(NewerFormatVersion { found: 2, supported: 1 })` with the message `This file uses format version 2, which is newer than this version of Partsmith supports (up to 1). Update Partsmith to open it.`
+56. A build that reads only version 1 stops cleanly: `migrate_with(serde_json::from_str(E10 at version 2), 1, 1, &[])`, with E10's line 3 changed to `  "format_version": 2,`, is `Err(NewerFormatVersion { found: 2, supported: 1 })` with the message `This file uses format version 2, which is newer than this version of Partsmith supports (up to 1). Update Partsmith to open it.`
 57. A version 1 document rebuilds as before (in `crates/partsmith-recompute/tests/format_version.rs`; it passes from phase 2 of the plan in the reference stability study, section 10.4): the timeline of reference stability corpus scenario R32 variant (a) after its edit (a box 40 x 40 x 10, a Move body of (100, 0, 0), then a face sketch on the box top with its point at (15, 15) and a hole of diameter 4 through all), written at format version 1 with the face sketch's fallback as the corpus gives it and no `fallback_frame`, loads with `migrated_from == Some(1)` and rebuilds as before version 2 existed: the face sketch's placement has origin (0, 0, 10), x axis (1, 0, 0) and normal (0, 0, 1) (the fallback means world coordinates); the hole misses the moved box, so the hole feature has status warning with a `hole_misses_body` message and the body's volume stays 16000; saving the document without edits changes only its `format_version` line. The same timeline at version 2 with `"fallback_frame": "body"` drills the hole at world (115, 15) with volume 15874.336294, as corpus R32a expects. The one exception: the timeline of corpus R38 after its edit (the left wall leaning to (-1, 20)), written at format version 1 with the pattern's axis reference `{q: edge(f-ext1/lateral/e-4|f-ext1/start-cap), fp: line|n=0,1,0|c=0,10,0|l=20|adj=2,2}` and no `direction`, keeps the copy on +Y: direction (-0.049938, 0.998752, 0), bounding box [-2.498129,0,0]-[40,49.962570,10], where the version 1 rule turned it to (0.049938, -0.998752, 0) and put the copy on -Y.
-58. The schema describes the version 2 fields: in `docs/format/ptsm.schema.json` as `partsmith schema --write` generates it with the built-in features (checked in `crates/partsmith-cli/tests/`), `/properties/format_version/const` is `2`; `/$defs/Reference/properties` has `nb` and `merged` and `/$defs/Reference/required` is `["q", "fp"]`; `/$defs/RegionRef/properties` has `outline` and `/$defs/RegionRef/required` is `["key", "fp"]`; the `face` branch of `/$defs/SketchPlane/oneOf` has the property `fallback_frame` with the enum `["world", "body"]`, and the `edge` and `face` branches of `/$defs/AxisRef/oneOf` have the property `direction`, an array of 3 numbers, none of them listed as required.
+58. The schema describes the version 2 fields: in `docs/format/ptsm.schema.json` as `partsmith schema --write` generates it with the built-in features (checked in `crates/partsmith-cli/tests/`), `/properties/format_version/const` is `3` (it was `2` before format version 3); `/$defs/Reference/properties` has `nb` and `merged` and `/$defs/Reference/required` is `["q", "fp"]`; `/$defs/RegionRef/properties` has `outline` and `/$defs/RegionRef/required` is `["key", "fp"]`; the `face` branch of `/$defs/SketchPlane/oneOf` has the property `fallback_frame` with the enum `["world", "body"]`, and the `edge` and `face` branches of `/$defs/AxisRef/oneOf` have the property `direction`, an array of 3 numbers, none of them listed as required.
+
+### Format version 3
+
+59. A version 2 document changes only its version: E2 with its line 3 changed to `  "format_version": 2,` loads with `migrated_from == Some(2)` and a document equal to `load(E2)`, and `save` of it is exactly the E2 text. The same holds for E10 at version 2 (3081 bytes).
+60. E11 loads with `migrated_from == None`. Its document has `printer == Some("my-mk4")` and a `printer_profile` whose members are, in this order, `id`, `name`, `technology`, `bed`, `nozzle_diameter`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit`. `save` of it is exactly the E11 text (588 bytes).
+61. The model keeps a stored profile as it is: E11 with the members of `printer_profile` in reversed order loads, and `save` writes them in that reversed order. The engine writes the written form's order (engine.md section 3.2).
+62. A stored profile without a printer: E11 without its `printer` line is `Err(Structure([PrinterProfileWithoutPrinter]))` with the message `This document has a problem: The document stores a printer profile but names no printer. Set "printer" to the profile's id, or remove "printer_profile".`
+63. A stored profile with another id: E11 with `"printer": "my-mk3"` is `Err(Structure([PrinterProfileIdMismatch { printer: "my-mk3", found: Some("my-mk4") }]))` with the message `This document has a problem: The stored printer profile has the id "my-mk4", but the document names the printer "my-mk3". Make them the same.`
+64. A stored profile without an id: E11 with the profile's `id` member removed is `Err(Structure([PrinterProfileIdMismatch { printer: "my-mk4", found: None }]))` with the message `This document has a problem: The stored printer profile needs the id "my-mk4", the printer the document names. Set its "id" to "my-mk4".` The same holds with `"id": 7` in place of the string.
+65. A stored profile that is not an object: E11 with `"printer_profile": []` is `Err(Invalid { path: "printer_profile", .. })`, and E11 with `"printer_profile": null` loads with `printer_profile == None`.
+66. A build that reads up to version 2 stops cleanly on version 3: `migrate_with(serde_json::from_str(E11), 2, 1, &[S])`, with `S` a step from 1 that returns its input, is `Err(NewerFormatVersion { found: 3, supported: 2 })` with the message `This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it.`
+67. The built-in chain: `MIGRATIONS` has exactly two steps, with `from` 1 and 2. `migrate` of E1 at version 2 with the extra root member `"x": 1` returns a value at version 3 that still has `"x": 1`, and `Some(2)`: the step from 2 keeps every member it is given (`load` of that text then fails with `Invalid { path: "x", .. }`).
+68. The printer profile schema is hoisted: with `Q` = `{"type": "object", "title": "PrinterProfile", "properties": {"bed": {"$ref": "#/$defs/Bed"}}, "$defs": {"Bed": {"type": "object"}}}`, `ptsm_schema(&[], &Q)` has `/$defs/Bed` = `{"type": "object"}` and `/$defs/PrinterProfile` = `{"type": "object", "properties": {"bed": {"$ref": "#/$defs/Bed"}}}`, with neither `title` nor `$defs`. With a params schema for `box` whose `$defs` hold `"Bed": {"type": "string"}`, `ptsm_schema(&[box], &Q)` is `Err(ConflictingDefinition { name: "Bed" })`.
+69. The generated schema describes the stored profile: in `docs/format/ptsm.schema.json` as `partsmith schema --write` generates it (checked in `crates/partsmith-cli/tests/`), `/properties/printer_profile` is `{"$ref": "#/$defs/PrinterProfile"}`; `/required` is still `["format", "format_version", "units"]`; `/$defs/PrinterProfile/required` is `["id", "name", "technology", "bed", "layer_height", "max_overhang_angle", "max_bridge_length", "fit"]` and `/$defs/PrinterProfile/additionalProperties` is `false`; `/$defs/PrinterProfile/properties/id/$ref` is `"#/$defs/Id"`; `/$defs/FitClasses/required` is `["press", "snug", "slip", "loose"]`; and `/$defs` holds `Bed` and `Technology`.
+
+**Asset kinds** (since M2, [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets)
+
+70. The model takes any asset kind (3.11). E1 with one more feature, `{"id": "f-txt1", "type": "text", "font": "<64 a digits>.ttf"}`, loads. The loaded record's `font` is that string, and `canonical::to_string` of the document writes it unchanged. The same holds with `.otf`.
+
+### Scope and indexes
+
+71. The generated schema leaves `occurrence` free (section 3.12 rule 7): in `docs/format/ptsm.schema.json` as `partsmith schema --write` generates it with the built-in features (checked in `crates/partsmith-cli/tests/`), no `properties` object at any depth has the key `occurrence`.
+72. The generated schema leaves the component keys free (section 3.12 rule 7): in the same file, `/properties` has none of the keys `components`, `occurrences` and `joints`.
+73. No params field indexes elements, glyphs or characters (m2-plan.md gate 4): in the same file, no `properties` object at any depth has the key `index` or `indices`, a key that ends with `_index` or `_indices`, or the key `glyph`, `glyphs`, `character` or `characters`. Every schema of type `integer` in it is at a property this test lists: none at a3f4573, and from M2 item 14 on the `degree` of the `bspline` and `fixed_spline` entity records (sketch.md section 2.12). A spec that adds another integer property adds it to this list in the same change and says there why it indexes nothing. Every M2 spec that adds a record to version 3 keeps this test passing.
 
 ## 7. Open issues
 
@@ -909,3 +1011,4 @@ E1 to E9 are the examples in section 3.6. "The E2 text" means the exact text sho
 8. **Field-level error paths.** The paths in `Invalid` need per-field deserialization. The crate `serde_path_to_error` would provide them but is a new dependency needing human review; a hand-written traversal over the three record types also works.
 9. **Schema details.** Feature params schemas must stay open (no `additionalProperties: false`) because unknown keys are preserved; definitions are named `feature.<kind>`; `$id` is omitted until the project domain is decided; the schema describes canonical files, not everything the loader accepts.
 10. **Where documents are validated against the schema.** Nothing in M1 validates files against the generated schema at runtime (the typed loader is the authority). The schema serves editors, documentation and drift checks.
+11. **The printer profile's schema is an argument.** partsmith-model cannot name print.md's `PrinterProfile`, since partsmith-print depends on it. `ptsm_schema` takes the profile's schema as its second argument, and the engine passes the one schemars generates (engine.md section 2, `ptsm_schema()`). The alternative, a hand-written copy of the written form in this crate, would need a test to keep it in step with print.md.

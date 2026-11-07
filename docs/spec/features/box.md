@@ -57,6 +57,8 @@ JSON:
 
 Label `Box`, category `create`, icon `box`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Adds a box of the given length, width and height.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `size[0]` | Length | yes | length | | |
@@ -68,6 +70,8 @@ Label `Box`, category `create`, icon `box`, version 1.
 | `position[1]` | Position Y | no | length | | |
 | `position[2]` | Position Z | no | length | | |
 | `body` | Body | no | | `body` | |
+
+No field has help, a start value or a new body (since M2, features.md section 2.3).
 
 ### Python
 
@@ -136,6 +140,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]` unless stated.
 12. **A join inside the body, and one that floats.** Test 1's box, then `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["2", "2", "2"], "position": ["0", "0", "10"], "op": "join"}` (inside). Expected: f-box2 status warning (`no_effect` with how `Inside`) rendered `This box adds nothing to body 'Body 1': it lies entirely inside the body.`, with no fix (a primitive has no profile sketch to attach, and a join inside gets no Reverse); b-1 volume 6000. With position `["0", "0", "40"]` instead (above the box): f-box2 status warning (`separate_solid`) rendered `This box does not touch body 'Body 1', so the body now has 2 separate pieces.`, fix `NewBody` only; b-1 has 2 solids, volume 6008.
 13. **A size beyond the modeling limit.** `"size": ["1e200", "20", "30"]`. Expected: error `out_of_range`, field `size[0]`, rendered `Length must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.`; no kernel call is made; b-1 empty.
 14. **Intersect.** `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}` (spans [-5,-5,0]-[5,5,10]), `{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["5", "5", "5"], "op": "intersect"}` (spans [0,0,5]-[10,10,15]), as `examples/box/intersect`. Expected: ok; volume 125, 6 faces, bbox [0,0,5]-[5,5,10] (the corner the two cubes share); change `Intersect`. Each face, with area 25, keeps the name of the box that bounds the result there: `f-box2/left` (plane x=0), `f-box2/front` (y=0) and `f-box2/bottom` (z=5) of the new box, `f-box1/right` (x=5), `f-box1/back` (y=5) and `f-box1/top` (z=10) of the body.
+15. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `box` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("box")` has the description of the Manifest section, and none of its hints has help, a start value or a new body.
 
 ## Open issues
 

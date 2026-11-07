@@ -30,12 +30,12 @@ Setups use BLOCK unless they say otherwise.
 
 ## Where the assertions run
 
-- **Recompute** (`crates/partsmith-recompute/tests/newcomer_errors.rs`): every scenario's codes, structural messages and fixes from the document alone.
-- **Engine** (`crates/partsmith-engine/tests/newcomer_errors.rs`): every scenario through the protocol, with the edit applied by `apply_edits` and the fix by `apply_fix`, checking the action labels, the cause lines of NC08 and NC11, and the result after the fix; NC09 through `set_document_units`.
-- **Playwright** against the real core and UI: E-110 to E-121 (NC01 to NC12), including the Extrude disabled reason of NC01 and the units control of NC09.
-- **Crate tests** where the study puts them: features document tests for NC02 to NC06 and NC12, fillet and shell spec tests for NC05 and NC06, the sketch crate for the findings, issues and fixes of NC01, NC07 and NC08 (sketch.md tests 237, 243 and 251; a failed sketch is diagnosed where it was given, so NC08 is `sketch_not_solved` whatever the iterations did), the expression evaluator for NC10, and Python for NC09 (`Document.set_units(..., keep_sizes=True)`).
+- **Recompute** (`crates/partsmith-recompute/tests/newcomer_errors.rs`): every scenario's codes, structural messages and fixes from the document alone, NC13 aside: profile resolution happens in the engine (engine.md section 3.7).
+- **Engine** (`crates/partsmith-engine/tests/newcomer_errors.rs`): every scenario through the protocol, with the edit applied by `apply_edits` and the fix by `apply_fix`, checking the action labels, the cause lines of NC08 and NC11, and the result after the fix; NC09 through `set_document_units`; NC13 as engine.md test 175.
+- **Playwright** against the real core and UI: E-110 to E-121 (NC01 to NC12), including the Extrude disabled reason of NC01 and the units control of NC09, and E-170 (NC13).
+- **Crate tests** where the study puts them: features document tests for NC02 to NC06 and NC12, fillet and shell spec tests for NC05 and NC06, the sketch crate for the findings, issues and fixes of NC01, NC07 and NC08 (sketch.md tests 237, 243 and 251; a failed sketch is diagnosed where it was given, so NC08 is `sketch_not_solved` whatever the iterations did), the expression evaluator for NC10, Python for NC09 (`Document.set_units(..., keep_sizes=True)`), and the CLI for NC13 (cli.md test 81).
 
-All twelve pass in phase 3 of the study's plan except the cause lines of NC08 and NC11, which pass in phase 4.
+NC01 to NC12 pass in phase 3 of the study's plan except the cause lines of NC08 and NC11, which pass in phase 4. NC13 is the first M2 mistake (m2-plan.md gate 7). It passes with M2 item 7.
 
 ## The five errors newcomers hit most
 
@@ -63,6 +63,7 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 | NC10 | | `expression` | Misspelled parameter | E-119 |
 | NC11 | | `profile_not_found`, `body_empty` | A deleted sketch line | E-120 |
 | NC12 | 2 | `hole_misses_body` | Hole beside the body | E-121 |
+| NC13 | | `unknown_printer_profile` | A version 2 document naming a printer this machine lacks | E-170 |
 
 ## Scenarios
 
@@ -149,3 +150,10 @@ All twelve pass in phase 3 of the study's plan except the cause lines of NC08 an
 - **Setup:** BLOCK. Face sketch `f-sk2` on `{q: f-ext1/end-cap, fp: plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4}`, fallback origin (0,0,30), x_axis (1,0,0), normal (0,0,1), `fallback_frame: body`, with point `e-p1` (95,25). `f-hole1` hole on `b-1`, sketch `f-sk2`, points `[e-p1]`, diameter 5, through all.
 - **Expect:** `f-hole1` warning `hole_misses_body`: `The hole at (95, 25) in 'Sketch 2' does not touch body 'Body 1'. Move the point onto the body.`, and no Reverse action (reversed, the hole misses too). Volume 120000.
 - **Today:** `The hole at point 'e-p1' does not touch body 'Body 1'. Move the point, or turn on Reverse.`, which names the point by its id and suggests a Reverse that misses too.
+
+### NC13 A version 2 document naming a printer this machine lacks
+
+- **Setup:** `crates/partsmith-engine/tests/fixtures/box.ptsm` (`ui/e2e/fixtures/printer-v2.ptsm` uses `cube.ptsm`) at `format_version` 2 with `"printer": "my-printer"`, opened in a session that holds no profile with that id.
+- **Expect:** `migrated_from` 2 and one document warning `unknown_printer_profile`: `Printer profile "my-printer" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one.`, with no actions. `printer_profile` is `generic-fdm`. The UI's Problems row has the buttons "Choose printer" and "Add printer 'my-printer'". The CLI's `--printer-file` and Python's `printer=` mapping add it.
+- **Today:** `Printer profile "my-printer" is not installed, so the default FDM profile is used. Install it or pick another printer.`, which asks for an install that no M1 host offers.
+- **Where:** engine.md test 175, cli.md test 81, ui.md E-170. No recompute-crate assertion: profile resolution happens in the engine (engine.md section 3.7).

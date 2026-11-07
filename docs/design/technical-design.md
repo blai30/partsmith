@@ -559,7 +559,7 @@ The core risk in CAD is silent geometric breakage, so testing centers on a large
 * **Model corpus:** 500+ `.ptsm` models at launch: tutorials, imported FreeCAD files, community models and adversarial cases. CI rebuilds all of them on every merge and compares volume, surface area, bounding box and face count against stored baselines.
 * **Topological naming tests:** scripted edits (change a sketch dimension, add a feature upstream, reorder) applied across the corpus. The metric is the share of downstream references that still resolve to the correct element; the v1 target is above 99%.
 * **Round-trip tests:** GUI → Python → `.ptsm` → rebuild gives identical geometry. Save → load → save gives byte-identical files. STEP export → import keeps volume within 1e-6 relative error.
-* **Fuzzing:** `cargo fuzz` on the file parser, the `.scad` interpreter and the protocol decoder. Property-based tests (proptest) on the sketch solver with random constraint sets.
+* **Fuzzing:** `cargo fuzz` on the file parser, the protocol decoder, the STEP reader and the font reader, each night in `nightly.yml`, and on the `.scad` interpreter when it lands (delivery.md 2.15). Property-based tests (proptest) on the sketch solver with random constraint sets.
 * **Performance regression:** the budgets in section 14 run in CI on fixed hardware runners; a regression over 10% blocks the merge.
 * **Visual tests:** screenshot comparisons of the viewport and UI states in light and dark themes, on desktop and web.
 * **Print validation:** a monthly physical print of calibration and regression parts (fit classes, threads, teardrop holes) on at least one FDM and one resin printer.

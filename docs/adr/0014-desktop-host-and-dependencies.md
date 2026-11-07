@@ -1,6 +1,6 @@
 # 0014: Tauri 2 desktop host, its dependencies, and no Tauri npm package
 
-Status: Accepted (owner, 2026-11-04): Tauri 2 with the dependencies below and the two RUSTSEC ignores of `deny.toml`, as built. Its six commands and its "No fs plugin" bullet are amended by [ADR 0037](0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md), accepted the same day.
+Status: Accepted (owner, 2026-11-04): Tauri 2 with the dependencies below and the two RUSTSEC ignores of `deny.toml`, as built. Its six commands and its "No fs plugin" bullet are amended by [ADR 0037](0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md), accepted the same day. Its command list is amended again by [ADR 0063](0063-cancel-through-a-host-flag-outside-the-session.md) (2026-11-07, Accepted (owner's rule of 2026-11-05)): a ninth command, `cancel_call`, with its permission `allow-cancel-call`.
 
 ## Context
 

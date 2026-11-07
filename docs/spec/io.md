@@ -50,7 +50,7 @@ The crate is pure Rust except for STEP, which it delegates to `partsmith-occt-sy
 | `{"kind": "stl", "binary": false, ...}` | `write_stl_ascii`, merged or once per body as above |
 | `{"kind": "3mf"}` | `write_3mf(&all, &options)`, with `options.title` the body's name when `all` holds one body, else `None` (engine.md section 3.13) |
 | `{"kind": "obj"}` | `write_obj(&all)` |
-| `{"kind": "step"}` | `write_step(&all)` |
+| `{"kind": "step"}` | `write_step(&all, interrupt)`, with the request's interrupt since M2 |
 
 The engine turns each `ExportWarning` into a protocol `Diagnostic { severity: warning, code: warning.code.as_str(), message: warning.message }`, and each `IoError` into `export_failed` or `import_failed`, whose messages are `Export failed. {detail}` and `Import failed. {detail}` with this crate's message as `detail`, unchanged (engine.md section 4). `import_step` calls `read_step` and names the new body itself: the request's name, else the first solid's name when it is not empty, else `Imported` (engine.md section 3.14). Degenerate and collapsed triangles are not export warnings (section 3.2); the print checks report them.
 
@@ -194,10 +194,12 @@ pub struct ImportedStep {
 }
 
 /// Writes bodies to a STEP file through the kernel (section 3.8).
-pub fn write_step(bodies: &[StepExportBody<'_>]) -> Result<Vec<u8>, IoError>;
+pub fn write_step(bodies: &[StepExportBody<'_>], interrupt: &Interrupt) -> Result<Vec<u8>, IoError>;
 /// Reads the solids, names and colors of a STEP file through the kernel (section 3.8).
-pub fn read_step(bytes: &[u8]) -> Result<ImportedStep, IoError>;
+pub fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<ImportedStep, IoError>;
 ```
+
+`Interrupt` is `partsmith_occt_sys::Interrupt` (kernel.md section 2.14). Since M2 both pass `interrupt` to the kernel's `write_step` and `read_step` (kernel.md section 3.13). A kernel error of kind `Canceled` comes back as `IoError::Kernel` unchanged, and the engine turns it into `EngineError::Canceled` (engine.md section 3.26). A caller that never stops passes `&Interrupt::new()`. Until M2 neither took an interrupt.
 
 ### 2.5 Errors
 
@@ -476,15 +478,15 @@ zip::write::SimpleFileOptions::DEFAULT
 
 ### 3.8 STEP
 
-`write_step(bodies)`:
+`write_step(bodies, interrupt)`:
 
 1. An empty slice gives `NoBodies` (the same message the kernel would give).
 2. Each body becomes a kernel `StepBody { shape: shape.clone(), name, color }` in input order, where `name` is the display name (section 3.1.2) and `color` converts each channel `c` to `c as f64 / 255.0`.
-3. The result of `partsmith_occt_sys::write_step` is returned unchanged; a kernel error becomes `IoError::Kernel`. The kernel writes AP214 in millimeters with one product per body, its name and its surface color, deterministically (kernel.md section 3.8.1).
+3. The result of `partsmith_occt_sys::write_step(&bodies, interrupt)` is returned unchanged; a kernel error becomes `IoError::Kernel`, a stop (kind `Canceled`) included. The kernel writes AP214 in millimeters with one product per body, its name and its surface color, deterministically (kernel.md section 3.8.1).
 
-`read_step(bytes)`:
+`read_step(bytes, interrupt)`:
 
-1. Calls `partsmith_occt_sys::read_step(bytes)`; a kernel error becomes `IoError::Kernel` (`The file is not a valid STEP file.`, `The STEP file contains no solid bodies.`, kernel.md section 4.3).
+1. Calls `partsmith_occt_sys::read_step(bytes, interrupt)`; a kernel error becomes `IoError::Kernel` (`The file is not a valid STEP file.`, `The STEP file contains no solid bodies.`, kernel.md section 4.3), a stop (kind `Canceled`) included.
 2. Each kernel body becomes an `ImportedSolid` in the same order, with the kernel's name unchanged (already trimmed, empty when the part has none) and its color converted per channel: a NaN channel becomes 0, the value is clamped to `[0, 1]`, then `(c * 255.0).round() as u8`. Kernel warnings are passed through unchanged.
 3. Shapes are in millimeters whatever unit the file uses (the kernel converts). The order equals the kernel's, so the `import` feature, which reads the same asset through the kernel at recompute, sees the same solids in the same order.
 
@@ -510,7 +512,7 @@ Every 8-bit color survives `read_step(write_step(...))` exactly, because the rou
 | `PackageTooLarge` | `The 3MF model is larger than 4 GiB, which this version cannot write. Export fewer bodies or use a coarser tolerance.` |
 | `OutputTooLarge` | `The export is too large to hold in memory. Export fewer bodies per file, use a coarser tolerance, or use binary STL or 3MF.` |
 | `Package { detail }` | `The 3MF package could not be written ({detail}). Please report this.` |
-| `Kernel(error)` | The kernel error's user message, unchanged. |
+| `Kernel(error)` | The kernel error's user message, unchanged. Since M2 this includes a stop, kind `Canceled` (`Partsmith stopped this step before it finished.`, kernel.md section 4.3), which the engine words itself (engine.md section 3.26). |
 
 No function panics on any input. Allocation failure aborts as it does everywhere in Rust.
 
@@ -650,7 +652,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 
 ### 6.9 STEP
 
-`BOX` is `make_box(&Plane::XY, 10.0, 20.0, 30.0).unwrap().shape` and `CYLINDER` is `make_cylinder(&Plane::XY, 5.0, 10.0).unwrap().shape` (kernel.md section 2.4).
+`BOX` is `make_box(&Plane::XY, 10.0, 20.0, 30.0).unwrap().shape` and `CYLINDER` is `make_cylinder(&Plane::XY, 5.0, 10.0).unwrap().shape` (kernel.md section 2.4). Since M2 every `write_step` and `read_step` call of tests 52 to 58 passes `&Interrupt::new()`, and test 62 passes an interrupt requested before the call.
 
 52. `write_step(&[])` returns `NoBodies`.
 53. `write_step` of `BOX` named `Bracket` with color `#3b82f6` returns bytes starting with `ISO-10303-21;`; `read_step` of them returns one solid named `Bracket` with color exactly `Color::new(0x3b, 0x82, 0xf6)`, volume 6000 within 1e-6 relative, and no warnings.
@@ -659,6 +661,7 @@ Tests live in `crates/partsmith-io/tests/` and use only public APIs (this crate,
 56. A body with an empty name reads back as `Body 1` (the display name it was written with); a body named `A\nB` reads back as `A_B`. The bytes of kernel.md test 82 with every `'Body 1'` replaced by `''` read back as one solid with an empty name.
 57. Two `write_step` calls with the same bodies return identical bytes.
 58. `read_step(b"not a step file")` returns `Kernel(_)` with message `The file is not a valid STEP file.`; the empty but valid file of kernel.md test 83 returns `Kernel(_)` with message `The STEP file contains no solid bodies.`; `write_step` of `Shape::empty()` named `Empty` returns `Kernel(_)` with message `Body "Empty" has no solid to export.`
+62. A stop reaches the kernel (since M2). `interrupt` is `Interrupt::new()` after `interrupt.request()`. `write_step` of `BOX` named `Bracket` with `&interrupt` returns `Kernel(error)` with `error.kind` `KernelErrorKind::Canceled` and `error.operation` `Operation::WriteStep`. `read_step` of the bytes that test 53's `write_step` returns, with `&interrupt`, returns `Kernel(error)` with kind `Canceled` and operation `Operation::ReadStep`. The `Display` of each is `Partsmith stopped this step before it finished.`
 
 ### 6.10 Determinism and inputs
 

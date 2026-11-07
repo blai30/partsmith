@@ -55,11 +55,20 @@ JSON:
 
 Label `Fillet`, category `modify`, icon `fillet`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Rounds the selected edges.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `edges` | Edges | yes | | `edge` | |
 | `radius` | Radius | yes | length | | |
 | `body` | Body | no | | `body` | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `edges` | The edges to round. Click a face to add all of its edges. | | |
+| `radius` | | `expr` `1 mm` | |
 
 ### Python
 
@@ -167,6 +176,7 @@ Tests 19 to 22 use `STEP`: `{"id": "f-box1", "type": "box", "body": "b-1", "size
 20. **Remove the edge that limits it, when the others work.** `STEP`, `FIL([E-RISER, {"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}], "3")`. Expected: error `fillet_too_large` with the message of test 19 and `removable` true (one more attempt at 3 mm without `edges[0]` works); fixes [Use 2.3 mm] then `RemoveEntry { pointer: "/edges/0" }` (Remove from Edges). Then (`RemoveEntry`): f-fil1 status ok with only the bottom left edge rounded at 3 mm, b-1 volume 7001.371669. Test 8 is the counterpart: there every other edge fails as well, so no removal is offered, because a removal is offered only when it was verified to work. With `[E-RISER, E-RISER, {"q": "edge(f-box1/bottom|f-box1/left)", ...}]`: `removable` false and the only fix [Use 2.3 mm], since removing `edges[0]` would leave `edges[1]` selecting the riser's edge (features.md section 4.3).
 21. **A limit far below the request counts as none.** `STEP`, `FIL([E-RISER], "30")`. Expected: error `fillet_too_large` with `max` None, although the search finds about 2.3 mm: that is below 10 percent of 30 mm, so it is not a useful fix (features.md section 4.3); `limit` the face `f-box2/left` with width 2.4; no suggestion; fixes `Suppress { feature: "f-fil1" }` only; rendered `Fillet radius 30 mm does not work on the selected edges, and no radius near it does. The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.`
 22. **A bare number in an inch document (corpus R48).** Document `"units": "in"`; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "20 mm", "20 mm"], "op": "new"}`; `FIL([E-FT], "2")` (2 in, 50.8 mm, on a 20 mm cube). Expected: error `fillet_too_large`, `max == Some(m)` with 12.7 ≤ m < 20 (millimeters), rendered `Fillet radius 2 in is too large for the selected edges: the largest that works is about {s} in. '2' has no unit, so it means 2 in in this document.` with `{s}` = m in inches rounded down to 2 significant digits (the bare-number sentence takes the place of the limit sentence); fixes `SetField` radius `"2 mm"` [Use 2 mm] first, then [Use {s} in]; suggestion `2 mm`. Then (the first fix): f-fil1 status ok, `radius` is `"2 mm"`, b-1 volume 7982.831853.
+23. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `fillet` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("fillet")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out.
 
 ## Open issues
 

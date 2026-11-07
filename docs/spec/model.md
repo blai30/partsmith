@@ -23,9 +23,16 @@ In this milestone (M1):
 - Feature manifests (`FeatureManifest` and its parts): pure data the feature registry defines and the protocol carries.
 - Expressions and parameter evaluation (expressions.md), canonical JSON, load and save, `format_version` 2 with the migration from version 1, and JSON Schema generation (file-format.md).
 
+In M2:
+
+- `format_version` 3 with the migration from version 2 (file-format.md section 3.9, [ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md)).
+- `Document::printer_profile`, the printer profile a document stores when it names one that is not built in, with its structural rules 9 and 10 (section 3.6), and the `profile` of `Edit::SetPrinter` that sets it ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)).
+- `EvaluationContext::reason` and the evaluator's `UnavailableValue` (expressions.md).
+- Feature help, start values and new-body fields in the manifests: `FeatureManifest::description`, `FieldHint::help`, `start` and `creates_body`, with `StartValue` and `BodyCreation` (section 2.12, [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)).
+
 Explicitly later (not in M1):
 
-- Components (local and linked from other `.ptsm` files) and their records.
+- Components (local and linked from other `.ptsm` files) and their records. [ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md) fixes their scope rule now: a record belongs to the scope whose array holds it, ids are unique within a scope, and an unqualified reference resolves in its own scope (file-format.md section 3.12).
 - Joints and joint values.
 - Configurations (design tables) and per-configuration suppression (v1.1).
 - `.ptsz` bundles.
@@ -224,6 +231,12 @@ pub struct Document {
     /// Printer profile id whose values `printer.*` names resolve to; `None` when no printer is chosen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub printer: Option<String>,
+    /// The printer profile `printer` names, in print.md's written form, stored when that profile is not built in
+    /// (ADR 0062, format version 3). The model reads only its `id` (section 3.6, rules 9 and 10); partsmith-print
+    /// reads the rest. Its JSON Schema is a reference to `#/$defs/PrinterProfile`, which the protocol and `.ptsm`
+    /// schemas define (protocol.md section 2.9, file-format.md section 3.10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printer_profile: Option<serde_json::Map<String, serde_json::Value>>,
     /// Parameters in the order the user sees them.
     #[serde(default)]
     pub parameters: Vec<Parameter>,
@@ -274,7 +287,8 @@ impl Document {
     pub fn bare_numbers(&self, inspector: &dyn FeatureInspector) -> usize;
     /// Evaluates every parameter (expressions.md section 3.13).
     pub fn evaluate_parameters(&self, context: &dyn EvaluationContext) -> ParameterValues;
-    /// Rewrites every number inside feature params to its normalized form (file-format.md section 3.3).
+    /// Rewrites every number inside feature params and inside `printer_profile` to its normalized form
+    /// (file-format.md section 3.3).
     pub fn normalize(&mut self);
 }
 
@@ -450,6 +464,11 @@ pub enum StructureError {
     WrongFormat { found: String },
     /// `format_version` is not FORMAT_VERSION.
     WrongFormatVersion { found: u32 },
+    /// `printer_profile` is present but `printer` is not (rule 9).
+    PrinterProfileWithoutPrinter,
+    /// The `id` member of `printer_profile` is not a string equal to `printer` (rule 10); `found` is that member when
+    /// it is a string.
+    PrinterProfileIdMismatch { printer: String, found: Option<String> },
     /// An id appears on more than one parameter, body or feature; reported at each repeat.
     DuplicateId { id: Id },
     /// A parameter name breaks the name rules.
@@ -530,10 +549,14 @@ pub enum Edit {
     },
     /// Sets the document units.
     SetUnits { units: Units },
-    /// Sets or clears the printer profile id.
+    /// Sets or clears the printer profile id, and with it the stored profile (section 3.9).
     SetPrinter {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         printer: Option<String>,
+        /// The profile to store, in print.md's written form; `None` stores none. Its JSON Schema is a reference to
+        /// `#/$defs/PrinterProfile`, as for `Document::printer_profile`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<serde_json::Map<String, serde_json::Value>>,
     },
 }
 
@@ -670,10 +693,11 @@ Every `BodyRole` value: `"part"`, `"negative_volume"`, `"support_blocker"`, `"su
 {"type": "set_rollback"}
 {"type": "set_units", "units": "in"}
 {"type": "set_printer", "printer": "generic-fdm"}
+{"type": "set_printer", "printer": "my-mk4", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220}, "nozzle_diameter": 0.4, "layer_height": 0.15, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}}}
 {"type": "set_printer"}
 ```
 
-`{"type": "set_rollback"}` clears the marker (nothing is rolled back) and `{"type": "set_printer"}` clears the printer. On input, an explicit `null` for `rollback` or `printer` is accepted and means the same.
+`{"type": "set_rollback"}` clears the marker (nothing is rolled back) and `{"type": "set_printer"}` clears the printer and the stored profile. A `set_printer` without `profile` stores no profile, whatever the document stored before. On input, an explicit `null` for `rollback`, `printer` or `profile` is accepted and means the same.
 
 `Step` and `Transaction`, as written by the canonical writer (file-format.md section 3.5):
 
@@ -700,6 +724,9 @@ A manifest describes a feature type for the UI, the schema and the registry. The
 pub struct FeatureManifest {
     /// Display name, for example "Extrude". Also the base of default feature labels.
     pub label: String,
+    /// What the feature does, in the words of the interface: one sentence of at most 120 characters that ends with a
+    /// period. Hosts show it with the feature's command. Since M2.
+    pub description: String,
     /// Toolbar and palette grouping.
     pub category: Category,
     /// Icon name in the UI icon set, kebab-case, for example "linear-pattern".
@@ -745,6 +772,50 @@ pub struct FieldHint {
     /// Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<OptionHint>,
+    /// Hover help in the words of the interface, for a field whose label alone does not say what it does. Omitted when
+    /// none. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// What the field starts at in a new feature. Omitted when the host's general rule applies. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<StartValue>,
+    /// When the field receives the body a host's command creates. Omitted for every other field. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creates_body: Option<BodyCreation>,
+}
+
+/// What a field of a new feature starts at in a host's inspector (ui.md section 2.12). Since M2.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StartValue {
+    /// An expression for a hint with a unit, for example "1 mm". A length carries its unit. It means the same in every
+    /// document unit.
+    Expr {
+        /// The expression.
+        expr: Expr,
+    },
+    /// One of the hint's options, for an enumeration or a tag field, for example "through_all".
+    Choice {
+        /// The option's value.
+        value: String,
+    },
+    /// `factor` times the value of another expression field of the same feature, for a hint with a unit.
+    Multiple {
+        /// The path of the other field, for example "diameter".
+        field: String,
+        /// A finite number above 0, for example 2.
+        factor: f64,
+    },
+}
+
+/// When a body field receives the body that a host's command for a new feature creates (ui.md section 2.12). Since M2.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyCreation {
+    /// While the feature's `op` is `new`. Hosts show the field only then.
+    WhileNew,
+    /// From the start. The user can pick another body or clear the field.
+    AtStart,
 }
 
 /// Value kind of an expression field, which sets its input unit, its expected dimension and its validation.
@@ -781,6 +852,21 @@ pub enum SelectionKind {
     Plane,
     /// An origin axis, a sketch line, a straight edge, or a cylindrical, conical, spherical or toroidal face.
     Axis,
+    /// Since M2: one or more chains of sketch curves (sketch.md section 3.18), the open profile of a rib, a web or a
+    /// thin wall, stored as features.md's `ChainProfileRef`. Items 28 and 29 give its rule.
+    SketchChain,
+    /// Since M2: one or more text entities of a sketch, each taken whole (sketch.md section 3.20.6). Item 27 gives
+    /// its rule and its value.
+    SketchText,
+    /// Since M2: the path a feature runs along, a chain of sketch curves or of model edges. Item 18 gives its rule
+    /// and its value.
+    Path,
+    /// Since M2: a chain of sketch curves or of model edges that guides a sweep or a loft. Items 18 and 30 give its
+    /// rule and its value.
+    Rail,
+    /// Since M2: a closed sketch profile, a planar face or a point that a loft runs through. Item 30 gives its rule
+    /// and its value.
+    Section,
 }
 
 /// Display label for one value of an enumeration field.
@@ -795,25 +881,41 @@ pub struct OptionHint {
 
 `FieldUnit` is also the value kind the features crate uses for expression uses, range errors and value formatting (features.md).
 
+The five values after `Axis` are contracts of [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md). They serialize as `sketch_chain`, `sketch_text`, `path`, `rail` and `section`. They land together, with the first item that uses one (the sweep's `path`, M2 item 18, wave 2). The spec of the feature that first uses each says what a field of that kind accepts and stores, and ui.md's rule for it (`acceptsTarget`).
+
 JSON form (the extrude manifest, as the host receives it in the protocol's feature catalog):
 
 ```json
 {
   "label": "Extrude",
+  "description": "Pulls a closed sketch shape straight out into a solid, or cuts it into one.",
   "category": "create",
   "icon": "extrude",
   "version": 1,
   "fields": [
-    {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region"},
-    {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}]},
+    {"path": "profile", "label": "Profile", "essential": true, "selection": "sketch_region", "help": "The closed sketch shapes to extrude. Click inside a shape to add it."},
+    {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Distance"}, {"value": "symmetric", "label": "Symmetric"}, {"value": "two_sides", "label": "Two sides"}, {"value": "through_all", "label": "Through all"}], "help": "Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body."},
     {"path": "extent.expr", "label": "Distance", "essential": true, "unit": "length"},
     {"path": "extent.opposite_expr", "label": "Opposite distance", "essential": true, "unit": "length"},
-    {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}]},
-    {"path": "reverse", "label": "Reverse"},
-    {"path": "body", "label": "Body", "selection": "body"}
+    {"path": "op", "label": "Operation", "essential": true, "options": [{"value": "new", "label": "New body"}, {"value": "join", "label": "Join"}, {"value": "cut", "label": "Cut"}, {"value": "intersect", "label": "Intersect"}], "help": "New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap."},
+    {"path": "reverse", "label": "Reverse", "essential": true, "help": "Extrudes to the other side of the sketch."},
+    {"path": "body", "label": "Body", "selection": "body", "help": "The body that Join, Cut and Intersect change."}
   ]
 }
 ```
+
+Start values and new-body fields (hints of the hole and mirror manifests, features/hole.md and features/mirror.md):
+
+```json
+[
+  {"path": "diameter", "label": "Diameter", "essential": true, "unit": "length", "start": {"kind": "expr", "expr": "3.2 mm"}},
+  {"path": "hole_type.diameter", "label": "Head diameter", "essential": true, "unit": "length", "help": "Diameter of the wider recess at the top of the hole.", "start": {"kind": "multiple", "field": "diameter", "factor": 2.0}},
+  {"path": "extent.kind", "label": "Extent", "essential": true, "options": [{"value": "distance", "label": "Depth"}, {"value": "through_all", "label": "Through all"}], "help": "Depth stops at a set depth. Through all goes through the whole body.", "start": {"kind": "choice", "value": "through_all"}},
+  {"path": "target", "label": "Target body", "essential": true, "selection": "body", "creates_body": "while_new"}
+]
+```
+
+Since M2 ([ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)), a manifest carries what the UI took from tables of its own in M1: the description of the feature's command, the hover help of its fields, their start values and the field that receives a new body. `FieldHint` writes `help`, `start` and `creates_body` after `options`, in that order, and omits each when it is `None`. A `multiple` start's `factor` is an `f64` and serializes as serde_json writes one (`2.0`); the number `2` reads as the same value. The registry checks each start value and `creates_body` against its hint when a feature registers (features.md section 3.3). How hosts use them is ui.md section 2.12. Manifests are not stored in documents, and none of this changes the file format.
 
 ## 3. Behavior
 
@@ -878,17 +980,19 @@ Leading and trailing spaces are allowed and preserved. Labels need not be unique
 A document is structurally valid when `check_structure()` is empty. `load` returns only structurally valid documents (or fails), `Document::new` returns one, and `apply` keeps a structurally valid document structurally valid. The rules:
 
 1. `format == "partsmith"`.
-2. `format_version == FORMAT_VERSION` (2).
+2. `format_version == FORMAT_VERSION` (3; 2 in M1).
 3. `printer`, when present, is a valid label.
 4. Parameter, body and feature ids are pairwise distinct.
 5. Every parameter name is valid (section 3.3) and no two parameters share a name.
 6. Every body name is a valid label; every material, when present, is a valid label.
 7. Every feature type is valid (section 3.5); every feature name, when present, is a valid label; no params key is reserved.
 8. `rollback`, when present, is the id of a feature in the document.
+9. `printer_profile`, when present, comes with `printer` (format version 3).
+10. `printer_profile`, when present, has an `id` member that is a string equal to `printer`. The model checks nothing else in it: print.md's `PrinterProfile::from_written` checks the profile, and the engine refuses a document whose stored profile it rejects (engine.md section 3.2).
 
 `check_structure` walks the document in this fixed order and reports every violation it meets:
 
-1. `WrongFormat` (rule 1), then `WrongFormatVersion` (rule 2), then `InvalidLabel { id: None, .. }` for the printer (rule 3).
+1. `WrongFormat` (rule 1), then `WrongFormatVersion` (rule 2), then `InvalidLabel { id: None, .. }` for the printer (rule 3), then `PrinterProfileWithoutPrinter` (rule 9) or, when `printer` is present, `PrinterProfileIdMismatch` (rule 10).
 2. Parameters in order. For each: `DuplicateId` if its id appeared earlier in the walk; `InvalidParameterName` if its name is invalid; otherwise `DuplicateParameterName` if an earlier parameter has the same name.
 3. Bodies in order. For each: `DuplicateId`; `InvalidLabel` for the name; `InvalidLabel` for the material.
 4. Features in order. For each: `DuplicateId`; `InvalidFeatureType`; `InvalidLabel` for the name; one `ReservedParamKey` per reserved key, in params order.
@@ -944,7 +1048,7 @@ The inspector's own results are taken as given; the model does not deduplicate t
 | `MoveFeature { id, index }` | exists; `index <= len - 1` | Moves it | `MoveFeature { id, previous index }` |
 | `SetRollback { rollback }` | when `Some(id)`, a feature has `id` (`UnknownRollbackFeature`) | Sets `rollback` | `SetRollback { previous value }` |
 | `SetUnits { units }` | none | Sets `units` | `SetUnits { previous value }` |
-| `SetPrinter { printer }` | when `Some`, a valid label (`InvalidLabel` with `LabelField::Printer`) | Sets `printer` | `SetPrinter { previous value }` |
+| `SetPrinter { printer, profile }` | `printer`, when `Some`, a valid label (`InvalidLabel` with `LabelField::Printer`); `profile`, when `Some`: `printer` is `Some` (`ProfileWithoutPrinter`), and its `id` member is a string equal to `printer` (`ProfileIdMismatch`) | Sets `printer`, normalizes the numbers in `profile`, and sets `printer_profile` to it (`None` clears the stored profile) | `SetPrinter { printer: previous printer, profile: previous printer_profile }` |
 
 Rules that apply to every edit:
 
@@ -1054,7 +1158,7 @@ Each message is the error's `Display`. Placeholders in braces are filled from th
 | Variant | Message |
 | --- | --- |
 | `WrongFormat { found }` | `The format field is '{found}', but a Partsmith document needs 'partsmith'.` |
-| `WrongFormatVersion { found }` | `The document is at format version {found}, but documents in memory must be at version 2. Load it from text so it is migrated.` (the number is `FORMAT_VERSION`) |
+| `WrongFormatVersion { found }` | `The document is at format version {found}, but documents in memory must be at version 3. Load it from text so it is migrated.` (the number is `FORMAT_VERSION`) |
 | `DuplicateId { id }` | `The id {id} is used by more than one record. Give the later record a new id.` |
 | `InvalidParameterName { id, error }` | `Parameter {id}: {error}` |
 | `DuplicateParameterName { id, name }` | `Parameter {id} is named {name}, but an earlier parameter already uses that name. Rename one of them.` |
@@ -1063,6 +1167,9 @@ Each message is the error's `Display`. Placeholders in braces are filled from th
 | `InvalidFeatureType { id, kind }` | `Feature {id} has the type '{kind}', which is not a valid type name. Type names use lowercase letters, digits and _, and start with a letter.` |
 | `ReservedParamKey { id, key }` | `Feature {id} has a parameter named '{key}', which the record itself uses. Rename that parameter.` |
 | `UnknownRollback { id }` | `The rollback marker points at {id}, which is not a feature in this document. Move the marker to an existing feature or to the end.` |
+| `PrinterProfileWithoutPrinter` | `The document stores a printer profile but names no printer. Set "printer" to the profile's id, or remove "printer_profile".` |
+| `PrinterProfileIdMismatch { printer, found: Some(found) }` | `The stored printer profile has the id "{found}", but the document names the printer "{printer}". Make them the same.` |
+| `PrinterProfileIdMismatch { printer, found: None }` | `The stored printer profile needs the id "{printer}", the printer the document names. Set its "id" to "{printer}".` |
 
 ### 4.6 `ValidationError`
 
@@ -1096,6 +1203,8 @@ Each message is the error's `Display`. Placeholders in braces are filled from th
 | `IndexOutOfRange { index: usize, max: usize }` | `Position {index} is out of range. Use a position from 0 to {max}.` |
 | `RemovesRollbackFeature { id: Id }` | `Feature {id} holds the rollback marker. Move the rollback marker before removing it.` |
 | `UnknownRollbackFeature { id: Id }` | `Cannot roll back to {id} because there is no feature with that id.` |
+| `ProfileWithoutPrinter` | `A printer profile can be stored only with the printer it belongs to. Name its id as the printer.` |
+| `ProfileIdMismatch { printer: String, found: Option<String> }` | `The printer profile has the id "{found}", but the printer is "{printer}". Store the profile of the printer you name.`; with `found` `None`: `The printer profile needs the id "{printer}", the printer you name.` |
 
 ### 4.8 `TransactionError` and `UndoError`
 
@@ -1175,7 +1284,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 
 ### Document basics
 
-30. `Document::new(Units::In)` has `format == "partsmith"`, `format_version == 2`, `units == In`, empty lists, `printer == None`, `rollback == None`, and `check_structure()` is empty. `Document::default().units == Units::Mm`.
+30. `Document::new(Units::In)` has `format == "partsmith"`, `format_version == 3` (2 before format version 3), `units == In`, empty lists, `printer == None`, `printer_profile == None`, `rollback == None`, and `check_structure()` is empty. `Document::default().units == Units::Mm`.
 31. On D1: `parameter(&id("p-h"))` has name `height`; `parameter_by_name("wall")` has id `p-wall`; `parameter_by_name("Wall")` is `None`; `body(&id("b-1"))` is `Some`; `feature_index(&id("f-fil1"))` is `Some(2)`; `feature(&id("f-x"))` is `None`; `contains_id(&id("b-1"))` is true.
 32. D1 with `rollback = Some(f-ext1)`: `active_features()` has ids `[f-sk1]`; with `Some(f-sk1)` it is empty; with `None` it has all three; with `Some(f-missing)` (built directly) it has all three.
 33. `used_ids(&TestInspector)` on D1 where `f-sk1` params are `{"declares": ["e-1", "c-1"]}` is `{b-1, c-1, e-1, f-ext1, f-fil1, f-sk1, p-h, p-wall}`.
@@ -1189,7 +1298,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 38. D1 with `f-ext1.kind = "Extrude"`: `[InvalidFeatureType { id: f-ext1, kind: "Extrude" }]`.
 39. D1 with `f-ext1.params` containing `"suppressed": true` then `"name": "x"` (in that order, built in code): `[ReservedParamKey { id: f-ext1, key: "suppressed" }, ReservedParamKey { id: f-ext1, key: "name" }]`.
 40. D1 with `rollback = Some(f-x)`: `[UnknownRollback { id: f-x }]`.
-41. D1 with `format = "other"`, `format_version = 3`, `printer = Some("")`, `p-h` named `wall`, body named `""`, and `rollback = Some(f-x)`: `check_structure()` is exactly `[WrongFormat { found: "other" }, WrongFormatVersion { found: 3 }, InvalidLabel { id: None, error: Empty { field: Printer } }, DuplicateParameterName { id: p-h, name: "wall" }, InvalidLabel { id: Some(b-1), error: Empty { field: BodyName } }, UnknownRollback { id: f-x }]`.
+41. D1 with `format = "other"`, `format_version = 4`, `printer = Some("")`, `p-h` named `wall`, body named `""`, and `rollback = Some(f-x)`: `check_structure()` is exactly `[WrongFormat { found: "other" }, WrongFormatVersion { found: 4 }, InvalidLabel { id: None, error: Empty { field: Printer } }, DuplicateParameterName { id: p-h, name: "wall" }, InvalidLabel { id: Some(b-1), error: Empty { field: BodyName } }, UnknownRollback { id: f-x }]`. (Before format version 3, the test used 3.)
 
 ### Validation
 
@@ -1254,7 +1363,7 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 88. On D1 with `f-ext1` params `{"body": "b-1", "exprs": ["2 * wall", "printer.wall + 1"]}`, `rename_parameter_edits(&id("p-wall"), "thickness", &TestInspector)` returns exactly three edits: `UpdateParameter` of `p-wall` named `thickness` with expr `2 mm`; `UpdateParameter` of `p-h` named `height` with expr `10 * thickness`; `UpdateFeature` of `f-ext1` with params `{"body": "b-1", "exprs": ["2 * thickness", "printer.wall + 1"]}`. Applying them with `apply_all` succeeds and `validate(&TestInspector)` is then empty.
 89. On D1, `rename_parameter_edits` of `p-wall` to `height` returns `Err(NameInUse { name: "height" })`; to `2x` returns `Err(InvalidParameterName(InvalidStart { .. }))`; of `p-zz` returns `Err(NotFound { kind: RecordKind::Parameter, id: p-zz })`; of `p-wall` to `wall` returns `Ok(vec![])`.
 90. On D1 with `p-h` expr `10 * wall +` (does not parse) and `f-ext1` params `{"invalid": true, "exprs": ["wall"]}`, renaming `p-wall` to `t` returns only the `UpdateParameter` of `p-wall`.
-91. The extrude manifest JSON of section 2.12 deserializes as `FeatureManifest`, and serializing it with `serde_json::to_string` gives the same text as `serde_json::to_string(&serde_json::from_str::<Value>(example))`. `FieldHint { path: "body", label: "Body", essential: false, unit: None, selection: Some(SelectionKind::Body), options: vec![] }` serializes to exactly `{"path":"body","label":"Body","selection":"body"}`.
+91. The extrude manifest JSON of section 2.12 deserializes as `FeatureManifest`, and serializing it with `serde_json::to_string` gives the same text as `serde_json::to_string(&serde_json::from_str::<Value>(example))`. `FieldHint { path: "body", label: "Body", essential: false, unit: None, selection: Some(SelectionKind::Body), options: vec![] }` (since M2 with `help`, `start` and `creates_body` `None`) serializes to exactly `{"path":"body","label":"Body","selection":"body"}`.
 
 ### Document units
 
@@ -1267,6 +1376,37 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 96. With `OpaqueFeatures`, `bare_numbers` counts no feature expression and no parameter, and `units_edits(units, true, &OpaqueFeatures)` is `[SetUnits { units }]` for any other units.
 97. Factors are not sizes: D3 plus the parameter `p-scale` named `scale` with expr `2`, and `40 mm * scale` appended to the `lengths` of `f-box1`. `bare_numbers` is still 4: a `Length` link reaches `scale`, but only as a factor of `40 mm`. `units_edits(Units::In, true, &TestInspector)` is the result of test 93, with the `UpdateFeature` of `f-box1` keeping `40 mm * scale` at the end of its lengths and no edit of `p-scale`; after `UndoLog::commit` of it, `40 mm * scale` evaluates (expected `LENGTH`, units `In`) to the length 80, as before, and not to an area.
 
+### The stored printer profile
+
+In tests 98 to 105, `P` is the `printer_profile` object of file-format.md's E11 (the profile `my-mk4`).
+
+98. `SetPrinter` stores a profile: on D1, `apply(SetPrinter { printer: Some("my-mk4"), profile: Some(P) })` returns `Ok(SetPrinter { printer: None, profile: None })`. The document then has `printer == Some("my-mk4")` and `printer_profile == Some(P)`, and applying the returned inverse gives back a document equal to D1.
+99. A `SetPrinter` without `profile` clears the stored profile: after test 98's edit, `apply(SetPrinter { printer: Some("generic-fdm"), profile: None })` returns `Ok(SetPrinter { printer: Some("my-mk4"), profile: Some(P) })` and leaves `printer_profile == None`.
+100. A profile without a printer is refused: on D1, `apply(SetPrinter { printer: None, profile: Some(P) })` is `Err(ProfileWithoutPrinter)` with the message `A printer profile can be stored only with the printer it belongs to. Name its id as the printer.`, and D1 is unchanged.
+101. A profile of another printer is refused: on D1, `apply(SetPrinter { printer: Some("my-mk3"), profile: Some(P) })` is `Err(ProfileIdMismatch { printer: "my-mk3", found: Some("my-mk4") })` with the message `The printer profile has the id "my-mk4", but the printer is "my-mk3". Store the profile of the printer you name.`
+102. A profile without an id is refused: on D1, with `P` without its `id` member, `apply(SetPrinter { printer: Some("my-mk4"), profile: Some(..) })` is `Err(ProfileIdMismatch { printer: "my-mk4", found: None })` with the message `The printer profile needs the id "my-mk4", the printer you name.`
+103. `apply` normalizes the numbers of a stored profile: with `P`'s `max_bridge_length` replaced by the `f64` 10.0, the stored `printer_profile["max_bridge_length"]` equals `json!(10)` and `is_u64()`.
+104. `check_structure` reports rules 9 and 10 after the printer's label: D1 with `format_version = 2` and `printer_profile = Some(P)` and no printer gives exactly `[WrongFormatVersion { found: 2 }, PrinterProfileWithoutPrinter]`; the same with `printer = Some("my-mk3")` gives exactly `[WrongFormatVersion { found: 2 }, PrinterProfileIdMismatch { printer: "my-mk3", found: Some("my-mk4") }]`.
+105. `set_printer` in JSON: `{"type": "set_printer", "printer": "my-mk4", "profile": P}` deserializes to `SetPrinter` with `profile: Some(P)` and serializes back to the same JSON, with the members of `P` in their order; `{"type": "set_printer", "printer": "my-mk4", "profile": null}` deserializes with `profile: None`; `{"type": "set_printer", "printer": "my-mk4", "profile": 5}` fails to deserialize.
+
+### Manifest hints (M2)
+
+Section 2.12 and [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md). They live in `crates/partsmith-model/tests/model_rename_and_manifests.rs`, beside test 91.
+
+106. A description is required: the extrude manifest JSON of section 2.12 without its `description` member fails to deserialize as `FeatureManifest`.
+107. The new members come after `options`, in order: `FieldHint { path: "target", label: "Target body", essential: true, unit: None, selection: Some(SelectionKind::Body), options: vec![], help: Some("The body that gets the copies."), start: None, creates_body: Some(BodyCreation::WhileNew) }` serializes to exactly `{"path":"target","label":"Target body","essential":true,"selection":"body","help":"The body that gets the copies.","creates_body":"while_new"}`.
+108. The new members are optional: `{"path": "op", "label": "Operation"}` deserializes as a `FieldHint` whose `help`, `start` and `creates_body` are `None`.
+109. The forms of `StartValue`: `Expr { expr: Expr::new("1 mm") }` serializes to exactly `{"kind":"expr","expr":"1 mm"}`, `Choice { value: "through_all" }` to `{"kind":"choice","value":"through_all"}` and `Multiple { field: "diameter", factor: 2.0 }` to `{"kind":"multiple","field":"diameter","factor":2.0}`. Each of the three texts deserializes back to the value it came from, and `{"kind":"multiple","field":"diameter","factor":2}` deserializes to the same `Multiple`.
+110. A start value of another form is refused: `{"kind":"text","value":"x"}`, `{"kind":"expr"}` and `{"kind":"multiple","field":"diameter"}` each fail to deserialize as `StartValue`.
+111. The forms of `BodyCreation`: `WhileNew` and `AtStart` serialize as `"while_new"` and `"at_start"`, and `"always"` fails to deserialize.
+112. The hole and mirror hints of section 2.12 deserialize as `Vec<FieldHint>`, and serializing them with `serde_json::to_string` gives the same text as `serde_json::to_string(&serde_json::from_str::<Value>(example))`.
+113. New selection kinds (2.12, ADR 0066; written with M2 item 18 when the five values land). `SelectionKind::SketchChain`, `SketchText`, `Path`, `Rail` and `Section` serialize as `"sketch_chain"`, `"sketch_text"`, `"path"`, `"rail"` and `"section"`, and each of those strings deserializes back to its value.
+114. Their place in the schema (2.12, ADR 0066; with item 18). The JSON Schema of `SelectionKind` is an enum of exactly the 13 values in declaration order: `body`, `sketch`, `sketch_region`, `sketch_point`, `face`, `edge`, `plane`, `axis`, `sketch_chain`, `sketch_text`, `path`, `rail`, `section`.
+
+### The stored printer profile, continued
+
+115. `Document::normalize` normalizes a stored profile: D1 with `printer = Some("my-mk4")` and `printer_profile` set directly on the struct to `P` with `max_bridge_length` the `f64` 10.0 has, after `normalize()`, `printer_profile["max_bridge_length"]` equal to `json!(10)` and `is_u64()` (test 103 does the same through `apply`).
+
 ## 7. Open issues
 
 1. **Structural rules are enforced at load.** Architecture lists the validation rules but not which are hard. This spec makes the rules in section 3.6 hard (load fails, `apply` refuses edits that would break them) so that every inverse edit is guaranteed to apply. References, declared ids, expressions and cycles stay soft (reported, tolerated). A file with, for example, a duplicate id after a bad merge will not open in the app until fixed by hand; `partsmith validate` still lists every problem.
@@ -1278,3 +1418,4 @@ Conventions: `id("x")` means `Id::new("x").unwrap()`. Unless a test says otherwi
 7. **No reference checks in `apply`.** Removing a body that features use, or a parameter that expressions use, succeeds. The engine and UI decide whether to warn or to offer a cascading change.
 8. **Keep sizes rewrites bare numbers only.** `units_edits` adds the old unit to expressions that are a number and nothing else, and to parameters used as lengths only, in promoting positions (section 3.12). Numbers inside larger expressions still change meaning. Rewriting every promoted literal would need the evaluator to report which nodes it promoted; the count hosts show (`bare_numbers`) keeps the promise exact meanwhile. `ExprLink` gained `unit` for this: the feature registry fills it from each `ExprUse::kind` (features.md section 2.4) in `FeatureInspector::inspect` (features.md section 3.2 and its section 6.2 test 16).
 9. **`apply` of an insertion at the start is near its budget (decided by the owner on 2026-11-05: its own 100 microsecond row; resolved).** The section 5 row for `apply` of one edit on a document with 1,000 features (50 microseconds) holds for updates, removals and moves, but an insertion at the start of a list is near it and often over. Medians of the budgets bench (`cargo bench -p partsmith-model --bench budgets -- apply`, release builds on the 4-core reference container, 11 runs each): October 13, `AddFeature` at the start 55.7 µs and `AddParameter` at the start 44.6 µs; October 16, in the phase 1 gate, `AddFeature` 53.2, 32.6 and 65.2 µs; October 16 with nothing else running (load average 0.04 to 0.2), seven runs, `AddFeature` 27.6 to 64.0 µs (three over) and, in six of them, `AddParameter` 22.5 to 73.0 µs (one over), against 5.4 to 9.3 µs for `RemoveFeature` of the first feature, which moves the same records. The spread is the container's: the same binary read 57.1 and 32.1 µs in consecutive idle runs. Two steps, both linear in the document, make up the cost. The check that the new id is unused (`contains_id`) compares it with all 2,100 ids, which are generated ids of one length, so each comparison reads the id's text from the heap (10 to 19 µs in a probe with standard-library stand-ins of the same sizes). The insertion grows the list, because the benchmark clones the document for each run and a clone has no spare capacity (about 11 µs in the probe, against 2 µs with spare capacity). An id index would make the check constant, but `Document`'s lists are public fields, so an index cannot stay in step with them without an API change. Options: time the row on a document with spare capacity, as a session's document has after its first insertion; give insertions their own row, for example 100 µs; or keep an id index behind private lists, an API change for review. Decided by the owner on 2026-11-05: insertion at the start of a 1,000-feature document gets its own row of 100 µs. Section 5 has it as the row of one insertion of any kind, timed at the start of a list, the worst case. Its 50 µs row covers every other edit. The benchmark's rows `apply AddFeature at the start, 1,000 features` and `apply AddParameter at the start, 1,000 features` hold it. On 2026-11-05 three runs read 26.2, 35.8 and 29.1 µs for `AddFeature` and 23.3, 19.7 and 19.7 µs for `AddParameter`, more than 20 percent under 100 µs ([ADR 0057](../adr/0057-budgets-set-from-the-measured-median-plus-20-percent.md)). The id index behind private lists stays an option for later.
+10. **The stored printer profile is a JSON map here.** partsmith-print depends on this crate. The model therefore cannot hold print.md's `PrinterProfile` and keeps the stored profile as a `serde_json::Map`, as it keeps feature params. It checks only the `id` that ties the profile to `printer` (section 3.6, rules 9 and 10). The engine checks the rest with print.md's `PrinterProfile::from_written` and rewrites the members into the written form's order (engine.md section 3.2). The JSON Schema of the field is a reference to `#/$defs/PrinterProfile`, which only a schema that also describes print.md's types defines (the protocol and `.ptsm` schemas).

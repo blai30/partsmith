@@ -20,13 +20,41 @@ The protocol is the only boundary between the UI (and any other host) and the co
 - WebAssembly C ABI `ps_alloc`, `ps_free`, `ps_call` (ADR 0009), the Emscripten module contract, and the worker message shapes with request superseding.
 - The desktop `call` command contract (the host itself ships later, but its wire contract is fixed now).
 
+**In M2** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md), [ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md))
+
+- Printer profile routes: `put_printer_profile` takes a profile as JSON text too and returns the profile it stored, and `remove_printer_profile` (command 36) removes one (section 2.5). Hosts send them: the UI for its profile library, the CLI for `--printer-file`, Python for a mapping.
+- The stored printer profile: `Document::printer_profile` and the `profile` of a `set_printer` edit, both print.md's written form (`$defs/PrinterProfile`), which come with format version 3 (section 2.9).
+
+**In M2: cancel** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+- The feature state `not_run` (section 2.7), the error code `canceled` (section 4) and command 37, `rebuild` (section 2.5). They are the protocol's whole share of a cancel. A running call reads no message. No command can stop it.
+- The routes outside the protocol: the web page's cancel word, read through the module's import (sections 2.10 and 2.11), and the desktop host command `cancel_call` (section 2.12, desktop.md).
+
+**In M2: assets** ([ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md))
+
+- Command 38, `add_assets`, which puts files into an open document's asset store without reopening it (section 2.5). A host adds the files of a document's `assets/` folder under their names, and the files a user picks by their kind.
+- `missing_assets` in `document_changed`: the asset names the recipe reads and the session lacks, with the features that read them (section 2.7). Hosts read those names from the document's folder. No host parses the `.ptsm` text for them.
+- `asset_mismatch` in words that name the feature that reads the file (section 4).
+
+**In M2: manifests** ([ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md))
+
+- The feature catalog carries what the UI kept in tables of its own in M1: each manifest's `description`, and each field hint's `help`, `start` and `creates_body`, with the new types `StartValue` and `BodyCreation` (section 2.5 command 2, model.md section 2.12).
+
+**In M2: sketch contracts** ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md))
+
+- Contracts only. Their code lands in waves 2 and 3 with the M2 plan's items named here. Each item's spec step fills in their behavior before its code.
+- The sketch entity kinds, point roles and `link` of format version 3 (sketch.md section 2.12), which reach the schema through `SketchParams` and `SketchSolution` (items 14, 26 and 27).
+- Display polylines for every sketch entity that is not a point, line, circle or arc: three buffers of `SketchDisplay` (section 2.6, item 14). They amend spec README decision D15.
+- Command 39, `sketch_recipe`, command 40, `sketch_modify`, and command 41, `sketch_project`, each answering with the changed sketch (section 2.5, items 24, 25 and 26), and the error code `sketch_operation_failed` (section 4).
+- The selection kinds `sketch_chain`, `sketch_text`, `path`, `rail` and `section` of `FieldHint` (model.md section 2.12, items 18, 27, 28, 30 and 32).
+
 **Later (not in M1)**
 
 - Unsolicited events (frames with events and no response), for background analysis on desktop.
-- Canceling a request that is already running (M1 only supersedes queued requests), and the `not_run` feature status a canceled recompute reports. The desktop needs it to stop a call that runs too long (desktop.md open issue 9); the web terminates its worker instead (ui.md 4.4).
+- Canceling a request that is already running (M1 only supersedes queued requests), and the `not_run` feature status a canceled recompute reports. The desktop needs it to stop a call that runs too long (desktop.md open issue 9); the web terminates its worker instead (ui.md 4.4). M2 adds both (In M2: cancel, above).
 - Delta document updates instead of full snapshots.
 - SharedArrayBuffer transport and multiple core workers.
-- Commands for components, joints, configurations, script features and Pyodide.
+- Commands for components, joints, configurations, script features and Pyodide. [ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md) fixes how a message names a component scope: an `occurrence` path beside `body`, added in M4. [ADR 0070](../adr/0070-pyodide-spike-decides-when-web-scripting-ships.md) records the Pyodide spike that decides when web scripting ships.
 - Mesh import (STL, 3MF, OBJ), `.scad`, `.FCStd`, DXF and SVG import, `.ptsz` bundles.
 - Slicer handoff, watch mode, auto-orient and arrange.
 - Plugin features in the catalog (the catalog shape already allows them).
@@ -320,7 +348,7 @@ A request frame contains exactly one `request` message. A response frame contain
 {"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}
 {"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}
 {"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}
-{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}
+{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "missing_assets": [], "bare_numbers": 0}
 ```
 
 JSON conventions for every message:
@@ -635,6 +663,44 @@ pub enum GhostFrame {
 /// A file passed into or out of the engine.
 pub struct AssetData { pub name: String, pub data: BufferIndex }
 
+/// Since M2: the kinds of asset file. Each is the extension of the asset's name (file-format.md section 3.11).
+#[serde(rename_all = "snake_case")]
+pub enum AssetKind {
+    /// A STEP model, `<hash>.step`.
+    Step,
+    /// A TrueType font, `<hash>.ttf`.
+    Ttf,
+    /// An OpenType font, `<hash>.otf`.
+    Otf,
+}
+
+/// Since M2: a file that `add_assets` puts into a document's asset store (command 38).
+pub struct AssetInput {
+    /// The file's kind. The asset's name ends in it.
+    pub kind: AssetKind,
+    /// The file's bytes: a `u8` buffer.
+    pub data: BufferIndex,
+    /// The name a host read the file under in the document's `assets/` folder, which the engine checks against the bytes.
+    /// Absent for a file the user picked.
+    pub name: Option<String>,
+}
+
+/// Since M2: what `add_assets` did with one file.
+pub struct AddedAsset {
+    /// The file's asset name: the entry's `name` when it has one, else the name the engine gave it.
+    pub name: String,
+    /// False when the entry's `name` is not the name of its bytes. The engine then stored nothing for the entry.
+    pub stored: bool,
+}
+
+/// Since M2: an asset name that the recipe reads, and the features that read it (`document_changed`, section 2.7).
+pub struct AssetUse {
+    /// `<64 lowercase hex>.<extension>` (file-format.md section 3.11).
+    pub name: String,
+    /// The features whose valid records read it, in timeline order.
+    pub features: Vec<Id>,
+}
+
 /// A file produced by an export.
 pub struct ExportFile {
     /// Suggested file name.
@@ -660,10 +726,15 @@ JSON examples:
 {"kind": "face_down", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}
 "standard"
 {"chord_deviation": 0.05, "angular_deviation": 0.08726646259971647}
-{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."}
+{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one."}
 {"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm.", "field": "/radius", "suggestion": "2.3 mm"}
 {"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "data": 0}
 {"name": "model.stl", "media_type": "model/stl", "data": 0}
+"ttf"
+{"kind": "step", "data": 0, "name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step"}
+{"kind": "otf", "data": 1}
+{"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "stored": false}
+{"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "features": ["f-imp1", "f-imp2"]}
 ```
 
 A feature diagnostic with actions, a cause, a detail and a reason: the error of reference stability corpus scenario R16, shortened to its first and last action and its first candidate in `detail` (the full list has a `Use` action per candidate, engine.md section 3.4). The `fillet_too_large` example above has the shape a feature message had before these fields existed, and still serializes that way.
@@ -727,14 +798,14 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "engine_info"}
-{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}
+{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 3, "kernel": "OCCT 7.9.3"}
 ```
 
-2. `feature_catalog {}`: every registered feature type with its manifest and params JSON Schema, sorted by `type`. Result `{features: Vec<CatalogEntry>}` where `CatalogEntry { type: String, manifest: FeatureManifest, params_schema: serde_json::Value }`. `FeatureManifest` is defined in model.md (moved from features.md, D14), so the schema and the generated TypeScript types carry it typed.
+2. `feature_catalog {}`: every registered feature type with its manifest and params JSON Schema, sorted by `type`. Result `{features: Vec<CatalogEntry>}` where `CatalogEntry { type: String, manifest: FeatureManifest, params_schema: serde_json::Value }`. `FeatureManifest` is defined in model.md (moved from features.md, D14), so the schema and the generated TypeScript types carry it typed. Since M2 ([ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)) a manifest also carries the feature's `description` and, in its field hints, the `help`, `start` and `creates_body` of model.md section 2.12. The engine sends them as the registry gives them (engine.md). Hosts take a command's description, a field's help, its start value and the field that receives a new body from here and keep no copy of their own (ui.md sections 2.10 and 2.12).
 
 ```json
 {"type": "feature_catalog"}
-{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}
+{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "description": "Adds a box of the given length, width and height.", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}
 ```
 
 3. `list_printer_profiles {}`: built-in profiles, then session profiles, each group sorted by `id`. Result `{profiles: Vec<PrinterProfile>}`, each profile in print.md's written form (print.md sections 2.2 and 3.1): every field present, with the defaults its input left out filled in, except `nozzle_diameter`, which a resin profile leaves out, and `fit` with all four classes. A session profile put with only some fields is listed with all of them. The schema describes this form (2.9).
@@ -744,11 +815,19 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}
 ```
 
-4. `put_printer_profile {profile: ProfileInput}`: adds or replaces a session (user) profile. `ProfileInput` is print.md's input form, whose omitted fields come from the technology's generic profile; the engine converts it with `PrinterProfile::try_from` and reports a `ProfileError` as `invalid_profile`. Result `{}`. Emits, for each open document whose `printer` is this id, the events of a recompute. Requests carry profiles only in this input form and results only in the written form (2.9). No M1 host sends this command itself (`partsmith._core.Session.call` passes on any frame it is given, and no `Document` sends this one), so the sessions that hosts open in M1 have only the built-in profiles (ui.md 1.2, cli.md 1, python-api.md 1, print.md 1.2, [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md)); the engine's tests send it.
+4. `put_printer_profile {profile: Option<ProfileInput>, text: Option<String>}`: adds or replaces a session (user) profile. Exactly one of `profile` and `text` is given; both or neither is `malformed_request` (`The request is not valid: put_printer_profile takes exactly one of profile and text.`). `profile` is print.md's input form, whose omitted fields come from the technology's generic profile; the engine converts it with `PrinterProfile::try_from`. `text` is that input form as JSON text, which the engine reads as a `ProfileInput` first (engine.md `put_printer_profile_text`). A host that reads a file or a script's mapping then gets the print crate's message for text it cannot read (`invalid_profile`, print.md `ProfileError::Json`) instead of a `malformed_request` for the whole frame. The engine refuses a built-in id with `profile_id_reserved` and reports a `ProfileError` as `invalid_profile`. Result `{profile: PrinterProfile}`, the session profile in print.md's written form (M1's result was `{}`). Emits, for each open document whose `printer` is this id and that stores no profile, the events of a recompute (engine.md section 3.3): a document that stores a profile keeps using it. Requests carry profiles in the input form, and results and stored documents in the written form (2.9). In M1 no host sent this command (ADR 0047). In M2 the UI sends `profile` for each profile of its library (ui.md section 3.17), the CLI sends `text` for `--printer-file` (cli.md), and Python sends `text` for a mapping (python-api.md).
 
 ```json
 {"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}}
-{"type": "put_printer_profile"}
+{"type": "put_printer_profile", "text": "{\"id\": \"my-mk4\", \"name\": \"My MK4\", \"technology\": \"fdm\", \"layer_height\": 0.15}"}
+{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.15, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}}
+```
+
+36. `remove_printer_profile {id: String}`: removes the session profile with this id. An id that names no session profile, a built-in id included, changes nothing and is not an error. Result `{}`. Emits, for each open document whose `printer` is this id and that stores no profile, the events of a recompute, which then warns `unknown_printer_profile` (engine.md section 3.4). A document that stores the profile keeps it. The UI sends it when a profile leaves its library (ui.md section 3.17).
+
+```json
+{"type": "remove_printer_profile", "id": "my-mk4"}
+{"type": "remove_printer_profile"}
 ```
 
 **Documents**
@@ -771,7 +850,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "save_document", "doc": 1}
-{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 2,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}
+{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 3,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}
 ```
 
 8. `close_document {doc}`: discards the document, its undo log and its display state. Result `{}`. Emits nothing.
@@ -780,7 +859,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 
 ```json
 {"type": "get_document", "doc": 1}
-{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
+{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}
 ```
 
 30. `mark_saved {doc, revision: u64}`: the host wrote the text that `save_document` returned for `revision`. When `revision` is that of the document's latest `save_document`, the dirty baseline becomes that text; otherwise nothing changes. Result `{}`. Emits `document_changed` when `dirty` changes.
@@ -790,9 +869,25 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "mark_saved"}
 ```
 
+37. `rebuild {doc}`: recomputes the document with its recipe, its focus and its resolved printer profile, and changes nothing else (engine.md section 3.26). A host sends it to finish a document whose recompute was stopped (`not_run` statuses). On a complete document every cached result is reused. Result `{}`. Emits the events of a recompute: `recomputed`, then `sketch_solved`, `datum_plane` and `body_mesh` where they changed. It emits no `document_changed`: nothing that event reports changes.
+
+```json
+{"type": "rebuild", "doc": 1}
+{"type": "rebuild"}
+```
+
+38. `add_assets {doc, assets: Vec<AssetInput>}` (since M2, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)): puts files into the open document's asset store, without reopening it (engine.md section 3.14). Each entry's file is named `<64 lowercase hex of its BLAKE3 hash>.<kind>`. An entry with `name` is stored only when `name` is that name. An entry without `name` is always stored. A missing `assets` is empty. The command changes no recipe, revision, dirty state, undo or redo stack, transaction or focus, and it works inside a transaction. Result `{assets: Vec<AddedAsset>}`, one per entry, in the order of `assets`. Emits `document_changed` when `missing_assets` changed. When the command stored a file that a valid record reads and the store lacked, it then emits the events of a recompute: `recomputed`, then `sketch_solved`, `datum_plane` and `body_mesh` where they changed. A host adds the files of the document's `assets/` folder whose names `missing_assets` lists, each with its name and the kind of its extension. A host adds a file the user picked with its kind and no name, and takes the asset name from the result (ui.md section 3.19, python-api.md section 3.7).
+
+```json
+{"type": "add_assets", "doc": 1, "assets": [{"kind": "step", "data": 0, "name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step"}]}
+{"type": "add_assets", "assets": [{"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "stored": true}]}
+{"type": "add_assets", "doc": 1, "assets": [{"kind": "ttf", "data": 0}]}
+{"type": "add_assets", "assets": [{"name": "4c1f8e2a9b7d6c5e3f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6.ttf", "stored": true}]}
+```
+
 **Edits, transactions, undo**
 
-10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md, which the examples follow. `set_rollback` names the first rolled-back feature; absent means nothing is rolled back (model.md).
+10. `apply_edits {doc, label: Option<String>, edits: Vec<Edit>}`: applies the edits atomically. Outside a transaction `label` is required and the batch becomes one undo entry; inside a transaction `label` must be absent. Result `{revision: u64}`. Emits `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`. Rollback is an edit (`set_rollback`). The `Edit` JSON is defined in model.md, which the examples follow. `set_rollback` names the first rolled-back feature; absent means nothing is rolled back (model.md). A `set_printer` edit may carry `profile`, the profile the document stores, in print.md's written form (`$defs/PrinterProfile`); without it, the engine stores the session profile that `printer` names, if any (engine.md section 3.3). Its `profile` is the one request field that carries a profile in the written form, since it is what the document stores.
 
 ```json
 {"type": "apply_edits", "doc": 1, "label": "Change height", "edits": [{"type": "update_parameter", "parameter": {"id": "p-h", "name": "height", "expr": "50 mm"}}]}
@@ -870,6 +965,14 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "attach_plane", "doc": 1, "feature": "f-sk1", "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback_frame": "body"}}
 {"type": "attach_plane"}
 ```
+
+39. `sketch_recipe {doc, feature: Id, recipe: SketchRecipe, candidate: Option<SketchParams>}` (since M2, [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md), item 24): runs a drawing tool on the stored sketch, or on `candidate` in its place, with `partsmith_sketch::apply_recipe` (sketch.md sections 2.13 and 3.21). New ids come from the session's generator (engine.md section 3.27). It records nothing and changes no state. Result `{change: SketchChange}`, the changed params with the ids the tool added. The host stores `change.params` with one `update_feature` edit of the sketch's record, with the label of its tool. Emits nothing. Errors: `unknown_feature`, `not_a_sketch`, `invalid_params` for params that fail sketch validation, and `sketch_operation_failed` for a tool input the sketch crate rejects. `SketchRecipe`'s variants come with item 24's spec (wave 3), which gives this command's examples.
+
+40. `sketch_modify {doc, feature: Id, operation: SketchOperation, candidate: Option<SketchParams>}` (since M2, item 25): runs a modify tool on the stored sketch or on `candidate`, with `partsmith_sketch::apply_operation` on the entities of a solve of the same params, its linked entities at their live geometry (sketch.md sections 3.20.7 and 3.21). It records nothing. Result `{change: SketchChange}`, stored by the host as for command 39. Emits nothing. Errors as for command 39, and `expression_error` when a driving dimension of the solve does not evaluate. `SketchOperation`'s variants come with item 25's spec (wave 3), Break link with item 26's.
+
+41. `sketch_project {doc, feature: Id, sources: Vec<ProjectionSource>, candidate: Option<SketchParams>}` (since M2, item 26): adds linked entities to the stored sketch or to `candidate` (sketch.md section 3.20.7). Each source is a pick's full reference with its `body` (`pick_reference`), an entity of another sketch, or a whole body. The engine resolves each source in the body state just before the sketch, projects it, and writes each new entity's geometry fields with the coordinates it saw and its `link`. It records nothing. Result `{change: SketchChange}`, stored by the host as for command 39. Emits nothing. Errors as for command 39, `reference_unresolved` for a source that does not resolve there, and `unknown_body` and `unknown_feature` for sources that name what the document does not have. `ProjectionSource`, a value enum tagged `kind`, and the projection of each kind come with item 26's spec (wave 3).
+
+`SketchChange` is sketch.md's (section 2.13), embedded as the protocol embeds `SketchParams`: `{"params": {...}, "entities": [...], "constraints": [...]}`. Commands 39 to 41 join test 34's set in the spec step of the item that builds each.
 
 **Display and queries**
 
@@ -958,7 +1061,7 @@ pub struct Use {
 
 **Print**
 
-26. `analyze_print {doc, profile: Option<String>, orientation: Orientation, bodies: Option<Vec<Id>>}`: runs every M1 printability check with `profile` (default: the document's resolved profile, engine.md 3.7) on the given bodies (default: visible part bodies with geometry). Result `{health: Health}`. Emits one `print_health` event that carries the full report.
+26. `analyze_print {doc, profile: Option<String>, orientation: Orientation, bodies: Option<Vec<Id>>}`: runs every M1 printability check with `profile` (default: the document's resolved profile, engine.md 3.7) on the given bodies (default: visible part bodies with geometry). Result `{health: Health}`. Emits one `print_health` event that carries the full report. Since M2, on a document whose latest recompute stopped, it first runs that recompute and emits its events before `print_health` (engine.md section 3.26).
 
 ```json
 {"type": "analyze_print", "doc": 1, "orientation": {"kind": "as_modeled"}}
@@ -967,7 +1070,7 @@ pub struct Use {
 
 **Export and import**
 
-27. `export {doc, format: ExportFormat, bodies: Option<Vec<Id>>, tolerance: Option<TessellationTolerance>, orientation: Option<Orientation>}`. Result `{files: Vec<ExportFile>, warnings: Vec<Diagnostic>}`.
+27. `export {doc, format: ExportFormat, bodies: Option<Vec<Id>>, tolerance: Option<TessellationTolerance>, orientation: Option<Orientation>}`. Result `{files: Vec<ExportFile>, warnings: Vec<Diagnostic>}`. Since M2, on a document whose latest recompute stopped, it first runs that recompute and emits its events (engine.md section 3.26).
 
 ```rust
 /// A value enum inside the command, so it is tagged `kind`.
@@ -1098,6 +1201,15 @@ pub struct SketchDisplay {
     pub region_indices: BufferIndex,
     /// `u32`, 1 per region fill vertex: index into `regions`.
     pub region_ids: BufferIndex,
+    /// Since M2 (item 14): `f32`, 2 per vertex: the display polylines of every entity that is not a point, line,
+    /// circle or arc, back to back, in sketch coordinates.
+    pub curve_positions: BufferIndex,
+    /// Since M2: `u32`, 1 per polyline: its first vertex, counted in vertices. Its first `f32` is at
+    /// `2 * curve_starts[i]` in `curve_positions`. A polyline ends where the next starts, the last at the end of
+    /// `curve_positions`.
+    pub curve_starts: BufferIndex,
+    /// Since M2: `u32`, 1 per polyline: the index into `entities` of the entity it draws.
+    pub curve_ids: BufferIndex,
 }
 ```
 
@@ -1111,7 +1223,9 @@ JSON examples (a region of the plate fixture, a dimension's state, a point, disp
 {"region_positions": 0, "region_indices": 1, "region_ids": 2}
 ```
 
-Region fills are triangulated from each region's loops, with circles and arcs split into `max(1, ceil(sweep / (2π / 72)))` equal segments; the UI draws curves itself from `entities`.
+Region fills are triangulated from each region's loops, with circles and arcs split into `max(1, ceil(sweep / (2π / 72)))` equal segments; the UI draws curves itself from `entities`. Since item 14, a loop curve of a kind of sketch.md section 2.12 is split at the vertices of its display polyline (sketch.md section 3.20.9). A fill then meets the outline the UI draws. Item 14's spec states it with a test.
+
+Since M2 ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md), item 14), the display holds the polylines of sketch.md section 3.20.9 (`display_curves`) for every entity whose kind is not point, line, circle or arc, text and construction entities included, in entity order and, within an entity, in its polylines' order. A closed polyline repeats its first vertex at its end. The UI draws points, lines, circles and arcs from `entities`, as in M1, and every other entity from its polylines (spec README decision D15 as ADR 0066 amends it). The three `curve_*` buffers are always present, empty when the sketch has no such entity: `region_positions`, `region_indices`, `region_ids`, `curve_positions`, `curve_starts` and `curve_ids`, in that buffer order. A polyline is display data. No command takes one, and nothing refers to one of its vertices. Test 71's key list takes the three in item 14's spec step. Since format version 3, `points` lists the roles of section 2.4's note in `PointRole` order: a parabola's `start`, `end`, `vertex`, `focus` and a conic's `start`, `end`, `control`.
 
 ### 2.7 Events
 
@@ -1142,6 +1256,10 @@ DocumentChanged {
     transaction: Option<String>,
     /// The focused feature.
     focus: Option<Id>,
+    /// Since M2: each asset name that a valid record of the recipe reads and the session's asset store lacks, sorted by
+    /// name (byte order), with the features that read it (engine.md section 3.14). Hosts read these files from the
+    /// document's `assets/` folder and add them with `add_assets`.
+    missing_assets: Vec<AssetUse>,
     /// How many expressions and parameters are numbers without a unit whose meaning the document units decide
     /// (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
     bare_numbers: u32,
@@ -1149,7 +1267,7 @@ DocumentChanged {
 ```
 
 ```json
-{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}
+{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "missing_assets": [], "bare_numbers": 0}
 ```
 
 2. `recomputed`: status of every feature in timeline order, every parameter value, and document diagnostics.
@@ -1159,7 +1277,8 @@ Recomputed { doc: DocHandle, revision: u64, features: Vec<FeatureStatus>, parame
 
 pub struct FeatureStatus {
     pub id: Id,
-    /// `ok`, `warning`, `error`, `suppressed` or `rolled_back`. A feature with info notices only is `ok`.
+    /// `ok`, `warning`, `error`, `suppressed`, `rolled_back` or, since M2, `not_run`. A feature with info notices only is `ok`.
+    /// `not_run` marks a feature that a stopped request did not build; it has no messages and no repairs (engine.md section 3.26).
     pub status: FeatureState,
     /// The error first, then warnings, then info notices, as engine.md section 3.4 projects them.
     pub messages: Vec<Diagnostic>,
@@ -1374,13 +1493,19 @@ pub struct Span { pub start: u32, pub end: u32 }
 - `PROTOCOL_VERSION` is 1. It is bumped for any breaking change: removing or renaming a command, event, field or enum value; changing a field's type or meaning; making a request field required; changing the frame layout. Adding a command, an event type, an optional request field or a result or event field does not bump it, because clients ignore unknown fields of the protocol's own result and event types and unknown event types. A field added to one of the closed types of 3.6 is not such an addition, since clients reject it: one in a file-format type comes with a new format version (file-format.md), as the fields of format version 2 did (next item), and one in `FixRef`, `PrinterProfile`, `FitClasses` or `Bed` is a breaking change. Any schema change needs human review (AGENTS.md).
 - The additions of [ADR 0024](../adr/0024-diagnostics-with-actions-causes-and-ghosts.md) are of the kinds that do not bump it: result and event fields (`Diagnostic::actions`, `cause`, `detail`, `root` and `reason`; `Repair` descriptions, candidates and ghosts; `ElementDescriptor::fallback` and `axis_direction`; `ErrorInfo::detail` and `actions`; `DocumentChanged::bare_numbers`; `SketchSolution::messages`), an optional request field (`Pick::body`, for headless picks), new types, the commands `apply_fix`, `list_uses` and `set_document_units`, and the error code `stale_fix`. So does the full reference in `pick_reference`, and the optional fields format version 2 adds to the shared types the protocol embeds: `nb` and `merged` of `Reference`, `outline` of `RegionRef`, and `fallback_frame` of the face sketch plane with the new `HintFrame`, which reaches the schema through `SketchParams` (file-format.md section 3.9, [ADR 0025](../adr/0025-file-format-version-2.md)); and the optional `connect` of `ProfileFinding::OpenEndpoint` with the new `Connection` (sketch.md section 2.7), which reaches it through `SketchSolution::profile_findings`. The axis `direction` of format version 2 belongs to `AxisRef`, a feature param type that the protocol schema does not describe (feature params travel inside `FeatureRecord`), so it changes only `docs/format/ptsm.schema.json`; decision D3 took the rule that keeps placements right-handed (ADR 0023), so `Placement` gains nothing. They change `docs/format/protocol.schema.json`. ADR 0016's log has their check-ins (the entries of 2026-10-16 to 2026-10-23). The owner signed them off as built on 2026-11-04.
 - The command `attach_plane` of [ADR 0055](../adr/0055-re-attach-by-pick-asks-the-engine-for-the-plane.md) is a new command with its own result and does not bump it either. Its result carries `SketchPlane`, a closed file-format type (3.6) that no result carried before. It changes `docs/format/protocol.schema.json`. ADR 0016's entry of 2026-11-04 logs it. The owner accepted it on 2026-11-05. Its answer for a datum plane's new base (ADR 0055's amendment of 2026-11-05) does not bump it either: every request that was answered before means the same, and a datum plane `feature` failed with `not_a_sketch` before. The schema changes in the descriptions of the command's `feature` and of its result's `plane` only (ADR 0016's entry of 2026-11-05).
-- Printer profiles travel in two forms (print.md sections 2.2 and 3.1): requests carry the input form, results the written form. The `profile` of `put_printer_profile` is `$defs/ProfileInput`, which requires only `id`, `name` and `technology` and takes `fit` as a `FitInput` whose classes are all optional. The `profiles` of `list_printer_profiles` are `$defs/PrinterProfile`, which requires every field but `nozzle_diameter` and takes `fit` as a `FitClasses` that requires all four classes. `ProfileInput`, `FitInput`, `PrinterProfile`, `FitClasses` and `Bed`, which both forms share, reject unknown properties, as serde reads a profile (print.md section 3.1 rule 1): core types keep the strictness their own specs give them, in results too, although clients ignore unknown fields of the protocol's own result types (3.6). So the generated TypeScript `PrinterProfile` has `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit` required and only `nozzle_diameter` optional, and a host reads them without a fallback. `PrinterProfile` deserializes through `ProfileInput` (print.md section 3.1), but no request carries it, so its schema is its written form in both schemars contracts (print.md section 2.2), and its `$defs` entry in the protocol schema describes what the engine writes. The engine always wrote every field, so no message changes and `PROTOCOL_VERSION` stays 1. The schema change is the 2026-10-28 entry of ADR 0016's log (gap list item PRINT-3). The owner signed it off as built with [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) on 2026-11-04.
+- Printer profiles travel in two forms (print.md sections 2.2 and 3.1): requests carry the input form, results the written form. The `profile` of `put_printer_profile` is `$defs/ProfileInput`, which requires only `id`, `name` and `technology` and takes `fit` as a `FitInput` whose classes are all optional. The `profiles` of `list_printer_profiles` are `$defs/PrinterProfile`, which requires every field but `nozzle_diameter` and takes `fit` as a `FitClasses` that requires all four classes. `ProfileInput`, `FitInput`, `PrinterProfile`, `FitClasses` and `Bed`, which both forms share, reject unknown properties, as serde reads a profile (print.md section 3.1 rule 1): core types keep the strictness their own specs give them, in results too, although clients ignore unknown fields of the protocol's own result types (3.6). So the generated TypeScript `PrinterProfile` has `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit` required and only `nozzle_diameter` optional, and a host reads them without a fallback. `PrinterProfile` deserializes through `ProfileInput` (print.md section 3.1), and no request carried it in M1. Its schema is its written form in both schemars contracts (print.md section 2.2), and its `$defs` entry in the protocol schema describes what the engine writes. From M2 the `profile` of a `set_printer` edit refers to it. The model keeps that member as a JSON object, and the engine reads it with `PrinterProfile::from_written` (engine.md section 3.3). The engine always wrote every field, so no message changes and `PROTOCOL_VERSION` stays 1. The schema change is the 2026-10-28 entry of ADR 0016's log (gap list item PRINT-3). The owner signed it off as built with [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) on 2026-11-04.
+
+- The printer profile additions of [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md) do not bump it either. Command 36, `remove_printer_profile`, is a new command. `put_printer_profile` gains the optional request field `text`, its `profile` becomes optional (a request that sends it means what it meant), and its result gains `profile`. `Document` gains `printer_profile` and the `set_printer` edit gains `profile`, both `{"$ref": "#/$defs/PrinterProfile"}` in the schema (`anyOf` with `null`, as schemars writes an `Option`). They describe print.md's written form, closed to unknown members. Both come with format version 3 ([ADR 0061](../adr/0061-format-version-3-for-the-records-of-m2.md)): `Document` is a closed file-format type (3.6), and an M1 client that reads a version 3 document's `document_changed` rejects the member, as it rejects a version 3 file. The schema changes in `docs/format/protocol.schema.json` and the UI's generated types are for human review at the M2 gate (plan gate 19), logged in ADR 0016 when they are checked in.
+- The cancel additions of [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md) do not bump it either. Command 37, `rebuild`, is a new command. `canceled` is a new value of `ErrorCode`, as `stale_fix` was (ADR 0024). `not_run` is a new value of `FeatureState`. Only a session whose host set a cancel flag reports it (engine.md section 3.26). Every host that sets one is an M2 client. A client generated before M2 never receives it. The schema changes in `docs/format/protocol.schema.json` and the UI's generated types are for human review at the M2 gate (plan gate 19), logged in ADR 0016 when they are checked in.
+- The asset additions of [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md) do not bump it either. Command 38, `add_assets`, is a new command with new types (`AssetInput`, `AssetKind` and `AddedAsset`). `DocumentChanged` gains the event field `missing_assets` of the new type `AssetUse`, which clients of M1 ignore. The new words of `asset_mismatch` change no shape. The schema changes are for human review at the M2 gate (plan gate 19), logged in ADR 0016 when they are checked in.
+- The sketch contracts of [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md) do not bump it either, when their items land. Commands 39 to 41 are new commands with new types (`SketchRecipe`, `SketchOperation`, `SketchChange` and `ProjectionSource`). `SketchDisplay` gains three result fields. `SelectionKind` gains five values that reach clients in `feature_catalog` results only. The new entity kinds, point roles and `link` reach the schema through `SketchParams`, a closed file-format type (3.6): they come with format version 3, and an M1 client rejects them as it rejects a version 3 document. Each change goes to human review at the M2 gate (plan gate 19), logged in ADR 0016 when it is checked in.
+- The manifest additions of [ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md) do not bump it either. `FeatureManifest` gains the result field `description` and `FieldHint` the result fields `help`, `start` and `creates_body`, with the new types `StartValue` (tagged `kind`: `expr`, `choice` and `multiple`) and `BodyCreation` (`while_new` and `at_start`). They reach clients only in the result of `feature_catalog`. Neither type closes an object to unknown members, and an M1 client ignores the new members. `description` is required in the schema, since every manifest the engine sends has one. The extrude, revolve and hole manifests also mark `reverse` essential, a change of data that changes no shape. The schema changes in `docs/format/protocol.schema.json` and the UI's generated types are for human review at the M2 gate (plan gate 19), logged in ADR 0016 when they are checked in.
 
 ### 2.10 WebAssembly bridge (`partsmith-wasm`)
 
 `partsmith-wasm` is an Emscripten executable (`wasm32-unknown-emscripten`) built by `scripts/build-wasm.sh` into `ui/public/core/partsmith_core.mjs` and `ui/public/core/partsmith_core.wasm`. It is an ES module factory named `createPartsmithCore` (`-sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createPartsmithCore -sENVIRONMENT=worker`), keeps its runtime alive after `main` (`-sEXIT_RUNTIME=0`), grows memory up to 4 GB, uses native wasm exceptions, and exports `_ps_alloc`, `_ps_free`, `_ps_call` and the runtime view `HEAPU8`.
 
-`main` creates the module's single `Session` with `SessionOptions { display: true, ..Default::default() }` (random ids) and stores it in a `thread_local!` cell owned by the host crate. The core crates stay free of global state; this cell is the host's (ADR 0010).
+`session_options()` (`crates/partsmith-wasm/src/lib.rs`) gives the module's single `Session` `SessionOptions { display: true, cancel: CancelFlag::page(), ..Default::default() }` on `wasm32-unknown-emscripten`, and `cancel: CancelFlag::never()` in native builds of the crate, whose tests drive `call` (random ids; the cancel flag since M2, engine.md section 3.26). `main` creates the session through `initialize_session()`, and it lives in a `thread_local!` cell owned by the host crate. The core crates stay free of global state; this cell is the host's (ADR 0010).
 
 C signatures (wasm32, so `size_t` and pointers are 32-bit):
 
@@ -1411,6 +1536,7 @@ Rules:
 - JavaScript must re-read `HEAPU8` after every `ps_call` and `ps_alloc`, because memory growth replaces the underlying `ArrayBuffer`.
 - Pointers and lengths are unsigned 32-bit values. JavaScript receives the `i32` results of `_ps_alloc` and `_ps_call` as signed numbers, so `wrapEmscriptenModule` reads them with `>>> 0`; otherwise a block above 2 GiB gets a negative address and `slice` silently copies the wrong bytes.
 - `ps_free` and `ps_call` are `unsafe extern "C" fn` because they dereference caller-provided pointers; `ps_call` with a null `response_length` handles nothing and returns null, and a null `request` reads as empty.
+- **The cancel word** (M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)). The module imports one JavaScript function, `partsmith_cancel_word`, which partsmith-occt-sys defines with `EM_JS` in its shim (kernel.md). It returns `Number(Atomics.load(Module.partsmithCancelWord, 0))` when the module object's property `partsmithCancelWord` is a `BigInt64Array` of length at least 1, and 0 otherwise (kernel.md section 3.13 item 7). The worker sets it to a `BigInt64Array` of length 1 over a `SharedArrayBuffer` (section 2.11). The core compares the value with the id of the request it runs (engine.md section 3.26) and never writes it. The module's exports stay `_main`, `_ps_alloc`, `_ps_free`, `_ps_call` and `HEAPU8`: no fourth C ABI export (ADR 0010). `crates/partsmith-wasm/build.rs` keeps its link arguments, with no `-pthread` and no `-sSHARED_MEMORY`. The module's memory stays an `ArrayBuffer`, and only the 8 bytes of the word are shared.
 
 JavaScript calling sequence (`ui/src/core/bridge.ts`):
 
@@ -1422,6 +1548,8 @@ export interface CoreModule {
   call(request: number, requestLength: number, responseLengthOut: number): number
   /** The current HEAPU8; re-read after every call. */
   memory(): Uint8Array
+  /** Sets the module's `partsmithCancelWord` to `word` (M2), which the import `partsmith_cancel_word` reads during a call. */
+  useCancelWord(word: BigInt64Array): void
 }
 /** Copies a request frame into wasm memory, calls ps_call, copies the response out and frees both blocks. */
 export function callCore(core: CoreModule, request: ArrayBuffer): ArrayBuffer
@@ -1437,7 +1565,10 @@ The UI runs the core in one module Web Worker (`ui/src/core/core.worker.ts`). Me
 
 ```ts
 /** Main thread to worker. The frame's ArrayBuffer is transferred. */
-export type ToWorker = { type: 'call'; frame: ArrayBuffer }
+export type ToWorker =
+  | { type: 'call'; frame: ArrayBuffer }
+  /** M2: the page's cancel word, 8 bytes, sent once before any call (rule 8). It is shared, not transferred. */
+  | { type: 'cancel_word'; word: SharedArrayBuffer }
 
 /** Worker to main thread. Frames are transferred. */
 export type FromWorker =
@@ -1493,10 +1624,11 @@ Behavior:
 5. Responses are posted in request order, one `frame` message per request, transferring the frame buffer.
 6. A wasm trap (`WebAssembly.RuntimeError`) or `CoreOutOfMemoryError` during a call posts `fatal` and stops the host.
 7. The main thread decodes response frames with `decodeFrame` and hands the buffer views to the renderer without copying.
+8. The cancel word (M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)). The worker transport sends `{ type: 'cancel_word', word }` right after it creates the worker, before any `call`, when `globalThis.crossOriginIsolated` is true. `word` is a new `SharedArrayBuffer(8)`. The host keeps it and calls `useCancelWord(new BigInt64Array(word))` on the module once `load()` resolves, before `engine_info`, or at once when the module is already loaded. A second `cancel_word` replaces the first. The host never writes the word. The main thread stores the id of the request to stop with `Atomics.store(view, 0, BigInt(id))` and, when that request's response frame arrives, sets it back with `Atomics.compareExchange(view, 0, BigInt(id), 0n)`. The word holds 0 or the id of a request whose response the main thread has not read. Without `cancel_word` the module reads 0, and nothing stops a call (ui.md section 2.4).
 
 ### 2.12 Desktop `call` contract
 
-The Tauri 2 host (later milestone) exposes one command, `call`. JavaScript invokes it with the request frame as a raw binary body (`invoke('call', frameBytes)`), and the command returns the response frame as a raw binary response (`tauri::ipc::Response`). The host holds one `Session` behind a `Mutex` and runs each `Session::call` on a blocking worker thread; panics are already contained by `Session::call`. Superseding is done in the UI's desktop transport with the same `isSuperseded` function (2.11).
+The Tauri 2 host (later milestone) exposes one command, `call`. JavaScript invokes it with the request frame as a raw binary body (`invoke('call', frameBytes)`), and the command returns the response frame as a raw binary response (`tauri::ipc::Response`). The host holds one `Session` behind a `Mutex` and runs each `Session::call` on a blocking worker thread; panics are already contained by `Session::call`. Superseding is done in the UI's desktop transport with the same `isSuperseded` function (2.11). Since M2 the host also exposes `cancel_call` (`invoke('cancel_call', { request })`, desktop.md section 2.6), which stores a request id in the host's `CancelFlag` without the `Session` mutex. The running `call` stops at its next check (engine.md section 3.26) and answers as usual.
 
 ## 3. Behavior
 
@@ -1551,14 +1683,14 @@ For every `Ghost` (repairs of `recomputed`, causes of diagnostics), whose buffer
 
 ### 3.5 Request ids
 
-Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the engine echoes them and does not interpret them. Id 0 is reserved for responses to unreadable requests and for the worker's internal `engine_info` call.
+Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the engine echoes them and does not interpret them. Id 0 is reserved for responses to unreadable requests and for the worker's internal `engine_info` call. Since M2 a host's cancel flag names a request by its id (engine.md section 3.26). A client that reuses an id while a cancel of it is still set can stop the later request. The UI's client never reuses one (ui.md section 2.5), and a request with id 0 never stops.
 
 ### 3.6 Compatibility
 
 - The engine rejects frames whose `protocol_version` is not 1 with `protocol_version_mismatch` and changes nothing.
 - The UI checks `engine_info.protocol_version` at worker start (2.11, rule 1).
 - Clients must ignore unknown fields of the protocol's own result and event types and must ignore events with an unknown `type`.
-- The closed types that results and events carry reject unknown fields wherever they travel, and clients read them strictly, as `decode_response_frame` does: `FixRef` (2.4), which `apply_fix` sends back; print.md's `PrinterProfile` with its `FitClasses` and `Bed`, which keep the strictness print.md section 3.1 gives them (2.9); and the file-format types `Document`, `Parameter`, `Body`, `Reference`, `RegionRef`, `Placement` and `SketchPlane` (file-format.md; `attach_plane` returns a `SketchPlane`). So a field added to one of them is not an additive change (2.9).
+- The closed types that results and events carry reject unknown fields wherever they travel, and clients read them strictly, as `decode_response_frame` does: `FixRef` (2.4), which `apply_fix` sends back; print.md's `PrinterProfile` with its `FitClasses` and `Bed`, which keep the strictness print.md section 3.1 gives them (2.9); and the file-format types `Document`, `Parameter`, `Body`, `Reference`, `RegionRef`, `Placement` and `SketchPlane` (file-format.md; `attach_plane` returns a `SketchPlane`). `Document::printer_profile` is `$defs/PrinterProfile`, closed in the schema and in the generated TypeScript. The Rust types keep it as a JSON object, and `decode_response_frame` accepts an unknown member in it. The engine never sends one. It checks every stored profile when it opens a text (engine.md section 3.2). So a field added to one of them is not an additive change (2.9).
 
 ## 4. Errors
 
@@ -1568,18 +1700,19 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `malformed_request` | `InvalidMessage`; a buffer index out of range or of the wrong element type; an id above `MAX_SAFE_INTEGER` | "The request is not valid: {detail}" |
 | `protocol_version_mismatch` | `VersionMismatch` | "The frame uses protocol version {found}, but this engine speaks version 1. Reload the app." |
 | `superseded` | The worker dropped a queued request (2.11) | "A newer request replaced this one." |
+| `canceled` | The host stopped an `export` or `analyze_print`, or an `import_step` before its edit (engine.md section 3.26) | That command's text in engine.md section 3.26, for example "The export was stopped before it finished. No file was made." |
 | `internal_error` | A panic or an engine invariant failure | "Partsmith hit a bug while running {command}. Your document is unchanged. Save a copy, and report this with the details." (`{command}` is the command's type in words, such as `apply edits`); the panic message is in `detail` |
 | `unknown_document` | `doc` is not open | "Document {doc} is not open." |
 | `document_poisoned` | The document had an internal error earlier | "This document hit an internal error. Save it and reopen it to continue." |
-| `parse_error` | `open_document` text is not a valid document | The model's load message (file-format.md section 4.1) without a parser's own text, for example "The file is not valid JSON at line 1, column 23." (engine.md section 4); the full load message is in `detail` |
-| `unsupported_format_version` | `format_version` newer than supported, or older than the oldest this build migrates | The model's message (file-format.md section 4.1), for example "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it." |
-| `asset_mismatch` | A referenced asset's bytes do not hash to its name | "Asset {name} does not match its content hash." |
+| `parse_error` | `open_document` text is not a valid document, a stored printer profile the print crate rejects included (engine.md section 3.2) | The model's load message (file-format.md section 4.1) without a parser's own text, for example "The file is not valid JSON at line 1, column 23." (engine.md section 4); the full load message is in `detail` |
+| `unsupported_format_version` | `format_version` newer than supported, or older than the oldest this build migrates | The model's message (file-format.md section 4.1), for example "This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it." |
+| `asset_mismatch` | A supplied asset of `open_document` that a record reads does not hash to its name (`add_assets` reports such a file in its result instead, 2.5 command 38) | The words of engine.md section 4 for the file's kind. They name the first feature that reads it, for example "The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it."; the asset's name is in `detail`. Until M2 it read "Asset {name} does not match its content hash." |
 | `transaction_open` | `begin_transaction`, `undo`, `redo` or `save_document` during a transaction | "Finish or cancel \"{label}\" first.", with the action `Finish "{label}" and {what}` (`finish_transaction`), `{what}` being `save`, `undo`, `redo` or `start "{new label}"` for the request that failed |
 | `no_transaction` | `commit_transaction`, `cancel_transaction` or `set_focus` without a transaction | "There is no edit in progress." |
 | `label_required` | `apply_edits` outside a transaction without `label` | "Edits outside a transaction need a label for the undo history." |
 | `label_not_allowed` | `apply_edits` inside a transaction with `label` | "Edits inside the transaction \"{label}\" take the transaction's label." |
 | `edit_rejected` | `Document::apply` refused edit `edit_index`; or `rename_parameter` names an unknown parameter or an invalid or taken name (no `edit_index`) | The model's `EditError` message |
-| `invalid_params` | The registry rejected feature params in edit `edit_index`; or `solve_sketch`/`drag_sketch`/`attach_plane` params fail sketch validation or the solver rejects them; or, for a datum plane, `attach_plane` finds that the datum's own record does not validate (engine.md section 3.22) | The registry's message for the edited feature, named by its label (engine.md section 4), for example "Radius of 'Fillet 1' cannot be read, so this change was not applied. Set Radius again."; for sketch commands, the sketch crate's message in the document units. The feature type and id and the parser's text are in `detail` |
+| `invalid_params` | The registry rejected feature params in edit `edit_index`; or `solve_sketch`/`drag_sketch`/`attach_plane` params fail sketch validation or the solver rejects them; or, since M2, the params of `sketch_recipe`, `sketch_modify` or `sketch_project` fail sketch validation; or, for a datum plane, `attach_plane` finds that the datum's own record does not validate (engine.md section 3.22) | The registry's message for the edited feature, named by its label (engine.md section 4), for example "Radius of 'Fillet 1' cannot be read, so this change was not applied. Set Radius again."; for sketch commands, the sketch crate's message in the document units. The feature type and id and the parser's text are in `detail` |
 | `nothing_to_undo` | Empty undo stack | "There is nothing to undo." |
 | `nothing_to_redo` | Empty redo stack | "There is nothing to redo." |
 | `unknown_feature` | A command names a feature that does not exist | "There is no feature with id {id}." |
@@ -1592,17 +1725,18 @@ Clients choose request ids from 1 to `MAX_SAFE_INTEGER` and may reuse them; the 
 | `invalid_pick` | `index` is not below the mesh's element count for `kind` | "The pick does not name a {kind} of this mesh." |
 | `unknown_body` | A command names a body that does not exist | "There is no body with id {id}." |
 | `body_empty` | A body named in `export`, `measure` or `list_elements` has no geometry at the display state | "Body \"{name}\" has no geometry yet." |
-| `reference_unresolved` | A reference given to `measure` or a `face_down` orientation does not resolve uniquely | "The selected {kind} no longer exists. Pick it again." |
+| `reference_unresolved` | A reference given to `measure` or a `face_down` orientation does not resolve uniquely; or, since M2, a source of `sketch_project` does not resolve in the body state just before the sketch | "The selected {kind} no longer exists. Pick it again." |
 | `invalid_measure` | `measure` does not have exactly one target | "Measure takes one body or element." |
-| `expression_error` | `evaluate` failed; or a driving dimension of `solve_sketch`/`drag_sketch` does not evaluate | The expression evaluator's message |
+| `expression_error` | `evaluate` failed; or a driving dimension of `solve_sketch`/`drag_sketch`, or since M2 of the solve of `sketch_modify`, does not evaluate | The expression evaluator's message |
 | `unknown_printer_profile` | `analyze_print` names an unknown `profile` | "Printer profile \"{id}\" is not installed." |
-| `profile_id_reserved` | `put_printer_profile` uses a built-in id | "\"{id}\" is a built-in profile. Save your changes under a new name." |
-| `invalid_profile` | The print crate rejected a profile | The print crate's validation message |
+| `profile_id_reserved` | `put_printer_profile` uses a built-in id; or the `profile` of `set_printer` edit `edit_index` has a built-in id | "\"{id}\" is a built-in profile. Save your changes under a new name." |
+| `invalid_profile` | The print crate rejected the profile of `put_printer_profile`, its `text` included; or the `profile` of `set_printer` edit `edit_index` (`PrinterProfile::from_written`) | The print crate's message (print.md section 4) |
 | `invalid_orientation` | Matrix not orthonormal with determinant +1 within 1e-9, or `face_down` on a non-planar face | "The orientation is not a rotation." or "Only flat faces can be laid on the bed." |
 | `nothing_to_export` | No body qualifies for export | "There is no visible body with geometry to export." |
 | `export_failed` | The writer or kernel failed | "Export failed. {detail}" (`detail` is the io error's complete sentence, engine.md section 4) |
 | `import_failed` | The STEP file could not be read or has no solids | "Import failed. {detail}" (for example "Import failed. The STEP file contains no solid bodies.") |
 | `invalid_tolerance` | A `TessellationTolerance` value is not finite and positive, or `angular_deviation` exceeds π/2 | "Tessellation tolerances must be positive (angle at most 90 degrees)." |
+| `sketch_operation_failed` | `sketch_recipe`, `sketch_modify` or `sketch_project` (commands 39 to 41) gets an input its tool cannot use (since M2, ADR 0066). The code lands with item 24 and joins test 37's set in item 24's spec step. Until then test 37 leaves it out | The sketch crate's message in the document units (sketch.md section 3.21), for example the words item 24 gives a three-point arc on three points in a line. The variant and its fields are in `detail` |
 | `stale_fix` | `apply_fix` names a revision other than the document's, or a message or action the feature no longer has, or an action that is not `apply` | "This fix no longer applies because the document changed after it was offered. Look at the problem again." |
 
 The full Rust-side variants and the mapping from engine errors are in engine.md section 4.
@@ -1663,7 +1797,7 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 31. A `Response { id: 7, result: Outcome::Ok(CommandResult::CloseDocument) }` serializes exactly as `{"kind":"response","id":7,"result":{"kind":"ok","type":"close_document"}}`.
 32. An `apply_edits` error with `edit_index: Some(1)` serializes with `"edit_index":1`; with `None` the field is absent.
 33. A `body_mesh` event with `mesh: None` serializes without a `mesh` key; a `FeatureStatus` with no messages serializes `"messages":[]`.
-34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`, `mark_saved`, `rename_parameter`, `apply_fix`, `set_document_units`, `list_uses`, `attach_plane`.
+34. The set of `Command` type strings equals exactly: `engine_info`, `feature_catalog`, `list_printer_profiles`, `put_printer_profile`, `new_document`, `open_document`, `save_document`, `close_document`, `get_document`, `apply_edits`, `begin_transaction`, `set_focus`, `commit_transaction`, `cancel_transaction`, `undo`, `redo`, `solve_sketch`, `drag_sketch`, `end_sketch_drag`, `set_tessellation`, `evaluate`, `list_elements`, `pick_reference`, `resolve_references`, `measure`, `analyze_print`, `export`, `import_step`, `export_python`, `mark_saved`, `rename_parameter`, `apply_fix`, `set_document_units`, `list_uses`, `attach_plane`, `remove_printer_profile` (the profile routes, ADR 0062), `rebuild` (the cancel's, ADR 0063), `add_assets` (the asset command, ADR 0064).
 35. For every command, the `CommandResult` variant with the same `type` string exists, and no other result variants exist.
 36. The set of `Event` type strings equals exactly: `document_changed`, `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh`, `print_health`.
 37. The set of `ErrorCode` strings equals exactly the codes in section 4.
@@ -1683,7 +1817,7 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 **WebAssembly bridge (native tests of `partsmith-wasm`)**
 
 47. `ps_alloc(16)` returns a non-null pointer whose address is a multiple of 8; `ps_free` of it with length 16 succeeds; `ps_alloc(0)` returns null and `ps_free(null, 0)` does nothing.
-48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `partsmith_engine::ENGINE_VERSION` (the engine crate's `CARGO_PKG_VERSION`), `format_version` 2 (`FORMAT_VERSION`, file-format.md section 3.9).
+48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `partsmith_engine::ENGINE_VERSION` (the engine crate's `CARGO_PKG_VERSION`), `format_version` 3 (`FORMAT_VERSION`, file-format.md section 3.9; 2 before format version 3).
 49. `ps_call` on example A writes the same length that `call` returns into `*response_length` and returns bytes equal to `call(example A)`.
 50. `call(b"hello")` returns an error response with id 0 and code `malformed_frame`.
 51. `call` of example A re-encoded with `protocol_version` 2 returns an error response with id 1 and code `protocol_version_mismatch`.
@@ -1749,6 +1883,63 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 
 88. `attach_plane` (2.5 command 35, 3.6). `{"type":"attach_plane","doc":1,"feature":"f-sk1","plane":{"kind":"origin","plane":"XY"}}` deserializes as `Command::AttachPlane` with `doc` 1, `feature` `f-sk1` and `SketchPlane::Origin { plane: XY }`, and fails to deserialize with `"extra":1` added. The two requests and the two results of command 35's example round-trip. The result without a plane writes no `plane` key, and the face plane keeps `"fallback_frame":"body"`. In `protocol_schema()`, the `plane` of the command and the `plane` of its result both refer to `$defs/SketchPlane`. The result does not require `plane`. `decode_response_frame` of a frame whose one message is a response (id 1) with the result of command 35's example that holds a plane succeeds; with `"extra": 1` added to that `plane` it fails with `InvalidMessage`.
 
+
+**Printer profile routes and the stored profile** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). `E11P` is the `printer_profile` object of file-format.md's E11.
+
+89. A profile as text: `{"type":"put_printer_profile","text":"{\"id\": \"my-mk4\", \"name\": \"My MK4\", \"technology\": \"fdm\", \"layer_height\": 0.15}"}` deserializes with `text` set and `profile` absent. Through `Session::call` its result is `put_printer_profile` with `profile` in the written form: `nozzle_diameter` 0.4, `layer_height` 0.15, the bed of `generic-fdm` and all four fit classes.
+90. Exactly one input: through `Session::call`, a `put_printer_profile` with both `profile` and `text`, and one with neither, each fail with `malformed_request` and the message `The request is not valid: put_printer_profile takes exactly one of profile and text.`
+91. Text the print crate cannot read is a profile error, not a frame error: through `Session::call`, `{"type":"put_printer_profile","text":"{\"id\": \"x\"}"}` fails with `invalid_profile` and a message that starts with `The printer profile could not be read: `.
+92. `remove_printer_profile` (command 36): `{"type":"remove_printer_profile","id":"my-mk4"}` round-trips, its result serializes as `{"type":"remove_printer_profile"}`, and in `protocol_schema()` the branch of `$defs/Command` whose `type` is `remove_printer_profile` requires `id`.
+93. The schema of the stored profile: in `protocol_schema()`, `$defs/Document/properties/printer_profile` and the `profile` of the `set_printer` branch of `$defs/Edit` each have an `anyOf` of `{"$ref": "#/$defs/PrinterProfile"}` and `{"type": "null"}`, the `profile` of the `put_printer_profile` result is `{"$ref": "#/$defs/PrinterProfile"}`, and every `$ref` in the schema names an entry of `$defs`.
+94. A stored profile reaches the host: opening `custom-printer.ptsm` (engine.md section 3.20) through `Session::call` gives a `document_changed` whose `document.printer_profile` equals `E11P`, member for member and in order, and `decode_response_frame` reads the frame.
+95. A `set_printer` edit with a profile: `{"type":"apply_edits","doc":1,"label":"Change printer","edits":[{"type":"set_printer","printer":"my-mk4","profile":E11P}]}` deserializes and serializes back to the same JSON. The same request with `E11P` given the extra member `"speed": 1` deserializes too; through `Session::call` on `box.ptsm` it fails with `invalid_profile` and `edit_index` 0.
+
+**Cancel** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+96. `FeatureState::NotRun` serializes as `"not_run"`. `{"id": "f-box1", "status": "not_run", "messages": [], "repairs": []}` deserializes as a `FeatureStatus` with that state and serializes back to the same JSON.
+97. `{"type": "rebuild", "doc": 1}` deserializes as `Command::Rebuild { doc: DocHandle(1) }` and serializes back to the same JSON, and `type_name()` is `rebuild`. The result `{"type": "rebuild"}` round-trips. A request frame whose command is `{"type": "rebuild"}`, with no `doc`, gets `malformed_request`.
+98. `ErrorCode::Canceled` serializes as `"canceled"`. In `protocol_schema()`, the schema of `FeatureState` lists `not_run`, the schema of `ErrorCode` lists `canceled`, and the `type` values of `Command` include `rebuild`.
+99. The worker host's cancel word (Vitest, `worker-host.test.ts`, rule 8). With a `load()` that resolves later, `receive({ type: 'cancel_word', word })` with a `SharedArrayBuffer(8)` comes first, then the load resolves. The fake module's `useCancelWord` is called once, before the host's `engine_info` call, with a `BigInt64Array` of length 1 whose `buffer` is `word`. After `engine_info` and one `call`, every byte of `word` is still 0.
+100. The worker transport's cancel (Vitest, `transport.test.ts`, rule 8 and ui.md section 2.4). With `crossOriginIsolated` true and a fake worker, `start()` posts `{ type: 'cancel_word', word }` with an 8-byte `SharedArrayBuffer` before any `call`. `cancel(7)` with no request 7 pending returns false and leaves the word at `0n`. While `send(frame, 7)` is pending, `cancel(7)` returns true and the word reads `7n`. The frame message that answers request 7 sets it back to `0n` before the send resolves. With `crossOriginIsolated` false, the transport posts no `cancel_word` and `cancel(7)` returns false while request 7 is pending.
+101. The cancel word in the module (Node, `crates/partsmith-wasm/tests/node/cancel_word.mjs`, section 2.10). The module is instantiated and given, through `useCancelWord`, a `BigInt64Array` over a new `SharedArrayBuffer(8)` holding `7n`. `callCore` of request 7, `open_document` of `examples/bench/fifty-features/model.ptsm`, answers `open_document` with a `recomputed` event in which every feature is `not_run`. The same request sent as request 8, with the word still at `7n`, answers with no `not_run`.
+102. The module's surface (Node, the same file). The module's JavaScript glue `ui/public/core/partsmith_core.mjs` names the function `partsmith_cancel_word` as one value of its `wasmImports` map. An `EM_JS` function keeps its name in the glue, as OCCT's `OSD_MemInfo_getModuleHeapLength` does. The import and export names inside the `.wasm` are minified (the `wasm-release` profile has `opt-level = "s"`), and the test reads none of them. The instantiated module has the function properties `_main`, `_ps_alloc`, `_ps_free` and `_ps_call`, no other own property whose name starts with `_ps_`, and no property `_partsmith_cancel_word`. The instance's `HEAPU8.buffer` is an `ArrayBuffer`, not a `SharedArrayBuffer`.
+103. The link arguments (`crates/partsmith-wasm/tests/build_script.rs`). `EMSCRIPTEN_LINK_ARGUMENTS` holds `-sEXPORTED_FUNCTIONS=_main,_ps_alloc,_ps_free,_ps_call` and no argument that contains `pthread`, `SHARED_MEMORY` or `js-library`.
+104. The Tauri transport's cancel (Vitest, `tauri-transport.test.ts`, section 2.12 and ui.md section 2.4). While the `invoke('call', ...)` of `send(frame, 5)` is pending, `cancel(5)` invokes `('cancel_call', { request: 5 })` once and returns true. With no request 5 pending, `cancel(5)` invokes nothing and returns false. When the `cancel_call` invoke rejects, `console.error` reports it, and the pending send still resolves with its own response frame.
+
+**Assets** ([ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)). `S` is the asset name of features/import.md section 6, `b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step`, and its bytes are the file `examples/import/assets/S`.
+
+105. The request of `add_assets` (2.5 command 38). `{"type":"add_assets","doc":1,"assets":[{"kind":"step","data":0,"name":"S"},{"kind":"ttf","data":1}]}`, with `S` written out, deserializes as `Command::AddAssets` with `doc` 1 and two entries: the first with kind `Step`, buffer 0 and name `S`, the second with kind `Ttf`, buffer 1 and no name. It serializes back to the same JSON, and `type_name()` is `add_assets`. `{"type":"add_assets","doc":1}` deserializes with `assets` empty. A request frame whose entry has `"kind":"woff"`, or an extra member `"extra":1`, returns `InvalidMessage` and `code()` is `malformed_request`.
+106. The result of `add_assets`. `{"type":"add_assets","assets":[{"name":"S","stored":true},{"name":"S","stored":false}]}` and `{"type":"add_assets","assets":[]}` round-trip through serde unchanged.
+107. The asset types in the schema. `AssetKind::Step`, `Ttf` and `Otf` serialize as `"step"`, `"ttf"` and `"otf"`. In `protocol_schema()`, `$defs/AssetKind` allows exactly those three strings, `$defs/AssetInput/required` is `["kind", "data"]`, `$defs/AddedAsset/required` is `["name", "stored"]` and `$defs/AssetUse/required` is `["name", "features"]`. The `type` values of `$defs/Command` include `add_assets`.
+108. `missing_assets` in `document_changed` (2.7). The `document_changed` examples of 2.3 and 2.7 round-trip through serde unchanged. A `DocumentChanged` whose `missing_assets` is `[AssetUse { name: S, features: ["f-imp1"] }]` serializes, compactly, with `"missing_assets":[{"name":"S","features":["f-imp1"]}],"bare_numbers":0` at its end. In `protocol_schema()`, the `document_changed` branch of `$defs/Event` requires `missing_assets`.
+109. The names and the command through `Session::call` (a headless session). `open_document` of `examples/import/step-block.ptsm` with `assets: []` answers with a frame whose `document_changed` has `missing_assets` `[{"name": S, "features": ["f-imp1"]}]`. Then `add_assets` with one entry, kind `step`, name `S` and the bytes of `S` as buffer 0, answers `{"type":"add_assets","assets":[{"name":S,"stored":true}]}` after the events `document_changed`, whose `missing_assets` is `[]`, and `recomputed`, in this order. `decode_response_frame` reads both frames.
+
+**Manifests** ([ADR 0065](../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md))
+
+110. The catalog on the wire (2.5 command 2). Through `Session::call` of a headless session, the `feature_catalog` result's entry of type `fillet` has a `manifest` that serializes, compactly, to exactly `{"label":"Fillet","description":"Rounds the selected edges.","category":"modify","icon":"fillet","version":1,"fields":[{"path":"edges","label":"Edges","essential":true,"selection":"edge","help":"The edges to round. Click a face to add all of its edges."},{"path":"radius","label":"Radius","essential":true,"unit":"length","start":{"kind":"expr","expr":"1 mm"}},{"path":"body","label":"Body","selection":"body"}]}`.
+111. The other forms on the wire. In the same result, the hint `hole_type.diameter` of `hole` ends with `"start":{"kind":"multiple","field":"diameter","factor":2.0}`, the hint `extent.kind` of `revolve` with `"start":{"kind":"choice","value":"full"}`, the hint `target` of `mirror` with `"creates_body":"while_new"` and the hint `target` of `split_body` with `"creates_body":"at_start"`.
+112. The schema of the manifest (2.9). In `protocol_schema()`, `$defs/FeatureManifest/required` lists `description`, and `$defs/FieldHint/properties` has `help`, `start` and `creates_body`, none of them in its `required`. Against the schema, `{"kind": "expr", "expr": "1 mm"}`, `{"kind": "choice", "value": "full"}` and `{"kind": "multiple", "field": "diameter", "factor": 2}` validate as `$defs/StartValue`, and `{"kind": "text", "value": "x"}` and `{"kind": "multiple", "field": "diameter"}` do not; `"while_new"` and `"at_start"` validate as `$defs/BodyCreation`, and `"always"` does not. Every `$ref` in the schema names an entry of `$defs`.
+113. Manifests stay open to new members (3.6). `decode_response_frame` of a frame whose one message is a response (id 1) with a `feature_catalog` result whose one entry is test 110's, with `"extra": 1` added to the manifest and to its `radius` hint, succeeds, and the decoded manifest equals test 110's.
+
+**Sketch contracts** ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). Each test comes with the item named in it, written when that item's code lands. None is a test of wave 1. `E-10` is sketch.md section 2.12's ellipse example.
+
+114. Display buffer order (2.6, item 14). A `SketchDisplay` with buffers 0 to 5 serializes to exactly `{"region_positions":0,"region_indices":1,"region_ids":2,"curve_positions":3,"curve_starts":4,"curve_ids":5}`.
+115. Polylines on the wire (2.6, item 14). Through `Session::call` of a session with display on, `solve_sketch` of a sketch holding `RECT` of sketch.md section 6.0 and `E-10` answers with a frame whose `curve_ids` buffer is the `u32` list `[4]` (the index of `e-10` in `entities`), whose `curve_starts` buffer is `[0]`, and whose `curve_positions` buffer starts and ends with the `f32` pair (60, 25).
+116. No polylines for M1 kinds (2.6, item 14). The same command for `RECT` alone answers with `curve_positions`, `curve_starts` and `curve_ids` buffers of length 0.
+117. Vertices on the curve (2.6, item 14). In test 115's frame, every `curve_positions` pair `(x, y)` has `((x - 40) / 20)^2 + ((y - 25) / 10)^2` within `1e-5` of 1, the precision of `f32`.
+118. A recipe records nothing (2.5 command 39, item 24). After `sketch_recipe` on `f-sk1` of engine.md section 3.20's `drag.ptsm`, opened in a headless session, `get_document` gives the same revision and recipe as before, and `undo` gives the entry it gave before. Every id in the result's `change.entities` and `change.constraints` is absent from the document.
+119. Recipes on other features (2.5 command 39, item 24). `sketch_recipe` naming `f-box1` of engine.md section 3.20's `box.ptsm` answers `not_a_sketch` with the message `f-box1 is a box feature, not a sketch.`
+120. A change as JSON (2.5 command 39, item 24). The result of test 118 serializes with the top-level keys `type`, `change`, its `type` `sketch_recipe`, and `change` with the keys `params`, `entities`, `constraints` in that order.
+121. A projection (2.5 command 41, item 26). In a headless session with an 80 x 50 x 10 box in body `b-1` at the origin and a sketch on its top face, placed at origin (0, 0, 10) with x axis (1, 0, 0) and normal (0, 0, 1), `sketch_project` with one source, the full reference of the box's front top edge from `pick_reference`, answers with a `change` whose `params` hold one more entity. It is a `line` whose ends are (-40, -25) and (40, -25), in either order, within `1e-9`, and whose `link` is `{"kind": "edge", "body": "b-1", "edge": <that reference>}`. `get_document` then gives the document unchanged.
+
+**Scope** ([ADR 0069](../adr/0069-component-scopes-by-containment-and-occurrence-paths.md) decision 9)
+
+122. The protocol schema leaves `occurrence` free: in `protocol_schema()`, and in `docs/format/protocol.schema.json` as `partsmith schema --write` generates it, no `properties` object at any depth has the key `occurrence`. M4 adds it beside `body` in picks, element descriptors and uses.
+
+**Sketch contracts, continued** ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). As for tests 114 to 121, this test comes with item 14.
+
+123. Polyline starts count vertices (2.6, item 14). Through `Session::call` of a session with display on, `solve_sketch` of a sketch holding only `E-10` and `{"id": "e-15", "type": "ellipse", "center": [0, 0], "major": [5, 0], "minor_radius": 2}` answers with a `curve_ids` buffer `[0, 1]` and a `curve_starts` buffer `[0, n]`, with `n` the number of vertices of `e-10`'s polyline in sketch.md's `display_curves` of the same entities. The `f32` values at indices `2 * n` and `2 * n + 1` of `curve_positions` are 5 and 0.
+
 ## 7. Open issues
 
 1. **Print health as an event.** Architecture lists print health among events. This spec keeps it an event (`print_health`), emitted only by `analyze_print`, and does not run analysis automatically after edits, so a slow analysis can be superseded in the worker queue instead of blocking modeling. Background analysis with unsolicited events is later.
@@ -1760,3 +1951,4 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 7. **A cause's ghost is the entity before the edit.** The study's `Cause::ghost` is "the changed entity before and after". The sketch on screen already shows the entity as it is now, so the ghost holds only its geometry before the edit, and nothing for an added entity; `show` with the `entity` highlights the current one.
 8. **Actions omitted when empty.** `Diagnostic::actions` and `ErrorInfo::actions` are the only `Vec` fields omitted when empty (section 2.3), so that every existing message and error keeps its exact JSON (tests 27, 67 and 73). Every other new `Vec` follows the general rule and is always written.
 9. **Loss reason details from the second review (signed off with ADR 0024 by the owner on 2026-11-04).** `LossReason::OtherBody` gains `present` (false when the feature that made the element now writes another body, so the element left this body without being in that one, corpus R56 (c)), and `Absence` gains `end_outside` (a cut or hole whose end reaches the outside of the body without going all the way through, corpus R30 (a)), so the wire form keeps carrying what recompute.md section 3.10 renders. Both are inside the types ADR 0016's planned entry lists as new (test 83).
+10. **Polylines on every frame** (M2, ADR 0066). A drag frame sends the display polylines of every entity of the sketch, those of entities the drag does not move too. A 40-glyph text adds a few thousand vertices to each frame. Item 14 measures it against the 16 ms frame of sketch.md section 5.1. Sending only the polylines that changed would need a reference to an earlier frame's buffers, which the protocol does not have.

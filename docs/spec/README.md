@@ -11,8 +11,8 @@ Per-area behavior specs for M1. Each spec is the definition of done for its crat
 | [file-format.md](file-format.md) | `partsmith-model` | Canonical `.ptsm` JSON, loading and saving, numbers and strings, versioning and migration, JSON Schema, the `assets/` folder. |
 | [mesh.md](mesh.md) | `partsmith-mesh` | The shared triangle mesh, bounding boxes, tessellation tolerances, transforms, welding, validity, ray queries, slicing and render buffers. |
 | [naming.md](naming.md) | `partsmith-naming` | Element names, naming maps, fingerprints, references, the resolver and the naming rule of every M1 feature. |
-| [sketch.md](sketch.md) | `partsmith-sketch` | Sketch params, the native constraint solver, degrees-of-freedom diagnosis, drag solving and profile regions. |
-| [kernel.md](kernel.md) | `partsmith-occt-sys` | The safe facade over OCCT 7.9.3: primitives, profiles, sweeps, booleans, fillet, chamfer, shell, transforms, measurement, tessellation, STEP and BRep. |
+| [sketch.md](sketch.md) | `partsmith-sketch` | Sketch params, the native constraint solver, degrees-of-freedom diagnosis, drag solving, profile regions, the region union and curve chains, and the contracts of M2's entity records, recipes, operations and display polylines. |
+| [kernel.md](kernel.md) | `partsmith-occt-sys` | The safe facade over OCCT 7.9.3: primitives, profiles, sweeps, booleans, fillet, chamfer, shell, transforms, measurement, tessellation, STEP and BRep, interrupts of long OCCT calls, and the M2 kernel spikes. |
 | [features.md](features.md) | `partsmith-features` | The `Feature` trait, registry, build context, outputs, body semantics, errors and warnings, and Python codegen. |
 | [recompute.md](recompute.md) | `partsmith-recompute` | Dependency graph, dirty tracking, content-hash cache keys, the result cache and per-feature reports. |
 | [print.md](print.md) | `partsmith-print` | Printer profiles, fit classes, `printer.*` values, tessellation tolerance rule, printability checks and the health summary. |
@@ -23,7 +23,8 @@ Per-area behavior specs for M1. Each spec is the definition of done for its crat
 | [python-api.md](python-api.md) | `partsmith-py`, `python/` | The build123d-style Python API, Python code generation and the round-trip rules. |
 | [ui.md](ui.md) | `ui/` | The React app: layout, interaction, sketching, inspectors, print context, the core bridge and end-to-end tests. |
 | [desktop.md](desktop.md) | `partsmith-desktop` (`desktop/src-tauri`), `ui/src/files`, `ui/src/app/close-guard.ts` | The Tauri 2 host: the `call` command, file grants with native dialogs, the close guard, the Tauri configuration, content security policy and capability, the desktop `FileService` and bundles. |
-| [delivery.md](delivery.md) | `.github/workflows/`, `ui/scripts/check-dist.mjs`, `examples/` | CI jobs, the Cloudflare Pages deploy, the 25 MiB per-file gate, the web app's response headers, the desktop release workflow and the examples corpus with its runners. |
+| [delivery.md](delivery.md) | `.github/workflows/`, `ui/scripts/check-dist.mjs`, `examples/`, `fuzz/` | CI jobs, the Cloudflare Pages deploy, the 25 MiB per-file gate, the web app's response headers, the desktop release workflow, the examples corpus with its runners, and the fuzz crate with its targets and corpora. |
+| [corpus.md](corpus.md) | `corpus/`, `crates/partsmith-cli/tests/examples/model_corpus.rs`, `crates/partsmith-cli/tests/examples/naming_metric.rs` | The model corpus, the scripted edits of the examples and the corpus with the oracle the test author writes, the naming metric, the stored baselines and their drift rule, the first 100 models and the corpus checks CI runs. |
 
 Per-feature specs in [features/](features/), one per built-in feature type, each building on [features.md](features.md):
 
@@ -81,7 +82,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **D12.** `partsmith-wasm` may use `unsafe` only on its three C ABI exports (ADR 0010); its thread-local session is host state, and the kernel's STEP and blend mutexes and one-time OCCT setup guard OCCT's own process-wide state.
 - **D13.** Print values the technical design does not give stay as specified and are listed in print.md under "Needs human review". The owner accepted them as built for M1 on 2026-11-04.
 - **D14.** `FeatureManifest` and other pure data the protocol needs live in `partsmith-model` or `partsmith-protocol`, so the protocol carries no untyped JSON for core data and the UI gets generated types.
-- **D15.** Protocol sketch regions include the region fingerprint; the protocol sends no tessellated sketch curves, and the UI draws curves from the entities.
+- **D15.** Protocol sketch regions include the region fingerprint; the protocol sends no tessellated sketch curves, and the UI draws curves from the entities. Amended by [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md) on 2026-11-07, for review at the M2 gate: the UI still draws points, lines, circles and arcs from the entities. Since M2, `sketch_solved` also carries display polylines for every entity of another kind (ellipses, conics, splines and text) in `SketchDisplay`'s buffers, and the UI draws those entities from them (sketch.md section 3.20.9, protocol.md section 2.6). Nothing stores a polyline or refers to one of its vertices.
 - **D16.** Protocol element data names the feature that created each face, edge and vertex, so the UI never parses element names.
 - **D17.** `save_document` returns the text without clearing `dirty`; the host sends `mark_saved { revision }` after the file is written.
 - **D18.** engine.md's overhang test follows print.md, which owns the overhang values.

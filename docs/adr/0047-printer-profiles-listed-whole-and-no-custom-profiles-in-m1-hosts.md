@@ -1,6 +1,6 @@
 # 0047: The protocol schema lists printer profiles in their written form, and custom printer profiles are Later in the CLI and Python
 
-Status: Accepted (owner, 2026-11-04): option (a) of both decisions, as built. Decision 1 changes the protocol schema (gap list item PRINT-3, the 2026-10-28 entry in ADR 0016's log), and decision 2 settles the public API of the CLI and Python for custom printer profiles (gap list item PRINT-2) by adding none. No file format, license, dependency or capability change.
+Status: Accepted (owner, 2026-11-04): option (a) of both decisions, as built. Decision 1 changes the protocol schema (gap list item PRINT-3, the 2026-10-28 entry in ADR 0016's log), and decision 2 settles the public API of the CLI and Python for custom printer profiles (gap list item PRINT-2) by adding none. No file format, license, dependency or capability change. Amended on 2026-11-07: [ADR 0062](0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md) settles decision 2 for M2 with options (b), (c) and (d) together (Accepted (owner's rule of 2026-11-05), the M2 plan's choice 21). A document stores every profile it names that is not built in, the web and desktop apps keep a library, the CLI takes `--printer-file` and Python a profile mapping, and the `unknown_printer_profile` warning names only actions the hosts offer. Decision 2 stays the record of M1. Decision 1 stands. ADR 0062 changes the file format and the protocol schema, for human review at the M2 gate.
 
 ## Context
 

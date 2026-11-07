@@ -8,7 +8,7 @@ Revolve sweeps closed regions of one sketch around an axis that lies in the sket
 
 ### In M1
 
-- Profile: one or more closed regions of one sketch, swept as their union (features.md section 3.7, the same union as extrude).
+- Profile: one or more closed regions of one sketch, swept as their union (features.md section 3.7 and sketch.md section 3.19, the same union as extrude).
 - Axis: an origin axis, a sketch line (construction lines allowed), a straight edge, or the axis of a round face, lying in the sketch plane.
 - Extents: `angle` (0 < angle ≤ 360 deg) and `full`.
 - `reverse` to revolve in the negative sense.
@@ -73,6 +73,8 @@ Full turn: `"extent": {"kind": "full"}`.
 
 Label `Revolve`, category `create`, icon `revolve`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Spins a closed sketch shape around an axis into a round solid, or cuts with it.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `profile` | Profile | yes | | `sketch_region` | |
@@ -80,8 +82,20 @@ Label `Revolve`, category `create`, icon `revolve`, version 1.
 | `extent.kind` | Extent | yes | | | `angle` Angle, `full` Full |
 | `extent.expr` | Angle | yes | angle | | |
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
-| `reverse` | Reverse | no | | | |
+| `reverse` | Reverse | yes | | | |
 | `body` | Body | no | | `body` | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `axis` | The line to spin around: an origin axis, a sketch line or a straight edge. | | |
+| `extent.kind` | Full makes a complete turn. Angle stops part way. | `choice` `full` | |
+| `op` | New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap. | | |
+| `reverse` | Turns the other way around the axis. | | |
+| `body` | The body that Join, Cut and Intersect change. | | |
+
+Since M2 the manifest marks `reverse` essential. The inspector places it beside the extent field it belongs to (ui.md section 2.12).
 
 ### Python
 
@@ -211,6 +225,7 @@ Bodies `[b-1]` unless stated.
 34. **A side line replaced by a notch (corpus R66 for revolve).** Test 33's document before its edit. Edit: delete `e-2` and add `e-9` (20,0)-(20,10), `e-10` (20,10)-(16,10), `e-11` (16,10)-(16,20), `e-12` (16,20)-(20,20) and `e-13` (20,20)-(20,30) (a groove 4 deep), each `{"id": ..., "type": "line", "start": ..., "end": ...}`. Expected: the profile matches by `Boundary` with the succession `e-2 -> [e-9, e-10, e-11, e-12, e-13]`; f-rev1 ok, volume 23750.440461; f-sh1 status warning (`reference_widened`: the cylinders and flat rings of the notch do not lie on one carrier) at `/remove_faces/0`, with the fixes `KeepMatch`, `UseReferences` with `f-rev1/lateral/e-9` alone (as a pick stores it just before f-sh1), then `Pick`; every notch face is removed until the user chooses, so b-1 volume is 7363.893180, as in test 33.
 35. **Join.** `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "15", "height": "10", "position": ["0", "0", "-5"], "op": "new"}` (a disc spanning z -5..5), `SK-RING`, `REV(AXIS-Z, {"kind": "full"}, "join")`, as `examples/revolve/join`. The ring overlaps the disc between radius 10 and 15 and z 0..5. Expected: ok; volume 33379.421944 (10625π), 7 faces, 1 solid, bbox [-20,-20,-5]-[20,20,30]; change `Join`. Faces: `f-cyl1/bottom` area 706.858347 (plane z=-5); `f-cyl1/side` area 471.238898 (cylinder radius 15, z -5..0); `f-cyl1/top` area 314.159265 (plane z=5, inside the ring); `f-rev1/lateral/e-1` area 549.778714 (plane z=0, radius 15 to 20); `f-rev1/lateral/e-2` area 3769.911184 (cylinder radius 20); `f-rev1/lateral/e-3` area 942.477796 (plane z=30); `f-rev1/lateral/e-4` area 1570.796327 (cylinder radius 10, z 5..30).
 36. **Axis from a round face.** Bodies `[b-1, b-2]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-2", "radius": "5", "height": "10", "op": "new"}` (its axis is the Z axis); `SK-RING`; `REV({"kind": "face", "body": "b-2", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5|adj=2,3"}, "direction": [0, 0, 1]}, {"kind": "angle", "expr": "90 deg"}, "new")` (as a pick stores it), as `examples/revolve/face-axis`. The face's axis lies in the sketch plane, and the stored direction (body coordinates; b-2 has not moved) orients the axis, +Z (features.md section 3.6). Expected: ok; b-1 identical to test 2 (volume 7068.583471, 6 faces, bbox [0,0,0]-[20,20,30], `f-rev1/end-cap` in plane x=0 with y between 10 and 20); b-2 unchanged; dependencies `bodies_read == ["b-2"]`.
+37. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `revolve` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("revolve")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential.
 
 ## Open issues
 

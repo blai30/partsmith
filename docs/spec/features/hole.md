@@ -91,6 +91,8 @@ Other forms: `"hole_type": {"kind": "countersink", "diameter": "6.5 mm", "angle"
 
 Label `Hole`, category `create`, icon `hole`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Drills round holes where you click on a flat face or at sketch points.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `points` | Points | yes | | `sketch_point` | |
@@ -102,9 +104,25 @@ Label `Hole`, category `create`, icon `hole`, version 1.
 | `extent.kind` | Extent | yes | | | `distance` Depth, `through_all` Through all |
 | `extent.expr` | Depth | yes | length | | |
 | `tip_angle` | Tip angle | no | angle | | |
-| `reverse` | Reverse | no | | | |
+| `reverse` | Reverse | yes | | | |
 | `sketch` | Sketch | no | | `sketch` | |
 | `body` | Body | no | | `body` | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `points` | Where the holes go: click a flat face, or pick points of a sketch. | | |
+| `diameter` | | `expr` `3.2 mm` | |
+| `hole_type.kind` | Counterbore adds a wider flat recess for a screw head. Countersink adds a cone for a flat-head screw. | | |
+| `hole_type.diameter` | Diameter of the wider recess at the top of the hole. | `multiple` of `diameter`, factor 2 | |
+| `hole_type.depth` | Depth of the recess. | `expr` `3 mm` | |
+| `hole_type.angle` | Angle of the countersink cone. 90° fits most flat-head screws. | `expr` `90 deg` | |
+| `extent.kind` | Depth stops at a set depth. Through all goes through the whole body. | `choice` `through_all` | |
+| `tip_angle` | Gives the bottom a drill-point cone of this angle. Leave it empty for a flat bottom. | | |
+| `reverse` | Drills out of the face instead of into it. | | |
+
+Since M2 the manifest marks `reverse` essential. The inspector places it beside the extent field it belongs to (ui.md section 2.12).
 
 ### Python
 
@@ -262,6 +280,7 @@ Bodies `[b-1]`; features `BOX-BELOW`, `SK-PTS`, then the hole, unless stated. Th
 38. **Arc start, end and center as points.** Sketch f-sk1 with `{"id": "e-6", "type": "arc", "center": [0, 0], "radius": 10, "start_angle": 0, "end_angle": 1.5707963267948966}` (a quarter arc from (10, 0) to (0, 10)); `HOLE(["e-6.start", "e-6.end", "e-6.center"], "extent": {"kind": "through_all"})`, as `examples/hole/arc-points`. Expected: ok; volume 15151.769984 (three holes like test 1's), 9 faces, bbox [-20,-20,-10]-[20,20,0]; change `Cut`; walls `f-hole1/bore/e-6.start` with its axis through (10,0,0), `f-hole1/bore/e-6.end` through (0,10,0) and `f-hole1/bore/e-6.center` through (0,0,0), each cylindrical with radius 3 and area 188.495559.
 39. **Blind counterbore.** `HOLE(["e-p1"], "hole_type": {"kind": "counterbore", "diameter": "11", "depth": "4"}, "extent": {"kind": "distance", "expr": "8"})`, as `examples/hole/blind-counterbore`. Expected: ok; volume 15506.769953, 10 faces; `f-hole1/counterbore/e-p1` cylindrical with radius 5.5 and area 138.230077; `f-hole1/counterbore-floor/e-p1` planar at z=-4 with area 66.758844; `f-hole1/bore/e-p1` cylindrical with radius 3, centroid z=-6, area 75.398224; `f-hole1/bottom/e-p1` planar at z=-8 with area 28.274334; `FeatureOutput::absent` is empty.
 40. **Blind countersink.** `HOLE(["e-p1"], "hole_type": {"kind": "countersink", "diameter": "12", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "8"})`, as `examples/hole/blind-countersink`. The countersink is 3 deep ((12 - 6) / 2 / tan 45 deg). Expected: ok; volume 15660.707993, 9 faces; `f-hole1/countersink/e-p1` conical, its axis through (0,0,0) along (0,0,1) up to sign, centroid z=-1.333333, area 119.957839; `f-hole1/bore/e-p1` cylindrical with radius 3, centroid z=-5.5, area 94.247780; `f-hole1/bottom/e-p1` planar at z=-8 with area 28.274334; `FeatureOutput::absent` is empty.
+41. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `hole` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("hole")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential.
 
 ## Open issues
 

@@ -20,15 +20,32 @@ Code is a first-class way to model (technical design section 10): a build123d-st
 - `run_script`, `run_code`, `python -m partsmith build`.
 - Code generation rules (readable, deterministic, exact) and the round-trip test.
 
+**In M2** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md))
+
+- Custom printer profiles: `Document(printer=...)`, the `Document.printer` setter and `Document.check(printer=...)` take a mapping in print.md's input form as well as an id (section 3.13); `Document.printer_profile` gives the profile a document stores; generated code writes a stored profile as a mapping (section 3.8 rule 2).
+
+**In M2: cancel** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+- Nothing stops a Python call. The session keeps `CancelFlag::never()`, the default of `SessionOptions::headless()` (section 3.10, engine.md section 3.26). No status reads `not_run`.
+
+**In M2: assets** ([ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md))
+
+- `Document.add_asset(path)` adds a STEP or font file to a document's assets and returns its asset name (sections 2.4 and 3.7). A record can then name it, such as the `asset` of an `import` (open issue 4).
+- `Document.open` keeps passing every asset-named file of `assets/` to `open_document`. The `asset_mismatch` it can raise has new words that name the feature that reads the wrong file (engine.md section 4).
+
+**In M2: sketch contracts** ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md))
+
+- Contracts only, for waves 2 to 4. Item 33's specs give the Python names of sketch.md section 2.12's kinds (`Ellipse`, `Spline`, `Text` and the others), each emitting the records of its kind, as `Line` and `Arc` mirror theirs (section 2.6). Item 33 decides whether the three spline records `bspline`, `fit_spline` and `fixed_spline` get a name each or one `Spline` with a keyword. `Rectangle` and `Polygon` move onto the core's recipes with item 24 (wave 3). They keep their signatures and the records they emit. Their new ids follow section 3.11: Python's own generator, which skips the ids of the document snapshot and of the open sketch block. Item 24's spec says how Python runs the core's recipe on a sketch that is not stored yet and keeps those ids. Projection and Break link come with item 26.
+
 **Later (not in M1)**
 
 - `param` ranges and choices (`min`, `max`, `choices`) and the Customizer panel; GUI edits writing back into `param()` defaults.
-- Script features in the GUI timeline, embedded CPython in the desktop app, Pyodide on the web, trust prompt and sandboxing.
+- Script features in the GUI timeline, embedded CPython in the desktop app, Pyodide on the web, trust prompt and sandboxing. The Pyodide spike of M2 ([ADR 0070](../adr/0070-pyodide-spike-decides-when-web-scripting-ships.md)) decides whether web scripting ships in v1.0 or v1.1.
 - Rounded rectangles, slots, regular polygons, three-point arcs, splines, ellipses, text.
 - Operators on parts (`+`, `-`, `&`), `offset`, `grid`, standard hole and thread tables (`M3`), sweep, loft and the rest of the parity matrix.
 - Generating selector expressions or shapes (`Rectangle`) instead of `Ref` literals and individual entities.
 - Round trip of documents with imported STEP geometry (their code uses the generic `feature("import", ...)` form and needs the asset).
-- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. Each `Document`'s session has only the built-in profiles (no `Document` sends `put_printer_profile`), so in M1 `Document(printer=...)`, `Document.printer` and `check(printer=...)` name `generic-fdm` or `generic-resin`. A document whose `printer` names another id keeps it, and the engine uses `generic-fdm` with the document warning `unknown_printer_profile` (engine.md section 3.4); `check(printer=...)` with another id raises `EngineError` with code `unknown_printer_profile` (engine.md section 3.12, engine test 80).
+- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. Each `Document`'s session has only the built-in profiles (no `Document` sends `put_printer_profile`), so in M1 `Document(printer=...)`, `Document.printer` and `check(printer=...)` name `generic-fdm` or `generic-resin`. M2 adds a profile argument (In M2, above). A document whose `printer` names another id keeps it, and the engine uses `generic-fdm` with the document warning `unknown_printer_profile` (engine.md section 3.4); `check(printer=...)` with another id raises `EngineError` with code `unknown_printer_profile` (engine.md section 3.12, engine test 80).
 - `export_3mf(..., arrange=True)`, mesh access as arrays, notebook viewers.
 - Published stub package and editor extension.
 
@@ -113,7 +130,7 @@ pytest python/tests -m budgets -s           # the budgets of section 5, one line
 ```python
 PROTOCOL_VERSION: int  # 1
 ENGINE_VERSION: str    # "0.1.0"
-FORMAT_VERSION: int    # 2
+FORMAT_VERSION: int    # 3 (2 in M1)
 
 class Session:
     """One engine session. Thread-safe: concurrent calls are serialized."""
@@ -200,7 +217,8 @@ AxisLike = Axis | Line | Element | Ref
 ```python
 class Document:
     """A Partsmith document. Creating one makes it the current document of this context."""
-    def __init__(self, *, units: str = "mm", printer: str | None = None) -> None: ...
+    def __init__(self, *, units: str = "mm", printer: str | Mapping[str, object] | None = None) -> None: ...
+        # printer: an id, or a profile in print.md's input form (section 3.13)
     @classmethod
     def open(cls, path: str | os.PathLike[str]) -> "Document":
         """Opens a .ptsm file and the hash-named files in its assets/ folder; becomes current."""
@@ -213,7 +231,9 @@ class Document:
     @property
     def printer(self) -> str | None: ...
     @printer.setter
-    def printer(self, profile: str | None) -> None: ...   # set_printer edit
+    def printer(self, profile: str | Mapping[str, object] | None) -> None: ...   # set_printer edit (section 3.13)
+    @property
+    def printer_profile(self) -> dict[str, object] | None: ...   # the stored profile in the written form, or None
     @property
     def parameters(self) -> list["Param"]: ...
     @property
@@ -224,7 +244,8 @@ class Document:
     def save(self, path: str | os.PathLike[str]) -> None: ...
     def to_python(self) -> str: ...              # export_python
     def import_step(self, path: str | os.PathLike[str], *, name: str | None = None) -> "Part": ...
-    def check(self, *, printer: str | None = None, rotate: Sequence[tuple["Axis", float]] = (),
+    def add_asset(self, path: str | os.PathLike[str]) -> str: ...   # since M2: a STEP or font file; returns its asset name (3.7)
+    def check(self, *, printer: str | Mapping[str, object] | None = None, rotate: Sequence[tuple["Axis", float]] = (),
               face_down: "Element | None" = None, parts: Sequence["Part"] | None = None) -> "PrintReport": ...
     def close(self) -> None: ...
 
@@ -399,7 +420,7 @@ class Feature:
     type: str
     name: str | None
     @property
-    def status(self) -> str: ...            # "ok" | "warning" | "error" | "suppressed" | "rolled_back"
+    def status(self) -> str: ...            # "ok" | "warning" | "error" | "suppressed" | "rolled_back"; never "not_run" (3.10)
     @property
     def messages(self) -> list[str]: ...     # texts of its messages: error, warnings, then info notices
     def faces(self) -> "Selection": ...      # faces of its part whose element name starts with "<id>/"
@@ -708,6 +729,7 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 - All export functions require parts of one document (`ValueError("All parts must belong to the same document.")`) and at least one part. They send `export` with `bodies` set to the parts' ids, `tolerance` when `chord` or `angle` is given (`angle` in degrees, converted; the missing value from the standard tolerance), and `orientation` as a `matrix` composed from `rotate` (each `(axis, degrees)` rotation applied after the previous ones about fixed model axes; axes must be `Axis.X`, `Axis.Y` or `Axis.Z`) when `rotate` is non-empty.
 - The single engine file is written to `path` and `[Path(path)]` is returned, except for `export_stl` with `per_part` (one file per part; 3MF, OBJ and STEP always write one file): then `path` is a directory (created with parents), each engine file is written inside it under its engine name, and the paths are returned in body order. Each file is written atomically as in 3.1 (flushed, then moved over the target with `os.replace`). A file that is a symbolic link is written through it, as a linked document file is (3.1): the file it points to is replaced, and the link stays as it is. A link that leads to no file or to a folder fails that file's write. The file a write replaces keeps its permissions (3.1). A read-only file is refused before anything is written to it (3.1). The returned paths are the paths as given, links included. A failed write raises an `OSError` as in 3.1 whose `filename` is the file being written as given (`str(path)`, or with `per_part` `str(path / <engine name>)`), never the file a link points to or a temporary file, and whose `filename2` is None; files written before it stay and nothing after it is written. Engine warnings become `PartsmithWarning`s.
 - `Document.import_step(path, name=None)` reads the file and sends `import_step`; it returns the new part, which holds every solid of the file, and warns about the problems the import starts (3.2), such as a solid that stayed invalid after repair (`import_warning`, features/import.md section 4).
+- `Document.add_asset(path)` (since M2, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)) adds a STEP or font file to the document's assets without a record. The kind comes from the file name's extension, compared without case: `.step` and `.stp` give `step`, `.ttf` gives `ttf` and `.otf` gives `otf`. Any other name raises `ValueError("add_asset(): {path} is not a STEP or font file. Partsmith adds .step, .stp, .ttf and .otf files.")`, with `{path}` the path as given, before the file is read. Then it reads the file (`FileNotFoundError` and other `OSError`s propagate), sends `add_assets` with one entry of that kind and no name, and returns the result's `name`. The recipe, the undo history and the dirty state do not change. A record then names the asset, for example `feature("import", body=part.id, asset=name, op="new")`, which builds once the asset is there. `save` writes an asset only while a record reads it (3.1).
 - `Document.check(...)` sends `analyze_print` with `printer`, an orientation (`face_down` with the element's part body and reference, else the `rotate` matrix, else `as_modeled`; giving both raises `ValueError`), and the parts' ids, then returns a `PrintReport` built from the `print_health` event: `health` and `label` from its summary, and every finding of every body's report in body order, then check order, then the check's own order, with `location` the center of the finding's bounds or its point. A finding's `suggestion` is None when the protocol finding has none, or has a split without planes, which has no words (print.md section 3.12); otherwise it is a `Suggestion` with the protocol suggestion's `kind`, its planes as a tuple of `SplitPlane`s in order (empty for a drain hole), its `at` as a tuple (None for a split), and `text` worded from them as print.md section 3.12 says, in millimeters with `len` of print.md section 3.9.0 (`f"{value:.3f}"` with trailing zeros and a trailing `.` removed and `-0` written `0`), so a script prints the same words as `partsmith rebuild --checks` (cli.md 3.3). Every field of `Suggestion` and `SplitPlane` is hashable, so a `Finding` stays hashable. `Suggestion` and `SplitPlane` are importable from `partsmith.reports` and are kept out of `partsmith.__all__`, so that 2.3, test 77 and the names code generation reserves (3.8 rule 7, which the engine's `export_python` holds) do not change.
 
 ### 3.8 Python code generation
@@ -715,7 +737,7 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 `export_python` (engine.md 3.16) produces a script that, run with `run_code`, rebuilds the document exactly (3.9). Rules:
 
 1. **Layout.** UTF-8, LF line endings, 4-space indentation, one trailing newline, no trailing spaces. Sections in this order, each separated by exactly one blank line and omitted when empty: the import line `from partsmith import *`; the document line; parameters; parts; the timeline; the rollback line. Inside the timeline, consecutive top-level statements and `with` blocks are not separated by blank lines.
-2. **Document line.** `doc = Document(units="<units>")`, with `, printer="<id>"` appended when `printer` is set.
+2. **Document line.** `doc = Document(units="<units>")`, with `, printer="<id>"` appended when `printer` is set and the document stores no profile. When it stores one, `, printer=<mapping>` is appended instead: the stored profile as a dict literal on one line, keys in the written form's order, strings per rule 10, numbers in the canonical form of file-format.md section 3.3 (`250`, `0.15`, `0.7853981633974483`) and nested dicts for `bed` and `fit`. Rule 11 may put `printer=` on its own line; the dict itself is never split.
 3. **Parameters.** One line per parameter in document order: `<var> = param("<name>", <expr>, comment="<comment>", id="<id>")`, with `comment` only when set.
 4. **Parts.** One line per body in document order: `<var> = Part("<name>", material=..., color=..., visible=False, role="<role>", id="<id>")`, each keyword only when it differs from its default.
 5. **Timeline blocks.** Each feature has a block part: its `body` param (`target` for `boolean`) for solid features; for features without a body, the block part of the next feature in the timeline that has a body, or none when there is none. Maximal runs of consecutive features with the same block part become one `with <part var>:` block; features without a block part are emitted at top level.
@@ -754,16 +776,21 @@ CI runs the first form for every engine fixture, for the documents of test 86 (w
 | Feature functions | `apply_edits` (`add_feature`); `undo` on error; `list_elements` for selections; `pick_reference` (`mesh_id` 0, `body` the element's part's body, `index` its position in `list_elements` order) for the full reference of each element passed (3.6); `evaluate` for raw expression values |
 | Selectors | `list_elements`; `pick_reference` with `mesh_id` 0, `body` the element's part's body and `index` its position, when an element's `reference` is first read (3.6) |
 | `Part.volume` and friends | `measure` |
-| `rollback`, `Document.printer = ...` | `apply_edits` (`set_rollback`, `set_printer`) |
+| `rollback`, `Document.printer = ...` | `apply_edits` (`set_rollback`, `set_printer`); for a mapping, `put_printer_profile` with `text` first (3.13) |
+| `Document(printer=<mapping>)`, `check(printer=<mapping>)` | `put_printer_profile` with `text`, then `new_document` or `analyze_print` with its id (3.13) |
+| `Document.printer_profile` | none: it reads the `document_changed` snapshot |
 | `save` | `save_document`, then `mark_saved` after the assets and then the file are written (3.1) |
 | `to_text` | `save_document` |
 | `to_python` | `export_python` |
 | `check` | `analyze_print` |
 | `export_*` | `export` |
 | `import_step` | `import_step` |
+| `add_asset` (since M2) | `add_assets` |
 | `close` | `close_document` |
 
 Every error response raises `EngineError` with the response's `code` and `message`, except `expression_error`, which raises `ExpressionError`.
+
+**No stop** (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)). `partsmith._core.Session` creates its engine session with `CancelFlag::never()` and offers no way to stop a call. Every call runs to its end, and a feature's `status` is never `not_run`. Ctrl+C during a call raises `KeyboardInterrupt` once the call returns, as in M1: `call` releases the GIL (`Python::detach`), and Python runs its signal handler in the main thread after the call. A stop for scripts is later work.
 
 ### 3.11 Ids
 
@@ -774,6 +801,15 @@ Ids given with `id=` are used as is. Otherwise Python generates them in the `Seq
 - `run_code` executes the code with `exec` in a new module namespace (`__name__ == "__main__"`, `__file__` set to `filename`) inside a fresh `contextvars` context with no current document or part, and returns every `Document` created during the run, in creation order. Exceptions from the code propagate unchanged.
 - `run_script(path)` reads the file as UTF-8 and calls `run_code(text, filename=str(path))` with the working directory unchanged.
 - Two runs of the same code produce documents with byte-identical texts.
+
+### 3.13 Printer profiles
+
+- A printer is given as an id (`str`) or as a profile: a mapping in print.md's input form (print.md section 3.1), such as a dict a script writes, `json.load` of a profile file, or `Document.printer_profile` of another document. Any other type raises `TypeError` with the message `<function>: printer must be a printer id (str), a printer profile (a mapping) or None.`, where `<function>` is `Document()`, `Document.printer` or `Document.check()`.
+- A mapping is sent as `put_printer_profile` with `text` set to `json.dumps(mapping)` (protocol.md command 4). A mapping that `json.dumps` cannot write raises its `TypeError` or `ValueError`. A profile the engine refuses raises `EngineError` with the code `invalid_profile` or `profile_id_reserved` and the engine's message. Then the printer is named by the id of the profile the result returns.
+- `Document(printer=<mapping>)` puts the profile first, then sends `new_document` with its id. The new document stores it (engine.md section 3.2) with no undo entry. `Document.printer = <mapping>` puts it, then applies `set_printer` with its id (label `printer`, as the id form already uses in `python/partsmith/document.py`). The document then stores it. `Document.printer = "<id>"` applies `set_printer` with that id: a profile this document's session holds is stored, and a built-in id stores none.
+- `Document.printer` is the document's `printer` id. `Document.printer_profile` is a new dict of the profile the document stores, in the written form and its key order, or `None`.
+- `check(printer=<mapping>)` puts the profile, then sends `analyze_print` with its id. The document's printer and stored profile do not change. The engine checks a document against its stored profile when the id is its `printer` (engine.md section 3.12 step 1). When the mapping's `id` is the document's `printer`, the document stores a profile, and the written form that `put_printer_profile` returns differs from that stored profile, `check` raises `ValueError` with the message `Document.check(): this document stores its own printer '<id>', which differs from the profile given. Give the profile another id, or set Document.printer to it first.` and sends no `analyze_print`. The session keeps the profile it put.
+- A document that stores a profile rebuilds with it in every session. `Document.open` needs no printer argument for it. Each `Document` has its own session (section 3.1). A profile one document puts is not in another's session.
 
 ## 4. Errors
 
@@ -970,7 +1006,7 @@ with Sketch(
 69. `run_code` of the same script twice returns documents with identical `to_text()`.
 70. A script run with `run_code` does not see or change the caller's current document.
 71. `python -m partsmith build script.py -o out.ptsm` exits 0 and writes a canonical file; for a script that raises, it exits 1 and prints the traceback to standard error; for a script creating two documents, it exits 1 with `error: The script created 2 documents; build needs exactly one.`
-72. `partsmith._core.PROTOCOL_VERSION == 1`, `ENGINE_VERSION == "0.1.0"`, `FORMAT_VERSION == 2`.
+72. `partsmith._core.PROTOCOL_VERSION == 1`, `ENGINE_VERSION == "0.1.0"`, `FORMAT_VERSION == 3` (2 before format version 3).
 73. `Session().call(<example A of protocol.md>)` returns bytes that decode to an `engine_info` response with id 1; `call(b"hello")` returns an error frame with code `malformed_frame` and does not raise; `call("text")` raises `TypeError`.
 74. Two threads each sending 50 `engine_info` frames through one `Session` all receive valid responses.
 75. `partsmith._core.protocol_schema()` equals `docs/format/protocol.schema.json`, and `ptsm_schema()` equals `docs/format/ptsm.schema.json`.
@@ -1059,12 +1095,39 @@ Tests 118 to 122 use `S`, `D` and `tmp` as tests 97 to 103 do. "A link to `x`" i
 123. The file a save or an export replaces keeps its permissions (3.1, 3.7). The test runs where `os.name == "posix"`, with the umask set to `0o022` for its duration. A mode is `stat.S_IMODE` of `os.stat`. A `Document()` holds `Part("P")` with `box(20, 30, 40)` as `p`. (a) With `tmp/synced/part.ptsm` holding `old` with mode `0o664` and `tmp/link.ptsm` a link to `synced/part.ptsm`, saving to `tmp / "link.ptsm"` leaves `tmp/synced/part.ptsm` holding the document's `to_text()` with mode `0o664`. (b) With `tmp/a.ptsm` a regular file of mode `0o600`, saving to `tmp / "a.ptsm"` leaves mode `0o600`. (c) With `tmp/out.stl` a regular file of mode `0o640`, `export_stl(p, tmp / "out.stl")` leaves mode `0o640`. (d) A read-only file behind a link is not replaced, and keeps its mode `0o444`: test 124 (b). (Until the owner's decision of 2026-11-05, (d) checked that the save replaced that file and kept it read-only. Its `read-only` case of `test_t123_a_file_behind_a_link_keeps_its_permissions` in `python/tests/test_documents.py` and the unit test `test_a_read_only_file_behind_a_link_is_replaced_and_stays_read_only` in `python/tests/test_unit_links.py` become refusals: test 124 (b), and a unit test that `write_through_link` raises `PermissionError` before any `os.open`.) (e) Saving to `tmp / "new.ptsm"`, which does not exist, gives it mode `0o644` (`0o666` less the umask).
 124. A read-only document or export file is refused (3.1, 3.7, [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s second amendment, option (a)). "Read-only" means mode `0o444`, set with `os.chmod`, which on Windows sets the read-only attribute. A mode is `stat.S_IMODE` of `os.stat`. `D`, `S` and `tmp` are as in tests 97 to 103, links and "the same link" as in tests 118 to 122, and `E` is a `Document()` with no import holding `Part("P")` with `box(20, 30, 40)` as `p`. Each case starts from an empty `tmp`. No case leaves a temporary file, and no case that raises sends `mark_saved`. Every refusal is a `PermissionError` with `errno` `EACCES`, `strerror` `os.strerror(errno.EACCES)` and `filename2` None, whose text is that of 3.1, `[Errno 13] Permission denied: '<filename>'` on Linux and macOS. The cases do not depend on the user. The check reads the permission bits. The cases hold as root too. (a) A document: with `tmp/a.ptsm` holding `old` and read-only, `D.save(tmp / "a.ptsm")` raises the refusal with `filename` `str(tmp / "a.ptsm")`. Step 1 ran before it: `tmp/assets/S` holds the bytes of `S`, the save's only `os.replace` is onto it, and its only `os.open` creates the asset's temporary file. `tmp/a.ptsm` still holds `old` with mode `0o444`, and `tmp` holds exactly `a.ptsm` and `assets`. (b) Behind a link: with `tmp/synced/part.ptsm` holding `old` and read-only, and `tmp/link.ptsm` a link to `synced/part.ptsm`, `E.save(tmp / "link.ptsm")` raises the refusal with `filename` `str(tmp / "link.ptsm")`, the link, not `synced/part.ptsm`. It calls no `os.open` and no `os.replace`. `tmp/synced/part.ptsm` still holds `old` with mode `0o444`, `tmp/synced` holds only `part.ptsm`, and `tmp/link.ptsm` is the same link. (c) An export: with `tmp/out.stl` holding `old` and read-only, `export_stl(p, tmp / "out.stl")` raises the refusal with `filename` `str(tmp / "out.stl")`, calls no `os.open` and no `os.replace`, and `tmp/out.stl` still holds `old` with mode `0o444`. In a new document with the parts `base` and `lid` of test 63, and `tmp/parts` a folder holding only `Lid.stl`, holding `old` and read-only, `export_stl([base, lid], tmp / "parts", per_part=True)` raises the refusal with `filename` `str(tmp / "parts" / "Lid.stl")`. `tmp/parts/Base.stl`, written before it, is a binary STL file of 684 bytes, `Lid.stl` still holds `old` with mode `0o444`, and `tmp/parts` holds exactly `Base.stl` and `Lid.stl`. (d) An asset's entry is still replaced (ADR 0037 decision 5), where `os.name == "posix"` (on Windows `os.replace` cannot replace a file with the read-only attribute): with `tmp/assets/S` holding `stale` and read-only, `D.save(tmp / "a.ptsm")` succeeds and sends `mark_saved`. `tmp/assets/S` is then a regular file holding the bytes of `S`, and `tmp/a.ptsm` holds `D.to_text()`. (e) A build: with `tmp/out.ptsm` holding `old` and read-only, and `tmp/part.py` the script of test 122 (b), `main(["build", str(tmp / "part.py"), "-o", str(tmp / "out.ptsm")])` returns `IO_ERROR` (3). Standard error is exactly `error: Cannot write <tmp/out.ptsm>: Permission denied\n` (2.10, with the error's own `strerror`), and `tmp/out.ptsm` still holds `old`. (Before the owner's decision of 2026-11-05, (a) to (c) and (e) replaced the file and kept it read-only on Linux and macOS.)
 
+**Printer profiles** (3.13, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). `MK4` is the dict `{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220}, "layer_height": 0.15, "fit": {"slip": 0.15, "loose": 0.3}}`, and `E11P` the `printer_profile` object of file-format.md's E11, read as a dict.
+
+125. A profile mapping makes a document that stores it: `doc = Document(printer=MK4)`, then `param("clearance", printer.fit.slip, id="p-clear")`, gives `doc.printer == "my-mk4"`, `doc.printer_profile == E11P` with its keys in E11's order, and `doc.to_text()` equal to the E11 text byte for byte.
+126. A stored profile needs no argument: `Document.open` of a file holding E11's text emits no `PartsmithWarning`, and its `printer_profile` equals `E11P`.
+127. The setter with a mapping stores the profile: on `Document()`, `doc.printer = MK4` gives `doc.printer_profile == E11P`, and then `doc.printer = "generic-fdm"` gives `doc.printer_profile is None`.
+128. A profile the engine refuses: `Document(printer={"id": "x", "name": "X", "technology": "fdm", "layer_height": 0.5})` raises `EngineError` with `code` `invalid_profile` and the message `Layer height 0.5 mm is larger than the 0.4 mm nozzle. Use a layer height of 0.4 mm or less.`; with `"id": "generic-fdm"` and no `layer_height` it raises `EngineError` with `code` `profile_id_reserved`.
+129. A printer of the wrong type: `Document(printer=5)` raises `TypeError` with the message `Document(): printer must be a printer id (str), a printer profile (a mapping) or None.`
+130. A profile for the print check only: in a `Document()` with `Part("P")` and `box(20, 20, 20)`, `doc.check(printer=MK4).profile` is `"my-mk4"`, and afterwards `doc.printer is None` and `doc.printer_profile is None`.
+131. Generated code writes the stored profile: `export_python` of the E11 text gives the document line `doc = Document(units="mm", printer={"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220}, "nozzle_diameter": 0.4, "layer_height": 0.15, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}})` split by rule 11, with `printer=` and its dict on one line of their own, and `run_code` of the script gives a document whose `to_text()` is the E11 text.
+
+**No stop** (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+132. Python never stops a call (section 3.10). For every example under `examples/` with a Python twin, the twin's `Document` gives every feature a `status` among `ok`, `warning`, `error`, `suppressed` and `rolled_back`, never `not_run`. `partsmith._core.Session` has no attribute whose name contains `cancel`.
+
+**Adding assets** (since M2, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)). `S` and its file are those of tests 97 to 102, `tmp` is an empty folder, and `step-block.ptsm` is `examples/import/step-block.ptsm`.
+
+133. `add_asset` names a file as `import_step` does (3.7). In a `Document()`, `add_asset(<the file of S>)` returns `S`. It adds no part and no feature, and `to_text()` is the same before and after it. `import_step` of the same file in another `Document()` stores an asset of that name.
+134. A record names an added asset. In a `Document()` `D2`, with `P = Part("Block")` and `name = D2.add_asset(<the file of S>)`, `feature("import", body=P.id, asset=name, op="new")` has status `ok`, and `P.volume()` is 6000 within 1e-6 relative. `D2.save(tmp / "b" / "a.ptsm")` writes `tmp/b/assets/S` with the bytes of `S`. A `Document()` that only calls `add_asset` and then saves to `tmp / "c" / "a.ptsm"` writes no `assets` folder.
+135. Kinds by extension (3.7). A copy of the file of `S` named `part.STP` gives `S` too. A file `logo.ttf` holding `font` gives a name that matches `^[0-9a-f]{64}\.ttf$`. The same bytes in `logo.OTF` give the same 64 digits followed by `.otf`, and other bytes in `other.ttf` give other digits. `add_asset(tmp / "notes.txt")` raises `ValueError` with the message `add_asset(): {path} is not a STEP or font file. Partsmith adds .step, .stp, .ttf and .otf files.`, `{path}` being `str(tmp / "notes.txt")`, and sends no command, also when the file does not exist.
+136. A missing file. `add_asset(tmp / "missing.step")` raises `FileNotFoundError` and sends no command.
+137. A wrong file at open (engine.md section 4). A copy of `step-block.ptsm` in `tmp/d`, with `tmp/d/assets/S` holding the bytes `hello`: `Document.open(tmp / "d" / "step-block.ptsm")` raises `EngineError` with `code` `asset_mismatch` and the message `The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.` Until M2 the message was `Asset S does not match its content hash.`, with `S` written out.
+
+**Printer profiles, continued** (3.13, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)), with `MK4` as in tests 125 to 131 and `custom-printer.ptsm` the engine fixture of engine.md section 3.20:
+
+138. A stored profile rebuilds with its values in a fresh session (m2-plan.md gate 12): `Document.open` of `custom-printer.ptsm` emits no `PartsmithWarning`. Its parameter `clearance` has `value` 0.15, and the volume of its part "Block" is 24360 within 1e-6 relative (24480 with `generic-fdm`'s slip of 0.2).
+139. A check profile that differs from the stored one is refused: on `Document.open` of `custom-printer.ptsm`, `doc.check(printer={**MK4, "fit": {"slip": 0.3, "loose": 0.4}})` raises `ValueError` with the message `Document.check(): this document stores its own printer 'my-mk4', which differs from the profile given. Give the profile another id, or set Document.printer to it first.` and sends no `analyze_print`. `doc.check(printer=MK4)` returns a report with profile `my-mk4`.
+
 ## 7. Open issues
 
 1. **`param` ranges.** The technical design's `param("wall", 2*mm, min=..., max=...)` needs `min` and `max` fields on `Parameter`, which the architecture does not have; deferred.
 2. **Ids in generated code.** Exact round trips require every id in the script (`id="..."`), which costs some readability. Dropping them would need a deterministic mapping of GUI ids, which ADR 0008's random ids do not allow.
 3. **Rollback position in generated code.** `rollback(...)` is emitted last, so every feature runs during the script, including features after the marker; the round trip therefore requires that all features build with the marker cleared.
-4. **Imported STEP in scripts.** No protocol command adds an asset without importing, so generated code for a document with an `import` feature (generic form `feature("import", id=..., body=..., asset="<name>", op="new")`, features/import.md) fails with `asset_missing` when run in a fresh document. Round trips exclude such documents in M1.
+4. **Imported STEP in scripts.** No protocol command adds an asset without importing, so generated code for a document with an `import` feature (generic form `feature("import", id=..., body=..., asset="<name>", op="new")`, features/import.md) fails with `asset_missing` when run in a fresh document. Round trips exclude such documents in M1. Partly resolved in M2 by [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md): `Document.add_asset(path)` lets a script add the file before the record that names it. Generated code still writes the record without adding the file, since it has no path to the file's bytes. Where generated code finds them is item 33's Python work (m2-plan.md). Round trips still leave such documents out (3.9).
 5. **Default regions.** `extrude(sketch)` stores every region of the sketch. When the sketch has a hole region and an outer region, both are stored and the hole is filled; build123d users may expect the outer region only. Code generation omits `regions` only when the stored list equals all regions in solved order.
 6. **Reserved sketch references.** Resolved: `Sketch.ORIGIN`, `Sketch.X_AXIS` and `Sketch.Y_AXIS` (2.6, 3.4) store sketch.md 3.16's `origin`, `x_axis` and `y_axis`, and code generation writes sketches that use them as `with Sketch(...)` blocks with these names (3.8 rule 9; tests 83 to 85). They are deliberately not `Axis.X` and `Axis.Y`, which are model axes, while the sketch axes follow the sketch plane.
 7. **Headless picks.** Resolved by engine.md section 3.9 (its open issue 10): a headless pick names the element by `mesh_id` 0, its `body` and its position among the elements of its kind of that body in `list_elements` order, and protocol.md's `Pick` has the optional `body` that headless picks set. Section 3.6 sends the element's part's body as `body`.

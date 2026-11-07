@@ -22,6 +22,10 @@ In this milestone (M1):
 - A suggestion for an unknown parameter name that is close to exactly one parameter ("Did you mean 'height'?"), with the corrected expression as the fix (section 3.18).
 - Bare numbers: `Expr::is_bare_number` and `Expr::with_unit`, which the document units change that keeps sizes (model.md section 3.12) and the features' bare-number sentence use (section 3.17).
 
+In M2:
+
+- A reason for a dotted name that the context knows but cannot give a value (`EvaluationContext::reason`, `UnavailableValue`), such as `printer.nozzle` on a resin printer (print.md section 3.5, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)).
+
 Explicitly later (not in M1):
 
 - Comparison operators, booleans and conditionals (`if(a > b, x, y)`), needed for configurations.
@@ -293,6 +297,10 @@ pub trait EvaluationContext: Send + Sync {
     fn resolve(&self, name: &str) -> Option<Quantity>;
     /// Every name this context resolves, sorted, for autocomplete. Defaults to none.
     fn names(&self) -> Vec<String> { Vec::new() }
+    /// Why `name` has no value, for a name this context knows but cannot give a value here: a complete message of at
+    /// most two sentences that follows the error guidelines (section 3.12). `None` for a name it does not know, and
+    /// for every name it resolves. Defaults to `None` for every name.
+    fn reason(&self, _name: &str) -> Option<String> { None }
 }
 
 /// A context that resolves nothing.
@@ -587,7 +595,7 @@ Evaluation is post-order, left to right: a `Binary` node evaluates its left oper
 Name resolution:
 
 - `Parameter(name)`: `scope.parameters.get(name)`. Missing gives `UnknownName { name, suggestion }`, with the suggestion of section 3.18 among the names in `scope.parameters`; `Some(Err(_))` gives `DependsOnFailed { name }`; `Some(Ok(q))` gives `q`. Both errors use the name's span.
-- `Value(name)`: `scope.context.resolve(name)`. `None` gives `UnknownValue` with the name's span.
+- `Value(name)`: `scope.context.resolve(name)`. On `None`, `scope.context.reason(name)`: `Some(reason)` gives `UnavailableValue { name, reason }`, and `None` gives `UnknownValue`, both with the name's span. The evaluator asks for the reason only after `resolve` gave `None`, and passes it on unchanged.
 
 ### 3.13 Parameter evaluation
 
@@ -673,6 +681,7 @@ Every `ExprError` has a `kind` and a `span`. The message is the kind's `Display`
 | `UnknownName { name: String, suggestion: None }` | the name | `Unknown name '{name}'. Check the spelling, or add a parameter named {name}.` |
 | `UnknownName { name, suggestion: Some(suggestion) }` | the name | `'{name}' is not a parameter. Did you mean '{suggestion}'?` |
 | `UnknownValue { name: String }` | the name | `Unknown value '{name}'. Check the spelling; printer values look like printer.fit.slip.` |
+| `UnavailableValue { name: String, reason: String }` | the name | `{reason}` (the context's reason, unchanged) |
 | `DependsOnFailed { name: String }` | the name | `This uses {name}, which has an error. Fix {name} first.` |
 | `Cycle { names: Vec<String> }`, one name | `0..len` | `{name} depends on itself. Change its expression so it does not use {name}.` |
 | `Cycle { names }`, two or more | `0..len` | `{list} depend on each other in a loop. Change one of them so it does not use the others.` |
@@ -840,6 +849,16 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 97. `with_unit`: `Expr::new("40").with_unit(Unit::Millimeter)` is `Some("40 mm")`; `" 20 "` gives `Some(" 20 mm ")`; `"-2"` with `Unit::Inch` gives `Some("-2 in")`; `"- 2"` gives `Some("- 2 mm")`; `"1e3"` gives `Some("1e3 mm")`; `"(2)"`, `"2 mm"` and `"wall"` give `None`. `eval_in(In, "2", Some(LENGTH))` and `eval_in(Mm, "2 in", Some(LENGTH))` are both length 50.8.
 98. `promoted_names` is `{wall}` for each of `wall`, ` wall `, `-wall`, `(wall)`, `wall + 0.5`, `0.5 - wall`, `max(wall, 1 mm)`, `2 * wall`, `wall * 2`, `wall / 4`, `-(wall + 2 * wall)`, `min(3, wall) + 1`, `-2 * wall`, `wall * -2` and `wall / -2`; `{gap, wall}` for `wall - gap`; and empty for `40 mm * scale`, `-2 mm * wall`, `wall * wall`, `wall * ratio`, `4 / wall`, `wall ^ 2`, `sqrt(wall)`, `round(wall)`, `sin(wall)`, `(wall + 1) * scale`, `wall + wall * ratio` (one occurrence of `wall` is a factor), `printer.wall` and `2`. `Expr::new("wall +").promoted_names()` is `Err` with kind `UnexpectedEnd`.
 
+### Reasons for values
+
+**Context R**: resolves `printer.fit.slip` to `Quantity::length(0.2)`; for `printer.nozzle`, `resolve` gives `None` and `reason` gives `Some("No nozzle here.")`; `reason` of every other name is `None`. **Scope S_R**: scope S with context R.
+
+99. A name with a reason: in S_R, `eval("printer.nozzle * 2")` is `UnavailableValue { name: "printer.nozzle", reason: "No nozzle here." } @ 0..14`, and its message is `No nozzle here.`
+100. A name without a reason stays unknown: in S_R, `eval("printer.nozzel")` is `UnknownValue { name: "printer.nozzel" } @ 0..14`.
+101. The reason is asked only after `resolve` fails: a context whose `resolve("printer.fit.slip")` is `Some(Quantity::length(0.2))` and whose `reason` is `Some("never")` for every name gives `eval("printer.fit.slip")` the length 0.2.
+102. The provided contexts give no reason: `EmptyContext.reason("printer.nozzle")` and the S context's `reason("printer.nozzle")` are `None`, and with `EmptyContext`, `eval("printer.nozzle")` is `UnknownValue { name: "printer.nozzle" } @ 0..14`.
+103. A parameter that uses an unavailable value: `evaluate_parameters(&R)` on a document with `w` = `printer.nozzle * 2` and `v` = `w + 1 mm` gives `w` the error `UnavailableValue { name: "printer.nozzle", reason: "No nozzle here." }` and `v` the error `DependsOnFailed { name: "w" }`.
+
 ## 7. Open issues
 
 1. **Plain-number promotion in sums.** Architecture says evaluation is dimension-checked and bare numbers take document units or degrees by context, but not how `10 + wall` behaves. This spec promotes plain numbers in `+`, `-`, `min`, `max`, `atan2`, trig arguments and against the field's expected dimension (as Fusion does), and treats every dimensionless value as plain, including ratios. The stricter alternative (bare numbers only at the top level) is simpler but rejects common input such as `wall + 0.2`.
@@ -853,3 +872,4 @@ Release build on the reference desktop (2022 mid-range laptop); web budgets are 
 9. **Unknown functions and units are parse errors; unknown names are evaluation errors.** So `Document::validate` reports `wall(2)` as an invalid expression but `wal` as an unknown parameter.
 10. **Suggestions for unknown names.** Resolved for parameter names by section 3.18, which keeps messages exact and testable: a suggestion is made only when exactly one parameter is within edit distance 2, so `wal` gets none in a scope with both `wall` and `bad`. A relative limit (distance at most a third of the name's length, as some compilers use) would suggest `wall` there; the fixed limit follows the newcomer error corpus (NC10) and features' `unknown_params` rule. Levenshtein distance counts a swap of two letters as 2, which the limit still allows (`hieght`).
 11. **Number text for the Python API.** The features spec says Python records an `int` or `float` as "the canonical number text". The function for that is `canonical::format_number` (file-format.md), applied to `serde_json::Number::from_f64(value)`.
+12. **Reasons are text.** `EvaluationContext::reason` returns a finished message, not a typed reason. The model does not know printers, and a typed reason would need a variant per context that the model cannot name (print.md's resin printer, later a linked component). The context writes the message by the error guidelines, and the evaluator passes it on unchanged. Changing `resolve` to return a `Result` was the other option; it would change every implementor, the map context and the empty context included, for one name.

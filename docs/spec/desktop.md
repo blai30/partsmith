@@ -8,7 +8,7 @@ This spec is the definition of done for the desktop host. Test authors write the
 
 The desktop app is the same React UI as the web app, running in the operating system's webview (WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux; the minimum of each, WebView2 114, the WebKit of Safari 17.0 and WebKitGTK 2.44, is in ui.md 1.1 with the features that set it) inside a Tauri 2 shell, with the engine running natively in the same process. The host is thin: it owns one `Session`, forwards protocol frames to it, shows native file dialogs, reads and writes the files the user chose and the assets next to them, and asks before closing a window with unsaved changes. It contains no modeling logic (engine.md section 1).
 
-The webview gets the least privilege that does the job. It can call the engine, ask the user to choose a file in a native dialog, read and write exactly the files the user chose and the asset-named files of the `assets/` folder next to each of them (3.4, ADR 0037), and report whether it has unsaved changes. It cannot read or list any other path, start processes, open URLs or call any plugin command. No Tauri npm package is used: the UI reads `window.__TAURI__`, which `app.withGlobalTauri` injects (ADR 0014).
+The webview gets the least privilege that does the job. It can call the engine, stop the call that is running (since M2), ask the user to choose a file in a native dialog, read and write exactly the files the user chose and the asset-named files of the `assets/` folder next to each of them (3.4, ADR 0037), and report whether it has unsaved changes. It cannot read or list any other path, start processes, open URLs or call any plugin command. No Tauri npm package is used: the UI reads `window.__TAURI__`, which `app.withGlobalTauri` injects (ADR 0014).
 
 ### 1.1 In this milestone
 
@@ -20,6 +20,23 @@ The webview gets the least privilege that does the job. It can call the engine, 
 - `tauri.conf.json`, the capability file `capabilities/main.json`, the build script with an app command manifest, a strict content security policy, and the icons.
 - In the UI: `createDesktopFileService` (the desktop `FileService`), `chooseFileService`, `tauriGlobalOf`, `installCloseGuard`, and a host-neutral `FileHandle` type in `src/files/file-service.ts`.
 - Bundles: deb and rpm on Linux (x86_64), an NSIS installer on Windows (x86_64), an app bundle and dmg on macOS (arm64), all unsigned (delivery.md section 3.6), each carrying the third-party notices of the desktop app (delivery.md section 2.9).
+
+**In M2** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md), [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07)
+
+- The printer library of ui.md 3.17 lives in the webview's IndexedDB, as recent files and recovery do (3.9). The host adds no command, no permission and no capability for it. It adds no name to `COMMAND_NAMES`.
+- A document that stores its printer profile opens with it in a fresh session (engine.md section 3.7). The host passes the document's bytes through `call` and reads nothing in them.
+
+**In M2: cancel** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+- A ninth host command, `cancel_call`, with its permission `allow-cancel-call` in the capability and its entry in the app command manifest (2.2, 2.6, 2.9). It stops the call that is running without waiting for the `Session` mutex (3.10). `COMMAND_NAMES` holds nine names (test 11).
+- `Host` keeps a `CancelFlag::word()` beside the session (2.3). The Stop of ui.md sections 3.21 and 4.4 uses it, which resolves open issue 9.
+
+**In M2: assets** ([ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md), [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets)
+
+- `ASSET_EXTENSIONS` is `["step", "ttf", "otf"]`. `read_asset` and `write_asset` reach font assets next to a granted document as they reach STEP files (2.4, 3.4).
+- `FileKind` gains `font` ("Font", `ttf` and `otf`). `pick_open_file` takes an optional `kind`, and its dialog shows that kind's filter (2.4, 2.6, 3.3). Without a kind it asks for a Partsmith model, as in M1.
+- The host adds no command, no permission and no capability entry. `allow-pick-open-file`, `allow-read-asset` and `allow-write-asset` reach more files: a picked file of any `FileKind`, and font assets next to a granted document (section 8). M2 picks only Partsmith models, STEP files and fonts.
+- The core names the assets a document reads, and the UI adds them to the open document (ui.md 3.19). The host passes `add_assets` through `call` and reads nothing in it.
 
 ### 1.2 Later (not in this milestone)
 
@@ -64,7 +81,7 @@ desktop/
       files.rs                     Files, Dialogs, Granted, FileKind, FileError, grant_of, is_asset_name, ASSET_EXTENSIONS, MAX_GRANTS
       dialogs.rs                   TauriDialogs (Dialogs over tauri-plugin-dialog)
       close_guard.rs               Unsaved, the close confirmation
-      commands.rs                  the eight #[tauri::command] functions
+      commands.rs                  the nine #[tauri::command] functions (eight in M1)
     tests/
       integration.rs               the one test binary: declares the files below as modules
       host.rs  files.rs  assets.rs  commands.rs  config.rs  common/mod.rs
@@ -147,7 +164,7 @@ The architecture lists the desktop host as depending on the engine and the proto
 
 ```rust
 /// Every command the desktop host registers, in registration order. build.rs includes this file.
-pub const COMMAND_NAMES: &[&str] = &["call", "pick_open_file", "pick_save_file", "read_file", "write_file", "read_asset", "write_asset", "set_unsaved"];
+pub const COMMAND_NAMES: &[&str] = &["call", "pick_open_file", "pick_save_file", "read_file", "write_file", "read_asset", "write_asset", "set_unsaved", "cancel_call"];
 ```
 
 `build.rs`:
@@ -174,9 +191,9 @@ fn main() {
 
 **The C runtime on Windows.** Every Windows executable of the crate, the app and its tests, links the Visual C++ runtime (`libcmt`, `libvcruntime`) and the C++ standard library (`libcpmt`) statically, as OCCT, the shim and every other crate do (ADR 0038 option (i), the owner's decision of 2026-11-04). It takes the Universal C Runtime from Windows (`api-ms-win-crt-*.dll`, part of Windows 10 and later, the Windows that WebView2 114 needs), as every other Windows program of the workspace does since the owner's decision of 2026-11-05 (ADR 0038's amendment of 2026-11-05, delivery.md 3.6, The C runtime on Windows). `.cargo/config.toml` builds the crate for `x86_64-pc-windows-msvc` with `crt-static` and the two link arguments `/NODEFAULTLIB:libucrt.lib` and `/DEFAULTLIB:ucrt.lib`. `build.rs` adds nothing for it. tauri-build's `build.windows.staticVCRuntime` keeps its default, true. `tauri.conf.json` does not set it (test 33). For the crate's executables, tauri-build adds the same two link arguments, with seven that keep out the DLL and debug variants of the C runtime and two that name the static Visual C++ runtime the crate links anyway (`/DEFAULTLIB:libcmt.lib` and `/DEFAULTLIB:libvcruntime.lib`). The linker reads an argument given twice once. The app imports neither `MSVCP140.dll` nor `VCRUNTIME140.dll` nor any other DLL of the Visual C++ Redistributable (the names that step 3 of the check of the imports in delivery.md 3.6 matches, `CONCRT140.dll` and `VCOMP140.dll` among them). It imports the `api-ms-win-crt` DLLs (step 4 of that check). The NSIS installer brings none (3.8). CI's `rust-platforms` and each release check the app's imports (delivery.md tests 100, 101, 123 and 127). The desktop notices list the static Visual C++ runtime for Windows (delivery.md 2.9 input 6). The manual check of section 6 starts the installed app on a Windows without the redistributable.
 
-With an app manifest, Tauri generates one permission per command (`allow-call`, `allow-pick-open-file`, `allow-pick-save-file`, `allow-read-file`, `allow-write-file`, `allow-read-asset`, `allow-write-asset`, `allow-set-unsaved`; Tauri turns underscores into hyphens) and denies every command a capability does not grant. Without one, every registered command would be open to every window.
+With an app manifest, Tauri generates one permission per command (`allow-call`, `allow-pick-open-file`, `allow-pick-save-file`, `allow-read-file`, `allow-write-file`, `allow-read-asset`, `allow-write-asset`, `allow-set-unsaved`, `allow-cancel-call`; Tauri turns underscores into hyphens) and denies every command a capability does not grant. Without one, every registered command would be open to every window.
 
-tauri-build writes these permissions on every build to `permissions/autogenerated/`, one file `{command}.toml` per `COMMAND_NAMES` entry with the name unchanged (`call.toml`, `pick_open_file.toml`, `pick_save_file.toml`, `read_file.toml`, `write_file.toml`, `read_asset.toml`, `write_asset.toml`, `set_unsaved.toml`), each holding the command's `allow-` and `deny-` permission. The folder is committed (it is not in `.gitignore`). tauri-build adds and rewrites files there but never deletes one, so when a command is renamed or removed, its old file must be deleted by hand; test 34 fails until it is.
+tauri-build writes these permissions on every build to `permissions/autogenerated/`, one file `{command}.toml` per `COMMAND_NAMES` entry with the name unchanged (`call.toml`, `pick_open_file.toml`, `pick_save_file.toml`, `read_file.toml`, `write_file.toml`, `read_asset.toml`, `write_asset.toml`, `set_unsaved.toml`, `cancel_call.toml`), each holding the command's `allow-` and `deny-` permission. The folder is committed (it is not in `.gitignore`). tauri-build adds and rewrites files there but never deletes one, so when a command is renamed or removed, its old file must be deleted by hand; test 34 fails until it is.
 
 ### 2.3 Host
 
@@ -184,13 +201,17 @@ tauri-build writes these permissions on every build to `permissions/autogenerate
 
 ```rust
 /// The engine behind the `call` command: one session, one call at a time.
-pub struct Host { /* session: std::sync::Mutex<Session> */ }
+pub struct Host { /* session: std::sync::Mutex<Session>, cancel: CancelFlag (since M2) */ }
 
 impl Host {
-    /// A host around a new session with these options.
+    /// A host around a new session with these options, whose `cancel` the host replaces with its own
+    /// `CancelFlag::word()` (since M2, 3.10).
     pub fn new(options: SessionOptions) -> Host;
     /// Handles one request frame and returns its response frame. Never panics.
     pub fn call(&self, frame: &[u8]) -> Vec<u8>;
+    /// Asks the running call to stop when its request id is `request` (since M2, 3.10). Takes no lock: it stores the id
+    /// in the host's flag and returns at once.
+    pub fn cancel(&self, request: u64);
 }
 
 impl Default for Host {
@@ -217,6 +238,8 @@ pub enum FileKind {
     #[serde(rename = "stl")] Stl,
     #[serde(rename = "obj")] Obj,
     #[serde(rename = "step")] Step,
+    /// Since M2: a TrueType or OpenType font, which the UI adds as an asset (ui.md 3.19, `addPickedAsset`).
+    #[serde(rename = "font")] Font,
 }
 
 impl FileKind {
@@ -232,8 +255,8 @@ pub struct Granted { pub name: String, pub grant: String }
 
 /// The native file dialogs. `TauriDialogs` implements them with tauri-plugin-dialog; tests use fakes.
 pub trait Dialogs {
-    /// Asks for one Partsmith model to open. None when the user cancels.
-    fn pick_open(&self) -> Option<PathBuf>;
+    /// Asks for one file of `kind` to open: a Partsmith model in M1, any kind since M2. None when the user cancels.
+    fn pick_open(&self, kind: FileKind) -> Option<PathBuf>;
     /// Asks where to save a file of `kind`, proposing `suggested_name`. None when the user cancels.
     fn pick_save(&self, suggested_name: &str, kind: FileKind) -> Option<PathBuf>;
 }
@@ -246,8 +269,8 @@ impl Files {
     pub fn load(store: PathBuf) -> Files;
     /// Grants kept in memory only.
     pub fn in_memory() -> Files;
-    /// Shows the open dialog and grants the chosen file.
-    pub fn pick_open(&self, dialogs: &dyn Dialogs) -> Result<Option<Granted>, FileError>;
+    /// Shows the open dialog for `kind` and grants the chosen file.
+    pub fn pick_open(&self, dialogs: &dyn Dialogs, kind: FileKind) -> Result<Option<Granted>, FileError>;
     /// Shows the save dialog and grants the chosen file (3.3 adds a missing extension).
     pub fn pick_save(&self, dialogs: &dyn Dialogs, suggested_name: &str, kind: FileKind) -> Result<Option<Granted>, FileError>;
     /// Reads a granted file.
@@ -263,8 +286,8 @@ impl Files {
 /// The grant of a path: the first 16 bytes of the BLAKE3 hash of its UTF-8 text, as 32 lowercase hex digits.
 pub fn grant_of(path: &str) -> String;
 
-/// The extensions of the assets the engine names (engine.md 3.14: `<hash>.step` in M1).
-pub const ASSET_EXTENSIONS: &[&str] = &["step"];
+/// The extensions of the assets the engine names (engine.md 3.14): `step` in M1, and since M2 the font kinds `ttf` and `otf`.
+pub const ASSET_EXTENSIONS: &[&str] = &["step", "ttf", "otf"];
 
 /// Whether `name` is an asset's file name (file-format.md 3.11): 64 lowercase hex digits, a dot and one of `ASSET_EXTENSIONS`.
 pub fn is_asset_name(name: &str) -> bool;
@@ -313,6 +336,7 @@ impl FileError {
 | `stl` | STL mesh | `stl` |
 | `obj` | OBJ mesh | `obj` |
 | `step` | STEP model | `step`, `stp` |
+| `font` (since M2) | Font | `ttf`, `otf` |
 
 `src/dialogs.rs`:
 
@@ -352,15 +376,16 @@ pub const CLOSE_CANCEL: &str = "Cancel";
 | Command | JavaScript call | Rust signature | Result in JavaScript |
 | --- | --- | --- | --- |
 | `call` | `invoke('call', frame)` with the request frame as an `ArrayBuffer` | `async fn call(request: tauri::ipc::Request<'_>, host: State<'_, Arc<Host>>) -> Result<tauri::ipc::Response, String>` | The response frame as an `ArrayBuffer` |
-| `pick_open_file` | `invoke('pick_open_file')` | `async fn pick_open_file<R: Runtime>(window: WebviewWindow<R>, files: State<'_, Arc<Files>>) -> Result<Option<Granted>, FileError>` | `{name, grant}` or `null` |
+| `pick_open_file` | `invoke('pick_open_file')`, or since M2 `invoke('pick_open_file', { kind })` | `async fn pick_open_file<R: Runtime>(window: WebviewWindow<R>, files: State<'_, Arc<Files>>, kind: Option<FileKind>) -> Result<Option<Granted>, FileError>` (until M2 without `kind`) | `{name, grant}` or `null` |
 | `pick_save_file` | `invoke('pick_save_file', { suggestedName, kind })` | `async fn pick_save_file<R: Runtime>(window: WebviewWindow<R>, files: State<'_, Arc<Files>>, suggested_name: String, kind: FileKind) -> Result<Option<Granted>, FileError>` | `{name, grant}` or `null` |
 | `read_file` | `invoke('read_file', { grant })` | `async fn read_file(files: State<'_, Arc<Files>>, grant: String) -> Result<tauri::ipc::Response, FileError>` | The file's bytes as an `ArrayBuffer` |
 | `write_file` | `invoke('write_file', bytes, { headers: { 'Partsmith-Grant': grant } })` with the bytes as an `ArrayBuffer` | `async fn write_file(request: tauri::ipc::Request<'_>, files: State<'_, Arc<Files>>) -> Result<(), FileError>` | `null` |
 | `read_asset` | `invoke('read_asset', { grant, name })` | `async fn read_asset(files: State<'_, Arc<Files>>, grant: String, name: String) -> Result<tauri::ipc::Response, FileError>` | The asset's bytes as an `ArrayBuffer` |
 | `write_asset` | `invoke('write_asset', bytes, { headers: { 'Partsmith-Grant': grant, 'Partsmith-Asset': name } })` with the bytes as an `ArrayBuffer` | `async fn write_asset(request: tauri::ipc::Request<'_>, files: State<'_, Arc<Files>>) -> Result<(), FileError>` | `null` |
 | `set_unsaved` | `invoke('set_unsaved', { unsaved })` | `fn set_unsaved(unsaved: bool, state: State<'_, Unsaved>)` | `null` |
+| `cancel_call` (since M2) | `invoke('cancel_call', { request })` | `fn cancel_call(request: u64, host: State<'_, Arc<Host>>)` | `null` |
 
-The two pick commands are generic over the runtime `R` because `configure` is (2.7) and they hand their window to `TauriDialogs<R>` (2.4); the other six commands do not name the window or the runtime.
+The two pick commands are generic over the runtime `R` because `configure` is (2.7) and they hand their window to `TauriDialogs<R>` (2.4); the other seven commands do not name the window or the runtime.
 
 The grant of `write_file` and `write_asset` travels in the `Partsmith-Grant` header, and the asset name of `write_asset` in the `Partsmith-Asset` header, because the body is the raw file; grants and asset names are ASCII, so they are valid header values on every platform (a path might not be).
 
@@ -375,7 +400,7 @@ pub use dialogs::TauriDialogs;
 pub use files::{ASSET_EXTENSIONS, Dialogs, FileError, FileKind, Files, Granted, MAX_GRANTS, grant_of, is_asset_name};
 pub use host::Host;
 
-/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the eight commands to a builder.
+/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the nine commands to a builder.
 /// `run` and the command tests share it; the caller manages `Arc<Files>`.
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R>;
 
@@ -383,7 +408,7 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
 pub fn run() -> Result<(), tauri::Error>;
 ```
 
-`configure` adds `.plugin(tauri_plugin_dialog::init())`, manages `Arc::new(Host::default())` and `Unsaved::default()`, and registers the eight commands with `tauri::generate_handler!`. `run` calls `configure(tauri::Builder::default())`, manages `Arc<Files>` in `setup` (`Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved), installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
+`configure` adds `.plugin(tauri_plugin_dialog::init())`, manages `Arc::new(Host::default())` and `Unsaved::default()`, and registers the nine commands with `tauri::generate_handler!`. `run` calls `configure(tauri::Builder::default())`, manages `Arc<Files>` in `setup` (`Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved), installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
 
 Command tests build `configure(tauri::test::mock_builder()).manage(Arc::new(Files::in_memory()))` with `tauri::generate_context!(test = true)`, which compiles the real configuration and capability into Tauri's mock runtime, so the ACL is enforced as in the app. They open a webview window labeled `main` and send requests with `tauri::test::get_ipc_response`, using `tauri::test::INVOKE_KEY` and the app's own origin in the mock runtime as the URL: `tauri://localhost`, or `http://tauri.localhost` on Windows (where Tauri serves the app's custom protocol over `http`). This works because `configure` is generic over the runtime: `run` passes it a `Wry` builder and the tests a `MockRuntime` one, so every command it registers works on both; the pick commands, which take the window, and `TauriDialogs` behind them are generic too (2.4, 2.6).
 
@@ -500,7 +525,7 @@ Rules behind the values:
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window may call the engine, ask for files in native dialogs, use the files the user chose and the assets next to them, and report unsaved changes.",
+  "description": "The main window may call the engine, stop the call it runs, ask for files in native dialogs, use the files the user chose and the assets next to them, and report unsaved changes.",
   "windows": ["main"],
   "permissions": [
     "allow-call",
@@ -510,7 +535,8 @@ Rules behind the values:
     "allow-write-file",
     "allow-read-asset",
     "allow-write-asset",
-    "allow-set-unsaved"
+    "allow-set-unsaved",
+    "allow-cancel-call"
   ]
 }
 ```
@@ -613,7 +639,7 @@ Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(wind
 
 ### 3.3 Picks
 
-1. `pick_open` calls `Dialogs::pick_open`. `TauriDialogs` shows the plugin's file picker parented to its window with one filter, `Partsmith model` (`ptsm`), and blocks its thread until the user answers (the command runs it on the blocking pool, never on the main thread).
+1. `pick_open(kind)` calls `Dialogs::pick_open(kind)`. `TauriDialogs` shows the plugin's file picker parented to its window with one filter, `kind.description()` with `kind.extensions()`, and blocks its thread until the user answers (the command runs it on the blocking pool, never on the main thread). `pick_open_file` passes its `kind`, or `FileKind::Ptsm` when the invoke has none. A `kind` that is not a `FileKind` rejects the invoke before any dialog shows. Until M2 the filter was always `Partsmith model` (`ptsm`) ([ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets).
 2. `pick_save` calls `Dialogs::pick_save(suggested_name, kind)`. `TauriDialogs` shows the save dialog parented to its window with the file name `suggested_name` and one filter, `kind.description()` with `kind.extensions()`. The operating system's dialog confirms replacing an existing file.
 3. A cancel (`None`) returns `Ok(None)` and changes nothing. A dialog result that is not a local path (possible only on mobile platforms) counts as a cancel.
 4. A chosen path that is not valid UTF-8 fails with `NotUnicode`.
@@ -701,7 +727,7 @@ A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"
 ### 3.7 Desktop file service
 
 1. `fileSystemAccess` is `true`: the service always returns handle targets and writes back to the chosen file.
-2. `pickToOpen()` invokes `pick_open_file`. `null` resolves `null` without further calls. A `{name, grant}` reply is followed by `invoke('read_file', { grant })`, and the result is `{ name, bytes: new Uint8Array(reply), handle: { kind: 'desktop', name, grant } }`.
+2. `pickToOpen(kind)` invokes `pick_open_file`: with no second argument when `kind` is not given or is `ptsm`, else with `{ kind }` (since M2). `null` resolves `null` without further calls. A `{name, grant}` reply is followed by `invoke('read_file', { grant })`, and the result is `{ name, bytes: new Uint8Array(reply), handle: { kind: 'desktop', name, grant } }`.
 3. `readHandle(handle)` with a desktop handle invokes `read_file` with its grant and returns `{ name: handle.name, bytes, handle }`. With a web handle it throws `FileServiceError('permission', 'Partsmith has no access to {name}.')`; the web service throws the same for a desktop handle (each host's handles come only from that host, so this happens only if IndexedDB data moved between them).
 4. `chooseSaveTarget(suggestedName, kind)` invokes `pick_save_file` with `{ suggestedName, kind }`; `null` resolves `null`; a reply resolves `{ kind: 'handle', name, handle: { kind: 'desktop', name, grant } }`, with the name the host returned (which may have gained an extension, 3.3 step 5).
 5. `write(target, kind, bytes)` with a desktop handle target invokes `write_file` with an `ArrayBuffer` holding exactly `bytes` (the view's own buffer when the view covers all of an `ArrayBuffer`, else a copy) and the header `Partsmith-Grant: {grant}`. A download target throws `FileServiceError('io', 'The desktop app saves to files, not downloads.')`; a web handle target throws the `permission` error of step 3.
@@ -730,8 +756,17 @@ The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later a
 
 ### 3.9 Determinism and state
 
-- The host keeps no state besides the session, the grant list and `Unsaved`, all owned by the Tauri app (host state, as ADR 0010 describes for the web worker); the core crates stay free of global state.
-- The grant store is the only file the host writes on its own. The webview's IndexedDB (recent files, recovery) and local storage (settings) live in the app data directory and are managed by the webview.
+- The host keeps no state besides the session, the cancel flag (since M2, 3.10), the grant list and `Unsaved`, all owned by the Tauri app (host state, as ADR 0010 describes for the web worker); the core crates stay free of global state.
+- The grant store is the only file the host writes on its own. The webview's IndexedDB (recent files, recovery and, from M2, the printer library of ui.md 3.17) and local storage (settings) live in the app data directory and are managed by the webview.
+
+### 3.10 Stopping a call
+
+Since M2 ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md), engine.md section 3.26):
+
+1. `Host::new(options)` makes a `CancelFlag::word()`, keeps a clone in the `Host` beside the mutex, and creates the session with `SessionOptions { cancel: that flag, ..options }`. A flag in `options` is replaced. `Host::default()` does the same.
+2. `cancel_call` is a synchronous command: Tauri runs it on the main thread, while `call` runs on the blocking pool (3.1 step 2). It calls `Host::cancel(request)`, which calls `CancelFlag::cancel(request)`: one atomic store, with no lock. It never waits for the session mutex. It returns `null` whether or not a call with that id is running.
+3. The running `Session::call` stops at its next check when its request id is `request`. It answers with its usual response frame (engine.md section 3.26), which `call` returns as usual. A later call is never stopped by an earlier `cancel_call`: its id differs.
+4. A `cancel_call` whose `request` is not a whole number from 0 to 18446744073709551615 is rejected by Tauri's argument check, with a message that names `request`, and stores nothing.
 
 ## 4. Errors
 
@@ -764,12 +799,13 @@ The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later a
 
 ## 5. Performance budgets
 
-Release builds on the reference machine (technical design section 14). The first two rows are checked by the Rust benchmark `desktop/src-tauri/benches/budgets.rs` (`cargo bench -p partsmith-desktop --bench budgets`; `harness = false`, `std::time::Instant`, as sketch.md); the others are release gates measured by the desktop harness once it exists (section 1.2, ui.md 6.7). Each benchmark scenario runs 3 warm-up repetitions, then 21 measured repetitions, and compares its median with its budget; the run prints each scenario's median and budget and exits with status 1 naming every scenario over budget. The `Host::call` row is the median time per call of `Host::call` on a fresh copy of an `engine_info` request frame (the copy the `call` command makes) minus that of `Session::call` on the same frame, both on headless sessions, with 1000 calls per repetition; the `Files::load` row loads a store of `MAX_GRANTS` absolute paths.
+Release builds on the reference machine (technical design section 14). The first three rows (the third since M2) are checked by the Rust benchmark `desktop/src-tauri/benches/budgets.rs` (`cargo bench -p partsmith-desktop --bench budgets`; `harness = false`, `std::time::Instant`, as sketch.md); the others are release gates measured by the desktop harness once it exists (section 1.2, ui.md 6.7). Each benchmark scenario runs 3 warm-up repetitions, then 21 measured repetitions, and compares its median with its budget; the run prints each scenario's median and budget and exits with status 1 naming every scenario over budget. The `Host::call` row is the median time per call of `Host::call` on a fresh copy of an `engine_info` request frame (the copy the `call` command makes) minus that of `Session::call` on the same frame, both on headless sessions, with 1000 calls per repetition; the `Files::load` row loads a store of `MAX_GRANTS` absolute paths; the `Host::cancel` row times `Host::cancel` of an id no call has, 1000 calls per repetition, while another thread holds the mutex in a `Host::call` of `open_document` of `examples/bench/fifty-features/model.ptsm`.
 
 | Operation | Budget |
 | --- | --- |
 | `Host::call` overhead over `Session::call` for `engine_info` (lock and copy) | 0.05 ms |
 | `Files::load` of a store with 100 paths | 5 ms |
+| `Host::cancel` while another thread's `Host::call` holds the session mutex (since M2, 3.10) | 0.05 ms |
 | `invoke('call')` round trip for `engine_info` from JavaScript, including both copies | 2 ms |
 | A 50 MB response frame from `call` to an `ArrayBuffer` in JavaScript | 250 ms |
 | `read_file`, `write_file`, `read_asset` or `write_asset` of a 10 MB file through the IPC, with no other program holding the file or the grant store (a rename of either that waits for one on Windows adds up to 630 ms, 3.2 step 7 and 3.4 step 4.5) | 100 ms |
@@ -795,7 +831,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 8. A `call` invoke from the `main` window whose body is `InvokeBody::Raw(example A)` answers `InvokeResponseBody::Raw` with bytes equal to `Host::default().call(example A)` on a fresh host.
 9. A `call` invoke with the JSON body `{}` answers with a raw error frame with id 0 and code `malformed_frame`.
 10. A `write_file` invoke with a JSON body rejects with `{"reason": "io", "message": "The file contents must be sent as bytes."}`; one with a raw body and no `Partsmith-Grant` header rejects with reason `permission`.
-11. `COMMAND_NAMES` equals the eight names of 2.2 in that order.
+11. `COMMAND_NAMES` equals the names of 2.2 in that order: eight in M1, nine since M2, with `cancel_call` last.
 12. The same `call` invoke from a webview window labeled `other` is rejected by the ACL with a message containing `not allowed`, and nothing reaches the host.
 13. `plugin:dialog|open` and `plugin:dialog|save` invokes from the `main` window are rejected with a message containing `not allowed`; `plugin:fs|read_file` is rejected (the fs plugin is not registered).
 
@@ -817,7 +853,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 27. A store file containing `not json`, one with `"version": 2`, and one with a relative path each load as an empty list without panicking; the next pick writes a valid store.
 28. With a store path whose parent is a regular file (so saving fails), `pick_open` still returns the grant and `read` works in the same `Files`.
 29. `serde_json::to_value(FileError::NotFound { name: "a.ptsm".into() })` is `{"reason": "not_found", "message": "a.ptsm was not found."}`; `UnknownGrant` and `Denied` have reason `permission`; `Io`, `NotUnicode`, `Exists` and `NotBytes` have reason `io`.
-30. `FileKind` deserializes from `"ptsm"`, `"3mf"`, `"stl"`, `"obj"` and `"step"` and rejects `"STEP"`; `description` and `extensions` equal the table of 2.4.
+30. `FileKind` deserializes from `"ptsm"`, `"3mf"`, `"stl"`, `"obj"` and `"step"` and rejects `"STEP"`; `description` and `extensions` equal the table of 2.4. Since M2 the table has the row `font`, which test 79 checks.
 31. `Files::in_memory()` grants and reads without creating any file.
 32. `Unsaved::default().get()` is false; after `set(true)` it is true; after `set(false)` false.
 
@@ -861,7 +897,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 In these tests `<dir>/part.ptsm` is granted by `pick_open`, and `S` is the name `blake3::hash(b"solid").to_hex()` followed by `.step`, so its bytes are `solid`.
 
-54. `ASSET_EXTENSIONS` is `["step"]`. `is_asset_name` accepts `S` and 64 `0` digits followed by `.step`, and rejects 64 `0` digits followed by `.3mf` or `.exe`, `S` with a capital hex digit, 63 digits, no extension (`<64 digits>.`), a capital extension (`.STEP`), two extensions (`.step.tmp`), a leading `.`, a `/` or `../` before it, and the empty name.
+54. `ASSET_EXTENSIONS` is `["step"]`. `is_asset_name` accepts `S` and 64 `0` digits followed by `.step`, and rejects 64 `0` digits followed by `.3mf` or `.exe`, `S` with a capital hex digit, 63 digits, no extension (`<64 digits>.`), a capital extension (`.STEP`), two extensions (`.step.tmp`), a leading `.`, a `/` or `../` before it, and the empty name. Since M2 ([ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets) `ASSET_EXTENSIONS` is `["step", "ttf", "otf"]`. `is_asset_name` also accepts 64 `0` digits followed by `.ttf` or `.otf`, rejects them followed by `.TTF`, `.woff` or `.woff2`, and every rejection above stays.
 55. `read_asset(grant, S)` with `<dir>/assets/S` holding `solid` returns `solid`, and leaves the grant list in the same order (it moves no grant). Without that entry it fails with `NotFound { name: S }`, reason `not_found`; without `<dir>/assets` with `NotFound { name: "assets" }`. The names `part.ptsm`, `../part.ptsm` and `S` with a capital extension fail with `NotAnAssetName`, and an ungranted grant with `UnknownGrant`. The grant of `<dir>/model.stl`, picked with `pick_save` of kind `stl`, fails with `UnknownGrant` even with `<dir>/assets/S` there, and a grant of `<dir>/PART.PTSM` reads it.
 56. (Unix) `read_asset` reads no link and no other entry: with `<dir>/assets/S` a symbolic link to `<dir>/outside.step` holding `solid`, a folder, or a Unix socket (`std::os::unix::net::UnixListener::bind` at `<dir>/socket`, then renamed to `assets/S`, because macOS takes a socket path of at most 103 bytes and `<dir>/assets/S` is longer in its temporary folder), it fails with `NotAFile { name: S }`, whose message is `<S> in the assets folder is not a file, so Partsmith does not use it.` With `<dir>/assets` a symbolic link to a folder holding `S`, or a regular file, it fails with `AssetsNotAFolder`.
 57. `write_asset(grant, S, b"solid")` without `<dir>/assets` creates it and writes `<dir>/assets/S` holding `solid`; `<dir>/assets` then holds only `S`, no file ending in `.partsmith.tmp` remains, and the grant list keeps its order (it moves no grant). The grant of `<dir>/model.stl`, picked with `pick_save` of kind `stl`, fails with `UnknownGrant` and creates no `assets`. `write_asset(grant, S, b"other")` fails with `AssetMismatch { name: S }`, and a name that fails `is_asset_name` with `NotAnAssetName`; in a second folder with a granted document, each of these leaves no `assets` folder there. With the granted document's folder deleted, `write_asset` fails with `NotFound { name: "assets" }` and creates no folder.
@@ -898,7 +934,26 @@ The tests above without an OS in parentheses run on every OS, and those marked (
 
 73. (Unix) The look through a link (3.4 step 4.1, open issue 14). Unit tests in `src/files.rs` call `link_target` with the look and the resolve passed in, as test 67 passes the rename's attempt, check and wait. A test can neither make a link that another user owns nor change a link between two calls. cli.md test 70 tests the CLI's `link_target` the same way. With `<dir>/link.ptsm` a symbolic link to `<dir>/synced/part.ptsm`, which holds `old`: (a) With `fs::metadata` and `fs::canonicalize`, it gives the path `fs::canonicalize` gives for `<dir>/synced/part.ptsm`. (b) A look that fails with `io::ErrorKind::PermissionDenied` and the text `Permission denied`, as Linux's `fs.protected_symlinks` makes it fail for a link another user owns in `/tmp`, gives that error, and the resolve is never called; `FileError::from_io` of it, for the granted `link.ptsm`, is `Denied { name: "link.ptsm", detail: "Permission denied" }`, reason `permission`. (c) A resolve that gives `<dir>/other.ptsm`, holding `other`, as if the link had changed after the look, gives an error of kind `io::ErrorKind::StaleNetworkFileHandle` whose text is `the symbolic link changed while Partsmith was following it. Try again.`; `FileError::from_io` of it is `Io { detail }` with that text as `detail` and as its message, reason `io`. (d) For `<dir>/plain.ptsm`, a regular file, and for `<dir>/missing.ptsm`, which does not exist, it gives the path itself and calls neither the look nor the resolve. Test 72 checks a link that leads to no file through `write`, and test 51 a link that leads to a file.
 
-**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; `examples/import/step-block.ptsm` opens with its imported block, Save as into an empty folder writes `assets/` there with its asset, and a Save after the file was changed by another program shows the change warning; on Windows and macOS, a Save over an `assets/` folder needs no check by hand: tests 56 to 60 and 69 cover it in `rust-platforms` (delivery.md 2.14); on Windows, in Windows Sandbox: before the install, `dir C:\Windows\System32\msvcp140.dll C:\Windows\System32\vcruntime140.dll C:\Windows\System32\vcruntime140_1.dll` in a Command Prompt prints `File Not Found`, and the reviewer records its output (the command names the redistributable's own files, since .NET Framework 4.8, part of Windows 10 and 11, puts `msvcp140_clr0400.dll` and `vcruntime140_clr0400.dll` in that folder, and a pattern such as `msvcp140*.dll` would find them; when it finds one of the three, the Sandbox has the redistributable and shows nothing about it, and only the import check of delivery.md 3.6 counts); the app, installed from the `bundle-Windows` artifact of the release dry run, starts, its Open dialog opens, and `examples/import/step-block.ptsm`, copied into the Sandbox with the folder `examples/import/assets/` next to it, opens with its imported block (2.2; this covers what the import check of delivery.md 3.6 cannot read from the executable: the DLLs that the app and its webview load while they run, and OCCT's STEP reader and modeling code on the static Visual C++ runtime with Windows' Universal C Runtime); then the uninstaller the installer wrote, `uninstall.exe` in the install folder, removes the app (both decompress with zlib, 2.8); on Windows, a Save while the document is open in another program that holds it without sharing (a text editor that locks its files) fails with the message of open issue 12 after less than a second, and succeeds once that program lets go; on macOS 13 with Safari 17 or later installed, the menus, popovers and tooltips open (ui.md 1.1); on macOS, About Partsmith in the app menu shows the `bundle.copyright` of 2.8, and on Windows the Details tab of the properties of `partsmith-desktop.exe` shows it as the legal copyright; on Windows (installed in the installer's default folder), on macOS and on Linux with the `.rpm` installed, the file that Third-party notices names in its notification exists at that place (ui.md 3.5; test 49 covers only the `.deb`); dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
+**Added UI test (printer library, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md), [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07)**
+
+74. The printer library on the desktop needs no host command. With `window.__TAURI__.core.invoke` set to the fake `invoke`, `createIndexedDbPrinterLibrary` (ui.md 2.15) over the fake IndexedDB puts file-format.md's E11 profile. `list()` then resolves with that profile, and `remove('my-mk4')` leaves `list()` empty. The fake `invoke` records no call.
+
+**Stopping a call (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md); 3.10)**
+
+75. `Host::cancel` takes no lock (`tests/host.rs`). One `Arc::new(Host::new(SessionOptions::headless()))`. Thread A calls `Host::call` with request 9, `open_document` of `examples/bench/fifty-features/model.ptsm`. 50 ms after thread A started, the test thread calls `host.cancel(9)`, which returns within 5 ms while thread A still runs. Thread A's response frame then holds a `recomputed` event with at least one `not_run` status.
+76. Another id stops nothing (`tests/host.rs`). As test 75 with `host.cancel(8)`: thread A's `recomputed` holds no `not_run`.
+77. Command wiring (`tests/commands.rs`, as tests 8 to 13). A `cancel_call` invoke from the `main` window with the JSON body `{"request": 9}` answers `null`. The same invoke from a webview window labeled `other` is rejected by the ACL with a message containing `not allowed`. A `cancel_call` invoke from `main` with `{"request": "nine"}` is rejected with a message that contains `request`.
+78. A stop through the commands (`tests/commands.rs`). From the `main` window, a `call` invoke of request 9, `open_document` of the reference part of test 75, and, 50 ms later, a `cancel_call` invoke with `{"request": 9}`. The `cancel_call` response arrives before the `call` response, and the `call` response's frame holds a `recomputed` event with at least one `not_run` status.
+
+**Font files and font assets** (since M2, [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)). Since M2 `Files::pick_open` and `Dialogs::pick_open` take a `FileKind`. Tests 14 to 28, 51, 72 and the others that pick a document pass `FileKind::Ptsm`. `F` is the name `blake3::hash(b"font").to_hex()` followed by `.ttf`. Its bytes are `font`.
+
+79. `FileKind` deserializes `"font"` as `FileKind::Font`, whose `description()` is `Font` and whose `extensions()` are `["ttf", "otf"]`. It rejects `"Font"` and `"woff"`.
+80. `pick_open` hands its kind to the dialog (`tests/files.rs`). A fake `Dialogs` records the kind it is asked for and answers `<dir>/logo.ttf`, which holds `glyphs`. `files.pick_open(&dialogs, FileKind::Font)` records `Font` and returns `Granted { name: "logo.ttf", grant: grant_of(path) }`, and `read(grant)` returns `glyphs`. `read_asset(grant, F)` with that grant fails with `UnknownGrant`, since it is not the grant of a `.ptsm` document.
+81. Font assets next to a document (`tests/files.rs`, with `<dir>/part.ptsm` granted as in tests 54 to 63). `write_asset(grant, F, b"font")` writes `<dir>/assets/F`, and `read_asset(grant, F)` returns `font`. The same with `.otf` in place of `.ttf` writes and reads that file. `write_asset(grant, F, b"other")` fails with `AssetMismatch { name: F }` and writes nothing. `read_asset(grant, <64 0 digits>.woff2)` fails with `NotAnAssetName`.
+82. A wrong kind rejects the pick (`tests/commands.rs`, as tests 8 to 13). A `pick_open_file` invoke from the `main` window with the JSON body `{"kind": "woff"}` rejects with a message that contains `kind`, and no dialog is shown.
+83. The desktop file service picks by kind (`ui/src/files/desktop-file-service.test.ts`, as tests 36 and 37). `pickToOpen('font')`, with `pick_open_file` answering `{name: 'logo.ttf', grant: 'g2'}` and `read_file` answering the bytes of `glyphs`, invokes `('pick_open_file', { kind: 'font' })` and then `('read_file', { grant: 'g2' })`. It returns `{ name: 'logo.ttf', bytes: glyphs, handle: { kind: 'desktop', name: 'logo.ttf', grant: 'g2' } }`. `pickToOpen('step')` invokes `('pick_open_file', { kind: 'step' })`. `pickToOpen()` and `pickToOpen('ptsm')` invoke `('pick_open_file')` with no second argument, as test 36 checks.
+
+**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; `examples/import/step-block.ptsm` opens with its imported block, Save as into an empty folder writes `assets/` there with its asset, and a Save after the file was changed by another program shows the change warning; on Windows and macOS, a Save over an `assets/` folder needs no check by hand: tests 56 to 60 and 69 cover it in `rust-platforms` (delivery.md 2.14); on Windows, in Windows Sandbox: before the install, `dir C:\Windows\System32\msvcp140.dll C:\Windows\System32\vcruntime140.dll C:\Windows\System32\vcruntime140_1.dll` in a Command Prompt prints `File Not Found`, and the reviewer records its output (the command names the redistributable's own files, since .NET Framework 4.8, part of Windows 10 and 11, puts `msvcp140_clr0400.dll` and `vcruntime140_clr0400.dll` in that folder, and a pattern such as `msvcp140*.dll` would find them; when it finds one of the three, the Sandbox has the redistributable and shows nothing about it, and only the import check of delivery.md 3.6 counts); the app, installed from the `bundle-Windows` artifact of the release dry run, starts, its Open dialog opens, and `examples/import/step-block.ptsm`, copied into the Sandbox with the folder `examples/import/assets/` next to it, opens with its imported block (2.2; this covers what the import check of delivery.md 3.6 cannot read from the executable: the DLLs that the app and its webview load while they run, and OCCT's STEP reader and modeling code on the static Visual C++ runtime with Windows' Universal C Runtime); then the uninstaller the installer wrote, `uninstall.exe` in the install folder, removes the app (both decompress with zlib, 2.8); on Windows, a Save while the document is open in another program that holds it without sharing (a text editor that locks its files) fails with the message of open issue 12 after less than a second, and succeeds once that program lets go; on macOS 13 with Safari 17 or later installed, the menus, popovers and tooltips open (ui.md 1.1); on macOS, About Partsmith in the app menu shows the `bundle.copyright` of 2.8, and on Windows the Details tab of the properties of `partsmith-desktop.exe` shows it as the legal copyright; on Windows (installed in the installer's default folder), on macOS and on Linux with the `.rpm` installed, the file that Third-party notices names in its notification exists at that place (ui.md 3.5; test 49 covers only the `.deb`); from M2, `crates/partsmith-engine/tests/fixtures/custom-printer.ptsm`, opened right after the app starts with an empty printer library, shows no printer warning in the Problems panel, the printer button reads "Printer: My MK4", and the app offers to add the printer to the library (ui.md 3.17, gate 12 of the M2 plan); dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload. Since M2 ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)), the Stop: in `examples/bench/fifty-features/model.ptsm`, set `base` to `250 mm` in the Parameters panel and click Stop in the status bar while it reads Rebuilding. The status bar leaves Rebuilding within a second, at least one timeline row shows as not built, Rebuild in the notification builds every row, and Undo then restores `240 mm`.
 
 ## 7. Open issues
 
@@ -910,7 +965,7 @@ The tests above without an OS in parentheses run on every OS, and those marked (
 6. **Dropped files.** A dropped file has no grant, so Save on it asks where to save. Granting dropped paths needs Tauri's drag-drop event and a rule for paths the user did not pick in a dialog.
 7. **Two app instances.** Two running instances share the grant store and the webview's data directory; the last store write wins. Single-instance handling is later (section 1.2). The recovery copies (ui.md 3.19) are keyed per document session, so two instances never overwrite each other's copy. An instance leaves out a copy whose session another instance is still running only where the webview shares its Web Locks between the two processes (ui.md 2.15); the gate check records per OS whether it does. Where it does not, a second instance offers the first one's live copy at startup: Open makes its own copy, but Discard removes the first one's until its next recovery write.
 8. **Measured budgets.** The IPC budgets of section 5 are targets until the desktop harness measures them; WebView2's raw IPC is known to be slower than WebKit's for large bodies.
-9. **A core stuck in a long call.** ui.md 4.4 stops a web core that has answered nothing for 10 s by terminating its worker. The desktop core runs `Session::call` on a blocking thread inside the app's process, where nothing can stop a running call from outside: the Tauri transport's `stop()` only rejects the sends that wait, and a restart would wait behind the session mutex until the call ends. So the desktop shows the still-working panel without "Stop and restart core" (`core_still_working_desktop`), and the way out is quitting the app (the close guard asks first while changes are unsaved), whose next start offers the recovery copy of the settled recipe (ui.md 3.19). Offering the button needs request cancellation (protocol.md section 1, Later): a cancel the engine checks between features and inside long kernel operations, answered with the `not_run` status of a canceled recompute, which the desktop transport would send instead of waiting.
+9. **A core stuck in a long call.** ui.md 4.4 stops a web core that has answered nothing for 10 s by terminating its worker. The desktop core runs `Session::call` on a blocking thread inside the app's process, where nothing can stop a running call from outside: the Tauri transport's `stop()` only rejects the sends that wait, and a restart would wait behind the session mutex until the call ends. So the desktop shows the still-working panel without "Stop and restart core" (`core_still_working_desktop`), and the way out is quitting the app (the close guard asks first while changes are unsaved), whose next start offers the recovery copy of the settled recipe (ui.md 3.19). Offering the button needs request cancellation (protocol.md section 1, Later): a cancel the engine checks between features and inside long kernel operations, answered with the `not_run` status of a canceled recompute, which the desktop transport would send instead of waiting. Resolved in M2 ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)): `cancel_call` stores the running request's id in the host's flag without the mutex (3.10), the engine stops at its next check and answers `not_run` (engine.md section 3.26), and the panel offers Stop (ui.md section 4.4). A call that stays inside a kernel call that does not poll still cannot be stopped. Quitting remains the way out then.
 10. **Links in the assets folder (ADR 0037, accepted by the owner on 2026-11-04).** The desktop follows no symbolic link there: an `assets` that is a link fails Open's reads (`AssetsNotAFolder`, so the imports are missing) and a Save as of a document holding assets into a folder whose `assets` is a link; a document opened that way holds no assets, so its own saves never touch `assets`. An entry under an asset's name that is a link is not read, and a save replaces it with a regular file (3.4 steps 8 and 9). Python follows a linked `assets` folder (python-api.md 3.1, ADR 0036 point 7), so a project that shares one assets folder through a link works in Python and not on the desktop. ADR 0037 sets out following it, never following it (the owner's choice of 2026-11-04) and following it for reading only. The assets of a granted document that is itself a link are kept next to the link, as the CLI and Python read them (3.4 step 7). Two limits remain, both reachable only by another local process racing the host, since the webview cannot create links: `assets` is checked with `symlink_metadata` and then used by its path, so a link swapped in between is followed (closing that needs `openat`-style calls, which std does not offer without `unsafe` or a new dependency such as `libc` or `rustix`); and the entry check opens a regular file without `O_NONBLOCK` (std has no flag for it without `libc`), so an entry swapped for a pipe between the look and the open blocks one thread of the blocking pool until a writer opens that pipe. The check that the opened file is the one looked at (3.4 step 8.3) then still refuses it.
 11. **Web Crypto in every webview.** Resolved: Save's change check hashes the file with `crypto.subtle.digest` (ui.md 3.19), which exists only in a secure context, but the desktop UI already needs one for `crypto.randomUUID()` (every `recoveryId`) and Web Locks (ui.md 2.15), so `crypto.subtle` adds no new requirement, and a `fileDigest` that rejects only turns the change check off with a warning (ui.md 2.15). The existing gate check that the app opens and keeps a recovery copy covers it.
 12. **A file another program holds on Windows.** A program that keeps the document open without sharing its deletion (some editors lock the files they show) blocks the rename of 3.4 step 4.5 for as long as it holds the file, so the write fails after its waits of 630 ms. Windows reports that as `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`: the first reads as `Denied`, which the UI shows as `save_permission` ("Could not save {file} because Partsmith no longer has permission to write it.", ui.md 4.3), though the cause is the other program; the second as `Io`, shown as `save_io` with Windows' own sentence ("The process cannot access the file because it is being used by another process."). Telling the two apart needs the host to name the other program's hold in its own message for a rename that was still busy after its waits, a new `FileError` and a ui.md message; it waits for a report from a real Windows user. The grant store's write waits the same way while the grants lock is held (3.2 step 7), so a program that holds the store for longer than a moment delays every command that changes the grant list, and the file commands queued behind it, by up to 630 ms, and the store is not saved; if Windows users report that, the store's write can skip the waits, at the cost of losing the newest grant across a restart more often.
@@ -931,3 +986,5 @@ The tests above without an OS in parentheses run on every OS, and those marked (
 - **Grant store** limits: `MAX_GRANTS` 100 and persistence across restarts (open issue 5). Status 2026-11-04: the owner accepted that the asset commands reach every stored `.ptsm` grant (ADR 0037). Decided by the owner on 2026-11-05: `MAX_GRANTS` 100 and the persistence across restarts accepted as built in the desktop security review (open issue 5, closed).
 - **Close guard wording** (2.5). Decided by the owner on 2026-11-05: accepted as built.
 - **The asset commands** (ADR 0037, gap list B-5, one capability change): `read_asset` and `write_asset` in `COMMAND_NAMES`, their two `permissions/autogenerated/` files and the permissions `allow-read-asset` and `allow-write-asset` in `capabilities/main.json` (2.2, 2.6, 2.9), which amend ADR 0014 (six commands, and no file reached but through `read_file` and `write_file`). Their grant rule (3.2 step 8) reaches only the entries of `assets/` in the folder of a granted `.ptsm` path (never next to an export target, and next to a granted link rather than its target) whose names are assets of `ASSET_EXTENSIONS` (`step`), so the webview cannot create executable files there; with the entry check of ADR 0036 option (a) and bytes checked against the name (3.4 step 9). With them: never following a link in the assets folder, with the race a local process could still use (open issue 10), and refusing a read-only asset that holds other bytes (3.4 step 9.3). Save's change check needs no host change (it reads through `read_file`, ui.md 3.19), so gap list item B-6 waits for no review. Decided by the owner on 2026-11-04: accepted as built with ADR 0037's decisions 2 to 6.
+- **The cancel command** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md), since M2, one capability change): `cancel_call` in `COMMAND_NAMES`, its file `permissions/autogenerated/cancel_call.toml` and the permission `allow-cancel-call` in `capabilities/main.json` (2.2, 2.6, 2.9). It stores one request id in the host's flag and reaches no file, path, process or plugin. It amends ADR 0014's command list, as ADR 0037 did. Accepted (owner's rule of 2026-11-05). It goes to human review at the M2 gate (m2-plan.md gate 19).
+- **Font assets and the font file kind** ([ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-07 on font assets, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md), since M2, one capability change in reach, not in names): `ASSET_EXTENSIONS` gains `ttf` and `otf`, which widens what `allow-read-asset` and `allow-write-asset` reach in the `assets/` folder next to a granted document. `pick_open_file` takes any `FileKind`, which lets `allow-pick-open-file` grant a picked file of each of those kinds (Partsmith models, 3MF, STL, OBJ, STEP and font files), and `read_file` reads it; they share the grant list of `MAX_GRANTS` with documents. M2 calls it only with `ptsm`, `step` and `font`. No command, permission file or capability entry is added (2.2, 2.4, 2.6, 2.9, 3.3). For review at the M2 gate (m2-plan.md gate 19).

@@ -1,6 +1,6 @@
 # Sketch (`partsmith-sketch`)
 
-Behavior spec for the M1 sketcher: the typed params of the `sketch` feature, the native constraint solver (ADR 0004), degrees-of-freedom diagnosis, drag solving, profile regions and region matching, and the sketch's messages. This file is the definition of done for `crates/partsmith-sketch`. Read `docs/design/architecture.md` (section "Sketches") and ADR 0004 first. Region matching by boundary, with coverage of split regions and successions, is decided in [ADR 0022](../adr/0022-split-regions-keep-their-area.md); the frame marker of face sketch fallbacks in [ADR 0023](../adr/0023-frames-live-on-the-model.md); both fields this adds to documents (`outline`, `fallback_frame`) are part of file format version 2 ([ADR 0025](../adr/0025-file-format-version-2.md)); the rank tolerance of the Gauss-Newton step and the second solve of a drag frame in [ADR 0052](../adr/0052-step-rank-tolerance-and-unweighted-drag-retry.md). Messages follow [the error guidelines](../guidelines/errors.md).
+Behavior spec for the M1 sketcher: the typed params of the `sketch` feature, the native constraint solver (ADR 0004), degrees-of-freedom diagnosis, drag solving, profile regions and region matching, and the sketch's messages. This file is the definition of done for `crates/partsmith-sketch`. Read `docs/design/architecture.md` (section "Sketches") and ADR 0004 first. Region matching by boundary, with coverage of split regions and successions, is decided in [ADR 0022](../adr/0022-split-regions-keep-their-area.md); the frame marker of face sketch fallbacks in [ADR 0023](../adr/0023-frames-live-on-the-model.md); both fields this adds to documents (`outline`, `fallback_frame`) are part of file format version 2 ([ADR 0025](../adr/0025-file-format-version-2.md)); the rank tolerance of the Gauss-Newton step and the second solve of a drag frame in [ADR 0052](../adr/0052-step-rank-tolerance-and-unweighted-drag-retry.md); the trust region's exact step in [ADR 0058](../adr/0058-exact-trust-region-step.md); the curve chains that paths and open profiles use, and the region union moved here from `partsmith-features`, in [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md); the entity records of format version 3, the recipe and operation contracts and the display polylines in [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md). Messages follow [the error guidelines](../guidelines/errors.md).
 
 Conventions in this document:
 
@@ -21,7 +21,7 @@ Conventions in this document:
 - `PointRef` strings and point roles.
 - Reserved references `origin`, `x_axis` and `y_axis` for the sketch's own origin and axes, usable in constraints as fixed constants.
 - Constraints: coincident, point_on_object, horizontal, vertical, parallel, perpendicular, tangent, collinear, concentric, equal, symmetric, midpoint, fix, distance (point-point, line length, point-line), horizontal_distance, vertical_distance, radius, diameter, angle. Driving and reference dimensions.
-- The native solver behind a `Solver` trait: flat parameter vector, component decomposition, substitution of trivial equalities, dog-leg with Levenberg-Marquardt fallback, convergence at `1e-10`, warm start from the stored geometry, deterministic results.
+- The native solver behind a `Solver` trait: flat parameter vector, component decomposition, substitution of trivial equalities, a trust region with a Levenberg-Marquardt fallback (dog-leg in M1; the exact step since ADR 0058, section 3.7.4), convergence at `1e-10`, warm start from the stored geometry, deterministic results.
 - Diagnosis by rank-revealing QR: degrees of freedom, redundant and conflicting constraint ids, per-entity constraint state.
 - Drag solving with a weakly pinned target.
 - Measured values of all dimensions (driving and reference).
@@ -32,24 +32,38 @@ Conventions in this document:
 
 ### 1.2 Later (explicitly not in M1)
 
-- Entities: ellipse, elliptical arc, parabola, hyperbola, conic (rho), B-spline by control points, B-spline by fit points (periodic option).
-- Sketch text (TrueType, along path), canvas image for tracing, DXF and SVG import into sketches, DXF and SVG export.
-- Drawing tools as entity types: rectangles, polygons, slots, 3-point and tangent arcs. In M1 the UI emits these as lines, arcs and constraints.
-- Modify tools: trim, extend, split or break, 2D fillet, 2D chamfer, offset, sketch mirror, sketch patterns, move, copy, rotate, scale.
-- Projected and reference geometry: project edges, faces and bodies, intersect body with plane, silhouette, include from another sketch (carbon copy), break link.
+- Entities: ellipse, elliptical arc, parabola, hyperbola, conic (rho), B-spline by control points, B-spline by fit points (periodic option). Since M2's wave 1 their records are fixed in section 2.12 ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). M2 item 14 (wave 2) builds them.
+- Sketch text (TrueType, along path), canvas image for tracing, DXF and SVG import into sketches, DXF and SVG export. The text entity's record is fixed in section 2.12. M2 item 27 (wave 3) builds it.
+- Drawing tools as entity types: rectangles, polygons, slots, 3-point and tangent arcs. In M1 the UI emits these as lines, arcs and constraints. From M2 they are recipes of this crate that emit the same entities and constraints (section 2.13, M2 item 24, wave 3, the M2 plan's choice 4). No entity type is added for them.
+- Modify tools: trim, extend, split or break, 2D fillet, 2D chamfer, offset, sketch mirror, sketch patterns, move, copy, rotate, scale. From M2 they are operations of this crate that return the changed sketch (section 2.13, M2 item 25, wave 3, the M2 plan's choice 5).
+- Projected and reference geometry: project edges, faces and bodies, intersect body with plane, silhouette, include from another sketch (carbon copy), break link. Since M2's wave 1 an entity's `link` is fixed in section 2.12. M2 item 26 (wave 3) builds it.
 - Constraints: smooth (G2), block, arc length, angle of a line to an axis, refraction (Snell's law), B-spline knot and weight, symmetric curves (two lines or circles about a line), midpoint of an arc, distance point-circle, circle-circle and line-line.
 - An explicit tangent-at-endpoint mode in JSON (M1 detects touch points automatically, section 3.6.4).
 - Fix with stored target coordinates (M1 fix freezes the current stored geometry).
 - Auto-constraint inference and dimension-as-you-draw (UI and engine features that emit M1 constraints).
 - Ranked removal suggestions for redundant and conflicting constraints.
 - Alternative solver backends (for example PlaneGCS) behind the `Solver` trait, and user-visible solver options.
-- Open-profile consumers (rib, web), text profiles, a region-union helper.
+- Open-profile consumers (rib, web), text profiles, a region-union helper. M2's wave 1 brings the chain API that open-profile consumers read and the region union (section 1.3). The consumers come with their own feature specs, and text profiles with sketch text (M2 item 27).
 - Sketch attachment options beyond plane and face (offset, angle, flip, attachment modes).
 - A guarantee of bit-identical solver results across compilation targets (section 3.12).
 
+### 1.3 In M2
+
+M2's wave 1 adds, by [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) (the M2 plan's item 3):
+
+- Curve chains (sections 2.10 and 3.18): lines and arcs in order, each ending where the next starts, or one circle, which a feature uses as a path or as an open profile. A stored chain is a `ChainRef`: the ids of its entities in chain order with their directions, a fingerprint, and whether it was closed. `build_chain` checks and orients a chain, `match_chain` finds a stored chain again, `chain_through` gives the chain a pick stands for, and `SketchParams::mirrored_chain` writes a chain for the mirrored drawing (section 3.17). Sweep paths (M2 item 18, wave 2), ribs and webs (item 28, wave 3) and thin-wall extrudes (item 29, wave 3) read chains through features.md section 3.16. What each of them does with a chain is set by its own spec.
+- The region union (sections 2.11 and 3.19), moved here from `partsmith-features` with no change in behavior. features.md section 3.7 builds its kernel faces from it.
+
+M2's wave 1 also fixes, by [ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md), the contracts that waves 2 and 3 build on. No code of them lands in wave 1. Each item's spec step fills in what these sections leave to it, before its code:
+
+- The entity records of format version 3 (sections 2.12 and 3.20): ellipse, elliptical arc, parabola, hyperbola, conic, the three B-spline kinds and text, and the `link` that makes an entity follow a model element or an entity of another sketch. M2 item 14 (wave 2) builds the curves, item 26 (wave 3) the links and item 27 (wave 3) the text.
+- The point roles `vertex`, `focus` and `control` (section 2.4), with item 14.
+- The display polylines of every entity whose kind is not point, line, circle or arc (section 3.20.9), with item 14. The protocol's `sketch_solved` carries them (protocol.md section 2.6), as ADR 0066 amends spec README decision D15.
+- Recipes and operations (sections 2.13 and 3.21): the drawing and modify tools as functions of this crate that return the changed sketch. Items 24 and 25 (wave 3) fill them in.
+
 ## 2. Public API
 
-Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments. Tags follow architecture.md "Serialization": records (sketch entities, sketch constraints, profile findings) are tagged with `type`; value enums nested in records or messages (`SketchPlane`, `DragTarget`, `ProfileCurve`, `RegionMatch`, `RegionLoss`) are tagged with `kind`.
+Everything below is public in `partsmith_sketch`. Types that appear in documents or protocol messages derive `Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema`; enums with only unit variants also derive `Copy, Eq, Hash`. Every public item has a doc comment; the one-line comments below are those doc comments. Tags follow architecture.md "Serialization": records (sketch entities, sketch constraints, profile findings) are tagged with `type`; value enums nested in records or messages (`SketchPlane`, `DragTarget`, `ProfileCurve`, `RegionMatch`, `RegionLoss`, `ChainMatch`, `ChainLoss`) are tagged with `kind`.
 
 ### 2.1 Constants and re-exports
 
@@ -58,10 +72,10 @@ pub use partsmith_model::{Expr, Id};
 
 /// Largest absolute residual (mm) at which the solver considers a row satisfied.
 pub const SOLVER_TOLERANCE: f64 = 1e-10;
-/// Iteration limit for each of the dog-leg and Levenberg-Marquardt passes on one component.
+/// Iteration limit for each of the trust-region and Levenberg-Marquardt passes on one component.
 pub const MAX_ITERATIONS: u32 = 100;
 /// Relative norm below which a Jacobian row counts as dependent on earlier rows in the diagnosis
-/// (section 3.8) and in the second dog-leg pass; the first pass uses 1e-6 (section 3.7.4).
+/// (section 3.8) and in the second trust-region pass; the first pass uses 1e-6 (section 3.7.4).
 pub const RANK_TOLERANCE: f64 = 1e-8;
 /// Inconsistency (mm) above which a dependent row counts as conflicting rather than redundant.
 pub const CONFLICT_TOLERANCE: f64 = 1e-9;
@@ -113,6 +127,8 @@ impl SketchParams {
     pub fn mirrored_point(&self, point: &PointRef) -> PointRef;
     /// A region reference of this sketch as it reads on `mirrored()` (section 3.17).
     pub fn mirrored_region(&self, region: &RegionRef) -> RegionRef;
+    /// A chain reference of this sketch as it reads on `mirrored()` (section 3.17).
+    pub fn mirrored_chain(&self, chain: &ChainRef) -> ChainRef;
 }
 
 /// A driving dimension whose expression the caller evaluates before solving.
@@ -319,6 +335,8 @@ impl std::fmt::Display for PointRef {}
 ```
 
 `PointRef` serializes as its string form. Its JSON Schema is `{"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"}`. Examples: `"e-1.start"`, `"e-5.center"`, `"e-7"`. The reserved reference `"origin"` (section 3.16) parses as `PointRef { entity: origin, role: Point }`.
+
+Since format version 3 (section 2.12, ADR 0066), three roles follow `Center` in declaration order: `Vertex`, written `.vertex`, the vertex of a parabola; `Focus`, written `.focus`, the focus of a parabola; and `Control`, written `.control`, the control point of a conic. M2 item 14 adds them. The schema's pattern then reads `"^[A-Za-z0-9_-]{1,64}(\\.(start|end|center|vertex|focus|control))?$"`, and section 3.3's grammar takes the same six roles. Until then `"e-1.vertex"` fails with `InvalidPointRef`, as test 10 checks for `e-1.mid`.
 
 ### 2.5 Constraints
 
@@ -887,6 +905,8 @@ pub enum SketchError {
     NonFiniteCursor,
     InvalidRegionKey { text: String },
     InvalidFingerprint { text: String },
+    InvalidChainKey { text: String },
+    InvalidChainFingerprint { text: String },
 }
 
 /// Why a placement is invalid.
@@ -936,6 +956,15 @@ impl ProfileFinding {
     pub fn render(&self, context: &MessageContext<'_>) -> String;
     /// One-click fixes (section 4.3).
     pub fn fixes(&self) -> Vec<SketchFix>;
+}
+
+impl ChainLoss {
+    /// The reason clause that a feature message puts after "because" (section 4.5).
+    pub fn render(&self, context: &MessageContext<'_>) -> String;
+    /// One-click fixes (section 4.5).
+    pub fn fixes(&self) -> Vec<SketchFix>;
+    /// The entity a host shows for this loss, when it names one (section 4.5).
+    pub fn entity(&self) -> Option<&Id>;
 }
 
 /// A one-click fix for a sketch message. Features turn it into a feature `Fix` (features.md section 2.8), and the
@@ -993,6 +1022,377 @@ A fully constrained 80 x 50 plate with a 10 mm hole, as a feature record in a `.
 ```
 
 Solving it with values `{c-10: 80, c-11: 50, c-15: 25, c-16: 10}` returns the same geometry bitwise, `status: fully_constrained`, `dof: 0`, and `measured` `{c-10: 80, c-11: 50, c-15: 25, c-16: 10}`. Its profile has the two regions shown in section 2.7.
+
+### 2.10 Chains (M2)
+
+```rust
+/// An ordered chain of sketch curves, written like "e-1,~e-2,e-3" (section 3.18.1).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChainKey { /* private: entries in chain order */ }
+
+impl ChainKey {
+    /// A key from entries in chain order; fails with `InvalidChainKey` when `entries` is empty or names an entity twice.
+    pub fn new(entries: Vec<KeyEdge>) -> Result<ChainKey, SketchError>;
+    /// The entries in chain order.
+    pub fn entries(&self) -> &[KeyEdge];
+    /// The same curves run the other way: the entries in reverse order, each with its `reversed` flag flipped.
+    pub fn reversed(&self) -> ChainKey;
+}
+impl std::str::FromStr for ChainKey { type Err = SketchError; }
+impl std::fmt::Display for ChainKey {}
+
+/// Start, end and length of a chain, written "s=<u>,<v>|e=<u>,<v>|l=<length>" (section 3.18.5).
+pub struct ChainFingerprint {
+    /// The start in sketch coordinates.
+    pub start: [f64; 2],
+    /// The end in sketch coordinates; the start for a closed chain.
+    pub end: [f64; 2],
+    /// The length in mm.
+    pub length: f64,
+}
+impl std::str::FromStr for ChainFingerprint { type Err = SketchError; }
+impl std::fmt::Display for ChainFingerprint {}
+
+/// A stored reference to a chain of a sketch (section 3.18.5).
+#[serde(deny_unknown_fields)]
+pub struct ChainRef {
+    /// The chain's key.
+    pub key: ChainKey,
+    /// The chain's fingerprint when the reference was made.
+    pub fp: ChainFingerprint,
+    /// True when the chain was closed when the reference was made. Omitted from JSON when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
+}
+
+/// A chain built from solved entities (section 3.18.2).
+pub struct Chain {
+    /// The key it was built from.
+    pub key: ChainKey,
+    /// One edge per entry, in chain order, each oriented along the chain. Each edge ends exactly (bitwise) where
+    /// the next one starts, and the last edge of a closed chain ends where the first starts.
+    pub edges: Vec<ProfileEdge>,
+    /// True when the chain ends where it starts.
+    pub closed: bool,
+    /// Where consecutive edges meet, in chain order. A closed chain ends with the junction of its last and first
+    /// edges; a chain of one circle has none.
+    pub junctions: Vec<Junction>,
+    /// The sum of the lengths of its entities in mm.
+    pub length: f64,
+}
+
+impl Chain {
+    /// The start of the first edge; for a chain whose one edge is a circle, the point that section 3.18.2 gives.
+    pub fn start(&self) -> [f64; 2];
+    /// The end of the last edge; equal to `start()` for a closed chain.
+    pub fn end(&self) -> [f64; 2];
+    /// The unit tangent at the start, along the chain.
+    pub fn start_tangent(&self) -> [f64; 2];
+    /// The unit tangent at the end, along the chain.
+    pub fn end_tangent(&self) -> [f64; 2];
+    /// True when every junction is tangent.
+    pub fn is_smooth(&self) -> bool;
+    /// The fingerprint of this chain.
+    pub fn fingerprint(&self) -> ChainFingerprint;
+    /// A stored reference to this chain: its key, its fingerprint and whether it is closed.
+    pub fn reference(&self) -> ChainRef;
+}
+
+/// Where two consecutive edges of a chain meet (section 3.18.2).
+pub struct Junction {
+    /// The shared point: the start of the edge that leaves it.
+    pub point: [f64; 2],
+    /// The signed angle in radians from the arriving edge's tangent to the leaving edge's, in (-pi, pi],
+    /// counterclockwise positive.
+    pub turn: f64,
+}
+
+impl Junction {
+    /// True when `abs(turn) <= partsmith_model::ANGULAR_TOLERANCE`: the chain is smooth here.
+    pub fn is_tangent(&self) -> bool;
+}
+
+/// Builds the chain a key names from solved entities, or says why it cannot (section 3.18.2). The order of
+/// `entities` does not matter.
+pub fn build_chain(entities: &[SketchEntity], key: &ChainKey) -> Result<Chain, ChainLoss>;
+
+/// Finds the chain a stored reference means today (section 3.18.3).
+pub fn match_chain(entities: &[SketchEntity], reference: &ChainRef) -> ChainMatch;
+
+/// The chain a pick of `seed` stands for (section 3.18.4); None when `seed` is not a non-construction line, arc or
+/// circle of `entities` with a length.
+pub fn chain_through(entities: &[SketchEntity], seed: &Id) -> Option<ChainKey>;
+
+/// Result of chain matching.
+#[non_exhaustive]
+pub enum ChainMatch {
+    /// The stored chain, built from today's entities. `successions` is always empty until M2 item 25 (section 3.18.3).
+    Resolved { chain: Chain, successions: Vec<Succession> },
+    /// The stored chain cannot be built.
+    Missing { loss: ChainLoss },
+}
+
+/// Why a chain cannot be built or matched (sections 3.18.2 and 3.18.3). `render` gives the reason clause of section
+/// 4.5 and `Display` the detail of section 4.4.
+#[non_exhaustive]
+pub enum ChainLoss {
+    /// These entities of the key are not in the sketch, sorted by id; `all` is true when no entity of the key is.
+    Deleted { entities: Vec<Id>, all: bool },
+    /// This entity is not a line or an arc: a point, or a circle in a chain of more than one entry.
+    NotCurve { entity: Id, kind: EntityKind },
+    /// This entity is construction geometry.
+    Construction { entity: Id },
+    /// This entity has no length (section 3.13.1).
+    ZeroLength { entity: Id },
+    /// One entry ends farther than `PROFILE_TOLERANCE` from where the next one starts: `end` and `start` are those
+    /// points as point references, `gap` their distance in mm.
+    Disconnected { end: PointRef, start: PointRef, gap: f64 },
+    /// At this junction the second entity turns back along the first, in chain order.
+    TurnsBack { entities: [Id; 2], point: [f64; 2] },
+    /// These two entries, in chain order, meet away from the junctions they share.
+    Crosses { entities: [Id; 2], point: [f64; 2] },
+}
+```
+
+`ChainKey` and `ChainFingerprint` serialize as their text forms. `ChainRef` serializes as `{"key": ..., "fp": ...}`, with `"closed": true` after them for a closed chain. `Chain`, `Junction`, `ChainMatch` and `ChainLoss` (the last two with `#[serde(tag = "kind", rename_all = "snake_case")]`) derive the serde traits, with every field always present. Neither a document nor the protocol carries them: tests and reports write them as JSON, as they write `RegionMatch`. JSON examples:
+
+```json
+{"key": "e-1,e-2,e-3", "fp": "s=0,0|e=50,40|l=85.707963"}
+{"key": "e-1,e-2,e-3,e-4", "fp": "s=0,0|e=0,0|l=260", "closed": true}
+{"point": [40, 0], "turn": 1.5707963267948966}
+{"kind": "missing", "loss": {"kind": "deleted", "entities": ["e-9"], "all": false}}
+{"kind": "missing", "loss": {"kind": "turns_back", "entities": ["e-1", "e-2"], "point": [40, 0]}}
+```
+
+### 2.11 Region union (M2)
+
+```rust
+/// The union of regions of one profile (section 3.19): one part per group of regions joined by shared boundary
+/// pieces, each with its outer loop and its holes.
+pub fn union_regions(regions: &[&Region]) -> Result<Vec<UnionPart>, UnionError>;
+
+/// One connected part of a region union.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnionPart {
+    /// The outer boundary, counterclockwise.
+    pub outer: ProfileLoop,
+    /// The hole boundaries, each clockwise, in the order they were traced.
+    pub holes: Vec<ProfileLoop>,
+}
+
+/// The regions given to `union_regions` are not faces of one arrangement. It is never a message: its `Display` is
+/// the detail `the selected profile regions do not form a planar arrangement`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub struct UnionError;
+```
+
+`UnionPart` and `UnionError` are not serialized.
+
+### 2.12 Entity records of format version 3 (M2)
+
+These are contracts ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). No code of them lands in M2's wave 1. M2 item 14 (wave 2) builds the curve kinds, item 26 (wave 3) the links and item 27 (wave 3) the text. Section 3.20 gives each kind's meaning, its validation, its solver parameters and what is stored and what is derived. A build writes a record of this section only once the item that builds it has landed. From then on its shape and meaning are fixed until the M2 gate (file-format.md section 3.9, version 3 rule 2).
+
+```rust
+/// Geometry of an entity in sketch coordinates: the four kinds of section 2.3, then, since format version 3, the
+/// variants below in this order. JSON field order is the declaration order.
+pub enum Geometry {
+    // Point, Line, Circle and Arc, as in section 2.3.
+    /// A full ellipse; its direction is counterclockwise.
+    Ellipse { center: [f64; 2], major: [f64; 2], minor_radius: f64 },
+    /// An arc of an ellipse, counterclockwise from `start_angle` to `end_angle` (eccentric angles in radians).
+    EllipticalArc { center: [f64; 2], major: [f64; 2], minor_radius: f64, start_angle: f64, end_angle: f64 },
+    /// An arc of a parabola from `start_parameter` to `end_parameter` (mm along the tangent at the vertex).
+    Parabola { vertex: [f64; 2], focus: [f64; 2], start_parameter: f64, end_parameter: f64 },
+    /// An arc of one branch of a hyperbola from `start_parameter` to `end_parameter` (no unit).
+    Hyperbola { center: [f64; 2], major: [f64; 2], minor_radius: f64, start_parameter: f64, end_parameter: f64 },
+    /// A conic from `start` to `end` whose end tangents meet at `control`; `rho` in (0, 1) sets its shape.
+    Conic { start: [f64; 2], control: [f64; 2], end: [f64; 2], rho: f64 },
+    /// A B-spline whose control points are point entities of this sketch, named by id in order.
+    Bspline {
+        degree: u32,
+        poles: Vec<Id>,
+        /// One weight per pole; omitted from JSON when `None`. `None` means every weight is 1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weights: Option<Vec<f64>>,
+        knots: Vec<f64>,
+        /// Omitted from JSON when false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        periodic: bool,
+    },
+    /// A cubic spline through point entities of this sketch, named by id in order.
+    FitSpline {
+        points: Vec<Id>,
+        /// Omitted from JSON when false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        periodic: bool,
+    },
+    /// A B-spline with control points of its own, which the solver never moves.
+    FixedSpline {
+        degree: u32,
+        poles: Vec<[f64; 2]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weights: Option<Vec<f64>>,
+        knots: Vec<f64>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        periodic: bool,
+    },
+    /// One line of text set along a curve of this sketch.
+    Text {
+        /// The characters, as typed.
+        text: String,
+        /// An asset name or a built-in font name (section 3.20.6).
+        font: String,
+        /// The font's em size, a length expression the caller evaluates.
+        size: Expr,
+        /// The curve entity the text runs along.
+        path: Id,
+        /// Omitted from JSON when `Left`.
+        #[serde(default, skip_serializing_if = "HorizontalAlignment::is_left")]
+        horizontal_alignment: HorizontalAlignment,
+        /// Omitted from JSON when `Baseline`.
+        #[serde(default, skip_serializing_if = "VerticalAlignment::is_baseline")]
+        vertical_alignment: VerticalAlignment,
+    },
+}
+
+/// Since format version 3, a sketch entity also has `link`, after its geometry fields and before `construction`.
+pub struct SketchEntity {
+    pub id: Id,
+    #[serde(flatten)]
+    pub geometry: Geometry,
+    /// What the entity follows (section 3.20.7); omitted from JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<SketchLink>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub construction: bool,
+}
+
+/// The source a linked entity follows. A value enum nested in a record, tagged `kind`.
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SketchLink {
+    /// An edge of `body`, projected onto the sketch plane.
+    Edge { body: Id, edge: partsmith_naming::Reference },
+    /// A vertex of `body`, projected onto the sketch plane.
+    Vertex { body: Id, vertex: partsmith_naming::Reference },
+    /// A curve where the sketch plane cuts `face` of `body`.
+    Section { body: Id, face: partsmith_naming::Reference },
+    /// A curve of the outline of `body` seen along the sketch normal, made by `element`, an edge or a face of it.
+    Silhouette { body: Id, element: partsmith_naming::Reference },
+    /// The entity `entity` of the sketch feature `feature`, included as it is solved.
+    Sketch { feature: Id, entity: Id },
+}
+
+/// Where a text sits along its path.
+#[serde(rename_all = "snake_case")]
+pub enum HorizontalAlignment {
+    /// The text starts at the start of its path.
+    #[default]
+    Left,
+    /// The middle of the text sits at the middle of its path, by length.
+    Center,
+    /// The text ends at the end of its path.
+    Right,
+}
+
+/// Which line of the font sits on the path.
+#[serde(rename_all = "snake_case")]
+pub enum VerticalAlignment {
+    /// The baseline.
+    #[default]
+    Baseline,
+    /// The font's descender line.
+    Bottom,
+    /// The line midway between the descender and ascender lines.
+    Center,
+    /// The font's ascender line.
+    Top,
+}
+
+/// The kind of an entity: the four of section 2.3, then, since format version 3, in the order of `Geometry`.
+pub enum EntityKind {
+    Point, Line, Circle, Arc, Ellipse, EllipticalArc, Parabola, Hyperbola, Conic, Bspline, FitSpline, FixedSpline, Text,
+}
+
+/// The highest B-spline degree, OCCT's `Geom_BSplineCurve::MaxDegree()`.
+pub const MAX_SPLINE_DEGREE: u32 = 25;
+/// Largest distance (mm) between a curve and a segment of its display polyline (section 3.20.9).
+pub const DISPLAY_TOLERANCE: f64 = 0.01;
+/// Largest turn (rad) of a curve's tangent along one segment of its display polyline, 2 * pi / 72 (section 3.20.9).
+pub const DISPLAY_TURN: f64 = std::f64::consts::TAU / 72.0;
+/// The name of the built-in font (section 3.20.6). M2 item 27 sets its value.
+pub const DEFAULT_FONT: &str;
+
+/// Since format version 3, these variants follow those of section 2.8, in this order. `render` gives the message of
+/// section 4.1 and `Display` the detail of section 4.4.
+pub enum SketchError {
+    InvalidRho { entity: Id, rho: f64 },
+    InvalidSpline { entity: Id, problem: SplineProblem },
+    InvalidPoint { entity: Id, point: Id },
+    InvalidFont { entity: Id },
+    InvalidPath { entity: Id, path: Id },
+    InvalidLink { entity: Id, kind: EntityKind },
+    LinkedDragTarget { target: String },
+}
+
+/// Why a B-spline or fit spline record cannot be used (section 3.20.5), in the order the checks run.
+pub enum SplineProblem { Degree, TooFewPoints, KnotCount, Knots, WeightCount, WeightNotPositive, RepeatedPoint }
+```
+
+JSON examples, one per kind, then one linked entity of each link kind:
+
+```json
+{"id": "e-10", "type": "ellipse", "center": [40, 25], "major": [20, 0], "minor_radius": 10}
+{"id": "e-11", "type": "elliptical_arc", "center": [0, 0], "major": [20, 0], "minor_radius": 10, "start_angle": 0, "end_angle": 1.5707963267948966}
+{"id": "e-12", "type": "parabola", "vertex": [0, 0], "focus": [0, 5], "start_parameter": -10, "end_parameter": 10}
+{"id": "e-13", "type": "hyperbola", "center": [0, 0], "major": [10, 0], "minor_radius": 5, "start_parameter": -1, "end_parameter": 1}
+{"id": "e-14", "type": "conic", "start": [0, 0], "control": [20, 20], "end": [40, 0], "rho": 0.5}
+{"id": "e-20", "type": "bspline", "degree": 3, "poles": ["e-21", "e-22", "e-23", "e-24"], "knots": [0, 0, 0, 0, 1, 1, 1, 1]}
+{"id": "e-25", "type": "bspline", "degree": 2, "poles": ["e-26", "e-27", "e-28"], "weights": [1, 2, 1], "knots": [0, 1, 2, 3], "periodic": true}
+{"id": "e-30", "type": "fit_spline", "points": ["e-31", "e-32", "e-33"]}
+{"id": "e-40", "type": "fixed_spline", "degree": 2, "poles": [[0, 0], [10, 10], [20, 0]], "weights": [1, 0.7071067811865476, 1], "knots": [0, 0, 0, 1, 1, 1]}
+{"id": "e-50", "type": "text", "text": "LID", "font": "<DEFAULT_FONT>", "size": "6 mm", "path": "e-51", "horizontal_alignment": "center"}
+{"id": "e-60", "type": "line", "start": [0, 0], "end": [40, 0], "link": {"kind": "edge", "body": "b-1", "edge": {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=20,0,10|l=40|adj=2,2"}}}
+{"id": "e-61", "type": "point", "position": [0, 0], "link": {"kind": "vertex", "body": "b-1", "vertex": {"q": "vertex(f-ext1/end-cap|f-ext1/lateral/e-1|f-ext1/lateral/e-4)", "fp": "point|c=0,0,10"}}}
+{"id": "e-62", "type": "circle", "center": [40, 25], "radius": 5, "link": {"kind": "section", "body": "b-1", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=40,25,5|a=314.159265|r=5|adj=2,3"}}}
+{"id": "e-63", "type": "line", "start": [0, -5], "end": [0, 5], "link": {"kind": "silhouette", "body": "b-2", "element": {"q": "f-cyl2/side", "fp": "cylinder|n=1,0,0|c=20,0,0|a=1256.637061|r=5|adj=2,3"}}, "construction": true}
+{"id": "e-64", "type": "arc", "center": [20, 0], "radius": 5, "start_angle": 0, "end_angle": 3.141592653589793, "link": {"kind": "sketch", "feature": "f-sk1", "entity": "e-9"}}
+```
+
+`<DEFAULT_FONT>` stands for the value of `DEFAULT_FONT`, which item 27 fixes. The element names and fingerprints in the links are examples of naming.md's forms, not results of a real document. `HorizontalAlignment` serializes as `"left"`, `"center"` or `"right"`, `VerticalAlignment` as `"baseline"`, `"bottom"`, `"center"` or `"top"`, and the new values of `EntityKind` as `"ellipse"`, `"elliptical_arc"`, `"parabola"`, `"hyperbola"`, `"conic"`, `"bspline"`, `"fit_spline"`, `"fixed_spline"` and `"text"`. `SketchLink` is closed to unknown members like every nested record of section 3.3. Its `Reference` members are naming.md's (section 2.4), with `nb` and `merged` when the pick stored them.
+
+### 2.13 Recipes and operations (M2)
+
+These are contracts too ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md), the M2 plan's choices 4 and 5). Item 24 (wave 3) fills in the recipes, item 25 (wave 3) the operations and item 26 (wave 3) Break link.
+
+```rust
+/// A drawing tool's input, in sketch coordinates. A value enum tagged `kind`. Item 24 defines the variants of M1's
+/// tools (line, the two rectangles, circle, 3-point arc and point) and of its own; item 14 those of the conic and
+/// spline tools; item 27 that of the text tool.
+#[non_exhaustive]
+pub enum SketchRecipe { /* variants by those items */ }
+
+/// A modify tool's input. A value enum tagged `kind`. Item 25 defines the variants; item 26 adds `BreakLink`.
+#[non_exhaustive]
+pub enum SketchOperation { /* variants by those items */ }
+
+/// What a recipe or an operation made of a sketch.
+pub struct SketchChange {
+    /// The sketch params after the change: the input with records added, removed or rewritten.
+    pub params: SketchParams,
+    /// Ids of the entities the change added, in params order.
+    pub entities: Vec<Id>,
+    /// Ids of the constraints the change added, in params order.
+    pub constraints: Vec<Id>,
+}
+
+/// Runs a drawing tool on a sketch (section 3.21). `new_id` gives a fresh id of the kind asked for.
+pub fn apply_recipe(sketch: &SketchParams, recipe: &SketchRecipe, new_id: &mut dyn FnMut(partsmith_model::IdKind) -> Id) -> Result<SketchChange, SketchError>;
+
+/// Runs a modify tool on a sketch whose solved entities are `solved` (section 3.21).
+pub fn apply_operation(sketch: &SketchParams, solved: &[SketchEntity], operation: &SketchOperation, new_id: &mut dyn FnMut(partsmith_model::IdKind) -> Id) -> Result<SketchChange, SketchError>;
+```
+
+`SketchChange` serializes as `{"params": ..., "entities": [...], "constraints": [...]}`, every member always present. The protocol carries it (protocol.md section 2.5, commands 39 to 41). Item 25's ADR, which amends ADR 0022, may add a member for the successions of a trim or a split.
 
 ## 3. Behavior
 
@@ -1204,36 +1604,57 @@ For a component that is not untouched, parameters are grouped into classes with 
 
 Every member of a class takes the class value. Rows whose two parameters share a class are identically satisfied and are skipped by the numerical solve (they are still evaluated for convergence and diagnosis). Rows whose parameters are all frozen are constant rows. Free classes that appear in no remaining row keep their value and are excluded from the numerical solve. The remaining free classes are the variables `y` of the component's numerical problem; `r(y)` is the vector of its non-skipped rows.
 
-#### 3.7.4 Dog-leg, then Levenberg-Marquardt
+#### 3.7.4 Trust region with the exact step, then Levenberg-Marquardt
 
 Variables are scaled for dragging: `y = D z` with `D` diagonal, `D_ii = 1 / DRAG_WEIGHT` for classes that contain a dragged parameter (section 3.9) and 1 otherwise; outside a drag, and in the second solve of a drag frame (section 3.9, step 5), `D = I`. `J` is the Jacobian of `r` with respect to `z`. "Converged" always means: every row of the component, including skipped and constant rows, has absolute residual at most `SOLVER_TOLERANCE`.
 
-Gauss-Newton step: apply the sequential rank test of section 3.8 to the rows of `J` in the component's row order, with the step tolerance `1e-6` in place of `RANK_TOLERANCE` (in the first dog-leg pass; the second pass below keeps `RANK_TOLERANCE`): a row is dependent for the step when its norm after orthogonalization against the rows accepted before it is at most `1e-6 * max(original norm, 1)`. With `J_a` and `r_a` the accepted rows, `h_gn` is the minimum-norm solution of `J_a h = -r_a`, that is `h_gn = -J_a^T (J_a J_a^T)^-1 r_a`, computed by a QR factorization of `J_a^T` (never by forming the normal equations). Dependent rows are left out of the step; at a consistent point they are satisfied by it to first order. The minimum-norm choice gives no motion to directions the constraints do not determine, which is what keeps unconstrained geometry still.
+Gauss-Newton step: apply the sequential rank test of section 3.8 to the rows of `J` in the component's row order, with the step tolerance `1e-6` in place of `RANK_TOLERANCE` (in the first trust-region pass; the second pass below keeps `RANK_TOLERANCE`): a row is dependent for the step when its norm after orthogonalization against the rows accepted before it is at most `1e-6 * max(original norm, 1)`. With `J_a` and `r_a` the accepted rows, `h_gn` is the minimum-norm solution of `J_a h = -r_a`, that is `h_gn = -J_a^T (J_a J_a^T)^-1 r_a`, computed by a QR factorization of `J_a^T` (never by forming the normal equations). Dependent rows are left out of the step; at a consistent point they are satisfied by it to first order. The minimum-norm choice gives no motion to directions the constraints do not determine, which is what keeps unconstrained geometry still.
 
-The step's tolerance is larger than the diagnosis's because of constraints that only repeat others on the solution set. A redundant constraint is usually drawn this way: an `angle` that follows from a `collinear` and another `angle`, the distance from a line's end to a parallel line beside the distance back, a `horizontal_distance` equal to the length of a line perpendicular to a vertical one (test 256). Such a row is not dependent at the warm start. The first step takes it in. After that step its part outside the span of the rows before it is only the error left in the geometry it repeats, of order 1e-8 instead of the 1e-4 of the start. Other residuals can still be as large as at the start. Accepted at that size (with `RANK_TOLERANCE` it was, now and then), the row did two things. The step asked for a correction divided by that part, 1e4 mm and more along a direction the constraints do not determine. Dog-leg followed it out to its trust radius, and the solve slid free geometry: of 97,574 generated cases (section 6.13), 7 moved a coordinate 0.39 mm to 6.6 mm from a warm start within 0.01 mm of the known solution, and test 256 stretched a free line from 25 mm to 38.9 mm. And a reflector built from a part of about 1e-8 leaves rounding noise of about 1e-16 / 1e-8 = 1e-8 in the rows after it, the size of `RANK_TOLERANCE` itself. Whether a later row was accepted depended on the last bits of the coordinates. A translation changes those bits: test 192 failed about once in 50 runs of 4096 cases, with results 1e-6 to 0.04 mm apart, and test 256's sketch moved by (500, -500) solved 5.7e-8 away from its translated result. A row accepted at `1e-6` or more leaves noise under about 1e-10 in the rows after it, far from the threshold. A row within `1e-6` of the span is left to first-order consistency, as every dependent row is. With the step tolerance, those 7 cases move no coordinate more than 0.05 mm, and of the first 19,569 generated cases (none of them among the 7), the results of 7 change by at most 4e-6 (measured 2026-10-31). Seeds 193903, 595598 and 856226 of the generator are three such slides that can be replayed: their solves moved a coordinate 3.65, 0.66 and 1.11 mm with `RANK_TOLERANCE`, and less than 0.1 mm with the step tolerance. Two cases of the sample (their seeds were not kept) still move a coordinate 0.12 and 0.16 mm, the same with either tolerance. In those cases the repeating row's part is about 1e-4 at the warm start. The first step takes it in with either, and the result does not depend on rounding (open issue 21 names five cases that can be replayed). The diagnosis (section 3.8) keeps `RANK_TOLERANCE`: it decides at the result, where such a row is dependent within rounding.
+The step's tolerance is larger than the diagnosis's because of constraints that only repeat others on the solution set. A redundant constraint is usually drawn this way: an `angle` that follows from a `collinear` and another `angle`, the distance from a line's end to a parallel line beside the distance back, a `horizontal_distance` equal to the length of a line perpendicular to a vertical one (test 256). Such a row is not dependent at the warm start. The first step takes it in. After that step its part outside the span of the rows before it is only the error left in the geometry it repeats, of order 1e-8 instead of the 1e-4 of the start. Other residuals can still be as large as at the start. Accepted at that size (with `RANK_TOLERANCE` it was, now and then), the row did two things. The step asked for a correction divided by that part, 1e4 mm and more along a direction the constraints do not determine. Dog-leg followed it out to its trust radius, and the solve slid free geometry: of 97,574 generated cases (section 6.13), 7 moved a coordinate 0.39 mm to 6.6 mm from a warm start within 0.01 mm of the known solution, and test 256 stretched a free line from 25 mm to 38.9 mm. And a reflector built from a part of about 1e-8 leaves rounding noise of about 1e-16 / 1e-8 = 1e-8 in the rows after it, the size of `RANK_TOLERANCE` itself. Whether a later row was accepted depended on the last bits of the coordinates. A translation changes those bits: test 192 failed about once in 50 runs of 4096 cases, with results 1e-6 to 0.04 mm apart, and test 256's sketch moved by (500, -500) solved 5.7e-8 away from its translated result. A row accepted at `1e-6` or more leaves noise under about 1e-10 in the rows after it, far from the threshold. A row within `1e-6` of the span is left to first-order consistency, as every dependent row is. With the step tolerance, those 7 cases move no coordinate more than 0.05 mm, and of the first 19,569 generated cases (none of them among the 7), the results of 7 change by at most 4e-6 (measured 2026-10-31). Seeds 193903, 595598 and 856226 of the generator are three such slides that can be replayed: their solves moved a coordinate 3.65, 0.66 and 1.11 mm with `RANK_TOLERANCE`, and less than 0.1 mm with the step tolerance. Two cases of the sample (their seeds were not kept) still move a coordinate 0.12 and 0.16 mm, the same with either tolerance. In those cases the repeating row's part is about 1e-4 at the warm start. The first step takes it in with either, and the result does not depend on rounding (open issue 21 names five cases that can be replayed). The diagnosis (section 3.8) keeps `RANK_TOLERANCE`: it decides at the result, where such a row is dependent within rounding. Since ADR 0058, the trust region below takes the exact step from a first radius that a damped step sets. That step barely moves along a direction that only such a row sets, and those slides end too (open issue 21, tests 259, 260 and 336).
 
-Dog-leg (Powell's method as in Madsen, Nielsen and Tingleff, "Methods for non-linear least squares problems", 2004, section 3.3):
+Trust region with the exact step (ADR 0058): the trust-region framework of Madsen, Nielsen and Tingleff, "Methods for non-linear least squares problems", 2004, section 2.4, with the exact step of Moré, "The Levenberg-Marquardt algorithm: implementation and theory", 1978, the method of MINPACK's `lmder` and `lmpar`. It replaced dog-leg (Powell's method, same reference, section 3.3), whose step blended the steepest descent step with `h_gn` and whose first radius, `norm(h_gn)`, made its first step the full Gauss-Newton step.
 
-1. `F(z) = 0.5 * norm(r)^2`, `L(h) = 0.5 * norm(r + J h)^2`. Initial trust radius `Delta = max(norm(h_gn), 1e-6)` at the start point, so the first step is the full Gauss-Newton step.
-2. Each iteration: if converged, stop. `g = J^T r`; `alpha = norm(g)^2 / norm(J g)^2`; `h_sd = -alpha g`. Step: `h_gn` if `norm(h_gn) <= Delta`; else `-(Delta / norm(g)) g` if `norm(h_sd) >= Delta`; else `h_sd + beta (h_gn - h_sd)` with `beta >= 0` chosen so `norm(h) = Delta`.
-3. `rho = (F(z) - F(z + h)) / (L(0) - L(h))`. Accept the step when `rho > 0`. If `rho > 0.75`, `Delta = max(Delta, 3 norm(h))`; if `rho < 0.25`, `Delta = Delta / 2`.
-4. Stop as not converged after `MAX_ITERATIONS` iterations, when `norm(J g) = 0`, or when a step with `norm(h) <= 1e-14 * (norm(z) + 1e-14)` has been tried and the point is still not converged (the tiny step is evaluated first, because whether a step is tiny depends on the size of the coordinates).
+Definitions, at the current point `z`:
 
-Second dog-leg pass: when dog-leg does not converge, it runs once more from the same start values (not from where it stopped) with `RANK_TOLERANCE` in place of the step tolerance in its Gauss-Newton steps. Every pass ranked rows with `RANK_TOLERANCE` before the step tolerance (ADR 0052). The step tolerance also leaves out a row that is independent at the solution itself but lies within `1e-6` of the span there. This happens next to a fold, where dimensions nearly state a degenerate shape. In the generated case of seed 1947428 (section 6.13; test 258 is the same sketch, rounded), a line's length and the distances from its ends to an arc's end leave a triangle 9.33e-4 mm high. At the solution, the row of the distance from the line's start lies 9.5e-7 outside the span of the rows before it. Steps through the other rows cannot make up the residual it carries: dog-leg with the step tolerance stopped 1.9e-10 off and Levenberg-Marquardt 2.6e-9 off. Dog-leg with `RANK_TOLERANCE` takes the row in and converges. Together with Levenberg-Marquardt after it, the second pass is the whole solve as it ran before the step tolerance. Every solve that converged then converges now. Only a solve whose first pass fails pays for the second.
+- `F(z) = 0.5 * norm(r)^2`, `L(h) = 0.5 * norm(r + J h)^2` and `g = J^T r`, over every non-skipped row of the component, the rows the rank test leaves out of `h_gn` included.
+- `d = max(diag(J^T J))`, the largest squared column norm of `J`.
+- The damped step: for `mu > 0`, `h(mu) = -(J^T J + mu I)^-1 g`, the minimizer of `L(h) + 0.5 * mu * norm(h)^2`. It is computed as `h(mu) = -J^T y`, with `y` the solution of `(J J^T + mu I) y = r`. The matrix is factored as `J J^T + mu I = C C^T` (`C` lower triangular with a positive diagonal) by a sparse Cholesky factorization that eliminates the rows in the component's row order. The entry `(i, j)` of `J J^T` is the dot product of rows `i` and `j`, summed over their shared variables in increasing variable order. `C` holds only the entries of the pattern that the elimination tree of `J J^T` gives. The pattern and the tree depend only on the sparsity of `J`, and they are computed once per pattern and reused. `y` follows from `C w = r` and `C^T y = w`. The damped step comes with `q2(mu) = h(mu)^T (J^T J + mu I)^-1 h(mu)`, computed as `dot(J^T y, J^T v)`, with `v` from `C u = y` and `C^T v = u` (that is, `v = (J J^T + mu I)^-1 y`). The shorter form `norm(y)^2 - mu * norm(C^-1 y)^2` is equal, but it is not used: for a part of `r` that no step reaches, such as the residual of a constant row, both of its terms hold that part squared over `mu^2`. The damped step is never computed through `J^T J`. It steers the iterations only: convergence is judged on the residuals, and the refinement below uses the Gauss-Newton step's QR.
+- The damping floor: `mu_min = 1e-10 * d`. In exact arithmetic every squared diagonal entry of `C` is at least `mu`. The floor keeps it far above rounding.
 
-Levenberg-Marquardt (same reference, section 3.2), run only when neither dog-leg pass converged, from the same start values (not from where dog-leg stopped):
+The exact step for a radius `Delta` and a starting damping `hint` (Moré's iteration after MINPACK's `lmpar`, with the floor `mu_min` in place of its lower bound and with the stop rules of step 2.2):
+
+1. If `norm(h_gn) <= 1.1 * Delta`, the step is `h_gn`, with `mu = 0`.
+2. Otherwise `upper = norm(g) / Delta` and `lower = min(mu_min, upper)`. `mu` starts at `hint` when `hint > 0`, else at `norm(g) / norm(h_gn)`, and is then clamped to `[lower, upper]`. Then, for `k = 1, 2, ...`:
+   1. `h = h(mu)` and `excess = norm(h) - Delta`.
+   2. The step is `h`, with this `mu`, when `abs(excess) <= 0.1 * Delta`, when `excess < 0` and `mu <= lower`, when `q2(mu) <= 0`, when `h` is not finite, or when `k = 10`.
+   3. If `excess > 0`, `lower = max(lower, mu)`. If `excess < 0`, `upper = min(upper, mu)`.
+   4. `mu = max(lower, mu + (excess / Delta) * norm(h)^2 / q2(mu))`, Newton's step on `1 / norm(h(mu)) - 1 / Delta`.
+
+Each pass:
+
+1. At the start point: if converged, stop. `mu0 = 1e-3 * d`, the damping Levenberg-Marquardt starts from below. If `mu0 = 0`, stop as not converged. The initial trust radius is `Delta = max(norm(h(mu0)), 1e-6)`, and `hint = mu0`. When `norm(h_gn) > 1.1 * Delta` and `Delta = norm(h(mu0))`, the first exact step is `h(mu0)` itself, and its factorization can be reused.
+2. Each iteration: if converged, stop. If `norm(J g) = 0`, stop as not converged. Take the exact step `h`, with its `mu`, for `Delta` and `hint`.
+3. `rho = (F(z) - F(z + h)) / (L(0) - L(h))`, with `L(0) - L(h) = -dot(h, g) - 0.5 * norm(J h)^2`. `rho` is minus infinity when `L(0) - L(h) <= 0` or when a residual at `z + h` is not finite. Accept the step when `rho > 0`: `z` becomes `z + h`, and `h_gn` is computed again there.
+4. Radius and hint (MINPACK's rule with its reduction factor fixed at 0.5): if `rho < 0.25`, `Delta = 0.5 * min(Delta, 10 * norm(h))` and `hint = 2 * mu`; else if `mu = 0` or `rho >= 0.75`, `Delta = 2 * norm(h)` and `hint = mu / 2`; else `hint = mu`. A step that is not finite counts as `norm(h) = Delta`.
+5. Stop as not converged after `MAX_ITERATIONS` iterations, or when a step with `norm(h) <= 1e-14 * (norm(z) + 1e-14)` has been tried and the point is still not converged (the tiny step is evaluated first, because whether a step is tiny depends on the size of the coordinates).
+
+Why these rules (ADR 0058). Damping scales the part of the step along a direction of singular value `s` by `s / (s^2 + mu)` in place of `1 / s`. A row that only repeats others on the solution set but lies 1e-5 to 1e-4 outside the span of the rows before it at the warm start sets such a direction, with a small `s`. The Gauss-Newton step divides the row's residual by that part. In the generated case of seed 9841460, the first Gauss-Newton step is 742 mm long. A first radius of `norm(h_gn)` lets the first step follow it. The first radius above is the length of the step Levenberg-Marquardt would take first. That step barely moves along such a direction. The radius then follows the length of the steps. The damped step minimizes the model over every row because the gain ratio measures that model. Over only the rows the rank test accepts, a dimension repeated in the sketch would count once in the step and once for each copy in the ratio. Every damped step could then predict an increase (seeds 37618 and 637669, test 262). The floor keeps `mu` far above the `s^2` of a direction within the step tolerance of the span. Without it, the exact step can fill the radius along such a direction with `mu` near its `s^2`. There the band of 10 percent turns rounding into a different path (test 261). The band and the limit of 10 iterations are MINPACK's.
+
+Second pass: when the first pass does not converge, the trust region runs once more from the same start values (not from where it stopped) with `RANK_TOLERANCE` in place of the step tolerance in its Gauss-Newton steps. Every pass ranked rows with `RANK_TOLERANCE` before the step tolerance (ADR 0052). The step tolerance also leaves out a row that is independent at the solution itself but lies within `1e-6` of the span there. This happens next to a fold, where dimensions nearly state a degenerate shape. In the generated case of seed 1947428 (section 6.13; test 258 is the same sketch, rounded), a line's length and the distances from its ends to an arc's end leave a triangle 9.33e-4 mm high. At the solution, the row of the distance from the line's start lies 9.5e-7 outside the span of the rows before it. Steps through the other rows cannot make up the residual it carries: dog-leg with the step tolerance stopped 1.9e-10 off and Levenberg-Marquardt 2.6e-9 off. Dog-leg with `RANK_TOLERANCE` takes the row in and converges. The exact step behaves the same way there: its first pass and Levenberg-Marquardt stop short, and its second pass converges (measured on a prototype, ADR 0058). Until ADR 0058, the second pass and Levenberg-Marquardt after it were the whole solve as it ran before the step tolerance, and every solve that converged before the step tolerance converged with it. Only a solve whose first pass fails pays for the second.
+
+Levenberg-Marquardt (same reference, section 3.2), run only when neither trust-region pass converged, from the same start values (not from where the trust region stopped):
 
 1. `A = J^T J`, `g = J^T r`, `mu = 1e-3 * max(diag(A))`, `nu = 2`. If `mu = 0`, stop as not converged.
 2. Each iteration: if converged, stop. Solve `(A + mu I) h = -g`. `rho = (F(z) - F(z + h)) / (0.5 * h^T (mu h - g))`. If `rho > 0`: accept, `mu = mu * max(1/3, 1 - (2 rho - 1)^3)`, `nu = 2`; else `mu = mu * nu`, `nu = 2 nu`.
 3. Stop as not converged after `MAX_ITERATIONS` iterations or when a step with `norm(h) <= 1e-14 * (norm(z) + 1e-14)` has been tried and the point is still not converged.
 
-Refinement: after either method converges, up to three Gauss-Newton steps (computed as above, with the rank tolerance of the dog-leg pass that converged, and with `RANK_TOLERANCE` after Levenberg-Marquardt) follow; each is kept only when it lowers the largest absolute residual, and refinement stops once every row is at most `1e-12`. This keeps converged results far enough below `SOLVER_TOLERANCE` that the arc conversion of section 3.7.6 cannot push a row back above it.
+Refinement: after either method converges, up to three Gauss-Newton steps (computed as above, with the rank tolerance of the trust-region pass that converged, and with `RANK_TOLERANCE` after Levenberg-Marquardt) follow; each is kept only when it lowers the largest absolute residual, and refinement stops once every row is at most `1e-12`. This keeps converged results far enough below `SOLVER_TOLERANCE` that the arc conversion of section 3.7.6 cannot push a row back above it.
 
 These constants are part of the contract, so conforming implementations follow the same iteration path. Acceptance tests check outcomes, not iteration paths.
 
 #### 3.7.5 Outcome per component
 
-- Converged (by either dog-leg pass or LM): the component's solution is its result.
+- Converged (by either trust-region pass or LM): the component's solution is its result.
 - Not converged after both: the component failed. Its entities keep their warm-start geometry bitwise, `SolveResult::failed` is true, and the LM end point is discarded.
 
 #### 3.7.6 Output geometry
@@ -1282,7 +1703,7 @@ Each `update(cursor)`:
 
 The weight makes the pin weak: the constraints are always satisfied exactly, and the dragged point lands as close to the cursor as they allow while other geometry absorbs most of the motion. When other geometry can absorb all of it, the dragged point ends within about `distance / DRAG_WEIGHT^2` of the cursor.
 
-Step 5 is for a cursor out of reach where the other geometry cannot help. An arc whose radius is set and whose start is fixed reaches at most a diameter from its start. Dragged past that, its end can only lag. The weighted solve heads for the arc turned into a half circle, where the rows of the arc rule and of the radius move its center in the same direction (test 257). An arc's start held at a distance from a fixed point, with its center dragged away from the point, heads the same way for the start, the center and the point in a line. Near such a solution only the dragged parameters can make up the residual the other geometry cannot. The weight makes them `DRAG_WEIGHT^2` times costlier in the step's norm. Dog-leg and Levenberg-Marquardt creep along a curved valley: in the frames of the property test 194 that failed (4 of the 819,200 frames of 200 nightly runs, measured 2026-10-31, and the 3 recorded in the gap list), both stopped after `MAX_ITERATIONS` with residuals of 1e-4 to 1e-2, and the drag stuck at its previous frame. Without the weight the recorded frames converge in two iterations. The constraints hold in such a frame too, but step 5 promises neither how close the dragged point gets nor how long the frame takes. The dragged point is not always as close to the cursor as they allow, and can end slightly farther from it than in the previous frame: in test 257 the end is 0.0698 mm from the cursor where the arc allows 0.0678 mm. Of 973,842 generated frames of test 194's kind, 8 needed step 5, and one of them left a center dragged by 0.071 mm 3.1e-5 mm farther from the cursor than it started. The chain of section 5.2 dragged to (600, 0) puts `e-24-ar.center` near (439.9, 12.6), 160 mm from the cursor where the chain allows 100, a few mm closer with each further frame, and such a chain frame takes about 1 s against the 16 ms of section 5.1, as it did when it failed (measured 2026-10-31, open issue 22). Drag frames are not recorded; the engine commits the last frame's `entities` as one edit when the drag ends.
+Step 5 is for a cursor out of reach where the other geometry cannot help. An arc whose radius is set and whose start is fixed reaches at most a diameter from its start. Dragged past that, its end can only lag. The weighted solve heads for the arc turned into a half circle, where the rows of the arc rule and of the radius move its center in the same direction (test 257). An arc's start held at a distance from a fixed point, with its center dragged away from the point, heads the same way for the start, the center and the point in a line. Near such a solution only the dragged parameters can make up the residual the other geometry cannot. The weight makes them `DRAG_WEIGHT^2` times costlier in the step's norm. Dog-leg and Levenberg-Marquardt creep along a curved valley: in the frames of the property test 194 that failed (4 of the 819,200 frames of 200 nightly runs, measured 2026-10-31, and the 3 recorded in the gap list), both stopped after `MAX_ITERATIONS` with residuals of 1e-4 to 1e-2, and the drag stuck at its previous frame. Without the weight the recorded frames converge in two iterations. The trust region's exact step creeps there as dog-leg did: test 257's weighted solve does not converge with it either (measured on a prototype, ADR 0058). The constraints hold in such a frame too, but step 5 promises neither how close the dragged point gets nor how long the frame takes. The dragged point is not always as close to the cursor as they allow, and can end slightly farther from it than in the previous frame: in test 257 the end is 0.0698 mm from the cursor where the arc allows 0.0678 mm. Of 973,842 generated frames of test 194's kind, 8 needed step 5, and one of them left a center dragged by 0.071 mm 3.1e-5 mm farther from the cursor than it started. The chain of section 5.2 dragged to (600, 0) puts `e-24-ar.center` near (439.9, 12.6), 160 mm from the cursor where the chain allows 100, a few mm closer with each further frame, and such a chain frame takes about 1 s against the 16 ms of section 5.1, as it did when it failed (measured 2026-10-31, open issue 22). Drag frames are not recorded; the engine commits the last frame's `entities` as one edit when the drag ends.
 
 ### 3.10 Measured values
 
@@ -1302,7 +1723,7 @@ Step 5 is for a cursor out of reach where the other geometry cannot help. An arc
 ### 3.11 Contract of `solve` in one list
 
 - Input geometry is the warm start; nothing else carries over between calls.
-- Unconstrained parameters do not move; constrained geometry moves by a minimum-norm correction.
+- Unconstrained parameters do not move; constrained geometry moves by a minimum-norm correction (tests 256, 259, 260 and 336).
 - Satisfied components are returned bitwise unchanged.
 - Failed components are returned bitwise unchanged, flagged by `failed`.
 - The result never depends on anything but the arguments.
@@ -1407,7 +1828,8 @@ Matching uses only the arguments, and treats `entities` as a set. Indices refer 
 ### 3.15 Contracts with other crates (informative)
 
 - `partsmith-features` (sketch feature): computes the placement (section 3.1), evaluates `driving_dimensions()`, calls `NativeSolver.solve`, then `build_profile(&result.entities)`. Its sketch output carries the placement, the `SolveResult` and the `Profile`. Feature build is pure, so solved geometry is not written back into the document by recompute. It reports `SketchError`, `SolveIssue` and `ProfileFinding` with `render`, `fixes` and the detail of section 4, with a `MessageContext` made of the sketch's label, the sketch, the solve result, the evaluated dimension values and the document units.
-- `partsmith-features` (profile consumers such as extrude and revolve): store the `RegionRef`s that `Region::reference()` writes, resolve them with `match_region(regions, entity ids, reference)` (features.md section 3.7), pass the successions of a `Boundary` match to naming as `added_successions` of their lateral faces, which naming keeps apart from merge aliases (naming.md section 3.6.2), and pass each `ProfileLoop`'s curves to kernel `make_profile` (kernel.md section 3.4.2) in sketch coordinates, on the kernel `Plane` with the placement's `origin`, `normal` and `x_axis` (kernel plane coordinates `(x, y)` are sketch `(u, v)`). A `ProfileCurve::Line` becomes `PlanarCurve::Line`, a `Circle` becomes `PlanarCurve::Circle`, and an `Arc` becomes `PlanarCurve::Arc` with its `center` and `radius`, passed with `start` and `end` swapped when `ccw` is false (kernel arcs always run counterclockwise). Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
+- `partsmith-features` (profile consumers such as extrude and revolve): store the `RegionRef`s that `Region::reference()` writes, resolve them with `match_region(regions, entity ids, reference)` (features.md section 3.7), pass the successions of a `Boundary` match to naming as `added_successions` of their lateral faces, which naming keeps apart from merge aliases (naming.md section 3.6.2), build the union of the resolved regions with `union_regions` (section 3.19), and pass the curves of each loop of the union to kernel `make_profile` (kernel.md section 3.4.2) in sketch coordinates, on the kernel `Plane` with the placement's `origin`, `normal` and `x_axis` (kernel plane coordinates `(x, y)` are sketch `(u, v)`). A `ProfileCurve::Line` becomes `PlanarCurve::Line`, a `Circle` becomes `PlanarCurve::Circle`, and an `Arc` becomes `PlanarCurve::Arc` with its `center` and `radius`, passed with `start` and `end` swapped when `ccw` is false (kernel arcs always run counterclockwise). Lines and arcs are exact curves; `ccw` is relative to the sketch normal.
+- `partsmith-features` (chain consumers, from M2): store the `ChainRef`s that `Chain::reference()` writes, resolve them with `match_chain(entities, reference)` (features.md section 3.16), and pass each chain's edges to the kernel in sketch coordinates, each curve converted as for profiles above. The kernel call that builds a wire from them comes with the sweep's spec (M2 item 18).
 - `partsmith-engine`: owns `NativeDragSession`s per open sketch drag, sends each frame result as an event, and commits the last frame's entities as one edit when the drag ends.
 - `partsmith-protocol`: embeds `SketchParams`, `SolveResult`, `DragTarget`, `Profile` and their parts, and inherits their JSON Schema.
 
@@ -1455,9 +1877,228 @@ Ids, entity and constraint order, expressions, construction flags and the plane 
 
 So `match_region` finds each mirrored reference in the mirrored profile by its key (test 250).
 
+`SketchParams::mirrored_chain(chain)` gives the reference of the same chain in the mirrored sketch (M2, [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). Mirroring keeps the order in which a chain runs, and the mirrored chain starts at the mirror of the old start:
+
+- **Key.** The entries keep their order. An entry of a line keeps its `~`, because a mirrored line keeps which end is its start. An entry of an arc or a circle flips its `~`, because the mirrored arc or circle runs the other way round. An entry whose entity the sketch does not have keeps its flag.
+- **Fingerprint.** The `v` of the start and of the end is negated, and the length is kept.
+- **Closed.** Kept.
+
+With these rules, `build_chain` builds each mirrored chain on `mirrored()`'s entities. Its edges are the mirrors of the original's (test 281).
+
+### 3.18 Chains (M2)
+
+A chain holds the curves a feature uses as a path or as an open profile: sweep paths (M2 item 18, wave 2), ribs and webs (item 28, wave 3) and thin-wall extrudes (item 29, wave 3), each through features.md section 3.16 ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). A chain is a list of non-construction lines and arcs in order, each ending where the next one starts within `PROFILE_TOLERANCE`, or one circle alone. It is open or closed. Whether a feature takes open chains, closed chains or several, and what it builds from them, is set by that feature's own spec. M2 item 14's spec says how its ellipses, conics and B-splines join chains: until then a chain holds only the kinds below.
+
+#### 3.18.1 Chain key
+
+```text
+chain = entry *( "," entry )      entries in chain order, from the start
+entry = [ "~" ] id                id matches [A-Za-z0-9_-]{1,64}
+```
+
+- Each entry is a `KeyEdge` (section 2.7): the entity, and whether the chain runs against the entity's own direction (section 3.2). A circle's own direction is counterclockwise. `~` runs it clockwise.
+- Entries keep the chain's order. They are not sorted, and the text is not rotated, also for a closed chain: a closed chain starts at the start of its first entry. An entity appears at most once.
+- `ChainKey::from_str` accepts exactly this grammar with each entity named at most once. Anything else fails with `InvalidChainKey { text }`, with `text` the input: an empty text or entry, an invalid id, two `~`, a `;` or a space, or an entity named twice, with or without `~`. `ChainKey::new` fails with `InvalidChainKey { text: "" }` for no entries, and with `InvalidChainKey { text }` holding the text of its entries for an entity named twice. `Display` writes the entries joined by `,`, each reversed entry with its `~`.
+- `ChainKey` serializes as its text, with the JSON Schema `{"type": "string", "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*$"}`. The pattern does not check that each entity is named once. `from_str` checks that.
+- `reversed()` gives the entries in reverse order, each with its flag flipped: `e-1,~e-2,e-3` gives `~e-3,e-2,~e-1`. Reversing twice gives the key back.
+- A key names its curves by their entity ids, never by a position in the arrangement or in a list. It survives every edit that keeps those entities: moving geometry, editing dimensions, and adding or deleting other entities.
+
+#### 3.18.2 Building a chain
+
+`build_chain(entities, key)` works on the entities as given (callers pass `SolveResult::entities`, as for `build_profile`). The result does not depend on their order. An entry names its entity by id. An entry's *traversal start* and *traversal end* are its entity's start and end point (section 3.2: a line's `start` and `end`, an arc's start point and end point), swapped when the entry is reversed. These checks run in this order, and the first that fails gives the loss:
+
+1. **Deleted.** The entities of the key that `entities` does not have give `Deleted { entities, all }`, sorted by id, with `all` true when it has none of them.
+2. **Each entry, in chain order.** A point, or a circle in a key of more than one entry, gives `NotCurve { entity, kind }`. An entity whose `construction` is true gives `Construction { entity }`. A zero-size entity by the rule of section 3.13.1 gives `ZeroLength { entity }`: a line with `norm(end - start) <= PROFILE_TOLERANCE`, a circle or arc with `radius <= PROFILE_TOLERANCE`, or an arc with `radius * sweep <= PROFILE_TOLERANCE`. All three checks run on one entry before the next entry.
+3. **Connection.** For each two consecutive entries `a` and `b`, the traversal end of `a` must lie within `PROFILE_TOLERANCE` (Euclidean distance) of the traversal start of `b`. The first pair that does not gives `Disconnected { end, start, gap }`: `end` is the point reference of `a`'s traversal end (`<a>.end`, or `<a>.start` when `a` is reversed), `start` that of `b`'s traversal start, and `gap` their distance in mm.
+4. **Closed.** A chain of lines and arcs is closed when the traversal end of its last entry lies within `PROFILE_TOLERANCE` of the traversal start of its first entry. One arc alone whose ends meet is closed too. A chain of one circle is closed. Every other chain is open. Being open is not a loss.
+5. **Junctions.** There is one junction for each two consecutive entries in chain order, and for a closed chain of lines and arcs a last one from the last entry to the first (for one closed arc, from the arc to itself). A chain of one circle has none. The tangents are taken on the entities' own geometry: for a line, `unit(end - start)`; for an arc at its point `p` with center `c` and radius `r`, `(-(p.v - c.v), p.u - c.u) / r`. Each is negated when its entry is reversed. With `t_in` the arriving entry's tangent at its traversal end and `t_out` the leaving entry's tangent at its traversal start, `turn = atan2(cross(t_in, t_out), dot(t_in, t_out))`, in (-pi, pi]. A junction is tangent when `abs(turn) <= ANGULAR_TOLERANCE` (`partsmith_model::ANGULAR_TOLERANCE`, 1e-9 rad).
+6. **Turning back.** The first junction in order with `abs(turn) >= pi - ANGULAR_TOLERANCE` gives `TurnsBack { entities: [arriving entity, leaving entity], point }`, with `point` the junction's point.
+7. **Crossings.** For each two entries `i` and `j` with `i` before `j` in chain order, their curves meet by the rules of section 3.13.2 step 1, each curve extended by the tolerance at its ends and on its angular range. Shared stretches are measured on the curves as drawn, not extended, as the arrangement measures overlaps (section 3.13.2 step 1). A meeting point counts when it lies farther than `PROFILE_TOLERANCE` from every junction point the two entries share: consecutive entries share one, the last and the first entries of a closed chain share its closing junction, and the two entries of a closed chain of two share both. A shared stretch longer than `PROFILE_TOLERANCE` always counts. The first pair that has one, in order of `i` then `j`, gives `Crosses { entities: [entity i, entity j], point }`. `point` is the first counting point in order of its parameter along entity `i` (section 3.13.2 step 2 orders intersection points the same way), or, for a pair with only a shared stretch, the stretch's start in the direction of entity `i`.
+
+When every check passes, the chain is:
+
+- **Edges.** One `ProfileEdge` per entry, in chain order, with the entry's `entity` and `reversed`, oriented along the chain: a line gives `ProfileCurve::Line` from its traversal start to its traversal end; an arc gives `ProfileCurve::Arc` with the entity's center and radius from its traversal start to its traversal end, with `ccw` true when the entry is not reversed; a circle gives `ProfileCurve::Circle` with its center and radius, with `ccw` true when the entry is not reversed. One arc alone whose ends meet (step 4) gives one `ProfileCurve::Circle` edge with the arc's center and radius, with `ccw` true when the entry is not reversed. Then each edge's end is set to the start of the next edge, and the last edge of a closed chain of two or more lines and arcs ends at the first edge's start. So consecutive edges share their coordinates bitwise, as the loops of a profile do (section 3.13.2). The first edge's start, and an open chain's last end, are the entities' own points.
+- **Junction points.** Each junction's `point` is the start of its leaving edge. The one junction of a closed arc lies at the arc's traversal start.
+- **Length.** The sum of the entities' own lengths: a line's `norm(end - start)`, an arc's `radius * sweep` and a circle's `2 * pi * radius`.
+- **Ends.** `start()` is the first edge's start, and `end()` the last edge's end. A chain of one circle entity starts and ends at `center + (radius, 0)`. A chain of one closed arc starts and ends at the arc's traversal start. `start_tangent()` and `end_tangent()` are the tangents of step 5 at the chain's start and end. For a circle they are `(0, 1)`, or `(0, -1)` when its entry is reversed.
+- `is_smooth()` is true when every junction is tangent, and for a chain without junctions.
+
+The same entities and key give a bitwise equal chain, whatever the order of `entities`.
+
+#### 3.18.3 Matching a stored chain
+
+`match_chain(entities, reference)` runs the checks of section 3.18.2 on `reference.key`, with one more after step 4: when `reference.closed` is true and the chain is not closed, the result is `Missing` with `Disconnected { end, start, gap }`, where `end` is the traversal end of the last entry, `start` the traversal start of the first, and `gap` their distance. Any other failing check gives `Missing` with its loss. Otherwise the result is `Resolved { chain, successions: [] }`. A stored open chain whose ends the user joined resolves as a closed chain.
+
+The fingerprint never chooses curves: a chain one of whose entities is gone is lost, even when other curves now run where it ran ([ADR 0021](../adr/0021-resolve-references-by-meaning.md)). It describes a lost chain in repairs and ghosts: where it started and ended, and how long it was. `successions` stays empty until M2 item 25 (sketch modify tools, wave 3), whose ADR amends ADR 0022 and says how a chain follows an entity that a trim, a split or an extend replaced. Until then a chain whose entity was replaced is `Deleted`.
+
+#### 3.18.4 The chain through a pick
+
+`chain_through(entities, seed)` gives the chain a host stores when the user picks one curve for a chain field. The engine calls it. The protocol route comes with the first chain field (the sweep, M2 item 18, with item 32's path selection kind).
+
+- The *curves* are the non-construction lines, arcs and circles of `entities` that are not zero-size (section 3.13.1). The *ends* are the start and end points of the curves that are lines and arcs. An end is *at* a point when it lies within `PROFILE_TOLERANCE` of it. The interior of a curve is never an end. A curve that passes through a point does not count there.
+- When `seed` is not one of the curves, the result is None. A circle seed gives the key of the circle alone, not reversed.
+- Otherwise the chain starts as the seed, not reversed. **Forward:** at the traversal end of the last entry, list the ends at that point other than the last entry's own traversal end. When exactly one is listed and it is the traversal start of the first entry, the chain is closed and the walk stops. When exactly one is listed and its curve is not in the chain yet, that curve is appended, reversed when the listed end is its own end point, and the walk goes on. Otherwise the walk stops. **Backward**, for a chain that did not close: at the traversal start of the first entry, list the ends at that point other than the first entry's own traversal start. When exactly one is listed and its curve is not in the chain yet, that curve is prepended, reversed when the listed end is its own start point, and the walk goes on. Otherwise it stops.
+- The result is the key of the chain in chain order. It runs in the seed's own direction. `build_chain` can still fail on it (`TurnsBack` or `Crosses`), and the host then reports the loss instead of storing the chain.
+
+#### 3.18.5 Fingerprint and reference
+
+`ChainFingerprint` is `{start, end, length}`. Its text is `s=<u>,<v>|e=<u>,<v>|l=<length>`, with each number rounded to 6 decimal places and written as section 3.13.6 writes region fingerprints (Rust's `Display` for `f64`, a rounded zero written `0`). Example: the chain of `e-1,e-2,e-3` in test 267 gives `s=0,0|e=50,40|l=85.707963`. `from_str` accepts exactly this shape. Each number is a finite plain decimal `-?[0-9]+(\.[0-9]+)?`, with no exponent and no `+`, and the length has no sign. A `-0` reads as 0. Anything else fails with `InvalidChainFingerprint { text }`. `ChainFingerprint` serializes as its text, with the JSON Schema `{"type": "string", "pattern": "^s=-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?\\|e=-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?\\|l=[0-9]+(\\.[0-9]+)?$"}`. `Chain::fingerprint()` holds the unrounded values, as `Region::fingerprint()` does.
+
+A `ChainRef` serializes as `{"key": "<key text>", "fp": "<fingerprint text>"}`, followed by `"closed": true` for a closed chain. A member it does not know is a deserialization error. `Chain::reference()` writes the chain's key, its fingerprint and its `closed`.
+
+### 3.19 Region union (M2)
+
+`union_regions(regions)` builds the union of regions of one profile. features.md section 3.7 turns it into the kernel faces that extrude and revolve sweep. It moved here from `partsmith-features` with no change in behavior ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)), and these rules are the ones that features.md section 3.7 stated before the move.
+
+The union of the given regions drops the boundary pieces that two of them share, and the remaining pieces are chained into the outer loops and holes of the union (so a rectangle-with-hole region plus the disc filling the hole is the whole rectangle). Each remaining piece keeps the sketch entity id it came from, which names the face it generates. Consecutive pieces of a loop (the last and the first included) that come from the same entity and continue the same line or circle are then merged into one curve: the pieces of a line become one segment and the pieces of an arc or circle one arc. This applies to every loop of the union, also to a single region whose side other curves split into pieces. Only a loop made of that one entity all the way round becomes the whole circle; otherwise a merged curve never ends where it starts. Where the union's boundary touches itself at a point of a circle (a circle touching another curve, with selected regions around it on both sides), the boundary runs round the circle between two visits to that point, and merging stops before the run would close. The circle keeps two or more arcs there. Pieces of one entity with another piece between them stay separate. The union is built in the sketch plane. No lateral face is then generated from a shared boundary, and a union of regions split by a line gives one lateral face per entity, as the single region covering the same area does (naming.md section 3.6.2).
+
+The steps, which the regions of one `build_profile` always pass:
+
+1. **Pieces.** Every edge of every given region's loops, in the order of `regions`, each region's outer loop before its holes, each loop in its edge order. Each piece knows its region's position in `regions` and the piece that follows it in its own loop.
+2. **Twins.** A piece's twin is the first piece, in the order of step 1, of the same entity whose curve is the piece's curve run the other way, compared exactly: the bit patterns of every coordinate and radius, with `-0` equal to `0`. For a line, start and end are swapped. For an arc, start and end are swapped and `ccw` is flipped. For a circle, `ccw` is flipped. A piece is never its own twin.
+3. **Parts.** Regions are joined when a piece of one has its twin in the other. Joined regions form one part. Each part is named by its region with the lowest position.
+4. **Tracing.** Each piece without a twin that no loop holds yet starts a loop, in the order of step 1. From a piece, the next piece of the union is its loop successor. While that successor has a twin, the next candidate is the twin's loop successor, at most as many times as there are pieces. The loop closes when it comes back to its starting piece.
+5. **Merging.** Each traced loop is merged by the rules above. Two pieces continue each other when they come from the same entity with the same `reversed` flag and the next one starts exactly where the first ends (equal coordinates): two lines, or two arcs with equal center, radius and `ccw`. A run of continuing pieces grows into one line or arc, and it never grows to end where it starts. A loop in which every piece continues the one before it is one entity all the way round: when its first piece is an arc, it becomes a `Circle` with that arc's center, radius and `ccw`. The merged loop starts at the first piece that does not continue the piece before it. A loop without merges keeps its order.
+6. **Outer loops and holes.** A merged loop with positive signed area is its part's outer loop. Any other is a hole of its part.
+7. **Result.** One `UnionPart` per part, in the order in which the parts' outer loops were traced, each with its holes in the order they were traced.
+
+`union_regions` fails with `UnionError` only for regions that are not faces of one arrangement: a piece that step 4 reaches twice before its loop closes, a successor search that runs out, a second outer loop in one part, or a hole in a part without an outer loop. No list of regions from one `build_profile` fails. An empty list gives no parts.
+
+### 3.20 Entities of format version 3 (M2)
+
+The contracts of section 2.12 ([ADR 0066](../adr/0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). Each subsection names the item whose spec step fills in what it leaves open, before that item's code. Until an item lands, a record of its kind fails to deserialize as an unknown `type` (section 3.3, test 5).
+
+#### 3.20.1 Geometry and direction
+
+With `u = unit(major)`, `n = (-u.v, u.u)` (`u` turned counterclockwise by a quarter turn), `a = norm(major)` and `b = minor_radius`:
+
+| Kind | Point at parameter `t` | Own direction | Points (role) |
+| --- | --- | --- | --- |
+| `ellipse` | `center + a cos(t) u + b sin(t) n`, `t` in `[0, 2 pi)` | counterclockwise (increasing `t`) | `center` |
+| `elliptical_arc` | the same, `t` from `start_angle` to `start_angle + sweep`, `sweep = (end_angle - start_angle).rem_euclid(2 * pi)` | start to end | `start`, `end`, `center` |
+| `parabola` | `vertex + (t^2 / (4 f)) w + t m`, with `f = norm(focus - vertex)`, `w = unit(focus - vertex)`, `m = (-w.v, w.u)`; `t` from `start_parameter` to `end_parameter` | start to end | `start`, `end`, `vertex`, `focus` |
+| `hyperbola` | `center + a cosh(t) u + b sinh(t) n`, `t` from `start_parameter` to `end_parameter` | start to end | `start`, `end`, `center` |
+| `conic` | the rational quadratic Bezier with control points `start`, `control`, `end` and weights `1`, `rho / (1 - rho)`, `1` | start to end | `start`, `end`, `control` |
+| `bspline` | the B-spline of `degree` over `knots` whose control points are the positions of `poles`, with `weights` | increasing parameter | `start`, `end` (open only) |
+| `fit_spline` | the cubic B-spline that interpolates the positions of `points` (section 3.20.5) | increasing parameter | `start`, `end` (open only) |
+| `fixed_spline` | the B-spline of `degree` over `knots` with control points `poles` and `weights` | increasing parameter | `start`, `end` (open only) |
+| `text` | no curve of its own: its glyphs run along `path` (section 3.20.6) | none | none |
+
+- An elliptical arc's angles are eccentric angles, not polar angles. A sweep of 0 is a zero-length arc, as for `arc` (section 3.2). An elliptical arc's start point is its point at `start_angle`, its end point its point at `end_angle`.
+- A parabola's or hyperbola's start and end are its points at `start_parameter` and `end_parameter`. The two may come in either order: the direction runs from start to end. Equal parameters give a zero-length arc.
+- For an `ellipse` and an `elliptical_arc`, a `minor_radius` larger than `norm(major)` is valid. The curve is the same formula, with its axes named the other way round. The kernel builds it with its axes swapped (item 14).
+- For a `hyperbola`, a `minor_radius` larger than `norm(major)` is valid too, and its axes are never swapped. Its branch always opens along `major`. The kernel builds it with major radius `norm(major)` and minor radius `minor_radius` (item 14).
+- A parabola whose `focus` lies within `1e-12` mm of its `vertex` has no curve. Its start and end are its vertex. Its polyline is the vertex alone (section 3.20.9), and `build_profile` reports it as `ZeroLength`. Item 14's spec gives its words and its solver rows.
+- A conic with `rho = 0.5` is an arc of a parabola. A smaller `rho` gives an arc of an ellipse and a larger one an arc of a hyperbola, as in the classical rho conic. Its shoulder, the point at the middle parameter, lies at the fraction `rho` of the way from the midpoint of `start` and `end` to `control`.
+- The `start` and `end` of an open `bspline` or `fixed_spline` are the curve's points at its first and last parameter. Its knots are clamped (section 3.20.5). They are therefore its first and last control points: for a `bspline`, the positions of its first and last pole entities. Those roles and the pole entities name the same solver parameters (section 3.20.3). The `start` and `end` of an open `fit_spline` are its first and last points. A `periodic` spline is closed and has no `start` or `end`, like a circle.
+- `SketchEntity::point(role)` returns these points for the kinds that own their geometry, and `None` for a role the kind does not have. A `bspline` and a `fit_spline` do not own their points: `SketchEntity::point` gives `None` for them, and `SketchParams::point` resolves `.start` and `.end` through their first and last point entities.
+
+#### 3.20.2 Stored and derived
+
+Every field of section 2.12 is user data, written by an edit and never by a build. These are derived on every build and never stored: a fit spline's control points and knots; a conic's B-spline form; the end points of an elliptical arc, parabola and hyperbola; a text's glyph outlines and regions; the display polylines (section 3.20.9); and the live geometry of a linked entity (section 3.20.7). Recompute writes nothing into a sketch, the coordinates of a linked entity included (m2-plan.md gate 4). No field holds a kernel index or the position of a glyph or a character.
+
+#### 3.20.3 Solver parameters
+
+The parameter vector of section 3.6.1 gains, in document order:
+
+| Entity | Parameters, in order | Internal rows | DOF |
+| --- | --- | --- | --- |
+| `ellipse` | `center.x, center.y, major.x, major.y, b` | none | 5 |
+| `elliptical_arc` | `center.x, center.y, major.x, major.y, b, s.x, s.y, e.x, e.y` (start and end point) | 2: each end point lies on the ellipse | 7 |
+| `parabola` | `vertex.x, vertex.y, focus.x, focus.y, s.x, s.y, e.x, e.y` | 2: each end point lies on the parabola | 6 |
+| `hyperbola` | `center.x, center.y, major.x, major.y, b, s.x, s.y, e.x, e.y` | 2: each end point lies on its branch | 7 |
+| `conic` | `start.x, start.y, control.x, control.y, end.x, end.y` | none | 6 |
+| `bspline` | none of its own: its control points are the parameters of its pole entities | none | 0 |
+| `fit_spline` | none of its own: its fit points are the parameters of its point entities | none | 0 |
+| `fixed_spline`, `text` | none | none | 0 |
+
+- `rho`, `degree`, `knots`, `weights`, `periodic` and a text's fields are constants of the solve. Item 15's spec decides whether its knot and weight constraints make knots or weights parameters.
+- Point references map to parameter pairs as in section 3.6.1: `.vertex` and `.focus` to the parabola's pairs, `.control` to the conic's, `.start` and `.end` of an elliptical arc, parabola and hyperbola to `s` and `e`. `.start` and `.end` of an open `bspline` map to the parameters of its first and last pole entities, and of an open `fit_spline` to those of its first and last points. Of an open `fixed_spline` they are constants.
+- An entity built on other entities (a `bspline` on its poles, a `fit_spline` on its points, a `text` on its path) is linked to each of them for the components of section 3.7.1.
+- Entity states (section 3.8): an entity with no parameters of its own is `conflicting` when a conflicting constraint references it or an entity it is built on, else `fully_constrained` when every entity it is built on is, else `under_constrained`. A `fixed_spline` is `fully_constrained` unless a conflicting constraint references it.
+- Item 14's spec states the internal rows, the rows of every M1 constraint that it extends to the new kinds, the warm-start choices, and the output conversion of section 3.7.6 for each kind: an entity none of whose parameters changed is still returned exactly as given.
+
+#### 3.20.4 Constraints on the new kinds
+
+Until item 14's spec extends the catalog of section 3.4, every constraint field that names a kind rejects the new kinds with `WrongEntityKind`, and point fields reject the new roles (they do not parse). `fix` with a bare id accepts any entity. On a `bspline` or a `fit_spline` it freezes the parameters of the point entities the spline is built on, as `fix` on each of them would. On a `fixed_spline`, a `text` or a linked entity, which have no free parameters, it adds no row. Item 14 states which M1 constraints take which new kinds, and item 15 adds its constraints.
+
+#### 3.20.5 Splines
+
+- `bspline` and `fixed_spline`: `1 <= degree <= MAX_SPLINE_DEGREE`. An open spline has at least `degree + 1` poles and exactly `poles + degree + 1` knots, non-decreasing, its first `degree + 1` values equal, its last `degree + 1` values equal and greater than the first, and every other value repeated at most `degree` times. A periodic spline has at least `degree + 1` poles and exactly `poles + 1` knots, strictly increasing; its period is the last knot minus the first. `weights`, when present, has one positive value per pole.
+- `fit_spline`: an open spline has at least 2 points and a periodic spline at least 3. Its degree is `min(3, points - 1)` when open and 3 when periodic. Item 14's spec states the interpolation (the parameter of each point and the knot rule) before any build writes a fit spline. It is exact and deterministic, from the points alone.
+- A `bspline` names each pole, and a `fit_spline` each point, at most once. Every id names a point entity of the same sketch other than the spline itself. The drawing tools of items 14 and 24 make those points construction points. A Hole command places no hole at a construction point (features/hole.md).
+- Evaluation is in house (de Boor's algorithm and its rational form, the M2 plan's choice 10). The kernel builds the same B-spline as `Geom_BSplineCurve` from the poles, weights and knots this crate gives it (choice 11).
+
+#### 3.20.6 Text
+
+- `text` is any string of Unicode scalar values. A text of no characters is valid and has no glyphs. Layout maps each character to one glyph of the font by its character map and sets the glyphs left to right by their advance widths, with no shaping. Item 27's spec states kerning, a character the font has no glyph for, and the finding the sketch reports for it.
+- `font` is an asset name, `<64 lowercase hex digits>.ttf` or `.otf` (file-format.md section 3.11), or a built-in font name matching `^[a-z0-9]+(-[a-z0-9.]+)*$`. `DEFAULT_FONT` is the built-in Liberation Sans Regular, named `liberation-sans-regular-<release>` with the release of the Liberation Fonts whose file item 27 adds (the M2 plan's choice 13). A name fixes the font's bytes. A later release gets a new name. Every build keeps every built-in font it ever named. An old document therefore never changes its glyphs. A built-in name this build does not have and an asset the session lacks are build findings of the sketch feature (item 27, features.md), not validation errors.
+- `size` is a length expression, the font's em size. The caller evaluates it as it evaluates a driving dimension (section 3.5). A value that is not finite and greater than 0 is a finding of the sketch feature (item 27). From item 27, the sketch feature's `expressions` (features/sketch.md section 3.2) lists each text entity's size after the dimensional constraints, in entity order: field `entities[i].size`, unit `Length`, with `i` the entity's index in `entities`. Parameter renames, bare numbers and unit changes then reach it as they reach a dimension.
+- `path` names a curve entity of the same sketch: any kind but `point` and `text`, and not the text itself. The text's baseline runs along the path in the path's own direction. `horizontal_alignment` places the text's advance width along the path: `left` from the path's start, `center` with its middle at the middle of the path by length, `right` ending at the path's end. `vertical_alignment` puts the font's baseline, descender line (`bottom`), ascender line (`top`) or the line midway between them (`center`) on the path. Straight text runs along a line, usually a construction line, which constraints place and turn. Item 27's spec states the glyph placement along a curved path, and which path kinds M2 takes (text along a path is fifth in the cut order, m2-plan.md section 6 item 11).
+- A feature uses a text entity whole, by its id. Its glyph contours make regions of the text alone, never intersected with other curves of the sketch (the M2 plan's choice 14). `build_profile` leaves text out of the arrangement. Item 27's spec gives the text profile and the field that stores it.
+- Fonts are read with ttf-parser (choice 12) in this crate. The caller gives the bytes of an asset font. The built-in font's bytes are embedded unmodified in this crate.
+
+#### 3.20.7 Linked entities
+
+- `link` is allowed on these kinds: `vertex` and `sketch` on `point`; `edge`, `section`, `silhouette` and `sketch` on `line`, `circle`, `arc`, `ellipse`, `elliptical_arc`, `parabola`, `hyperbola` and `fixed_spline`; `sketch` on `conic`. Any other pairing, and any `link` on `bspline`, `fit_spline` or `text`, fails with `InvalidLink`.
+- The stored geometry fields are the coordinates the projection edit saw (the M2 plan's choice 7). The sketch feature resolves `body`'s element in the body state just before the sketch, read from its writer chain (choice 8), and projects it along the sketch normal with the kernel. A `sketch` link takes the solved geometry of the other sketch's entity in the same run. That sketch must come before this one in the timeline. The live geometry takes the place of the stored fields in the params given to the solver and to `build_profile`. It does so in the build, and in the engine's `solve_sketch`, `drag_sketch` and the solves of commands 40 and 41, which take it from the sketch's latest recompute (engine.md section 3.27). An `end_sketch_drag` commit and every edit a tool returns keep a linked entity's stored geometry fields and its `link` as stored. Only the projection edit and Break link change them (below). A live geometry of another kind than the stored entity's is not used: the entity keeps its stored geometry, and the sketch reports it.
+- When the source is lost, the build uses, in this order: the source as it was just before the feature that removed it, moved with the body since, read from the writer chain in the same run; else the stored coordinates. Each is reported as a loss with its ghost (choice 7).
+- A linked entity's parameters are frozen at the geometry the build gives it, as `fix` freezes them. It removes no degree of freedom from anything else and is `fully_constrained` unless a conflicting constraint references it. It is not a drag target (`LinkedDragTarget`). Constraints may reference it: a dimension to a projected edge (choice 9).
+- Only the projection edit (protocol.md command 41) and Break link (`SketchOperation`, item 26) write a `link` or the coordinates beside it. Break link removes `link` and keeps the geometry the latest build used.
+- Item 26's spec states the projection of each link kind, which curve a face gives when the sketch plane cuts it more than once, the losses and their messages, and the naming of what the projection makes. A sketch with links reads each linked body and each linked sketch, which features/sketch.md adds to its dependencies with that item. A sketch projects only body states before it. No cycle can form (m2-plan.md risk 4).
+
+#### 3.20.8 Validation
+
+Section 3.4's step 3 checks every entity in document order, every check of one entity before the next entity, in this order: a number that is not finite (any coordinate, radius, angle, parameter, knot, weight or `rho`) fails with `NonFiniteGeometry`; a negative `radius` or `minor_radius` with `NegativeRadius`; a `rho` that is not greater than 0 and less than 1 with `InvalidRho`; a spline that breaks section 3.20.5 with `InvalidSpline` and the first `SplineProblem` in the order `Degree`, `TooFewPoints`, `KnotCount`, `Knots`, `WeightCount`, `WeightNotPositive`, `RepeatedPoint`; a pole or fit point that is not a point entity of this sketch with `InvalidPoint`, the first in list order; a text whose `font` matches neither form of section 3.20.6 with `InvalidFont`; a text whose `path` breaks section 3.20.6 with `InvalidPath`; and a `link` that section 3.20.7 does not allow with `InvalidLink`. `Knots` covers the order, the end values and the repeats of section 3.20.5. Steps 1, 2 and 4 are unchanged.
+
+#### 3.20.9 Display polylines
+
+`display_curves(entities, texts)` gives the display polylines of every entity whose kind is not `point`, `line`, `circle` or `arc`, construction entities included, in entity order. `texts` holds each text entity's laid-out glyph outlines (item 27). Hosts draw these polylines instead of the curves (protocol.md section 2.6, spec README decision D15).
+
+```rust
+/// The display polylines of one entity.
+pub struct DisplayCurve {
+    /// The entity drawn.
+    pub entity: Id,
+    /// Polylines in sketch coordinates (mm): one for a curve, one per glyph contour for a text, in glyph order.
+    pub polylines: Vec<Vec<[f64; 2]>>,
+}
+
+/// Display polylines of `entities` (section 3.20.9).
+pub fn display_curves(entities: &[SketchEntity], texts: &[TextOutline]) -> Vec<DisplayCurve>;
+```
+
+- A polyline of a curve with ends starts at its start and ends at its end. An ellipse's polyline starts at its point at `t = 0` and runs counterclockwise. A periodic spline's starts at its point at its first knot. A glyph contour's starts where item 27's `TextOutline` starts it. A closed polyline repeats its first vertex at its end, bitwise.
+- Every vertex is a point of the curve, evaluated by the formulas of section 3.20.1, or for a text by item 27's glyph outline, within `1e-9` mm.
+- Along each segment, the curve stays within `DISPLAY_TOLERANCE` (0.01 mm) of the segment, and its tangent turns by at most `DISPLAY_TURN` (5 degrees).
+- An entity of zero length has one polyline of its start alone.
+- The polylines are display data. Within one build they are bitwise deterministic. They are not compared across targets, stored, sent as references or used by any feature. Item 14's spec states the subdivision, and item 27's the glyph outlines and `TextOutline`.
+
+#### 3.20.10 Profiles, chains and mirrored drawings
+
+- From item 14, `build_profile` takes every non-construction curve of a kind of section 2.12 but `text`. `ProfileCurve` gains a variant for each curve form the kernel builds exactly (choice 11): `Ellipse`, `EllipticalArc`, `Parabola`, `Hyperbola` and `Bspline`, the last also for conics and fit splines. Each holds its curve in traversal direction. Item 14's spec states the variants' fields, the intersections and tolerances of section 3.13.2 for the new kinds (m2-plan.md risk 5), and the areas and centroids of section 3.13.4.
+- From item 14, a chain (section 3.18) may hold every curve kind with ends, and one closed curve alone. Item 14's spec states the junction tangents and the checks of section 3.18.2 for them.
+- Items 14 and 27 extend `SketchParams::mirrored` (section 3.17) to their kinds.
+
+#### 3.20.11 Words
+
+Section 4's `{entity}` describes the new kinds as: `the ellipse at ({u}, {v})` (its center); `the elliptical arc from ({u1}, {v1}) to ({u2}, {v2})`, `the parabola from ...`, `the hyperbola from ...` and `the conic from ...` (start, then end); `the spline from ({u1}, {v1}) to ({u2}, {v2})` for an open spline of any of the three kinds, from its first to its last control point or fit point, and `the closed spline through ({u}, {v})` for a periodic one, at its first control point or fit point; and `the text '{text}'`, with the text's first 20 characters followed by `...` when it is longer. When a number is not finite, a spline has no pole or fit point, or one of them is not a point entity of the sketch, the words are `an ellipse of this sketch`, `an elliptical arc of this sketch`, `a parabola of this sketch`, `a hyperbola of this sketch`, `a conic of this sketch` or `a spline of this sketch`. `{point}` gains `the vertex of {entity}`, `the focus of {entity}` and `the control point of {entity}`.
+
+### 3.21 Recipes and operations (M2)
+
+`apply_recipe` and `apply_operation` (section 2.13) are pure functions of their arguments and of the ids `new_id` gives. They never solve a sketch for the caller and never write a document. Their result is the whole changed sketch.
+
+- Each function first validates `sketch` (section 3.4) and returns its first error unchanged. Only then does it run the tool. The engine answers a validation error with `invalid_params` and every other error with `sketch_operation_failed` (protocol.md section 4).
+- A recipe appends its entities, then its constraints, to the end of `entities` and `constraints`, in the order its spec gives. It changes no record that was there. An operation may also remove or rewrite records. Item 25's spec states which, and how a removed entity's constraints follow it.
+- Every new id comes from `new_id`, `IdKind::SketchEntity` for an entity and `IdKind::SketchConstraint` for a constraint, in the order the records are appended. The engine's `new_id` is the session's generator, checked against the whole document (engine.md section 3.27). M1's recipes in the UI took their ids from `IdSource` instead.
+- `SketchChange::entities` and `constraints` list the added ids in params order. A host selects the new geometry from them.
+- An input a tool cannot use, such as a three-point arc on three collinear points or a trim where no curve crosses, fails with a `SketchError` variant of the item that defines the tool, with a message by section 4's rules. Its protocol code is `sketch_operation_failed` (protocol.md section 4).
+- The result validates (section 3.4) whenever the input sketch does.
+- Item 24's spec moves M1's recipes onto this crate with the outputs ui.md section 3.16.4 fixes (U-50 to U-54, features/sketch.md tests 44 to 50 and U-247), and Python's `Rectangle` and `Polygon` onto them (python-api.md section 2.6).
+
 ## 4. Errors and messages
 
-Messages follow [the error guidelines](../guidelines/errors.md): they name entities and constraints the way the user sees them, by kind, position and value, never by id; they say what happened and why, and the fix is an action where one exists. Each error, solver issue and profile finding has three forms:
+Messages follow [the error guidelines](../guidelines/errors.md): they name entities and constraints the way the user sees them, by kind, position and value, never by id; they say what happened and why, and the fix is an action where one exists. Each error, solver issue, profile finding and chain loss (section 4.5) has three forms:
 
 - `render(context)`: the message, built from a `MessageContext` (section 2.8). Rows below give it exactly.
 - `fixes()`: the one-click fixes as `SketchFix` values, in the order hosts offer them. Features turn them into their `Fix` (features.md section 2.8), and the engine labels them: `Delete {title}`, `Make {title} a reference`, `Connect the ends ({gap} apart)` with the gap written like a length below (engine.md section 3.22).
@@ -1504,8 +2145,16 @@ Messages follow [the error guidelines](../guidelines/errors.md): they name entit
 | `UnknownDragTarget { target }` | `The dragged geometry is no longer in this sketch. Drag it again.` | |
 | `NonFiniteCursor` | `The pointer position cannot be used. Move the pointer over the sketch and drag again.` | |
 | `InvalidRegionKey { text }`, `InvalidFingerprint { text }` | `A region stored in this document cannot be read. Pick the profile again.` | |
+| `InvalidChainKey { text }`, `InvalidChainFingerprint { text }` | `A chain of curves stored in this document cannot be read. Pick the curves again.` | |
+| `InvalidRho { entity, rho }` (since format version 3, item 14) | `Rho {rho} of {entity} must be greater than 0 and less than 1.` with `{rho}` a plain number in message form | |
+| `InvalidSpline { entity, problem }` (item 14) | `{Entity} cannot be used: {reason}. Delete it and draw it again.` with `{reason}`: `Degree` "its degree must be 1 to 25", `TooFewPoints` "it has too few points for its degree", `KnotCount` "it has the wrong number of knots", `Knots` "its knots are not in a valid order", `WeightCount` "it does not have one weight per control point", `WeightNotPositive` "a weight is not greater than 0", `RepeatedPoint` "it uses the same point twice" | |
+| `InvalidPoint { entity, point }` (item 14) | `{Entity} is built on geometry that is not a point of this sketch. Delete it and draw it again.` | |
+| `InvalidFont { entity }` (item 27) | `{Entity} names its font in a form Partsmith cannot read. Pick the font again.` | |
+| `InvalidPath { entity, path }` (item 27) | `{Entity} is set along geometry that is not a curve of this sketch. Delete it and place it again.` | |
+| `InvalidLink { entity, kind }` (item 26) | `{Entity} cannot follow the geometry its link names. Delete it and project the geometry again.` | |
+| `LinkedDragTarget { target }` (item 26) | `This geometry follows other geometry. Break its link to drag it.` | |
 
-Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` errors raised by the caller's JSON layer; their text comes from `serde_json`, which includes the detail of a `SketchError` raised while parsing (`PointRef`, `RegionKey`, `RegionLoop`, `RegionFingerprint`). Features report them as invalid params with that text in the detail (features.md section 4.1).
+Deserialization errors (unknown `type`, unknown field, wrong shape) are `serde` errors raised by the caller's JSON layer; their text comes from `serde_json`, which includes the detail of a `SketchError` raised while parsing (`PointRef`, `RegionKey`, `RegionLoop`, `RegionFingerprint`, `ChainKey`, `ChainFingerprint`). Features report them as invalid params with that text in the detail (features.md section 4.1).
 
 ### 4.2 `SolveIssue`
 
@@ -1536,7 +2185,25 @@ A finding with `connect` stands for two open ends: a host that counts open ends 
 
 ### 4.4 Detail
 
-`Display` of `SketchError`, `SolveIssue` and `ProfileFinding` writes the variant name in snake_case, then, for each field in declaration order, a space, the field name, `=` and the value: ids and point references as written; strings (`text`, `target`, `reference`, `type_name`, `expected`) in double quotes, escaped as Rust's `{:?}` does; numbers in message form; booleans as `true` or `false`; unit-only enums in snake_case (`circle`, `normal_not_unit`); lists joined by `,`; points as `u,v`; a `Connection` as `first,second,gap`; a field that is `None` is left out. Examples: `unknown_entity constraint=c-9 entity=e-9`; `wrong_entity_kind constraint=c-9 type_name="parallel" entity=e-5 found=circle expected="a line"`; `conflicting constraints=c-1,c-2`; `open_endpoint entity=e-4 point=0,0.3 connect=e-4.end,e-1.start,0.3`; `non_finite_cursor`.
+`Display` of `SketchError`, `SolveIssue`, `ProfileFinding` and `ChainLoss` writes the variant name in snake_case, then, for each field in declaration order, a space, the field name, `=` and the value: ids and point references as written; strings (`text`, `target`, `reference`, `type_name`, `expected`) in double quotes, escaped as Rust's `{:?}` does; numbers in message form; booleans as `true` or `false`; unit-only enums in snake_case (`circle`, `normal_not_unit`); lists joined by `,`; points as `u,v`; a `Connection` as `first,second,gap`; a field that is `None` is left out. Examples: `unknown_entity constraint=c-9 entity=e-9`; `wrong_entity_kind constraint=c-9 type_name="parallel" entity=e-5 found=circle expected="a line"`; `conflicting constraints=c-1,c-2`; `open_endpoint entity=e-4 point=0,0.3 connect=e-4.end,e-1.start,0.3`; `non_finite_cursor`. For chain losses: `deleted entities=e-8,e-9 all=true`; `not_curve entity=e-4 kind=point`; `disconnected end=e-1.end start=e-2.end gap=0.3`; `turns_back entities=e-1,e-2 point=40,0`; `invalid_chain_key text="e-1,,e-2"`.
+
+### 4.5 `ChainLoss` (M2)
+
+`render(context)` gives the reason clause that features put after `because` (features.md section 4): it starts in lower case and has no final period. The context is the chain's sketch (section 2.8). `fixes()` gives the sketch fixes, and `entity()` the entity a host shows (Show, features.md section 4.4).
+
+| Loss | Reason | Fixes | `entity()` |
+| --- | --- | --- | --- |
+| `Deleted { entities, all: false }` | one entity: `one of them is no longer in the sketch`; `{n}` entities: `{n} of them are no longer in the sketch` | | None |
+| `Deleted { entities, all: true }` | `none of them is in the sketch anymore` | | None |
+| `NotCurve { entity, kind: Point }` | `{entity} is not a line or an arc` | | `entity` |
+| `NotCurve { entity, kind: Circle }` | `{entity} has no ends to join to the other curves` | | `entity` |
+| `Construction { entity }` | `{entity} is construction geometry` | | `entity` |
+| `ZeroLength { entity }` | `{entity} has no length` | | `entity` |
+| `Disconnected { end, start, gap }` | `{end} and {start} are {gap} apart`, with `{end}` and `{start}` written as `{point}` is (section 4: `the end of {entity}`, `the start of {entity}`) and `{gap}` a length with its unit | `ConnectEnds { first: end, second: start }` when `gap <= CONNECT_DISTANCE` and `end` and `start` name different entities | the entity of `start` |
+| `TurnsBack { entities: [a, b], point }` | `{entity b} turns back along {entity a} at ({u}, {v})` | | `b` |
+| `Crosses { entities: [a, b], point }` | `{entity a} and {entity b} cross at ({u}, {v})` | | `b` |
+
+`{entity}` follows section 4's placeholders: `{n}` is a numeral (`2 of them`), and coordinates and lengths are written in the document units. The engine labels `ConnectEnds` as it labels it for a profile finding (`Connect the ends (0.3 mm apart)`, engine.md section 3.22). Examples in mm, on the sketches of section 6.23: `the end of the line from (0, 0) to (40, 0) and the end of the line from (40, 30) to (40, 0.3) are 0.3 mm apart`; `the arc from (40, 0) to (30, -10) around (40, -10) turns back along the line from (0, 0) to (40, 0) at (40, 0)`; `the line from (0, 0) to (40, 0) and the line from (40, 20) to (20, -20) cross at (30, 0)`.
 
 ## 5. Performance
 
@@ -1556,6 +2223,12 @@ Measured single-threaded in a release build (`cargo bench -p partsmith-sketch --
 | `match_region` | each of the 722 regions of the grid benchmark (5.3) against its own `Region::reference()` (every call matches by key) | <= 2 ms for all 722 calls |
 | `match_region` | the split grid (5.3), the reference the first cell had before the split (the call reaches step 2) | <= 0.5 ms |
 | `match_region` | the redrawn long outline (5.3), the reference the long outline had before (the call finds one replacement, so step 2 stays linear in the length of a loop) | <= 2 ms |
+| `union_regions` (M2) | the 722 regions of the grid benchmark (5.3), in profile order | <= 0.87 ms |
+| `union_regions` (M2) | the one region of the long outline (5.3) | <= 0.44 ms |
+| `build_chain` (M2) | the long outline (5.3) as one closed chain, key `e-p-0,e-p-1,...,e-p-999` | <= 5 ms |
+| `chain_through` (M2) | the long outline (5.3), seed `e-p-0` | <= 5 ms |
+
+The two `union_regions` rows follow [ADR 0057](../adr/0057-budgets-set-from-the-measured-median-plus-20-percent.md)'s rule: the union code of a3f4573, run unchanged against `partsmith-sketch` on the 4-core development container on 2026-11-07, read medians of 0.735, 0.716 and 0.721 ms for the grid and 0.364, 0.386 and 0.360 ms for the long outline, and each row is the median of the three plus 20 percent, rounded up to two significant digits ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). The `build_chain` and `chain_through` rows are ceilings set before any code: a third of the 16 ms frame. M2's wave 4 sets them again by ADR 0057's rule (m2-plan.md gate 10).
 
 The WebAssembly build is expected within twice these numbers so a drag frame stays inside the 16 ms frame budget of the technical design; it is tracked but not gated by this spec.
 
@@ -1609,7 +2282,7 @@ Drag scenario: `begin_drag` with `Point { point: "e-24-ar.center" }`, then 100 f
 
 The *split grid* adds `line e-x (-3, 1.2)->(50, 1.2)`: it crosses the first row of cells below their discs (which span v 1.5 to 3.5) and ends on `e-v-10`, so it splits each of the 10 cells from u 0 to 50 in two, and its piece left of u = 0 is a dangling end more than `CONNECT_DISTANCE` from every other open end. The *first cell* is the region bounded by `e-h-0`, `e-h-1`, `e-v-0` and `e-v-1`, with the hole `e-c-0-0`.
 
-The *long outline* is a closed polygon of 1000 lines: `e-p-i` runs from point `i` to point `i + 1` (point 999 to point 0 for `e-p-999`), where point `i` is `(100 cos(2 pi i / 1000), 100 sin(2 pi i / 1000))`, for `i = 0..999`. The *redrawn long outline* deletes `e-p-0` and adds `e-q` between the same two points, after the other lines.
+The *long outline* is a closed polygon of 1000 lines: `e-p-i` runs from point `i` to point `i + 1` (point 999 to point 0 for `e-p-999`), where point `i` is `(100 cos(2 pi i / 1000), 100 sin(2 pi i / 1000))`, for `i = 0..999`. The *redrawn long outline* deletes `e-p-0` and adds `e-q` between the same two points, after the other lines. The chain rows use the long outline as it is. Its 1000 lines meet end to start, and `e-p-0,e-p-1,...,e-p-999` is one closed chain.
 
 ### 5.4 Harness
 
@@ -1755,7 +2428,11 @@ Expected values below were checked against a reference implementation of section
 102. `PLATE` returns its entities unchanged, status `fully_constrained`, `dof` 0, `measured` `{c-10: 80, c-11: 50, c-15: 25, c-16: 10}`, and every entity state `fully_constrained`.
 103. `PLATE` with `c-10 = 100` gives e-1 (0,0)->(100,0), e-2 (100,0)->(100,50), e-3 (100,50)->(0,50), e-4 (0,50)->(0,0), e-5 center (50, 25) radius 5, e-6 (50,0)->(50,50); `failed` false, `dof` 0.
 256. A constraint that repeats others moves no free geometry (section 3.7.4, the step tolerance): `line e-1 (-0.007,0.007)->(0.005,29.995)`, `line e-2 (0,-15.001)->(0.003,10.006)`, `line e-3 (-60.008,-100.009)->(0.007,-100.001)`, `c-1 vertical e-1`, `c-2 distance e-1 = 30`, `c-3 collinear [e-1, e-2]`, `c-4 perpendicular [e-2, e-3]`, `c-5 distance e-3 = 60`, `c-6 horizontal_distance e-3 = 60` (once `c-4` holds, the same as `c-5`), `c-7 distance [e-3.start, e-1.end] = 143.17821063276352` (`sqrt(20500)`, the known solution's value). The warm start is within 0.01 of the known solution (0,0)->(0,30), (0,-15)->(0,10), (-60,-100)->(0,-100). Nothing sets the length of `e-2`. `solve` has `failed` false, `dof` 5, `redundant` [c-6], every constraint holding within 1e-9 as in test 189, and no coordinate more than 0.02 from its input: the `v` of `e-2`'s ends within 0.001 of -15.001 and 10.006 (before the step tolerance, the solve stretched `e-2` to v -21.95 and 16.95). The same sketch with every coordinate moved by (500, -500) solves to this result moved by (500, -500) within 1e-9 (before, 5.7e-8 apart).
-258. A solution next to a fold (section 3.7.4, the second dog-leg pass): `line e-1 (88.467,-91.485)->(146.015,-105.715)`, `arc e-2 c(120.313,-104.504) r4.98 from 5.5924 to 7.6306`, `c-1 tangent [e-1, e-2]`, `c-2 distance e-1 = 59.268405`, `c-3 distance [e-1.end, e-2.end] = 25.327127`, `c-4 distance [e-1.start, e-2.end] = 33.94127803` (the generated case of seed 1947428 of section 6.13 without its point-line distance and repeated lengths, its coordinates and values rounded). The two distances exceed the length by 3e-8. At the solution, `e-2.end` lies 9.33e-4 from the line, next to the shape where the triangle of `e-1`'s ends and `e-2.end` is flat. `solve` has `failed` false, empty `conflicting`, every constraint holding within 1e-9 as in test 189, and `e-2.end` 9.33e-4 from the line `e-1` within 1e-5. Dog-leg with the step tolerance and Levenberg-Marquardt do not converge on this sketch. Unit tests in `src/solver/numeric.rs` check this. That way the test keeps covering the second dog-leg pass (with only the step tolerance, the solve had `failed` true).
+258. A solution next to a fold (section 3.7.4, the second pass): `line e-1 (88.467,-91.485)->(146.015,-105.715)`, `arc e-2 c(120.313,-104.504) r4.98 from 5.5924 to 7.6306`, `c-1 tangent [e-1, e-2]`, `c-2 distance e-1 = 59.268405`, `c-3 distance [e-1.end, e-2.end] = 25.327127`, `c-4 distance [e-1.start, e-2.end] = 33.94127803` (the generated case of seed 1947428 of section 6.13 without its point-line distance and repeated lengths, its coordinates and values rounded). The two distances exceed the length by 3e-8. At the solution, `e-2.end` lies 9.33e-4 from the line, next to the shape where the triangle of `e-1`'s ends and `e-2.end` is flat. `solve` has `failed` false, empty `conflicting`, every constraint holding within 1e-9 as in test 189, and `e-2.end` 9.33e-4 from the line `e-1` within 1e-5. The first pass, with the step tolerance, and Levenberg-Marquardt do not converge on this sketch. Unit tests in `src/solver/numeric.rs` check this. That way the test keeps covering the second pass (with only the step tolerance, the solve had `failed` true).
+259. The minimum-norm correction on the replayable seeds (sections 3.7.4 and 3.11, ADR 0058): for each of the seeds 193903, 230290, 259081, 478151, 505952, 595598, 742663, 856226, 9841460 and 5635218625053008121 of the known-solution generator (section 6.13), `solve(warm start)` has `failed` false and empty `conflicting`, every constraint holds within 1e-9 as in test 189, and every coordinate of the result is within 0.02 of both the warm start's and the known solution's. The coordinates are a point's position, a line's start and end, a circle's center and radius, and an arc's center, radius and end points (`center + radius * (cos(angle), sin(angle))` for its start and end angles). The bound is twice the warm start's noise: the warm start of seed 230290 is itself 0.0154 from its known solution at an arc's end point. Before ADR 0058, seeds 230290, 259081, 478151, 505952 and 742663 ended 0.12 to 0.27 from their known solutions, seed 9841460 262 and seed 5635218625053008121 5.36 (open issue 21). Seeds 193903, 595598 and 856226 slid 0.66 to 3.65 before ADR 0052 (section 3.7.4). With the exact step, the ten end within 0.015 of their known solutions and 0.014 of their warm starts (measured on a prototype, 2026-11-07). The test runs on every target.
+261. Translated slides (test 192's check on recorded cases, section 3.7.4): seed 9841460 with the offset (475.86452147398586, 146.63635321809318), seed 5635218625053008121 with (0, 487.4378466513926) and seed 12075137138286841106 with (0, 6.013428068696318). For each, the warm start and the warm start moved by the offset both solve with `failed` false, and the moved result equals the original result moved by the offset within 1e-6, as in test 192. Before ADR 0058 the first two ended 1.0e-6 and 1.2e-6 apart. The third ended 2.4e-5 apart with an exact step that had no floor on its damping, where Moré's iteration stopped at `mu` = 3.35e-12 in one solve and 3.43e-12 in the other. With the method of section 3.7.4 the three agree within 1e-13 (measured on a prototype, 2026-11-07). The test runs on every target, like the replays of section 6.13.
+262. Repeated dimensions (section 3.7.4, the damped step over every row): seeds 37618 and 637669 of the generator. Seed 37618, for example, has a line `e-2` with a fixed end, its length dimensioned three times (two point distances between its ends and its line length), its vertical distance, and a point `e-1` whose distance to `e-2` is dimensioned twice. For each, `solve(warm start)` has `failed` false and empty `conflicting`, every constraint holds within 1e-9 as in test 189, and no coordinate (as in test 259) is more than 0.02 from the warm start's. The first pass of section 3.7.4 converges on both, on every component that is not untouched (section 3.7.2): one in seed 37618 and two in seed 637669. A unit test in `src/solver/numeric.rs` checks this, since the public API does not tell which pass converged. On the numerical problem of each such component, it calls the first pass, the private function `trust_region(problem: &mut Problem<'_>, start: &[f64], tolerance: f64) -> Option<(Vec<f64>, Evaluation)>` that takes `dog_leg`'s place with its signature, with `STEP_RANK_TOLERANCE`, as the unit tests of test 258 do. Unit tests cannot reach `tests/common/generator.rs`. The two sketches are therefore the warm starts and values of `generate(37618)` and `generate(637669)`, written as literals into `src/test_support.rs` with each `f64` as `{:?}` prints it, in fixtures that return `(SketchParams, DimensionValues)` as `triangle_next_to_a_fold` does. With a damped step over only the rows the rank test accepts, both passes failed there and Levenberg-Marquardt converged (measured on a prototype, ADR 0058).
+336. Slides of seeds 1,000,000 to 1,999,999 (sections 3.7.4 and 3.11, ADR 0058): for each of the seeds 1036660, 1071907, 1228333, 1538706, 1583858, 1705412 and 1735421 of the generator (section 6.13), `solve(warm start)` has `failed` false and empty `conflicting`, every constraint holds within 1e-9 as in test 189, and no coordinate (as listed in test 259) is more than 0.1 from the warm start's, the bound of test 260. These seven are the only cases of seeds 1,000,000 to 1,999,999 that the solver of a3f4573 moves more than 0.1: it moves them 4.76, 0.88, 0.17, 0.16, 0.10, 0.39 and 0.17 from their warm starts (measured 2026-11-07). The warm start of seed 1036660 is 0.018 from its known solution. With the exact step its result moves 0.031 from the warm start, more than test 259's bound of 0.02 (measured on a prototype, 2026-11-07). That is why these seven take test 260's bound. The test runs on every target.
 
 ### 6.7 Diagnosis
 
@@ -1896,6 +2573,11 @@ Known-solution generator (`tests/common/generator.rs`): builds entities one at a
 194. Drag: for cases with a point whose parameters are not all frozen, one drag frame to a cursor within 0.1 of that point has `failed` false and satisfies every constraint within 1e-9 as in test 189.
 
 The six failing cases the gap list records for tests 192 and 194 (SK-2, 2026-10-27: three seeds with their offsets, and three seeds with their choices and offsets) are also replayed by ordinary tests of the same two properties in `properties.rs`. These replays run on every target, while the committed regression file replays natively only (section 6.22).
+
+260. Minimum-norm correction (section 3.11, ADR 0058): `solve(warm start)` moves no coordinate (as listed in test 259) more than 0.1 from the warm start's. The bound is ten times the warm start's noise, as in the discard rules above. The known solution is a solution within that noise of the warm start. With the exact step of section 3.7.4, the largest move over the 1,951,609 cases of seeds 0 to 1,999,999 was 0.031 (seed 1036660, measured on a prototype, 2026-11-07). Before ADR 0058, the five seeds of open issue 21 moved 0.13 to 0.26 from their warm starts, and the seven of test 336 moved 0.10 to 4.76.
+
+The scan of the M2 plan's gate 8 is the ignored test `scan_seeds` in `tests/properties.rs` (ADR 0058), run as `SCAN_FIRST=0 SCAN_LAST=19999999 cargo test -p partsmith-sketch --release --test integration properties::scan_seeds -- --ignored`. `SCAN_FIRST` and `SCAN_LAST` bound the seeds, both included. Unset, they are 0 and 19,999,999. For each seed in the range whose case the generator keeps, it runs the checks of tests 189 and 260 on `solve(warm start)`. It runs test 192 with the offset made of the first two values that `Rng::new(!seed)` (`tests/common/random.rs`) draws by `uniform(-500.0, 500.0)`. When the case has a draggable point (`draggable_points()` is not empty), it runs test 194 with the choice `next_u64()` and the offset of the next two `uniform(-0.07, 0.07)` values of the same `Rng`. It prints one line per failure in seed order, with the seed, its offset (and its choice, for test 194) and the check that failed. A last line gives the range, the number of cases the generator kept and the number of failures. It may split the seeds across threads, and what it prints does not depend on how. It fails at the end when it printed a failure. The scan of 2026-10-31 (open issue 21) drew its offsets another way, and this one does not replay it case for case.
+
 195. Rectangles: 1 to 8 axis-aligned rectangles with sides in [1, 50], pairwise at least 1 apart, each drawn counterclockwise from its lower-left corner with four fresh ids, give one region per rectangle with the key of its four ids, area `w * h` within 1e-9 relative, the rectangle's center as centroid within 1e-9, and no findings.
 196. Text round trips: random valid `PointRef`, canonical `RegionKey` and `RegionFingerprint` values survive `to_string` then `parse` unchanged (fingerprints compared after rounding to 6 decimals).
 
@@ -1992,6 +2674,107 @@ Unless stated, the context is that of section 6.10.
 
 255. Native and WebAssembly agree (section 3.12; `tests/cross_target.rs`). The test holds, as Rust literals in the shortest form that reads back to the same `f64` (as `{:?}` prints it; clippy's `excessive_precision` rejects longer ones), the values the native build gives on x86_64 Linux (where the examples' expected results are blessed) for: (a) the chain drag of section 5.2 (test 198), after frames 50 and 100, the pivots `e-k-al.center` for `k` from 1 to 24 and the free end `e-24-ar.center`; (b) the chain with every `radius` value set to 6 (test 199), the same 25 points after `solve`. On every target it computes them again, and each coordinate holds within 1e-9 of its literal; the targets this compares are x86_64 Linux and `wasm32-unknown-emscripten`, which CI runs (section 3.12), not Windows or macOS. A failure prints every value it computed in the form of the literals, so an intended change to the solver updates them by pasting. `cargo test -p partsmith-sketch --target wasm32-unknown-emscripten`, which CI runs (delivery.md 2.4, `kernel-wasm`), runs it and every other test of this section under Node, so the WebAssembly build is held to these native values and to the expected values of every other test, those of the profiles of section 6.11 and test 200 included. The property tests run there with their generated cases only: under Node, Emscripten's file system is in memory, and `.cargo/config.toml` cannot give the target `-sNODERAWFS`, since `crates/partsmith-wasm/build.rs` must repeat every link argument configured there into the browser module, so proptest cannot read `tests/properties.proptest-regressions`, and the saved cases replay natively only. No other literal needs relaxing for it: on 2026-10-27 every test of this section passed there as written but test 97, whose spawned thread cannot start there, test 249 already holds the slot's center within 1e-9, and each bitwise expectation compares results of one run with each other or with their input, or names a value that substitution and freezing give exactly.
 
+### 6.23 Chains (M2)
+
+Section 3.18 and [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md), in `tests/chains.rs`. The sketches give only their entities, passed to `build_chain`, `match_chain` and `chain_through` in the order listed:
+
+- `PATH`: `line e-1 (0,0)->(40,0)`, `arc e-2 c(40,10) r10 from -pi/2 to 0`, `line e-3 (50,10)->(50,40)`: a line, a quarter arc tangent to it, and a line tangent to the arc. `P-KEY` is the key `e-1,e-2,e-3`.
+- `ELBOW`: `line e-1 (0,0)->(40,0)`, `line e-2 (40,30)->(40,0)`: a corner, with `e-2` drawn toward it.
+- `HOOK`: `line e-1 (0,0)->(40,0)`, `arc e-2 c(40,-10) r10 from pi/2 to pi`: an arc that leaves the line's end going back the way the line came.
+- `ZIGZAG`: `line e-1 (0,0)->(40,0)`, `line e-2 (40,0)->(40,20)`, `line e-3 (40,20)->(20,-20)`: `e-3` crosses `e-1` at (30, 0).
+- `RECT` is the entities of section 6.0's `RECT`.
+
+Messages use the context of section 6.10 with the test's sketch, and units `Mm` unless stated. Coordinates hold within 1e-9 and turns within 1e-12 unless the test says bitwise.
+
+263. Chain keys (3.18.1). `"e-1,~e-2,e-3".parse::<ChainKey>()` has the entries `(e-1, false)`, `(e-2, true)`, `(e-3, false)` and displays as `e-1,~e-2,e-3`. Its `reversed()` displays as `~e-3,e-2,~e-1`, and reversing that gives the first key back.
+264. Invalid chain keys (3.18.1). Each of `""`, `"e-1,,e-2"`, `"e-1,~~e-2"`, `"e-1;e-2"`, `"e-1, e-2"`, `"e-1,e-1"` and `"e-1,~e-1"` fails to parse with `InvalidChainKey { text }`, `text` the input. `ChainKey::new(vec![])` fails with `InvalidChainKey { text: "" }`. `ChainKey::new` of the entries `(e-1, false)` and `(e-1, true)` fails with `InvalidChainKey { text: "e-1,~e-1" }`.
+265. Fingerprint text (3.18.5). `ChainFingerprint { start: [0, 0], end: [50, 40], length: 70 + 5 * pi }` displays as `s=0,0|e=50,40|l=85.707963`, and `start: [-0.0, 1e-7]` displays its start as `s=0,0`. Each of `s=0,0|e=1,1`, `s=0,0|e=1,1|l=-1`, `e=1,1|s=0,0|l=1`, `s=0,0|e=1,1|l=x`, `s=0,0|e=1,1|l=1e3`, `s=+1,0|e=1,1|l=1` and `s=0,0|e=1,1|l=.5` fails to parse with `InvalidChainFingerprint { text }`, `text` the input. `s=-0,0|e=1,1|l=1` parses with a start u of bitwise `0.0`.
+266. Reference JSON (3.18.5). `{"key": "e-1,e-2,e-3", "fp": "s=0,0|e=50,40|l=85.707963"}` deserializes to a `ChainRef` with `closed` false, and `serde_json::to_string` gives `{"key":"e-1,e-2,e-3","fp":"s=0,0|e=50,40|l=85.707963"}`. With `"closed": true` it serializes with `"closed":true` after `fp`. With an extra member `"outline": "e-1"` it fails to deserialize. The schema text of `schemars::schema_for!(ChainRef)` contains the patterns of `ChainKey` and `ChainFingerprint` (sections 3.18.1 and 3.18.5), and its `required` is `["key", "fp"]`.
+267. A smooth open chain (3.18.2). `build_chain(PATH, P-KEY)` is `Ok` with `closed` false and three edges: `Line { start: [0, 0], end: [40, 0] }`, `Arc { center: [40, 10], radius: 10, start: [40, 0], end: [50, 10], ccw: true }` and `Line { start: [50, 10], end: [50, 40] }`, each with `reversed` false and its entity. It has two junctions, at (40, 0) and (50, 10), each with `abs(turn) <= 1e-12` and `is_tangent()`; `is_smooth()` is true; `length` is `70 + 5 * pi` within 1e-12; `start()` is (0, 0), `end()` (50, 40), `start_tangent()` (1, 0) and `end_tangent()` (0, 1). `reference()` serializes as the first JSON of test 266.
+268. Junctions share their points bitwise (3.18.2). `PATH` with `arc e-2 c(40,10.0000005) r10 from -pi/2 to 0` (its start 0.0000005 mm above the end of `e-1`, within `PROFILE_TOLERANCE`): `build_chain` is `Ok`; the end of edge 0 and the start of edge 1 are bitwise equal to the arc's own start point, the end of edge 1 and the start of edge 2 are bitwise (50, 10), the start of `e-3`, and the start of edge 0 is bitwise (0, 0).
+269. A reversed entry and a corner (3.18.2). `build_chain(ELBOW, e-1,~e-2)` has edge 1 `Line { start: [40, 0], end: [40, 30] }` with `entity` `e-2` and `reversed` true, one junction at (40, 0) with `turn` `pi / 2` (bitwise `1.5707963267948966`), not tangent, `is_smooth()` false, `length` 70, and the fingerprint text `s=0,0|e=40,30|l=70`.
+270. Closed chains (3.18.2). `build_chain(RECT, e-1,e-2,e-3,e-4)` has `closed` true, four junctions at (80, 0), (80, 50), (0, 50) and (0, 0) in this order, each with `turn` `pi / 2`, `length` 260, the fingerprint text `s=0,0|e=0,0|l=260`, and a `reference()` with `closed` true. The end of edge 3 is bitwise (0, 0). `build_chain(RECT, e-3,e-4,e-1,e-2)` is closed and starts at (80, 50).
+271. A circle (3.18.2). `circle e-5 c(40,25) r5` with the key `e-5` gives `closed` true, one edge `Circle { center: [40, 25], radius: 5, ccw: true }`, no junctions, `start()` and `end()` (45, 25), `start_tangent()` (0, 1), `length` `10 * pi` and `is_smooth()` true. The key `~e-5` gives `ccw` false and `start_tangent()` (0, -1). `arc e-6 c(0,0) r10 from 0 to 2 * pi - 1e-10`, whose ends lie 1e-9 mm apart, with the key `e-6` gives `closed` true, one edge `Circle { center: [0, 0], radius: 10, ccw: true }` with `entity` `e-6`, `start()` and `end()` bitwise (10, 0), and one junction at (10, 0) that is tangent. The key `~e-6` gives `ccw` false. `RECT` with `e-5` and the key `e-1,e-5` gives `Err(NotCurve { entity: e-5, kind: Circle })`.
+272. Deleted entities (3.18.2 step 1). On `PATH`, `e-1,e-9,e-3` gives `Err(Deleted { entities: [e-9], all: false })` and `e-9,e-8` gives `Err(Deleted { entities: [e-8, e-9], all: true })`. `match_chain` of a reference with either key gives `Missing` with the same loss.
+273. Kinds, construction and size (3.18.2 step 2). `PATH` with `point e-4 (60,40)` and the key `e-3,e-4` gives `NotCurve { entity: e-4, kind: Point }`. `PATH` with `e-2` construction gives `Construction { entity: e-2 }` for `P-KEY` and `Deleted { entities: [e-9], all: false }` for `e-1,e-2,e-9`. `PATH` with `point e-4 (60,40)` and `e-1` construction gives `Construction { entity: e-1 }` for `e-1,e-4`. `line e-7 (10,10)->(10,10.0000004)` with the key `e-7` gives `ZeroLength { entity: e-7 }`.
+274. Ends that do not meet (3.18.2 step 3). `ELBOW` with `line e-2 (40,30)->(40,0.3)` and the key `e-1,~e-2` gives `Disconnected { end: e-1.end, start: e-2.end, gap }` with `gap` 0.3 within 1e-12. With `e-2` ending at (40, 3) the gap is 3. With `e-2` ending at (40, 0.0000009) the chain builds, and the end of edge 0 is bitwise (40, 0.0000009).
+275. Turning back (3.18.2 step 6). `build_chain(HOOK, e-1,e-2)` gives `TurnsBack { entities: [e-1, e-2], point: [40, 0] }`.
+276. Crossing (3.18.2 step 7). `build_chain(ZIGZAG, e-1,e-2,e-3)` gives `Crosses { entities: [e-1, e-3], point }` with `point` (30, 0). `PATH` builds, though its arc touches both lines: consecutive entries that meet only at their junction do not cross.
+277. Order of the entities (3.18.2). `build_chain` of `PATH`'s entities in reverse order with `P-KEY` gives a chain bitwise equal to test 267's.
+278. Matching by key (3.18.3). On `PATH`, `match_chain` of `{key: P-KEY, fp: s=1,1|e=2,2|l=1}` is `Resolved` with test 267's chain and empty `successions`: the fingerprint decides nothing. On `PATH` with `e-2` deleted and `arc e-6 c(40,10) r10 from -pi/2 to 0` added in its place, the reference of test 266 is `Missing { loss: Deleted { entities: [e-2], all: false } }`. On `RECT` with `e-4` from (0, 50) to (0, 0.3), `{key: e-1,e-2,e-3,e-4, fp: s=0,0|e=0,0|l=260, closed: true}` is `Missing { loss: Disconnected { end: e-4.end, start: e-1.start, gap } }` with `gap` 0.3 within 1e-12, and the same reference with `closed` false is `Resolved` with an open chain of three junctions. On `RECT` as it is, that reference with `closed` false is `Resolved` with a closed chain.
+279. The chain through a pick (3.18.4). On `PATH`, `chain_through` of `e-1`, `e-2` and `e-3` each gives `e-1,e-2,e-3`. On `ELBOW`, `e-1` gives `e-1,~e-2` and `e-2` gives `e-2,~e-1`. On `RECT`, `e-3` gives `e-3,e-4,e-1,e-2`. On `PATH` with `line e-4 (40,0)->(40,-20)`, where three ends meet at (40, 0), `e-3` gives `e-2,e-3`, `e-1` gives `e-1` and `e-4` gives `e-4`.
+280. What a pick skips (3.18.4). On `PATH` with `e-3` construction, `chain_through` of `e-1` gives `e-1,e-2` and of `e-3` gives None. On `PATH` with `point e-4 (60,40)`, `e-4` gives None, and so does `e-9`, which the sketch does not have. `line e-7 (10,10)->(10,10.0000004)` gives None for `e-7`. On `RECT` with `circle e-5 c(40,25) r5`, `e-5` gives `e-5`. On `PATH` with `line e-8 (20,-10)->(20,10)`, which crosses the interior of `e-1`, `e-1` gives `e-1,e-2,e-3`.
+281. Mirrored chains (3.17). On `PATH`, `mirrored_chain` of the reference of test 266 has the key `e-1,~e-2,e-3`, the fingerprint text `s=0,0|e=50,-40|l=85.707963` and `closed` false, and `build_chain` of `PATH.mirrored()`'s entities with that key gives edge 1 `Arc { center: [40, -10], radius: 10, start: [40, 0], end: [50, -10], ccw: false }`, the mirror of test 267's edge. On `RECT`, `mirrored_chain` of the closed reference of test 270 keeps the key `e-1,e-2,e-3,e-4`, the fingerprint text and `closed`, and builds on `RECT.mirrored()` with four turns of `-pi / 2`. On `RECT` with `circle e-5 c(40,25) r5`, the key `e-5` becomes `~e-5`. On `PATH`, the key `e-1,~e-9` stays `e-1,~e-9`.
+282. Reasons for deleted entities (4.5). `render` of `Deleted { entities: [e-9], all: false }` is `one of them is no longer in the sketch`, of `Deleted { entities: [e-8, e-9], all: false }` is `2 of them are no longer in the sketch`, and of `Deleted { entities: [e-8, e-9], all: true }` is `none of them is in the sketch anymore`.
+283. Reasons that name an entity (4.5). Each on the sketch of test 273 that gives it: `NotCurve { entity: e-4, kind: Point }` renders `the point at (60, 40) is not a line or an arc`; `Construction { entity: e-2 }` renders `the arc from (40, 0) to (50, 10) around (40, 10) is construction geometry`; `ZeroLength { entity: e-7 }` renders `the line from (10, 10) to (10, 10) has no length`. The `NotCurve` of test 271 renders `the circle at (40, 25) with radius 5 mm has no ends to join to the other curves`.
+284. Reasons at junctions (4.5). The loss of test 274 renders `the end of the line from (0, 0) to (40, 0) and the end of the line from (40, 30) to (40, 0.3) are 0.3 mm apart`, and in units `In` `the end of the line from (0, 0) to (1.574803, 0) and the end of the line from (1.574803, 1.181102) to (1.574803, 0.011811) are 0.011811 in apart`. The loss of test 275 renders `the arc from (40, 0) to (30, -10) around (40, -10) turns back along the line from (0, 0) to (40, 0) at (40, 0)`, and that of test 276 `the line from (0, 0) to (40, 0) and the line from (40, 20) to (20, -20) cross at (30, 0)`.
+285. Fixes and shown entities (4.5). The loss of test 274 with the gap of 0.3 has `fixes()` `[ConnectEnds { first: e-1.end, second: e-2.end }]` and `entity()` `e-2`. With the gap of 3 its fixes are empty. With `e-2` ending at (40, 2), a gap of exactly `CONNECT_DISTANCE`, the fix is offered. Every other loss of tests 272 to 276 has no fixes. `arc e-1 c(0,0) r10 from 0 to 6.2` matched with `{key: e-1, fp: s=10,0|e=10,0|l=62.831853, closed: true}` gives `Disconnected { end: e-1.end, start: e-1.start, gap }`, with `gap` below `CONNECT_DISTANCE`, and no fixes: both points belong to `e-1`. `entity()` is None for `Deleted`, the entity itself for the losses of test 273 and for `NotCurve` of a circle, `e-2` for `TurnsBack` and `e-3` for `Crosses`.
+286. Details (4.4). `Display` gives `deleted entities=e-9 all=false`, `deleted entities=e-8,e-9 all=true`, `not_curve entity=e-4 kind=point`, `construction entity=e-2`, `zero_length entity=e-7`, `disconnected end=e-1.end start=e-2.end gap=0.3`, `turns_back entities=e-1,e-2 point=40,0` and `crosses entities=e-1,e-3 point=30,0` for the losses of tests 272 to 276.
+287. Unreadable chains (4.1). `InvalidChainKey { text: "e-1,,e-2" }` and `InvalidChainFingerprint { text: "s=0,0" }` render `A chain of curves stored in this document cannot be read. Pick the curves again.`, have no fixes, and display as `invalid_chain_key text="e-1,,e-2"` and `invalid_chain_fingerprint text="s=0,0"`. Every message and reason rendered in tests 282 to 287 passes the message lint of test 247 and contains no entity id of its sketch.
+288. Match results as JSON (2.10). The `Missing` result of test 272's first case serializes as `{"kind":"missing","loss":{"kind":"deleted","entities":["e-9"],"all":false}}`, and the result of test 278's first case has `"kind":"resolved"` and `"successions":[]`.
+337. Pieces of one line or one circle (3.18.2 steps 5 and 7). `line e-1 (0,0)->(40,0)` and `line e-2 (40,0)->(80,0)` with the key `e-1,e-2` build an open chain with one tangent junction at (40, 0), and `is_smooth()` is true. `arc e-1 c(0,0) r10 from 0 to pi/2` and `arc e-2 c(0,0) r10 from pi/2 to pi` with the key `e-1,e-2` build the same way, with the junction at (0, 10). Shared stretches are measured on the curves as drawn, and these pieces share none.
+338. A shared stretch (3.18.2 step 7). `line e-1 (0,0)->(40,0)`, `line e-2 (40,0)->(40,10)`, `line e-3 (40,10)->(60,10)`, `line e-4 (60,10)->(60,0)` and `line e-5 (60,0)->(20,0)` with the key `e-1,e-2,e-3,e-4,e-5` give `Crosses { entities: [e-1, e-5], point: [20, 0] }`: `e-5` runs back over `e-1` from (40, 0) to (20, 0), and the stretch starts at (20, 0) in the direction of `e-1`.
+
+### 6.24 Region union (M2)
+
+Section 3.19, in `tests/union.rs`. Tests 289 to 298 are the unit tests of `union` in `crates/partsmith-features/src/profile.rs` at a3f4573, with the same sketches and assertions, through `union_regions` ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) decision 9). The regions come from `build_profile` of the sketch's entities, in profile order. The *area* of a union is the sum over its parts of the outer loop's signed area plus each hole's signed area, and *entities* of a loop are its edges' entity ids, sorted. Areas hold within 1e-6.
+
+289. One region is its own union: `RECT`'s one region gives one part whose outer loop equals the region's outer loop, with no holes.
+290. A hole and the disc that fills it make the whole rectangle: `RECT` with `circle e-5 c(40,25) r10`, both regions: one part, no holes, outer entities `e-1, e-2, e-3, e-4`, area 4000.
+291. Two halves drop their shared line and merge their split sides: `RECT` with `line e-5 (40,0)->(40,50)`, both regions: one part with outer entities `e-1, e-2, e-3, e-4`, an outer edge `{entity: e-1, reversed: false, curve: Line { start: [0, 0], end: [80, 0] }}`, and outer signed area 4000.
+292. Two circle halves make the whole circle: `circle e-5 c(0,0) r10` with `line e-6 (-10,0)->(10,0)`, both regions: one part whose outer loop is one edge of `e-5`, a `Circle` of radius 10 with `ccw` true, and area `100 * pi`.
+293. Pieces of a line with an arc between them stay separate: `RECT` with `circle e-5 c(40,0) r10`, the region `e-1,e-2,e-3,e-4,~e-5` alone: outer entities `e-1, e-1, e-2, e-3, e-4, e-5`.
+294. Three strips merge through the middle: `RECT` with `line e-5 (20,0)->(20,50)` and `line e-6 (60,0)->(60,50)`, all three regions: one part, area 4000, outer entities `e-1, e-2, e-3, e-4`.
+295. A ring around an unselected middle keeps its hole: `RECT` with `circle e-5 c(40,25) r10` and `circle e-6 c(40,25) r20`, every region but `e-5`: one part with one hole whose entities are `e-5`, area `4000 - 100 * pi`.
+296. Disjoint regions stay separate: `RECT` with `circle e-5 c(200,0) r5`, both regions: two parts.
+297. Regions touching at a corner stay separate: `RECT` with `line e-5 (80,50)->(100,50)`, `line e-6 (100,50)->(100,70)`, `line e-7 (100,70)->(80,70)` and `line e-8 (80,70)->(80,50)`, both regions: two parts, area 4400.
+298. A union touching itself on a circle keeps the arcs apart: `RECT` with `circle e-5 c(40,40) r10` and `line e-6 (40,0)->(40,50)`, the two regions whose key contains `~e-5`: one part, no holes, outer entities `e-1, e-2, e-3, e-3, e-4, e-5, e-5`, no outer edge that ends where it starts, area `4000 - 100 * pi`.
+299. No regions: `union_regions(&[])` is `Ok` with no parts.
+300. Regions of no arrangement: a hand-built `Region` whose outer loop is `RECT`'s region's outer loop run the other way (each edge's curve reversed, in reverse order) gives `Err(UnionError)`, whose `Display` is `the selected profile regions do not form a planar arrangement`.
+301. The union benchmark scenarios (5.1 and 5.3, correctness of their budget rows): the 722 regions of the grid benchmark give one part with no holes, four outer edges and area 9025; its 361 cell regions alone give one part with 361 holes and area `9025 - 361 * pi`; the long outline's one region gives one part of 1000 edges with no holes.
+302. The curve chain scenarios of the long outline (5.1 and 5.3, correctness of the `build_chain` and `chain_through` budget rows): `build_chain` of the long outline with `e-p-0,e-p-1,...,e-p-999` is `Ok` with `closed` true, 1000 edges and 1000 junctions, none tangent, and `chain_through(long outline, e-p-0)` gives that key.
+
+### 6.25 Entities of format version 3, recipes and display polylines (M2)
+
+These tests come with the item named in each (ADR 0066). Its test author writes them when that item's code lands, in wave 2 or 3. None is a test of wave 1. `E-10`, `E-11` and so on stand for the JSON examples of section 2.12 with those ids. `POLES` is `point e-21 (0,0)`, `point e-22 (10,20)`, `point e-23 (30,20)` and `point e-24 (40,0)`, all construction, with `E-20`.
+
+303. Ellipse JSON (item 14, 2.12). `E-10` deserializes, and `serde_json::to_string` of it is exactly `{"id":"e-10","type":"ellipse","center":[40.0,25.0],"major":[20.0,0.0],"minor_radius":10.0}`.
+304. Key orders of the curves with ends (item 14, 2.12). `E-11`, `E-12`, `E-13` and `E-14` re-serialize with keys in the orders `id, type, center, major, minor_radius, start_angle, end_angle`, `id, type, vertex, focus, start_parameter, end_parameter`, `id, type, center, major, minor_radius, start_parameter, end_parameter` and `id, type, start, control, end, rho`.
+305. B-spline defaults (item 14, 2.12). `E-20` re-serializes with the keys `id, type, degree, poles, knots`, with no `weights` and no `periodic`. `E-25` re-serializes with `id, type, degree, poles, weights, knots, periodic`. `E-20` with `"periodic": false` added re-serializes without `periodic`.
+306. Fit spline JSON (item 14, 2.12). `E-30` re-serializes to exactly `{"id":"e-30","type":"fit_spline","points":["e-31","e-32","e-33"]}`, and `E-30` with `"periodic": true` added re-serializes with `"periodic":true` after `points`.
+307. Fixed spline JSON (item 14, 2.12). `E-40` re-serializes with the keys `id, type, degree, poles, weights, knots`, its `poles` an array of three arrays of two numbers.
+308. New point roles (item 14, 2.4). `"e-12.vertex"`, `"e-12.focus"` and `"e-14.control"` parse to the roles `Vertex`, `Focus` and `Control` and display as the input. `"e-12.apex"` fails with `InvalidPointRef { text: "e-12.apex" }`.
+309. Points of the curves with ends (item 14, 3.20.1). Within `1e-9`: `E-11` has `.start` (20, 0) and `.end` (0, 10); `E-12` has `.start` (10, 5), `.end` (-10, 5), `.vertex` (0, 0) and `.focus` (0, 5); `E-13` has `.start` (15.430806348152437, -5.876005968219007) and `.end` (15.430806348152437, 5.876005968219007); `E-10` has `.center` (40, 25) and no `.start`.
+310. Points through point entities (item 14, 3.20.1). In the sketch `POLES`, `SketchParams::point` of `e-20.start` is (0, 0) and of `e-20.end` is (40, 0), and `SketchEntity::point(Start)` of `e-20` is `None`.
+311. Display polylines cover the new kinds only (item 14, 3.20.9). `display_curves` of `RECT`'s entities with `E-10` added returns exactly one `DisplayCurve`, for `e-10`, with one polyline.
+312. A closed polyline (item 14, 3.20.9). The polyline of `E-10` starts at (60, 25), and its last vertex equals its first bitwise.
+313. Polyline vertices lie on the curve (item 14, 3.20.9). Every vertex `(x, y)` of `E-10`'s polyline has `((x - 40) / 20)^2 + ((y - 25) / 10)^2` within `1e-9` of 1. Every vertex `(x, y)` of `E-14`'s polyline (rho 0.5, a parabola arc) has `y` within `1e-9` of `x * (40 - x) / 40`, its first vertex is (0, 0) and its last (40, 0).
+314. Polyline bounds (item 14, 3.20.9). For each segment of `E-10`'s polyline, with `t1` and `t2` the eccentric angles of its two vertices (found by the test with `atan2` in the ellipse's frame, with `t2` taken in `(t1, t1 + 2 * pi]`), the ellipse's point at `(t1 + t2) / 2` lies within 0.01 mm of the segment, and the angle between the ellipse's tangents at `t1` and `t2` is at most `2 * pi / 72 + 1e-12`.
+315. A B-spline's polyline (item 14, 3.20.9). In `POLES`, the polyline of `e-20` starts at (0, 0) and ends at (40, 0) bitwise, and every vertex lies within `1e-9` of the cubic Bezier with those four control points, which the test evaluates by its own de Casteljau steps.
+316. Degrees of freedom (item 14, 3.20.3). A sketch of only `E-10` solves with `dof` 5 and `status` `under_constrained`. Alone, `E-11` gives 7, `E-12` 6, `E-13` 7 and `E-14` 6.
+317. Built on point entities (item 14, 3.20.3). `POLES` solves with `dof` 8 and `e-20` `under_constrained`. With `fix` on `e-21`, `e-22`, `e-23` and `e-24` (bare ids) it solves with `dof` 0 and `e-20` `fully_constrained`.
+318. Constants of the solve (item 14, 3.20.3). A drag frame of `POLES` that moves `e-22` to (12, 22) returns `e-20` bitwise equal to the input record, with `e-22` at (12, 22) within `1e-6`.
+319. Spline problems (item 14, 3.20.5, 3.20.8). In `POLES`, `E-20` with each change below fails validation with `InvalidSpline { entity: e-20, problem }`: `degree` 0 or 26 with `Degree`; poles `e-21, e-22, e-23` with `TooFewPoints`; seven knots with `KnotCount`; knots `[0, 0, 0, 1, 1, 1, 1, 1]` with `Knots`; weights `[1, 1, 1]` with `WeightCount`; weights `[1, 0, 1, 1]` with `WeightNotPositive`; poles `e-21, e-22, e-21, e-24` with `RepeatedPoint`. In a sketch with `point e-26 (0,0)`, `point e-27 (10,10)` and `point e-28 (20,0)`, `E-25` with knots `[0, 2, 1, 3]` fails with `Knots`.
+320. Poles that are not points (item 14, 3.20.8). In `POLES`, `E-20` naming `e-99` in place of `e-22` fails with `InvalidPoint { entity: e-20, point: e-99 }`. With `line e-22 (10,20)->(11,20)` in place of the point `e-22` it fails with `InvalidPoint { entity: e-20, point: e-22 }`.
+321. Rho (item 14, 3.20.8). `E-14` with `rho` 0, 1 or -0.5 fails with `InvalidRho`. With `rho` 0.999 it validates.
+322. Messages of the new checks (item 14, 4.1). `InvalidRho` of `E-14` with `rho` 1 renders `Rho 1 of the conic from (0, 0) to (40, 0) must be greater than 0 and less than 1.` `InvalidSpline` of `E-40` with `degree` 30 renders `The spline from (0, 0) to (20, 0) cannot be used: its degree must be 1 to 25. Delete it and draw it again.`
+323. Words of the new kinds (item 14, 3.20.11). `MessageContext::entity` gives `the ellipse at (40, 25)` for `E-10`, `the elliptical arc from (20, 0) to (0, 10)` for `E-11`, `the parabola from (10, 5) to (-10, 5)` for `E-12`, and `the closed spline through (0, 0)` for a periodic `fit_spline` whose first point is at (0, 0).
+324. Linked entity JSON (item 26, 2.12). `E-60` re-serializes with the keys `id, type, start, end, link`, and its `link` with `kind, body, edge`. `E-63` re-serializes with `construction` after `link`. `E-64`'s `link` re-serializes to exactly `{"kind":"sketch","feature":"f-sk1","entity":"e-9"}`. A link with the extra member `"note": 1` fails to deserialize.
+325. Links a kind cannot take (item 26, 3.20.7). Each fails validation with `InvalidLink { entity, kind }` of that entity's kind: `E-61`'s `vertex` link on `line e-61 (0,0)->(1,0)`; `E-60`'s `edge` link on `point e-60 (0,0)`; a `sketch` link on `E-20` in `POLES`; any link on a text; an `edge` link on `E-14`.
+326. A linked entity is fixed (item 26, 3.20.7). The sketch of `E-60` with `line e-2 (40,0)->(50,10)` and `c-1 coincident [e-2.start, e-60.end]` solves with `E-60` bitwise unchanged, `e-60` `fully_constrained` and `dof` 2.
+327. A linked entity cannot be dragged (item 26, 3.20.7). On that sketch, `begin_drag` with `Point { point: e-60.start }` fails with `LinkedDragTarget { target: "e-60.start" }`, which renders `This geometry follows other geometry. Break its link to drag it.`
+328. Text JSON (item 27, 2.12). `E-50` re-serializes with the keys `id, type, text, font, size, path, horizontal_alignment`. With `"vertical_alignment": "baseline"` added it re-serializes without `vertical_alignment`. With `"horizontal_alignment": "left"` it re-serializes without `horizontal_alignment`.
+329. Text checks (item 27, 3.20.6, 3.20.8). `E-50` with `cline e-51 (0,0)->(30,0)` validates. It fails with `InvalidPath { entity: e-50, path }` when `path` is `e-99`, a point entity or `e-50`. It fails with `InvalidFont { entity: e-50 }` when `font` is `""`, `"Liberation Sans"` or `"<64 a digits>.woff2"`. It validates with `font` `"<64 a digits>.ttf"`, `"<64 a digits>.otf"` and `DEFAULT_FONT`.
+330. Text stays out of the arrangement (item 27, 3.20.6). `build_profile` of `RECT` with `E-50` along `e-1` gives the same regions and findings as `RECT` alone.
+331. Words of a text (item 27, 3.20.11). `MessageContext::entity` gives `the text 'LID'` for `E-50`, and `the text 'ABCDEFGHIJKLMNOPQRST...'` for the text `ABCDEFGHIJKLMNOPQRSTUVWXYZ`.
+332. Recipes take ids from the caller (item 24, 3.21). For one recipe of item 24's spec applied to `RECT` with a `new_id` that counts its calls, every id in the result's `entities` and `constraints` is one `new_id` returned, in call order, entities first.
+333. Recipes keep what was there (item 24, 3.21). In that result, the input's entities and constraints come first, bitwise equal and in their order.
+334. A change on the wire (item 24, 2.13). `serde_json::to_string` of a `SketchChange` has the top-level keys `params`, `entities` and `constraints` in that order, with empty lists written as `[]`.
+335. The schema of the new kinds (item 14, 3.3). In `schemars::schema_for!(SketchParams)` as item 14 builds it, the `type` constants of entities are the four kinds of section 2.3 and the eight curve kinds of section 2.12, 12 in all, and the `PointRef` pattern is the one of section 2.4's note. Item 27 adds `text`. Item 26 adds the `kind` constants `edge`, `vertex`, `section`, `silhouette` and `sketch` of `SketchLink`, after `origin`, `datum` and `face`. Test 15 changes with each of them in that item's spec step: its `type` list in items 14 and 27, its `kind` list in item 26.
+339. A parabola with no focal distance (item 14, 3.20.1). `E-12` with `focus` [0, 0] validates. `display_curves` gives it one polyline of the single vertex (0, 0), and `build_profile` reports `ZeroLength { entity: e-12 }`.
+340. `fix` on a spline built on point entities (item 14, 3.20.4). `POLES` with `c-1 fix e-20` (a bare id) solves with `dof` 0 and `e-20` `fully_constrained`.
+341. A recipe validates its input first (item 24, 3.21). For one recipe of item 24's spec, `apply_recipe` on `RECT` with `point e-1 (5,5)` added returns `DuplicateId { id: e-1 }` and never calls `new_id`.
+
 ## Open issues
 
 1. Technical design example superseded. Section 6 of the technical design shows `"plane": "origin/XY"`, a `rect` entity, a constraint `"on": ["e-1.width"]` and `"profile": "f-sk1/region:0"`. This spec uses a tagged plane object (`{"kind": "origin", "plane": "XY"}`), no rectangle entity (rectangles are four lines plus constraints), explicit reference fields per constraint type, and `RegionRef` instead of a region index (an index would break the no-index invariant). The example should be updated.
@@ -2014,6 +2797,9 @@ Unless stated, the context is that of section 6.10.
 18. Filling with several regions. The study's step 2 (S3) fills a hole with the one region whose outer loop runs along all of it, which the first text of section 3.14 tested by entries (the hole's entries with every flag flipped). Shapes that cross inside a region, such as two overlapping circles, leave no such region, and the entries test picked the lens, whose entries are those of the hole, while the two lunes that run along the hole stayed out, so the region lost two lune-shaped pieces. Section 3.14 now fills a hole with every region drawn inside it, found through the hole's edges and the pieces of added entities the regions share, which keeps ADR 0022's "regions drawn entirely inside a hole of new entities fill it" and gives the same result as before for a single region.
 19. One succession per removed entity. The first text of section 3.14 recorded a replacement per pair of survivors, so a removed line that another curve interrupted (outline `e-1,e-2,e-3,~e-5,e-3,e-4`) and whose two pieces new lines replaced got two successions, `e-3 -> [e-8]` and `e-3 -> [e-9]`, while naming keeps one list per key (naming.md section 3.3 step 6), so one replacement was dropped and a reference to the other piece could follow to the wrong face. Section 3.14 now merges them into `e-3 -> [e-8, e-9]`, and the anchors of the piece pick the face that carries its place (naming.md section 3.9, step 2). The stricter alternative, no replacement when `m` occurs more than once in `O`, would report such a reference lost instead.
 20. A redrawn hole. Holes of the stored key stay holes only while their entities are in the sketch. When the user deletes a stored hole and draws it again, for example `PLATE` with `e-5` deleted and `circle e-9 (40,25) r5` drawn in its place (or a 20 x 10 rectangle instead), every entity of the new hole is added, so step 2 of section 3.14 fills it with the disc, and the reference to the plate matches `Resolved { indices: [0, 1], method: Coverage }`: the extrude loses its hole with only the `region_split` notice (features.md open issue 10, features/extrude.md test 31). A test in `tests/boundary_matching.rs` pins this result until the decision. A possible rule: when every entity of a stored hole is gone, a hole of a seed whose entities are all added takes its place and stays a hole; it needs a choice when several stored holes are gone or a guide circle is drawn in the same edit, because the stored key does not say where each hole was. The owner signed ADR 0022 off as built on 2026-11-04, with this behavior.
-21. Slides through a constraint that repeats others at the warm start. Every Gauss-Newton step of section 3.7.4 is a minimum-norm correction, but the result of several steps need not be the solution nearest the warm start (the promise of section 3.11). When a row that only repeats others on the solution set is still about 1e-4 outside their span at the warm start, the first step takes it in with either rank tolerance. Its correction moves free geometry along the directions the repeated rows leave free: two of the 97,574 generated cases of section 3.7.4 moved a coordinate 0.12 and 0.16 mm from a warm start within 0.01 mm of the known solution. A review's probe found 4 in 585,484 generated cases that moved 0.128 to 0.258 mm. Of the 975,918 cases that seeds 0 to 999,999 of the generator give, seeds 230290, 259081, 478151, 505952 and 742663 move a coordinate 0.133, 0.128, 0.129, 0.258 and 0.225 mm with the step tolerance, as they did without it (505952 moved 0.256 mm; measured 2026-10-31). No acceptance test checks such a case. Test 256 is the only test of the minimum-norm promise of section 3.11, and tests 189 to 194 check that constraints hold and results repeat, not how far geometry moved. A scan of the 19.5 million cases of seeds 0 to 19,999,999 (2026-10-31) found the largest slide yet, seed 9841460: `c-11`, a distance from `e-7.end` to the midpoint `e-8` that repeats `c-5` and `c-8`, lies 1.4e-5 outside the span at the warm start, above the step tolerance. The first Gauss-Newton step is 742 mm long, and dog-leg takes 371 mm of it after halving its radius. The free line `e-12`, collinear with the horizontal `e-9`, stretches from 32 mm to 492 mm (to 2,591 mm before the step tolerance). That sketch moved by (475.86452147398586, 146.63635321809318) solves 1.007e-6 away from the moved result, and test 192 fails on it. It was the only failure of tests 189, 192 and 194 in the scan that the fold rule of section 6.13 does not discard. The nightly command met a second one in 1,820 runs (2026-10-31), seed 5635218625053008121 with the offset (0, 487.4378466513926): `c-5`, a distance from `e-1.end` to the fixed `e-3` that repeats `c-4` once `e-2.end` mirrors `e-3` about `e-1` (`c-3`), lies 1.4e-5 outside the span at the warm start. The first step slides the free `e-2.start` 5.36 mm along `e-2`, and the moved sketch solves 1.2e-6 away from the moved result, as it does with the solver before ADR 0052. Test 192 can still fail on such a slide, about once in 2,000 to 5,000 nightly runs. Column pivoting in the step (ADR 0052, option (c)) and the exact trust-region step (option (d)) are the ways to remove them. Both change the iteration path of cases that do not slide. The owner accepted the rate for M1 on 2026-11-04 and scheduled option (d) right after M1. A nightly failure of this kind keeps its `cc` line out of the regressions file (delivery.md 2.11).
-22. Drags past reach. The budgets of section 5.1 are measured with cursors within reach (section 5.2). Past reach, a large component's frames need step 5 of section 3.9, which runs only after the weighted solve has spent its iterations. Dragging `e-24-ar.center` of the chain of section 5.2 to (600, 0), 100 mm past its reach, a frame takes about 0.96 s, as it did when it failed (0.92 to 0.99 s), puts the end near (439.9, 12.6), 160 mm from the cursor, and each further frame moves it only a few mm closer (u 446.8, then 454.4); before step 5, a later frame at (0, 600) took 71 s, with it 0.97 s (measured 2026-10-31 with a prototype of ADR 0052). The second dog-leg pass of section 3.7.4 also runs in such a frame's weighted solve and leaves its time where it was (1.20 s a frame with it, 1.22 s without, measured 2026-10-31). The options left: start a frame with `D = I` when the previous frame needed step 5 (a drag past reach then costs one solve per frame), or stop a weighted solve that creeps before its `MAX_ITERATIONS` (step 5 then starts sooner).
-23. Solutions next to a fold. Dimensions that leave a solution about 1e-3 mm from a degenerate shape, where their rows become dependent, put a fold between two solutions close to the user's geometry (measured 2026-10-31). In one kind, the step tolerance of section 3.7.4 leaves out a row that lies within `1e-6` of the span at the solution itself (seed 1947428 of the generator, test 258: a line's length and two distances to an arc's end that leave a triangle 9.33e-4 mm high). The second dog-leg pass of section 3.7.4 converges there, as the solve did before the step tolerance. In the other, the warm start lies past the fold or the first step reaches it, and both methods stop on it with either rank tolerance. Seed 2825233946436231350 is such a case: a vertical line `e-1`, an arc `e-3` tangent to it, and between `e-1.start` and `e-3.start` a distance of 13.389074315383418 and a vertical distance of -13.389074284346322, which leave the arc's start 9.1e-4 beside the line. Dog-leg ends where the start touches the line, with the distance 3.1e-8 off and its row dependent there. Levenberg-Marquardt stops 3.3e-9 off. At the fold the Gauss-Newton model is flat along the direction that would leave the fold, while the residuals curve along it. Neither method sees the way out. The generator of section 6.13 discards cases within 0.1 of such a fold. This spec promises no solution across one. For a user, the second kind is a sketch that reports `NotConverged` until its geometry is dragged to the side of the fold the dimensions are meant for, as with any warm start out of reach. A way to cross a fold, for later: a second-order step at a point where the model is flat but the residuals curve. It changes the method of section 3.7.4 (ADR 0052, the fold options).
+21. Slides through a constraint that repeats others at the warm start. Every Gauss-Newton step of section 3.7.4 is a minimum-norm correction, but the result of several steps need not be the solution nearest the warm start (the promise of section 3.11). When a row that only repeats others on the solution set is still about 1e-4 outside their span at the warm start, the first step takes it in with either rank tolerance. Its correction moves free geometry along the directions the repeated rows leave free: two of the 97,574 generated cases of section 3.7.4 moved a coordinate 0.12 and 0.16 mm from a warm start within 0.01 mm of the known solution. A review's probe found 4 in 585,484 generated cases that moved 0.128 to 0.258 mm. Of the 975,918 cases that seeds 0 to 999,999 of the generator give, seeds 230290, 259081, 478151, 505952 and 742663 move a coordinate 0.133, 0.128, 0.129, 0.258 and 0.225 mm with the step tolerance, as they did without it (505952 moved 0.256 mm; measured 2026-10-31). No acceptance test checks such a case. Test 256 is the only test of the minimum-norm promise of section 3.11, and tests 189 to 194 check that constraints hold and results repeat, not how far geometry moved. A scan of the 19.5 million cases of seeds 0 to 19,999,999 (2026-10-31) found the largest slide yet, seed 9841460: `c-11`, a distance from `e-7.end` to the midpoint `e-8` that repeats `c-5` and `c-8`, lies 1.4e-5 outside the span at the warm start, above the step tolerance. The first Gauss-Newton step is 742 mm long, and dog-leg takes 371 mm of it after halving its radius. The free line `e-12`, collinear with the horizontal `e-9`, stretches from 32 mm to 492 mm (to 2,591 mm before the step tolerance). That sketch moved by (475.86452147398586, 146.63635321809318) solves 1.007e-6 away from the moved result, and test 192 fails on it. It was the only failure of tests 189, 192 and 194 in the scan that the fold rule of section 6.13 does not discard. The nightly command met a second one in 1,820 runs (2026-10-31), seed 5635218625053008121 with the offset (0, 487.4378466513926): `c-5`, a distance from `e-1.end` to the fixed `e-3` that repeats `c-4` once `e-2.end` mirrors `e-3` about `e-1` (`c-3`), lies 1.4e-5 outside the span at the warm start. The first step slides the free `e-2.start` 5.36 mm along `e-2`, and the moved sketch solves 1.2e-6 away from the moved result, as it does with the solver before ADR 0052. Test 192 can still fail on such a slide, about once in 2,000 to 5,000 nightly runs. Column pivoting in the step (ADR 0052, option (c)) and the exact trust-region step (option (d)) are the ways to remove them. Both change the iteration path of cases that do not slide. The owner accepted the rate for M1 on 2026-11-04 and scheduled option (d) right after M1. A nightly failure of this kind keeps its `cc` line out of the regressions file (delivery.md 2.11). **Status (2026-11-07, spec): resolved by ADR 0058.** The trust region of section 3.7.4 takes the exact step from a first radius that the damped step at Levenberg-Marquardt's first damping sets. On a prototype, the five seeds above end within 0.015 of their known solutions, seed 9841460 within 0.0099 and seed 5635218625053008121 within 0.0038. The moved sketches of those two solve within 7e-14 of the moved results. Over the 1,951,609 cases of seeds 0 to 1,999,999, no coordinate moved more than 0.031 from its warm start. On the solver of a3f4573, seven seeds of 1,000,000 to 1,999,999 slide 0.10 to 4.76 mm as well (test 336). Tests 259 to 261 and 336 pin this: the replayable seeds, a property over the generator and the translated cases. The examples whose results move are re-blessed once by ADR 0058's procedure. Wave 5 runs the scan of seeds 0 to 19,999,999 again, with tests 189, 192, 194 and 260 (M2 plan gate 8), as the ignored test `scan_seeds` of section 6.13. Once the implementation lands, a nightly failure of test 192 commits its `cc` line like any other failure (delivery.md 2.11).
+22. Drags past reach. The budgets of section 5.1 are measured with cursors within reach (section 5.2). Past reach, a large component's frames need step 5 of section 3.9, which runs only after the weighted solve has spent its iterations. Dragging `e-24-ar.center` of the chain of section 5.2 to (600, 0), 100 mm past its reach, a frame takes about 0.96 s, as it did when it failed (0.92 to 0.99 s), puts the end near (439.9, 12.6), 160 mm from the cursor, and each further frame moves it only a few mm closer (u 446.8, then 454.4); before step 5, a later frame at (0, 600) took 71 s, with it 0.97 s (measured 2026-10-31 with a prototype of ADR 0052). The second dog-leg pass of section 3.7.4 also runs in such a frame's weighted solve and leaves its time where it was (1.20 s a frame with it, 1.22 s without, measured 2026-10-31). The options left: start a frame with `D = I` when the previous frame needed step 5 (a drag past reach then costs one solve per frame), or stop a weighted solve that creeps before its `MAX_ITERATIONS` (step 5 then starts sooner). **Status (2026-11-07, spec): with the exact step of ADR 0058.** A drag past reach still needs step 5, and its frames are slower. On a prototype, three frames at (600, 0) took 1.47 to 1.63 s each, against 1.28 to 1.40 s with dog-leg on the same machine. The end stayed 163 to 168 mm from the cursor, against 153 to 182 mm with dog-leg. Every frame converged. The options above stand.
+23. Solutions next to a fold. Dimensions that leave a solution about 1e-3 mm from a degenerate shape, where their rows become dependent, put a fold between two solutions close to the user's geometry (measured 2026-10-31). In one kind, the step tolerance of section 3.7.4 leaves out a row that lies within `1e-6` of the span at the solution itself (seed 1947428 of the generator, test 258: a line's length and two distances to an arc's end that leave a triangle 9.33e-4 mm high). The second dog-leg pass of section 3.7.4 converges there, as the solve did before the step tolerance. In the other, the warm start lies past the fold or the first step reaches it, and both methods stop on it with either rank tolerance. Seed 2825233946436231350 is such a case: a vertical line `e-1`, an arc `e-3` tangent to it, and between `e-1.start` and `e-3.start` a distance of 13.389074315383418 and a vertical distance of -13.389074284346322, which leave the arc's start 9.1e-4 beside the line. Dog-leg ends where the start touches the line, with the distance 3.1e-8 off and its row dependent there. Levenberg-Marquardt stops 3.3e-9 off. At the fold the Gauss-Newton model is flat along the direction that would leave the fold, while the residuals curve along it. Neither method sees the way out. The generator of section 6.13 discards cases within 0.1 of such a fold. This spec promises no solution across one. For a user, the second kind is a sketch that reports `NotConverged` until its geometry is dragged to the side of the fold the dimensions are meant for, as with any warm start out of reach. A way to cross a fold, for later: a second-order step at a point where the model is flat but the residuals curve. It changes the method of section 3.7.4 (ADR 0052, the fold options). **Status (2026-11-07, spec): with the exact step of ADR 0058.** The exact step minimizes the same Gauss-Newton model, which is flat at a fold along the way out. It gives no way out either, and the generator's fold rule stays. Test 258 still needs the second pass: on a prototype, the first pass and Levenberg-Marquardt stop short there, and the second pass converges. The second-order step above is still the way to cross a fold.
+24. Chains follow only their key (M2, [ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md)). A stored chain resolves when every entity of its key is still a connected curve of the sketch (section 3.18.3). A chain whose entity a trim, a split or an extend of M2 item 25 replaces is `Deleted` until that item's ADR, which amends ADR 0022, gives chains their successions. `ChainMatch::Resolved` already carries them, always empty until then. Chains hold lines, arcs and circles. M2 item 14's spec says how ellipses, conics and B-splines join them.
+25. Glyph names in later features (M2, ADR 0066). A feature uses a text entity whole (section 3.20.6). No params field indexes glyphs or characters. The faces an extrude or an emboss makes from text still need names, and a fillet of one letter stores one. Item 27's spec and naming.md must name them without the position of a glyph or a character (m2-plan.md gate 4), for example with order-dependent names and anchors as naming.md section 3.9 gives faces without a stable generator.
+26. Kinds that change under a link (M2, ADR 0066). A circle edge projects to an ellipse when its face tilts. Section 3.20.7 keeps the stored kind and geometry then, and the sketch reports it. Projecting again makes a new entity of the new kind. Constraints on the old one are not moved to it. Item 26's spec may offer a fix that does so.

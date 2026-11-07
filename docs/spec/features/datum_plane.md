@@ -51,11 +51,19 @@ The output placement uses sketch.md's `Placement` JSON, for example `{"origin": 
 
 Label `Datum plane`, category `construct`, icon `datum-plane`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Adds a plane offset from another plane, to sketch on or mirror across.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `base` | Base plane | yes | | `plane` | |
 | `offset` | Offset | yes | length | | |
 | `flip` | Flip | no | | | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `offset` | Distance from the base plane along its normal. | `expr` `10 mm` | |
 
 ### Python
 
@@ -133,6 +141,7 @@ Conventions from features.md section 6.1. The expected placement is the `DatumRe
 17. **A face split into coplanar pieces keeps its plane.** Bodies `[b-1]`; `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": RECT(0, 0, 80, 50)}`; `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}, "extent": {"kind": "distance", "expr": "30"}, "op": "new"}`; the slot of naming.md test 84 (`{"id": "f-dp9", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}`, `{"id": "f-sk9", "type": "sketch", "plane": {"kind": "datum", "feature": "f-dp9"}, "entities": [{"id": "e-11", "type": "line", "start": [30, -1], "end": [50, -1]}, {"id": "e-12", "type": "line", "start": [50, -1], "end": [50, 51]}, {"id": "e-13", "type": "line", "start": [50, 51], "end": [30, 51]}, {"id": "e-14", "type": "line", "start": [30, 51], "end": [30, -1]}]}`, `{"id": "f-ext9", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk9", "regions": [{"key": "e-11,e-12,e-13,e-14", "fp": "c=40,25|a=1040"}]}, "extent": {"kind": "distance", "expr": "5"}, "reverse": true, "op": "cut"}`), which splits the end cap into `f-ext1/end-cap#1` and `#2`; `DP({"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}}, "offset": "5")`, as `examples/datum_plane/on-split-face`. Expected: f-dp1 status ok with no warning; origin (0,0,35), x_axis (1,0,0), normal (0,0,1).
 18. **A shell inserted under the datum's face (corpus R58).** Bodies `[b-1]`; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["80", "50", "30"], "op": "new"}`; `{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}]}`; `DP({"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}}, "offset": "-2")`, as `examples/datum_plane/on-shelled-top`. Expected: f-dp1 status ok with notice `reference_followed` (follow `Continued`) at `/base/face`, rendered `The top of 'Box 1' selected for Base plane was removed by 'Shell 1', which left its rim in the same place, so the rim is used.`, fixes `KeepMatch` then `Pick`; origin (0,0,28), normal (0,0,1).
 19. **The motion a datum passes on.** Bodies `[b-1]`; `{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}`; `{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}`; `DP({"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}})`, as `examples/datum_plane/on-moved-face`. Expected: origin (0,0,10), x_axis (1,0,0), normal (0,0,1), as before this change, and `motion` the identity (sliding along the face does not move the datum's frame). With f-mv1 a rotation of 180 deg about the X axis instead (`"rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}`, the top now at z = -10 facing -Z; made by the test from the example): origin (0,0,-10), x_axis (1,0,0), normal (0,0,-1), and `motion` that rotation. With the rotation, test 10's `f-dp2` placed after f-dp1 (made by the test from the example: the rotation in place of the translation and that record added) has f-dp1's motion, the rotation. With an origin base (test 1), `motion` is the identity, and test 10's f-dp2 has f-dp1's motion: both are read from test 10's example, `examples/datum_plane/chained`, whose f-dp1 is test 1's datum.
+20. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `datum_plane` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("datum_plane")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out.
 
 ## Open issues
 

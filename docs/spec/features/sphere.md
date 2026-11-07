@@ -53,12 +53,16 @@ JSON:
 
 Label `Sphere`, category `create`, icon `sphere`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Adds a ball of the given radius.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `radius` | Radius | yes | length | | |
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
 | `plane`, `position[0..2]` | features.md section 3.14 | no | | | |
 | `body` | Body | no | | `body` | |
+
+No field has help, a start value or a new body (since M2, features.md section 2.3).
 
 ### Python
 
@@ -120,6 +124,7 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CUBE20`: `{"id": "f-b
 8. **Intersect.** `CUBE20`, `{"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "8", "position": ["0", "0", "20"], "op": "intersect"}` (centered on the top face), as `examples/sphere/intersect`. Expected: ok; volume 1072.330292 (the lower half of the sphere), 2 faces, bbox [-8,-8,12]-[8,8,20]; change `Intersect`; `f-sph1/surface` spherical with radius 8 and area 402.123860; `f-box1/top` planar at z=20 with area 201.061930.
 9. **On a datum.** `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "10"}`, test 1's sphere with `"plane": {"kind": "datum", "feature": "f-dp1"}`, as `examples/sphere/on-datum`. Expected: ok; as test 2, volume 4188.790205 and bbox [-10,-10,0]-[10,10,20] (centered on the datum's origin (0,0,10)); dependencies `features == ["f-dp1"]`.
 10. **On a face of another body.** Bodies `[b-1, b-2]`; `CUBE20`; `{"id": "f-sph1", "type": "sphere", "body": "b-2", "radius": "5", "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}}, "position": ["0", "0", "5"], "op": "new"}`, as `examples/sphere/on-face`. Expected: ok; b-2 volume 523.598776, 1 face, bbox [-5,-5,20]-[5,5,30] (resting on the top of the cube); b-1 unchanged; f-sph1 dependencies `bodies_read == ["b-1"]`, `bodies_written == ["b-2"]`.
+11. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `sphere` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("sphere")` has the description of the Manifest section, and none of its hints has help, a start value or a new body.
 
 ## Open issues
 

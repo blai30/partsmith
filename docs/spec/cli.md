@@ -16,6 +16,20 @@ The CLI serves makers who script batch exports, CI jobs that validate models and
 - Feature messages with their location, then the actions that fix them and the candidates that could replace a lost reference; in JSON with codes, fields, actions, candidates, loss reasons, roots and details ([the error guidelines](../guidelines/errors.md), "Hosts").
 - `--version`, `--help`, human and JSON output, fixed exit codes.
 
+**In M2** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md))
+
+- `--printer-file <PATH>` on `rebuild` and `export`: a custom printer profile read from a file (sections 2 and 3.3).
+- Documents that store their printer profile rebuild with it, with no `--printer` (engine.md section 3.7).
+
+**In M2: cancel** ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+- Nothing stops a CLI rebuild early. The session keeps `CancelFlag::never()`, the default of `SessionOptions::headless()` (section 3.6, engine.md section 3.26). No status reads `not_run`.
+
+**In M2: assets** ([ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md))
+
+- The CLI keeps passing every asset-named file of `assets/` to `open_document` (section 2.3). It sends no `add_assets`. Font assets (`<hash>.ttf`, `<hash>.otf`) already match the pattern of section 2.3.
+- `asset_mismatch` has new words that name the feature that reads the wrong file, with the file's name in the detail (engine.md section 4). `validate` reports it at that feature's asset field, and `rebuild` and `export` print it as the reason the file did not open (tests 86 and 87).
+
 **Later (not in M1)**
 
 - `partsmith merge-driver` for git, with validation after merge.
@@ -23,7 +37,7 @@ The CLI serves makers who script batch exports, CI jobs that validate models and
 - `partsmith import` (STEP or mesh to a new `.ptsm`).
 - `.ptsz` pack and unpack.
 - Watch mode and slicer handoff (`partsmith send`).
-- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. A CLI session has only the built-in profiles, so in M1 `--printer` names `generic-fdm` or `generic-resin`.
+- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. A CLI session has only the built-in profiles, so in M1 `--printer` names `generic-fdm` or `generic-resin`. M2 adds `--printer-file` (In M2, above).
 - Running Python scripts (done by `python -m partsmith`, python-api.md).
 - Colored output and progress bars.
 
@@ -36,10 +50,11 @@ partsmith [--version] [--help] <COMMAND>
 
 partsmith validate [--rebuild] [--canonical] [--deny-warnings] [--json] <FILE>...
 partsmith fmt [--check] <FILE>...
-partsmith rebuild [--checks] [--printer <ID>] [--rotate <AXIS:DEGREES>]... [--deny-warnings] [--json] <FILE>
+partsmith rebuild [--checks] [--printer <ID> | --printer-file <PATH>] [--rotate <AXIS:DEGREES>]... [--deny-warnings]
+                  [--json] <FILE>
 partsmith export <FILE> --output <PATH> [--format <FORMAT>] [--body <BODY>]... [--per-body] [--ascii]
-                 [--chord <MM>] [--angle <DEGREES>] [--printer <ID>] [--rotate <AXIS:DEGREES>]...
-                 [--allow-errors] [--json]
+                 [--chord <MM>] [--angle <DEGREES>] [--printer <ID> | --printer-file <PATH>]
+                 [--rotate <AXIS:DEGREES>]... [--allow-errors] [--json]
 partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 ```
 
@@ -52,7 +67,8 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `--json` | `validate`, `rebuild`, `export` | Print one JSON document on standard output instead of text. |
 | `--check` | `fmt`, `schema` | Do not write; fail when a file would change. |
 | `--checks` | `rebuild` | Also run print analysis and report findings. |
-| `--printer <ID>` | `rebuild`, `export` | Use this printer profile instead of the document's `printer` (for `printer.*` values, tessellation and checks). Not saved. An installed profile, which in M1 is a built-in one (`generic-fdm` or `generic-resin`, print.md section 3.3; custom profiles are Later, section 1). |
+| `--printer <ID>` | `rebuild`, `export` | Use this printer profile instead of the document's `printer` (for `printer.*` values, tessellation and checks). Not saved. An installed profile, which in M1 is a built-in one (`generic-fdm` or `generic-resin`, print.md section 3.3; custom profiles are Later, section 1). From M2 it may also be the document's own `printer` when the document stores that profile, which then changes nothing (3.3). |
+| `--printer-file <PATH>` | `rebuild`, `export` | Use the printer profile in this file instead of the document's `printer`: JSON text in print.md's input form (section 3.1 of print.md), such as a profile a script writes or a document's stored `printer_profile` saved as a file of its own. Not saved. Not with `--printer` (exit 2). `-` is not standard input here, but a file named `-`. |
 | `--rotate <AXIS:DEGREES>` | `rebuild`, `export` | Rotation about the model axis `x`, `y` or `z` (case-insensitive) by a finite number of degrees, for example `x:90`. Repeatable; each rotation applies after the previous ones, about fixed model axes. Gives an `Orientation::Matrix` for checks and export. |
 | `-o`, `--output <PATH>` | `export` | Output file, or output directory with `--per-body`. Required. |
 | `--format <FORMAT>` | `export` | `stl`, `3mf`, `obj`, `step` or `py`. Default: from the output extension. |
@@ -66,14 +82,14 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `--out-dir <DIR>` | `schema` | Directory for `--write` and `--check`. Default `docs/format`, relative to the current directory. |
 | `<NAME>` | `schema` | `ptsm` or `protocol`: print that schema to standard output. |
 
-`partsmith --version` prints exactly `partsmith 0.1.0 (protocol 1, format 2, OCCT 7.9.3)` followed by a newline, with the engine version, `PROTOCOL_VERSION`, the format version and the kernel string from `engine_info`.
+`partsmith --version` prints exactly `partsmith 0.1.0 (protocol 1, format 3, OCCT 7.9.3)` followed by a newline (`format 2` before format version 3), with the engine version, `PROTOCOL_VERSION`, the format version and the kernel string from `engine_info`.
 
 ### 2.1 Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | The model has problems: validation errors, warnings of a lost, ambiguous or guessed reference (3.1), other warnings with `--deny-warnings`, a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, an engine error while exporting, or schema drift (`schema --check`). |
+| 1 | The model has problems: validation errors, warnings of a lost, ambiguous or guessed reference (3.1), other warnings with `--deny-warnings`, a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, a `--printer-file` whose profile the engine refuses, an engine error while exporting, or schema drift (`schema --check`). |
 | 2 | Usage error: unknown command or option, missing or invalid value, or an option that does not apply to the chosen format. Printed by clap or in the same style. |
 | 3 | Input or output error: a file or directory cannot be read or written, or the write refuses it (a read-only file, a symbolic link that leads to no file, or a link that changed while the write followed it, 3.7). |
 | 4 | Internal error: a panic. `main` installs `std::panic::catch_unwind` around the run and prints `internal error: <message>` to standard error. |
@@ -145,7 +161,7 @@ Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and
 
 ### 3.3 `rebuild`
 
-1. Opens the file with its assets, applies `--printer` as an in-memory `set_printer` when given (exit 1 with `error: Printer profile "<id>" is not installed.` when unknown), and recomputes.
+1. Opens the file with its assets, applies `--printer` as an in-memory `set_printer` when given (exit 1 with `error: Printer profile "<id>" is not installed.` when unknown), and recomputes. `--printer <ID>` is installed when it is a built-in id, or the document's own `printer` while the document stores that profile; for the document's own `printer` the CLI applies no edit, and the stored profile stays in use. With `--printer-file <PATH>`, before it opens the file, the CLI reads `<PATH>` as UTF-8 text (exit 3 with `error: cannot read "<PATH>": <os message>` when it cannot) and puts it with the engine's `put_printer_profile_text`. A profile the engine refuses exits 1 with `error: <PATH>: <engine message>` (`invalid_profile`, or `profile_id_reserved` for a built-in id). The CLI then applies `--printer <its id>`, as above: the in-memory `set_printer` stores the file's profile in the document (engine.md section 3.3), which overrides a profile the document stores, and nothing is saved.
 2. Measures every body with geometry (engine `measure`). A body without volume (engine.md section 3.11) is measured too, without a center of mass.
 3. With `--checks`, runs `analyze_print` with the effective profile and the orientation from `--rotate` (default `as_modeled`) on the default bodies.
 4. Human output:
@@ -294,6 +310,8 @@ A parameter that failed to evaluate has `error` instead of `value` and `dimensio
 - The CLI never modifies an input file except through `fmt` without `--check`.
 - Output is deterministic: the same inputs give byte-identical standard output, standard error and written files.
 
+**No stop** (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md)). The CLI's session keeps `CancelFlag::never()`. Every rebuild, export and check runs to its end, and no status line or `status` field reads `not_run`. Ctrl+C ends the process as in M1, with the default action of the signal.
+
 ### 3.7 Writing files
 
 `fmt` (3.2), `export` (3.4) and `schema --write` (3.5) write every file through one write, `files::write` in `crates/partsmith-cli/src/files.rs`. Each error names the file by the path as given or derived from a given path (section 4), never a temporary file or the file a link points to. The write stops at the first step that fails:
@@ -334,6 +352,9 @@ A link that leads to a file is written through: the file it points to is replace
 | A read-only file the command would replace (3.7 step 2) | `error: cannot write "<path>": the file is read-only. Make it writable first.` | 3 |
 | Document does not load | the load diagnostic (2.2): the engine's `parse_error` or `unsupported_format_version` with the line, column and JSON Pointer the error carries (engine.md section 4), the same diagnostic `validate` reports for the text | 1 |
 | Unknown `--printer` | `error: Printer profile "<id>" is not installed.` | 1 |
+| Unreadable `--printer-file` | `error: cannot read "<path>": <os message>` | 3 |
+| A `--printer-file` profile the engine refuses | `error: <path>: <engine message>` (the print crate's message, or `"<id>" is a built-in profile. Save your changes under a new name.`) | 1 |
+| `--printer` with `--printer-file` | clap's message for two options that cannot be used together | 2 |
 | Unknown `--body` | `error: There is no body named or with id "<value>".` | 1 |
 | Ambiguous `--body` | `error: Two bodies are named "<value>". Use the body id.` | 1 |
 | Failed features in `export` | `error: <path>: <n> feature(s) failed (<ids>). Fix them or pass --allow-errors to export anyway.` | 1 |
@@ -380,7 +401,7 @@ Tests live in `crates/partsmith-cli/tests/` and run the built binary (`env!("CAR
 
 **General**
 
-1. `partsmith --version` prints `partsmith 0.1.0 (protocol 1, format 2, OCCT 7.9.3)\n` and exits 0.
+1. `partsmith --version` prints `partsmith 0.1.0 (protocol 1, format 3, OCCT 7.9.3)\n` and exits 0 (`format 2` before format version 3).
 2. `partsmith` with no arguments exits 2.
 3. `partsmith frobnicate` exits 2.
 
@@ -487,7 +508,7 @@ The other words, among them the shared cases of print.md 3.12, are print.md test
 
 Test 64 is in `crates/partsmith-cli/tests/budgets.rs`, declared `mod budgets;` in `tests/integration.rs` (ADR 0035), and runs with `cargo test -p partsmith-cli --test integration budgets::`.
 
-64. The 200 KB document of section 5. The text `budget_document()` returns has 200,000 bytes or more and fewer than 210,000, and is the same on every call. Written as `budget.ptsm`, `partsmith validate budget.ptsm` prints `budget.ptsm: ok\n` and exits 0, and `partsmith fmt --check budget.ptsm` prints nothing and exits 0. Parsed as JSON, it has the members of `plate.ptsm` in their order, with `format`, `format_version` and `units` plate's (`partsmith`, 2, `mm`) and `parameters` `[]`; `bodies` has 133 entries, entry `k` (from 1) `{"id": "b-<k>", "name": "Plate <k>"}`, so the first is `{"id": "b-1", "name": "Plate 1"}` and the last `{"id": "b-133", "name": "Plate 133"}`; and `features` has 266 entries, `f-sk1`, `f-ext1`, `f-sk2` and so on to `f-ext133` in this order, where, for each `k`, `f-sk<k>` and `f-ext<k>` equal the sketch and the extrude of `plate.ptsm` with `b-1`, `f-sk1`, `f-ext1`, `e-1` to `e-4` and `c-1` to `c-8` written `b-<k>`, `f-sk<k>`, `f-ext<k>`, `e-<k>01` to `e-<k>04` and `c-<k>01` to `c-<k>08` wherever they occur, region keys and point references such as `e-1.end` included, so the last copy's region key is `e-13301,e-13302,e-13303,e-13304` and its last constraint `c-13308`.
+64. The 200 KB document of section 5. The text `budget_document()` returns has 200,000 bytes or more and fewer than 210,000, and is the same on every call. Written as `budget.ptsm`, `partsmith validate budget.ptsm` prints `budget.ptsm: ok\n` and exits 0, and `partsmith fmt --check budget.ptsm` prints nothing and exits 0. Parsed as JSON, it has the members of `plate.ptsm` in their order, with `format`, `format_version` and `units` plate's (`partsmith`, 3, `mm`; 2 before format version 3) and `parameters` `[]`; `bodies` has 133 entries, entry `k` (from 1) `{"id": "b-<k>", "name": "Plate <k>"}`, so the first is `{"id": "b-1", "name": "Plate 1"}` and the last `{"id": "b-133", "name": "Plate 133"}`; and `features` has 266 entries, `f-sk1`, `f-ext1`, `f-sk2` and so on to `f-ext133` in this order, where, for each `k`, `f-sk<k>` and `f-ext<k>` equal the sketch and the extrude of `plate.ptsm` with `b-1`, `f-sk1`, `f-ext1`, `e-1` to `e-4` and `c-1` to `c-8` written `b-<k>`, `f-sk<k>`, `f-ext<k>`, `e-<k>01` to `e-<k>04` and `c-<k>01` to `c-<k>08` wherever they occur, region keys and point references such as `e-1.end` included, so the last copy's region key is `e-13301,e-13302,e-13303,e-13304` and its last constraint `c-13308`.
 
 **Bodies without volume**
 
@@ -514,6 +535,31 @@ Tests 66 to 69 and 71 are in `crates/partsmith-cli/tests/writes.rs`, declared `m
 69. A read-only file is refused (3.7 step 2, open issue 14). (a) With `tmp/out.stl` holding `old` and read-only, `partsmith export box.ptsm -o out.stl` exits 3, prints nothing on standard output and exactly `error: cannot write "out.stl": the file is read-only. Make it writable first.\n` on standard error. `out.stl` still holds `old` and is read-only, and `tmp` holds exactly `box.ptsm` and `out.stl`. (b) With `tmp/reindented.ptsm` holding `box.ptsm` re-indented with 4 spaces and read-only, `partsmith fmt reindented.ptsm` exits 3, prints nothing on standard output and exactly `error: cannot write "reindented.ptsm": the file is read-only. Make it writable first.\n` on standard error, and the file still holds its text and is read-only. `partsmith fmt --check reindented.ptsm` prints `reindented.ptsm\n` and exits 1, since it writes nothing. With `tmp/box.ptsm` read-only, `partsmith fmt box.ptsm` prints nothing and exits 0, since a canonical file is not written (3.2). (c) With `tmp/s/ptsm.schema.json` holding `stale` and `tmp/s/protocol.schema.json` holding `partsmith_engine::protocol_schema()`, both read-only, `partsmith schema --write --out-dir s` exits 3. It prints exactly `unchanged s/protocol.schema.json\n` on standard output and exactly `error: cannot write "s/ptsm.schema.json": the file is read-only. Make it writable first.\n` on standard error. Both files keep their contents and stay read-only. (d) (Unix) Behind a link: with `tmp/real/part.stl` holding `old` and read-only, and `tmp/out.stl` a link to `real/part.stl`, `partsmith export box.ptsm -o out.stl` exits 3 with exactly the standard error of (a), which names `out.stl`, the link. `real/part.stl` still holds `old` and is read-only, `real` holds only `part.stl`, and `out.stl` is the same link. (Before wave G, each of (a) to (d) exited 0 and replaced the file, which stayed read-only.)
 70. The look through a link and the temporary file (3.7 steps 1 and 3, open issue 13). Unit tests in `src/files.rs`, on Unix. They call `link_target` with the look and the resolve passed in, as desktop.md test 73 does on the desktop. A test can neither make a link that another user owns nor change a link between two calls. With `dir/link.stl` a link to `real/part.stl`, and `dir/real/part.stl` holding `old`: (a) With `std::fs::metadata` and `std::fs::canonicalize`, it gives the path `std::fs::canonicalize` gives for `dir/real/part.stl`. (b) A look that fails with `io::ErrorKind::PermissionDenied` and the text `Permission denied`, as Linux's `fs.protected_symlinks` makes it fail for a link another user owns in `/tmp`, gives that error, and the resolve is never called. (c) A look that fails with `io::ErrorKind::NotFound` gives an error of kind `io::ErrorKind::NotFound` whose text is `it is a symbolic link to a file that does not exist. Create that file first, or remove the link.`, and the resolve is never called. (d) A resolve that gives `dir/other.stl`, holding `other`, as if the link had changed after the look, gives an error of kind `io::ErrorKind::StaleNetworkFileHandle` whose text is `the symbolic link changed while Partsmith was following it. Try again.` (e) For `dir/plain.stl`, a regular file, and for `dir/missing.stl`, which does not exist, it gives the path itself and calls neither the look nor the resolve. (f) `create_temporary(dir, Some(&permissions))`, with `permissions` of mode `0o666` (`PermissionsExt::from_mode`), gives an empty file in `dir` whose name starts with `.partsmith-` and whose mode is `0o666`. That is more than the usual umask (`0o022` or `0o002`) lets a new file have. The mode shows that `set_permissions` ran before any byte was written. (g) `create_temporary` in `dir/missing`, a folder that does not exist, fails with an error of kind `io::ErrorKind::NotFound` whose text is exactly `No such file or directory (os error 2)`, the system's text without a path.
 71. (Unix) A write error names the path as given, never the temporary file (3.7 step 3). With no folder `tmp/missing`, `partsmith export box.ptsm -o missing/out.stl` exits 3, prints nothing on standard output and exactly `error: cannot write "missing/out.stl": No such file or directory (os error 2)\n` on standard error, and `tmp` holds only `box.ptsm`. The case holds as root too. (Before wave G, the line went on with ` at path "<tmp>/missing/.partsmith-<random>"`, the temporary file the write had tried to create.)
+
+**Printer profiles** ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). The documents are engine.md section 3.20's fixtures, and `mk4.json` holds the text `{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220}, "layer_height": 0.15, "fit": {"slip": 0.15, "loose": 0.3}}`.
+
+72. A stored profile needs no flag: `partsmith rebuild --json custom-printer.ptsm` exits 0 with `printer` `my-mk4`, the parameter `clearance` 0.15 and `b-1` volume 24360 within 1e-6 relative (24480 with `generic-fdm`'s slip of 0.2), and standard error stays empty.
+73. `--printer-file` puts a profile: `partsmith rebuild --json --printer-file mk4.json box.ptsm` exits 0 with `printer` `my-mk4`, and `box.ptsm` is byte for byte unchanged on disk.
+74. `--printer-file` overrides a stored profile: with `slip.json` holding `{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "fit": {"slip": 0.3, "loose": 0.4}}`, `partsmith rebuild --json --printer-file slip.json custom-printer.ptsm` exits 0 with `clearance` 0.3, and `custom-printer.ptsm` is byte for byte unchanged on disk.
+75. `--printer` with the document's own stored printer: `partsmith rebuild --json --printer my-mk4 custom-printer.ptsm` exits 0 with `printer` `my-mk4` and `clearance` 0.15.
+76. `--printer` with an id the document does not store: `partsmith rebuild --printer my-mk4 box.ptsm` exits 1 with `error: Printer profile "my-mk4" is not installed.`
+77. A profile file the print crate refuses: with `bad.json` holding `{"id": "x", "name": "X", "technology": "fdm", "layer_height": 0.5}`, `partsmith rebuild --printer-file bad.json box.ptsm` exits 1 and standard error is exactly `error: bad.json: Layer height 0.5 mm is larger than the 0.4 mm nozzle. Use a layer height of 0.4 mm or less.` and a newline.
+78. A profile file with a built-in id: with `fdm.json` holding `{"id": "generic-fdm", "name": "X", "technology": "fdm"}`, `partsmith rebuild --printer-file fdm.json box.ptsm` exits 1 with `error: fdm.json: "generic-fdm" is a built-in profile. Save your changes under a new name.`
+79. A profile file that cannot be read: `partsmith rebuild --printer-file missing.json box.ptsm` exits 3 with a line on standard error that starts with `error: cannot read "missing.json": `.
+80. `--printer` and `--printer-file` together: `partsmith rebuild --printer generic-fdm --printer-file mk4.json box.ptsm` exits 2.
+81. A version 2 document that names an unknown profile (newcomer error corpus NC13): with `old.ptsm` the text of `box.ptsm` at `format_version` 2 with `"printer": "my-printer"`, `partsmith validate old.ptsm` exits 0 and prints the line `old.ptsm: warning[unknown_printer_profile]: Printer profile "my-printer" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one.`
+82. The profile that the warning asks for: with `mine.json` holding `{"id": "my-printer", "name": "Mine", "technology": "fdm"}`, `partsmith rebuild --json --printer-file mine.json old.ptsm` (test 81's document) exits 0 with `printer` `my-printer`, and `old.ptsm` is byte for byte unchanged on disk.
+83. A stored profile the engine refuses: with `custom-printer.ptsm`'s stored profile given `"layer_height": 0.5`, `partsmith validate bad-store.ptsm` exits 1 with the line `bad-store.ptsm: error[parse_error] at /printer_profile: Layer height 0.5 mm is larger than the 0.4 mm nozzle. Use a layer height of 0.4 mm or less.`, and `partsmith fmt --check bad-store.ptsm` exits 1 with the same line.
+84. `fmt` orders a stored profile: `partsmith fmt --check` of `custom-printer.ptsm` with the members of its stored profile in reversed order exits 1, and `partsmith fmt` of it rewrites the file to the fixture text.
+
+**No stop** (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.md))
+
+85. The CLI never stops a rebuild (section 3.6). `partsmith rebuild --json examples/bench/fifty-features/model.ptsm` exits 0 and lists 50 features, none with `status` `not_run`.
+
+**Assets** (since M2, [ADR 0064](../adr/0064-assets-added-to-an-open-document-and-named-by-the-core.md)). `step-block` is a folder holding a copy of `examples/import/step-block.ptsm` and an `assets/` folder whose file `b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step` holds the bytes `hello`.
+
+86. Run in the folder `step-block`, `partsmith validate step-block.ptsm` exits 1 and prints the line `step-block.ptsm: error[asset_mismatch] at /features/0/asset: The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.` No line of its output holds the 64 hex digits of the asset's name.
+87. Run in the folder `step-block`, `partsmith rebuild step-block.ptsm` exits 1 and prints the line `step-block.ptsm: error[asset_mismatch]: The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.` Until M2 the message was `Asset b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step does not match its content hash.`
 
 ## 7. Open issues
 

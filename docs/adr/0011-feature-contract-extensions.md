@@ -1,6 +1,6 @@
 # 0011: Feature contract extensions and manifests in the model crate
 
-Status: Accepted (owner, 2026-11-04), signed off as built
+Status: Accepted (owner, 2026-11-04), signed off as built. Extended by [ADR 0065](0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md) (M2): `StartValue` and `BodyCreation` join the manifest types in `partsmith-model`, and `FeatureManifest` gains a required `description`.
 
 ## Context
 

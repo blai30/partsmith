@@ -76,7 +76,11 @@ Other extents: `{"kind": "symmetric", "expr": "30 mm"}`, `{"kind": "two_sides", 
 
 ### Manifest
 
-Label `Extrude`, category `create`, icon `extrude`, version 1. Fields in display order:
+Label `Extrude`, category `create`, icon `extrude`, version 1.
+
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Pulls a closed sketch shape straight out into a solid, or cuts it into one.`
+
+Fields in display order:
 
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
@@ -85,8 +89,20 @@ Label `Extrude`, category `create`, icon `extrude`, version 1. Fields in display
 | `extent.expr` | Distance | yes | length | | |
 | `extent.opposite_expr` | Opposite distance | yes | length | | |
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
-| `reverse` | Reverse | no | | | |
+| `reverse` | Reverse | yes | | | |
 | `body` | Body | no | | `body` | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `profile` | The closed sketch shapes to extrude. Click inside a shape to add it. | | |
+| `extent.kind` | Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body. | | |
+| `op` | New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap. | | |
+| `reverse` | Extrudes to the other side of the sketch. | | |
+| `body` | The body that Join, Cut and Intersect change. | | |
+
+Since M2 the manifest marks `reverse` essential. The inspector places it beside the extent field it belongs to (ui.md section 2.12).
 
 ### Python
 
@@ -131,7 +147,7 @@ feature(
    - `symmetric`: L > 0 likewise; interval [-L/2, L/2].
    - `two_sides`: a = `extent.expr` ≥ 0 and b = `extent.opposite_expr` ≥ 0, else `OutOfRange` (`AtLeast(0)`) on that field; a + b > 0 (at least `LINEAR_TOLERANCE`) else `BothSidesZero`; interval [-b, a].
    - `through_all`: op `new` gives `BodyNotEmpty { body, target: None, new_body: false }` when the body holds a solid (it has something to go through, but Operation New body cannot use it, and a new empty body would have nothing to go through, so only Join is offered), else `ThroughAllNeedsBody { body }`. With another op, an empty body gives `BodyEmpty { field: body, body, use_new: true }`. Otherwise let D be the largest signed distance (p - placement origin) · d over the eight corners p of the body's tight bounding box. D ≤ 0 gives `ThroughAllMisses { body, reverse_hits }`, where `reverse_hits` is true when the same test along -d gives D' > 0 and the tool swept along -d over [0, D' + 1 mm] shares more than `VOLUME_TOLERANCE` times the body's volume with it (one kernel `common`, on this error path only); only then is the fix Turn on Reverse offered. Interval [0, D + 1 mm].
-4. Build the union of the resolved regions as kernel faces (features.md section 3.7: shared pieces dropped, consecutive pieces of one entity that continue the same line or circle merged, then `make_profile` with curves tagged by sketch entity) and sweep it with kernel `extrude(profile, d, s0, s1)`.
+4. Build the union of the resolved regions as kernel faces (features.md section 3.7, with the union of sketch.md section 3.19: shared pieces dropped, consecutive pieces of one entity that continue the same line or circle merged, then `make_profile` with curves tagged by sketch entity) and sweep it with kernel `extrude(profile, d, s0, s1)`.
 5. Name the tool's faces (section 3.4), with the profile sketch's motion as the new faces' motion (`SketchResult::motion`, features.md section 3.9), and call `apply_op(ctx, body, op, vec![tool], Some(Direction { direction: d, sketch: Some((&profile.sketch, &placement)) }))`, with `placement` the profile sketch's `SketchResult::placement`. When the result changes nothing or leaves a separate piece, `apply_op` reports why (features.md section 3.15: `NoEffect` with `Inside`, `Away`, `Short`, `Beside` or `Covers`, `SeparateSolid`), and the extrude answers `reverse_hits(ctx, body, tools)` by sweeping the same profile along -d over the same interval, so Turn on Reverse is offered only when it reaches the body; for an `Inside` join with `reverse` true and an extent that is not `symmetric`, the same sweep along -d decides whether it adds to the body, so Turn off Reverse is offered only then (features.md section 3.15). A reversed extrude gets no `Attach`, since its sweep runs against the sketch's normal.
 6. **Ends outside the body.** With op `cut`, an `end-cap` (or `end-cap#n`) of the tool that is not in the result records an `AbsentFace` in `FeatureOutput::absent` (features.md section 2.7): `why: Through` when no `start-cap` (or `start-cap#n`) of the tool is in the result either, so the cut goes all the way through and a reference to its floor is explained as `is no longer made by 'Extrude 2', which goes all the way through the body` and never moved to a rim (corpus R12); otherwise `why: EndOutside`, explained as `is no longer made by 'Extrude 2', which now ends outside the body` (a cut that starts inside the body, corpus R30 (a)).
 
@@ -256,6 +272,7 @@ Tests 47 to 56 use `BLOCK`: `SK-RECT` and `EXT(P-RECT-V2, {"kind": "distance", "
 61. **Through all with op new on a body with a solid.** `BOX-BELOW`, `SK-RECT`, `EXT(P-RECT, {"kind": "through_all"}, "new")`. Expected: error `body_not_empty` rendered `Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join.` with the one fix `SetField { field: op, value: "join" }` (no `NewBody`: in a new empty body, Through all fails with `through_all_needs_body`); b-1 volume 16000.
 62. **A profile bounded by an arc.** `SK-RECT` with `e-2` replaced by the half circle `{"id": "e-2", "type": "arc", "center": [80, 25], "radius": 25, "start_angle": 4.71238898038469, "end_angle": 1.5707963267948966}` (counterclockwise from (80,0) through (105,25) to (80,50)); profile `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=49.973724,25|a=4981.747704", "outline": "e-1,e-2,e-3,e-4"}]}`; extent distance `"30"`, op new (`examples/extrude/arc-bounded.ptsm`). Expected: ok; volume 149452.431127, 6 faces, bbox [0,0,0]-[105,50,30]; faces exactly `f-ext1/end-cap`, `f-ext1/lateral/e-1`, `f-ext1/lateral/e-2`, `f-ext1/lateral/e-3`, `f-ext1/lateral/e-4`, `f-ext1/start-cap`; `f-ext1/lateral/e-2`, the side swept from the arc, is of kind Cylinder with radius 25 and area 2356.194490, its axis along Z through (80,25,0); `f-ext1/lateral/e-1` and `f-ext1/lateral/e-3` have area 2400 each and `f-ext1/lateral/e-4` area 1500, as in test 1; `f-ext1/start-cap` lies in the plane z=0 and `f-ext1/end-cap` in z=30, each of area 4981.747704.
 63. **An open outline (the sketch of newcomer error corpus NC01, under an extrude whose profile was picked before the gap).** `SK-RECT` with `e-4` ending at (0, 0.3), `{"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0.3]}`: a 0.3 mm gap at the origin, so the sketch has no region and its one profile finding is not a warning of the sketch feature (features/sketch.md section 3.3 step 4); profile `P-RECT-V2` (defined before test 47), as picked before the gap; extent distance `"30"`, op new (`examples/extrude/open-outline.ptsm`, which has no Python twin, delivery.md section 2.8). Expected: f-sk1 status ok; f-ext1 error `profile_not_found` at pointer `/profile`, rendered `The region of 'Sketch 1' selected for Profile is gone because its outline is no longer closed.` (loss `Open`: every entity of the stored key is still in the sketch, sketch.md section 3.14 step 4), with the fixes `Show { feature: "f-sk1" }` then `Pick { pointer: "/profile/regions/0" }` and no `UseRegions`, since no region is left to use; b-1 empty. With `{"id": "c-1", "type": "coincident", "points": ["e-4.end", "e-1.start"]}` added to f-sk1 (the constraint of NC01's fix, Connect the ends; `examples/extrude/open-outline-connected.ptsm`, with its Python twin): every feature status ok with no message, the stored region matching by its key; `e-1.start` and `e-4.end` meet at (0, 0.15), the mean of the two ends (sketch.md section 3.7.3); b-1 volume 119820, 6 faces, bbox [0,0,0]-[80,50,30].
+64. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `extrude` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("extrude")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential.
 
 ## Open issues
 

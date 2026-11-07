@@ -61,12 +61,16 @@ On a face: `"plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top",
 
 Label `Sketch`, category `sketch`, icon `sketch`, version 1. The sketch editor edits entities and constraints; the inspector shows only the plane.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `plane` | Plane | yes | | `plane` | |
 | `entities` | Entities | no | | | |
 | `constraints` | Constraints | no | | | |
 | `constraints[*].expr` | Dimension | no | | | |
+
+No field has help, a start value or a new body (since M2, features.md section 2.3).
 
 ### Python
 
@@ -104,6 +108,8 @@ feature(
 - `bodies_read`: the face's body for a `face` plane. `bodies_written`: none.
 - `expressions`: one use per dimensional constraint, driving or reference, in constraint order: field `constraints[i].expr` (i is the constraint's index in `constraints`), the constraint's expression, unit `Length` or `Angle` from the constraint's `value_kind()` (sketch.md). The build evaluates only the driving ones, so a broken reference dimension never fails the sketch, while parameter renames and validation still see it.
 - `declared_ids`: every entity id, then every constraint id, in document order.
+
+From M2 item 26 (wave 3), a sketch with linked entities (sketch.md section 3.20.7) reads each linked body, in its state just before the sketch, and each linked sketch feature: they join its `Dependencies`. From item 27 (wave 3), a text entity whose `font` is an asset name adds that asset to `Dependencies::assets`. A built-in font name the build lacks, a missing font asset, a text size that is not a positive length and a character without a glyph are findings of the sketch feature, with item 27's words. From item 27, `expressions` lists each text entity's size after the dimensional constraints, in entity order: field `entities[i].size`, the size expression, unit `Length`, with `i` the entity's index in `entities` (sketch.md section 3.20.6). Parameter renames, bare numbers and unit changes then reach it as they reach a dimension. Neither item's code lands in wave 1.
 
 ### 3.3 Build
 
@@ -249,6 +255,7 @@ Three outcome examples have no test of their own, because what they show is test
 49. **Angle to the x axis** (`tool-angle`). The line tool from the origin with Length "60 mm" and Angle "30 deg" typed, which adds an angle between the x axis and the line (ui.md section 3.16.4), then on to the y axis, clicked at (0, 30) (horizontal inferred), and back to the origin, which closes the chain (its inferred vertical left out as in test 48). Entities `L(e-1, 0, 0, 51.96152422706632, 30)`, `L(e-2, 51.96152422706632, 30, 0, 30)` and `L(e-3, 0, 30, 0, 0)` (the tool computes 29.999999999999996 for 60 sin 30°; the example writes 30, where every constraint also holds within `SOLVER_TOLERANCE`, so it comes back as stored); constraints `CO(c-1, e-1.start, origin)`, `D(c-2, e-1, "60 mm")`, `{"id": "c-3", "type": "angle", "lines": ["x_axis", "e-1"], "expr": "30 deg"}`, `CO(c-4, e-1.end, e-2.start)`, `{"id": "c-5", "type": "point_on_object", "point": "e-2.end", "curve": "y_axis"}`, `H(c-6, e-2)`, `CO(c-7, e-2.end, e-3.start)` and `CO(c-8, e-3.end, origin)`; `EXT10("e-1,e-2,e-3", "c=17.320508,20|a=779.422863")`. Expected: fully constrained, dof 0; as stored; `solved.measured` of c-2 is 60 and of c-3 is pi/6 (0.523599); b-1 volume 7794.228634, 5 faces, bbox [0,0,0]-[51.961524,30,10].
 50. **Diameter typed in the circle tool** (`tool-diameter`). The circle tool clicked on the origin with Diameter "25 mm" typed: entity `C(e-1, 0, 0, 12.5)`; constraints `CO(c-1, e-1.center, origin)` and `{"id": "c-2", "type": "diameter", "curve": "e-1", "expr": "25 mm"}`; `EXT10("e-1", "c=0,0|a=490.873852")`. Expected: fully constrained, dof 0; as stored; `solved.measured` of c-2 is 25; b-1 volume 4908.738521, 3 faces, bbox [-12.5,-12.5,0]-[12.5,12.5,10].
 51. **Points forms of horizontal and vertical, line forms of horizontal and vertical distance** (`point-and-line-forms`). Entities `L(e-1, 1, 2, 38, -1)`, `L(e-2, 38, -1, 41, 23)`, `L(e-3, 41, 23, -2, 26)` and `L(e-4, -2, 26, 1, 2)`, a quadrilateral drawn off its constraints; constraints `CORNERS(4)`, `CO(c-5, e-1.start, origin)`, `{"id": "c-6", "type": "horizontal", "points": ["e-1.start", "e-1.end"]}`, `{"id": "c-7", "type": "vertical", "points": ["e-2.start", "e-2.end"]}`, `{"id": "c-8", "type": "horizontal", "points": ["e-3.start", "e-3.end"]}`, `{"id": "c-9", "type": "vertical", "points": ["e-4.start", "e-4.end"]}`, `{"id": "c-10", "type": "horizontal_distance", "line": "e-1", "expr": "40 mm"}` and `{"id": "c-11", "type": "vertical_distance", "line": "e-2", "expr": "25 mm"}`; `EXT10("e-1,e-2,e-3,e-4", "c=20,12.5|a=1000")`. Expected: fully constrained, dof 0; the solve moves the lines to `RECT(0, 0, 40, 25)`: e-1 (0,0)-(40,0), e-2 (40,0)-(40,25), e-3 (40,25)-(0,25) and e-4 (0,25)-(0,0), each line's start and end within 1e-9 mm of these points, in the direction it was drawn; no entity is as drawn or as stored, since the solve moves every line: a points form holds its two points level (`horizontal`) or plumb (`vertical`) as the line form holds a line's ends, and the line forms of the distances are u(end) - u(start) of e-1 and v(end) - v(start) of e-2 (sketch.md section 2.5); b-1 volume 10000, 6 faces, bbox [0,0,0]-[40,25,10].
+52. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `sketch` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("sketch")` has the description of the Manifest section, and none of its hints has help, a start value or a new body.
 
 ## Open issues
 

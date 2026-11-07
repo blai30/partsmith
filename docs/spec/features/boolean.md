@@ -62,12 +62,23 @@ JSON:
 
 Label `Boolean`, category `modify`, icon `boolean`, version 1.
 
+Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)): `Joins, cuts or intersects one body with other bodies.`
+
 | Path | Label | Essential | Unit | Selection | Options |
 | --- | --- | --- | --- | --- | --- |
 | `target` | Target body | yes | | `body` | |
 | `tools` | Tool bodies | yes | | `body` | |
 | `op` | Operation | yes | | | `join` Join, `cut` Cut, `intersect` Intersect |
 | `keep_tools` | Keep tools | yes | | | |
+
+Help, start values and new bodies (since M2, features.md section 2.3). A field this table leaves out has none of the three.
+
+| Path | Help | Start value | New body |
+| --- | --- | --- | --- |
+| `target` | The body that changes. | | |
+| `tools` | The bodies that join, cut or intersect the target. They are used up unless Keep tools is on. | | |
+| `op` | Join merges the bodies, Cut removes the tools from the target, and Intersect keeps only the overlap. | | |
+| `keep_tools` | Keeps the tool bodies after the operation instead of using them up. | | |
 
 ### Python
 
@@ -153,6 +164,7 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2, b-3]`. Fixtures:
 15. **Tool names survive.** As 3, then `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,20|l=20"}], "radius": "2"}`. Expected: fillet ok; b-1 volume 3982.831853, 7 faces.
 16. **Performance.** Test 1 builds in under 15 ms (desktop, release).
 17. **A tool whose feature is suppressed.** `BOX1`, `BOX2` with `"suppressed": true`, `BOOL(["b-2"], "join")`. Expected: error `tool_empty` rendered `Body 'Body 2' is empty here because 'Box 2', which makes it, is suppressed, so it cannot be used as a tool.`, fixes `Unsuppress { feature: "f-box2" }` then `Pick`; b-1 unchanged. Then (`Unsuppress`): as test 1, whose document the test loads from its example, `examples/boolean/join` (features.md section 6.1).
+18. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `boolean` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("boolean")` has the description of the Manifest section, and each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out.
 
 ## Open issues
 

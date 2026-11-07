@@ -30,8 +30,17 @@
 - Direction-dependent thin wall thresholds (for example layer-based limits for horizontal plates).
 - Mass and cost estimates from material density.
 - Background, incremental analysis with per-face result caching (the engine runs analysis on request in M1).
-- Persisting user profiles on disk (hosts own that; M1 profiles live in the session).
-- Host routes that put custom profiles into a session ([ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options for the CLI and Python; ui.md 1.2 lists the UI's): in M1 only the engine's `put_printer_profile` adds session profiles, and no host sends it (protocol.md section 2.5 command 4).
+- Persisting user profiles on disk (hosts own that; M1 profiles live in the session). M2 keeps them in each host and in the documents that name them (section 1.3).
+- Host routes that put custom profiles into a session ([ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options for the CLI and Python; ui.md 1.2 lists the UI's): in M1 only the engine's `put_printer_profile` adds session profiles, and no host sends it (protocol.md section 2.5 command 4). M2 adds a route in every host (section 1.3).
+
+### 1.3 In M2
+
+Custom printer profiles in every host ([ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md), which settles ADR 0047 decision 2 with its options (b), (c) and (d) together):
+
+- A document that names a profile other than a built-in one stores that profile in the written form of section 3.1 (`printer_profile`, file-format.md section 3.2, format version 3). Built-in profiles stay named by id alone.
+- `PrinterProfile::from_written` reads such a stored profile: the written form with every field, then the rules of section 3.1 (section 3.1, stored profiles). `ProfileError::MissingField` names the first field it lacks.
+- `PrinterValues` gives a reason for `printer.nozzle` on a resin profile (section 3.5), through expressions.md's `EvaluationContext::reason`.
+- The hosts keep profiles: the web and desktop apps in a library in the webview's IndexedDB (ui.md, desktop.md), the CLI from a profile file (`--printer-file`, cli.md), Python from a mapping (`printer=`, python-api.md). The engine puts them into the session and stores them in documents (engine.md sections 3.3 and 3.7). This crate stays free of storage.
 
 ## 2. Public API
 
@@ -202,6 +211,9 @@ impl PrinterProfile {
     pub fn to_json(&self) -> Result<String, ProfileError>;
     /// Checks every rule of section 3.1 on a profile built or edited in code.
     pub fn validate(&self) -> Result<(), ProfileError>;
+    /// Reads a profile stored in a document: the written form with every field present, then the rules of section 3.1
+    /// (section 3.1, stored profiles). Members may come in any order.
+    pub fn from_written(value: &serde_json::Map<String, serde_json::Value>) -> Result<PrinterProfile, ProfileError>;
     /// Base display and export tessellation tolerance (section 3.4).
     pub fn tessellation_tolerance(&self) -> TessellationTolerance;
     /// Check thresholds for this profile (section 3.6).
@@ -261,7 +273,7 @@ The first becomes `generic-fdm` with that id, name and layer height. The second 
 ```rust
 /// The `printer.*` values of one profile, as an expression evaluation context.
 #[derive(Clone, Debug, PartialEq)]
-pub struct PrinterValues { /* private: copies of the six values */ }
+pub struct PrinterValues { /* private: copies of the six values, and the profile's name and technology */ }
 
 impl PrinterValues {
     /// Captures the values of a profile.
@@ -273,6 +285,8 @@ impl partsmith_model::EvaluationContext for PrinterValues {
     fn resolve(&self, name: &str) -> Option<Quantity>;
     /// The supported names, sorted.
     fn names(&self) -> Vec<String>;
+    /// The reason of section 3.5 for `printer.nozzle` on a resin profile; `None` for every other name.
+    fn reason(&self, name: &str) -> Option<String>;
 }
 ```
 
@@ -609,6 +623,9 @@ pub enum ProfileError {
     LayerTallerThanNozzle { layer_height: f64, nozzle_diameter: f64 },
     /// `class` has a larger clearance than the `next` class after it.
     FitOrder { class: FitClass, value: f64, next: FitClass, next_value: f64 },
+    /// A stored profile lacks a field of the written form (`from_written`): `field` is its name as written, such as
+    /// `layer_height` or `fit.slip`.
+    MissingField { field: &'static str },
 }
 
 /// The numeric profile fields, for `OutOfRange`.
@@ -666,6 +683,14 @@ Deserializing a `PrinterProfile` (through `from_json`, serde, or the protocol's 
 
 A profile has two JSON forms. The input form is `ProfileInput`'s: only `id`, `name` and `technology` are required, and `fit` may name only some classes. The written form is what `to_json` and serde write: every field, except `nozzle_diameter` on a resin profile, and `fit` with all four classes. Each type's JSON Schema (`schemars`) describes one form, whatever the contract: `ProfileInput`'s the input form, and `PrinterProfile`'s the written form (`#[schemars(!try_from)]`, section 2.2), although serde reads a `PrinterProfile` through `ProfileInput`. So `PrinterProfile`'s schema requires `id`, `name`, `technology`, `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit`, leaves `nozzle_diameter` optional, and takes `fit` as `FitClasses`, which requires all four classes, both closed to unknown fields as rule 1 reads them (`deny_unknown_fields` in the schema of `PrinterProfile`, and in the serde attribute of `FitClasses`, which nothing deserializes on its own). The protocol reads profiles in the input form and lists them in the written form (protocol.md section 2.9).
 
+**Stored profiles.** A document stores a profile in the written form (file-format.md section 3.2), and `from_written(value)` reads it in three steps and returns the first error:
+
+1. `value` deserializes as a `ProfileInput` (rule 1 above); otherwise `Json`.
+2. Every field of the written form is present, checked in this order: `bed`, `nozzle_diameter` when `technology` is `fdm`, `layer_height`, `max_overhang_angle`, `max_bridge_length`, `fit`, then `fit`'s `press`, `snug`, `slip` and `loose`. The first one missing is `MissingField { field }`, with `field` its name as listed (`fit.slip` for a class).
+3. `PrinterProfile::try_from` of the input (rules 2 to 5 above, then `validate()`).
+
+A profile that `from_written` accepts therefore holds exactly the stored values and no default: its written form (`canonical::to_value`) equals `value` as JSON values, whatever the order of `value`'s members, apart from a member whose value is `null`, which it leaves out (a resin profile's `"nozzle_diameter": null`). A stored profile never takes a value from a generic profile. A later change of a generic profile changes no document. A resin profile that names `nozzle_diameter` fails at step 3 with `NozzleNotAllowed`. A change to the rules of this section that refuses a stored profile an earlier build accepted is a change of the file format: it needs a new format version with its migration step (file-format.md section 3.9).
+
 Negative clearances are allowed (an interference press fit). `to_json` first runs `validate()` and returns its error, so a profile edited in code into an invalid state (for example a non-finite value) is reported, never written. It then writes `canonical::to_string(&value)` with `value = canonical::to_value(self)`, partsmith-model's canonical writer (file-format.md: `to_value` turns any `Serialize` value into a normalized `serde_json::Value`, and `to_string` takes that value); `to_value` fails only on a non-finite number, which a valid profile cannot hold. The text has every field in declaration order, 2-space indent, the `bed` and `fit` objects on one line, numbers in canonical form, trailing newline. Resin profiles omit `nozzle_diameter`. For every valid profile `p`, `from_json` of the text `p.to_json()` returns equals `p`, and `to_json` of a parsed canonical text reproduces it byte for byte.
 
 ### 3.2 Fit classes
@@ -681,7 +706,7 @@ A clearance is the gap per side between mating surfaces: a pin of diameter `d` g
 
 ### 3.3 Built-in profiles
 
-`builtin_profiles()` returns exactly the two profiles of section 2.2, sorted by id. Built-in ids are reserved: the engine rejects a session profile that reuses one (`profile_id_reserved`, protocol spec). `generic_fdm()` and `generic_resin()` pass `validate()`.
+`builtin_profiles()` returns exactly the two profiles of section 2.2, sorted by id. Built-in ids are reserved: the engine rejects a session profile that reuses one (`profile_id_reserved`, protocol spec). `generic_fdm()` and `generic_resin()` pass `validate()`. A document never stores a built-in profile: it names one by id (engine.md section 3.3).
 
 ### 3.4 Tessellation tolerance
 
@@ -700,7 +725,9 @@ A clearance is the gap per side between mating surfaces: a pin of diameter `d` g
 | `printer.layer_height` | `layer_height` | yes | yes |
 | `printer.nozzle` | `nozzle_diameter` | yes | no (`None`) |
 
-Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, resolves to `None`; the expression evaluator then reports `UnknownValue` (expressions spec). `names()` returns the supported names sorted by byte order: `printer.fit.loose`, `printer.fit.press`, `printer.fit.slip`, `printer.fit.snug`, `printer.layer_height`, then `printer.nozzle` for FDM. The engine builds one `PrinterValues` from the document's resolved profile and uses it as the evaluation context for every recompute and `evaluate` call, so changing printers re-tunes every expression that uses these names.
+Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, resolves to `None`; the expression evaluator then reports `UnknownValue` (expressions spec).
+
+**The reason for `printer.nozzle`** (M2, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). On a resin profile `printer.nozzle` resolves to `None`, and `reason("printer.nozzle")` is `printer.nozzle has no value with '{name}', a resin printer with no nozzle. Pick an FDM printer, or write a length instead.`, with `{name}` the profile's `name`. The evaluator then reports `UnavailableValue` with that text (expressions.md section 3.12), in place of the `UnknownValue` of M1. `reason` of every other name is `None`, and so is `reason("printer.nozzle")` on an FDM profile. `names()` returns the supported names sorted by byte order: `printer.fit.loose`, `printer.fit.press`, `printer.fit.slip`, `printer.fit.snug`, `printer.layer_height`, then `printer.nozzle` for FDM. The engine builds one `PrinterValues` from the document's resolved profile and uses it as the evaluation context for every recompute and `evaluate` call, so changing printers re-tunes every expression that uses these names.
 
 ### 3.6 Check thresholds
 
@@ -933,6 +960,7 @@ No case has a coordinate exactly halfway between two thousandths: there `len`, w
 | `NozzleNotAllowed` | `Resin printers have no nozzle. Remove nozzle_diameter from the profile.` |
 | `LayerTallerThanNozzle { layer_height, nozzle_diameter }` | `Layer height {len(layer_height)} mm is larger than the {len(nozzle_diameter)} mm nozzle. Use a layer height of {len(nozzle_diameter)} mm or less.` |
 | `FitOrder { class, value, next, next_value }` | `Fit clearances must not shrink from press to loose, but {class} ({len(value)} mm) is larger than {next} ({len(next_value)} mm). Make {next} at least {len(value)} mm.` |
+| `MissingField { field }` | `The printer profile has no {field}. Add {field}: a profile stored in a document lists every value.` |
 
 For `OutOfRange`, `{label}` is `Bed width`, `Bed depth`, `Bed diameter`, `Build height`, `Nozzle diameter`, `Layer height`, `Maximum overhang angle`, `Maximum bridge length`, or `Press fit clearance`, `Snug fit clearance`, `Slip fit clearance`, `Loose fit clearance`. `{unit}` is `mm`, except `degrees` for the overhang angle, whose value and bounds are converted to degrees and written with `num1`; lengths are written with `len`. Fit class names in messages are the lowercase serialized names (`press`, `snug`, `slip`, `loose`).
 
@@ -1021,7 +1049,7 @@ Tests assert only triangulation-independent facts for the prism fixtures (counts
 24. `PrinterValues::new(&RESIN)`: `resolve("printer.nozzle") == None`, `resolve("printer.layer_height") == Some(Quantity::length(0.05))`, `resolve("printer.fit.slip") == Some(Quantity::length(0.1))`.
 25. `resolve` returns `None` for `printer`, `printer.fit`, `printer.fit.SLIP`, `printer.speed`, `fit.slip` and ` printer.fit.slip`.
 26. `names()` for FDM is `["printer.fit.loose", "printer.fit.press", "printer.fit.slip", "printer.fit.snug", "printer.layer_height", "printer.nozzle"]`; for resin the same without `printer.nozzle`.
-27. Evaluating the expression `2 * printer.fit.slip + 1 mm` through partsmith-model's evaluator with `PrinterValues::new(&FDM)` as the context gives length 1.4; `printer.nozzle` with the resin context gives the evaluator's `UnknownValue` error.
+27. Evaluating the expression `2 * printer.fit.slip + 1 mm` through partsmith-model's evaluator with `PrinterValues::new(&FDM)` as the context gives length 1.4; `printer.nozzle` with the resin context gives the evaluator's `UnavailableValue` error whose reason is the text of test 136. (In M1, before the reason of section 3.5, it gave `UnknownValue`.)
 28. `FDM.thresholds()` serializes to the JSON of section 2.4.
 29. `RESIN.thresholds()` is `{max_overhang_angle: 0.5235987755982988, min_wall: 0.5, min_feature: 0.2, min_hole: 0.5, min_contact_ratio: 0.05, max_slenderness: None}`.
 30. An FDM profile with `nozzle_diameter` 0.6 has `min_wall` 1.2 and `min_feature` 0.6.
@@ -1177,14 +1205,30 @@ The print check examples of gap list item EX-2: bed fit, islands, tall and thin,
 126. **Wedge on its edge on resin** (`examples/extrude/wedge-on-edge-resin`, `generic-resin`). Bodies `[b-1]`; `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [5, 20]}, {"id": "e-2", "type": "line", "start": [5, 20], "end": [-5, 20]}, {"id": "e-3", "type": "line", "start": [-5, 20], "end": [0, 0]}], "constraints": []}`, a triangle standing on its apex at the origin, and `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3", "fp": "c=0,13.333333|a=100", "outline": "e-1,e-2,e-3"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}`: a wedge 10 mm deep along -Y that touches the bed along one edge, its sides leaning 14 degrees from vertical (atan(5/20)): volume 1000, 5 faces, bbox [-5,-10,0]-[5,0,20]. Checks: summary `{warning, 0, 2, 0, "2 warnings"}`; `first_layer_contact` has one finding `no_bed_contact`, warning, message `The part touches the bed only at points or edges, so it may come loose. Lay a flat face on the bed or add supports.`, value 0, location point `(0,0,0)` (the lowest vertex with the smallest welded index, section 3.9.3), no limit or suggestion; `small_features` has one finding `small_detail`, warning, message `A detail 0.013 mm wide is narrower than 0.2 mm and may not print. Make it at least 0.2 mm wide.`, value 0.0125, limit 0.2, location bounds `(-5,-10,0)` to `(5,0,20)`: the wedge is z/2 mm wide at height z, so the first 0.05 mm layer, sliced at z = 0.025, is 0.0125 mm wide, and the layers below z = 0.4 are narrower than 0.2 mm, a group of 8 layers (section 3.9.7); every other check `ok`, the sides being within resin's 30 degree overhang limit.
 127. **Corners touching on resin** (`examples/extrude/corners-touching-resin`, `generic-resin`). Bodies `[b-1]`; `{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [...], "constraints": []}` with the lines `e-1` (-10,-10)-(0,-10), `e-2` (0,-10)-(0,0), `e-3` (0,0)-(-10,0) and `e-4` (-10,0)-(-10,-10), and `e-5` (0,0)-(10,0), `e-6` (10,0)-(10,10), `e-7` (10,10)-(0,10) and `e-8` (0,10)-(0,0), two 10 mm squares that share only the origin, and `{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=-5,-5|a=100", "outline": "e-1,e-2,e-3,e-4"}, {"key": "e-5,e-6,e-7,e-8", "fp": "c=5,5|a=100", "outline": "e-5,e-6,e-7,e-8"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}`: two 10 mm cubes that share only the vertical edge at the origin, f-ext1 ok with no message (two boxes placed so, the second joined, would warn `separate_solid` on the join): volume 2000, 12 faces, bbox [-10,-10,0]-[10,10,10]. Checks: summary `{error, 1, 0, 0, "1 error"}`; `mesh_validity` has one finding `non_manifold_edges`, error, message `1 edge is shared by more than two triangles. Separate the touching parts or rebuild the body.`, value 1, location bounds `(0,0,0)` to `(0,0,10)` (the shared edge), no limit or suggestion; every other check `ok`. Mesh validity has no threshold, so the finding is the one `extrude/union-touching-itself` gives on `generic-fdm`, there beside a thin wall whose value depends on the mesh of its circle.
 
+### 6.19 Stored profiles and the reason for printer values
+
+In tests 128 to 135, `E11P` is the `printer_profile` object of file-format.md's E11 (the profile `my-mk4`).
+
+128. `PrinterProfile::from_written(&E11P)` returns the profile that `from_json` gives for the same text, and `canonical::to_value` of it equals `E11P`.
+129. Member order does not matter: `from_written` of `E11P` with its members in reversed order returns the profile of test 128.
+130. A resin profile without a nozzle is complete: `from_written` of the map that `generic_resin().to_json()` writes returns `generic_resin()`.
+131. A missing field: `from_written` of `E11P` without `layer_height` is `MissingField { field: "layer_height" }` with the message `The printer profile has no layer_height. Add layer_height: a profile stored in a document lists every value.`
+132. The first missing field in the order of section 3.1: `from_written` of `E11P` without `fit` and without `bed` is `MissingField { field: "bed" }`.
+133. A missing fit class: `from_written` of `E11P` with `"fit": {"press": 0.05, "snug": 0.1, "slip": 0.15}` is `MissingField { field: "fit.loose" }`.
+134. A missing nozzle on FDM: `from_written` of `E11P` without `nozzle_diameter` is `MissingField { field: "nozzle_diameter" }`.
+135. The form comes first, the rules last: `from_written` of `E11P` with the extra member `"speed": 100` is `Json` (its message starts with `The printer profile could not be read: `), and of `E11P` with `"layer_height": 0.5` is `LayerTallerThanNozzle` with the message of test 13.
+136. The reason for `printer.nozzle` on resin: `PrinterValues::new(&generic_resin()).reason("printer.nozzle")` is `Some("printer.nozzle has no value with 'Generic resin MSLA', a resin printer with no nozzle. Pick an FDM printer, or write a length instead.")`.
+137. The reason names the profile: for the resin profile of the input `{"id": "my-mars", "name": "My Mars", "technology": "resin"}`, `reason("printer.nozzle")` is the text of test 136 with `'My Mars'` in place of `'Generic resin MSLA'`.
+138. No other reason: on the resin profile, `reason` of `printer.fit.slip`, `printer.speed`, `printer` and `printer.nozzle ` (with a trailing space) is `None`; on `generic_fdm()`, `reason("printer.nozzle")` is `None`.
+
 ## 7. Open issues
 
-1. **No reason channel in `EvaluationContext`.** The model's trait returns `Option<Quantity>`, so `printer.nozzle` on a resin profile surfaces as the generic `Unknown value 'printer.nozzle'. Check the spelling; printer values look like printer.fit.slip.` A clearer message ("Resin printers have no nozzle...") needs the trait to return a reason; left to the model spec's owner.
+1. **No reason channel in `EvaluationContext`.** The model's trait returns `Option<Quantity>`, so `printer.nozzle` on a resin profile surfaces as the generic `Unknown value 'printer.nozzle'. Check the spelling; printer values look like printer.fit.slip.` A clearer message ("Resin printers have no nozzle...") needs the trait to return a reason; left to the model spec's owner. Resolved on 2026-11-07 for M2 by [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md): the trait gains `reason` (expressions.md), and section 3.5 gives `printer.nozzle` on a resin profile its own message (tests 27 and 136 to 138).
 2. **Placement belongs to the engine.** The engine computes the bed transform `T_b` (group centered on the bed, each body dropped to z = 0). This crate uses only the rotation and drops the body to z = 0 itself; no check depends on horizontal placement, so results agree. The crate exposes `Bed::center()` for the engine.
 3. **Angles in profile JSON are radians** (`max_overhang_angle`), following the architecture convention and the protocol's `angular_deviation`. Hand-edited profiles would be friendlier in degrees; the UI shows degrees.
 4. **Thin walls ignore direction.** Section 11's rule (below 2 × nozzle) applies to every direction, so FDM floors and roofs thinner than 0.8 mm (for example 0.6 mm, three 0.2 mm layers) are flagged. A layer-based limit for near-horizontal walls is listed as later.
 5. **Islands are found topologically** (local minima of the mesh) rather than by slicing layers as the technical design's resin "layer-island check" describes. For exact meshes the two agree, and this avoids missing islands between sampled layers; planar slicing is still used for small features.
-6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision. [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists this as option (c) for custom profiles. The warning's message asks to install the profile, which no M1 host can do (ADR 0047).
+6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision. [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists this as option (c) for custom profiles. The warning's message asks to install the profile, which no M1 host can do (ADR 0047). Resolved on 2026-11-07 for M2 by [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md), which settles ADR 0047 decision 2 with its options (b), (c) and (d) together: a document that names a profile other than a built-in one stores it (file-format.md section 3.2). A shared document then rebuilds with the same `printer.*` values everywhere. The warning stays for a version 2 document, or any document, whose `printer` names a profile that it does not store and the session lacks. Its words name only what every host offers: adding that printer or picking another one (engine.md section 3.4).
 7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them. Suggestions are worded in millimeters in every host too, with the unit after every length and point (section 3.12), so a print check row in a document in inches reads in millimeters throughout, like the printer's numbers in the UI. Showing them in the document's unit would change messages and suggestions together.
 8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (AGENTS.md invariant).
 9. **Thin walls budget not met.** Measured on the shared 4-core development machine: about 90 ms to build the bounding volume hierarchy for 200,000 triangles plus about 2.3 µs per ray, so `thin_walls` takes about 450 to 600 ms against its 120 ms budget, and all checks about 700 ms against 250 ms. Both mesh numbers are within mesh.md's own budgets (400 ms per million triangles, 3 µs per ray), so the two specs disagree. Options: a faster ray traversal in partsmith-mesh (a packet or SIMD traversal, or fewer rays per triangle), or a revised budget. Analysis runs on a background thread and never blocks modeling (technical design section 11), so the gap delays the health badge, not editing. Profiled again on 2026-10-12 (release, medians of alternated runs on the loaded machine): the 200,000-triangle sphere gives `thin_walls` 560 ms and all checks 708 ms; the reference part bench50 (engine.md section 5; two analyzed bodies of 46,564 and 3,540 triangles) takes 1.0 s per `analyze_print` once its meshes exist (1.4 s for the first call of a headless session, whose extra 0.4 s is the kernel tessellation). Of bench50's instructions, 82% are `thin_walls` rays, 15% `small_features` (mostly `Mesh::slice_many`), and every other check together 2.5%, so this crate's own code is not the bottleneck. Its rays cost 16 µs each (random rays from the same centroids 8.9 µs), against about 2.3 µs on the sphere: in partsmith-mesh, the grazing cone of any hierarchy node whose triangles face several directions widens to every direction, so on a machined part almost every node is padded by the wide `3e-2 · R` (4 to 7 mm on bench50, whose base reaches 120 mm from the origin) for every ray. A copy of the hierarchy with that padding at `1e-9 · R` returned the same hits on bench50 at 4.6 µs per thickness ray, which shows the size of the gain, but drops the exactness argument of mesh.md section 3.10. The fix belongs in partsmith-mesh (a padding bound that does not grow with mixed orientations, such as per-triangle grazing tests at leaves), together with a revised budget. The engine's 200,000-triangle budget row is a sphere 500 mm tall analyzed with `generic-resin`, so `small_features` slices 10,000 layers: there it took 71% of 2.42 s, half of all instructions in `Mesh::slice_many` (most of them sorting segment keys per layer to chain the loops) and a fifth in this crate's convex hulls and widths of loops far wider than any limit. `small_features` now skips the hull of a loop whose sampled widths already prove it wide enough (`geometry::minimum_width_bound`, a lower bound on the minimum width, so no result changes), which brought that row to 2.12 s and the 250-layer sphere's `small_features` from 35 to 28 ms; the slicing itself is partsmith-mesh's to speed up. Since 2026-11-05 the engine's row times a batch of 20 balls that fits `generic-fdm`, 1.38 to 1.40 s here against a budget of 1.7 s. The 500 mm sphere is a stress row of its own, 2.01 to 2.07 s against 2.5 s (engine.md section 5 and open issue 6). The same day this crate's `analyze, all checks, 200k triangles` read 633 ms against its 250 ms. A plate of 5 x 5 knobs, spheres of radius 5 mm on a 2 mm plate for `generic-resin` (194,287 triangles), took 3.36 to 3.46 s per `analyze_print`. A profile of its print check put 67% of the instructions in `thin_walls`, almost all of them in the hierarchy's `first_hit`. The likely cause (not confirmed) is the plate's two flat faces: they are triangulated into long triangles whose boxes span the plate, and every ray visits them. That is later work in partsmith-mesh, with the padding above.
@@ -1206,3 +1250,4 @@ Decided by the owner on 2026-11-04: every value below is accepted as built for M
 - Analysis bounds that keep every input finite and bounded: `CoordinatesTooLarge` above 1e100 mm (section 3.7); no split suggestion when an axis (or, for the footprint, either axis) needs more than 1000 pieces (section 3.9.2); at most 200,000 slice heights for small features (section 3.9.7).
 - The `thin_walls` budget of section 5 (see open issue 9).
 - `WALL_FACING_ANGLE` 30° (sections 2.1 and 3.9.6, ADR 0041): the widest angle between two faces at which a thickness ray still measures a wall. 45° or more would make the rims of pointed cones and 45° wedges walls again, and their findings would follow the platform's triangulation (delivery.md open issue 1 (d)).
+11. **Parser text in `Json`.** `ProfileError::Json` carries serde's description (test 8: the message names `nozle_diameter` and holds serde's backticks), which the message lint of the error guidelines forbids. In M1 only the engine's tests sent profiles. In M2 the CLI's `--printer-file` and Python's `printer=` mapping show it to users (cli.md, python-api.md). Options: keep it, since it names the member to fix; split it into a sentence in plain words (`A member of the printer profile has the wrong form.`) and a detail with serde's text, as engine.md section 4 does for a document's `parse_error`; or add variants for the common cases (an unknown member, a missing required member, a value of the wrong type). Left for the print track's next change. The engine already words a stored profile's `Json` error in plain words (engine.md section 3.2).

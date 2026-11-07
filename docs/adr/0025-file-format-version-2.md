@@ -1,6 +1,6 @@
 # 0025: File format version 2 for anchors, merged names, region outlines and model frames
 
-Status: Accepted (owner, 2026-11-04), signed off as built
+Status: Accepted (owner, 2026-11-04), signed off as built. Note of 2026-11-07: format version 3 follows through [ADR 0061](0061-format-version-3-for-the-records-of-m2.md), on the same pattern. Its migration step from version 2 changes only the version, and every field this ADR adds keeps its shape and meaning at version 3.
 
 ## Context
 
