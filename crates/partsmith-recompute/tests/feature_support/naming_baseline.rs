@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -122,12 +122,7 @@ pub fn files_below(folder: &Path) -> Vec<String> {
 
 /// Adds every file below `folder` to `files`, each as `prefix` followed by its path below `folder`.
 fn collect_files(folder: &Path, prefix: &str, files: &mut Vec<String>) {
-    let Ok(entries) = fs::read_dir(folder) else {
-        return;
-    };
-    for entry in entries {
-        let entry =
-            entry.unwrap_or_else(|error| panic!("cannot list {}: {error}", folder.display()));
+    for entry in folder_entries(folder) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         if path.is_dir() {
@@ -135,6 +130,15 @@ fn collect_files(folder: &Path, prefix: &str, files: &mut Vec<String>) {
         } else {
             files.push(format!("{prefix}{name}"));
         }
+    }
+}
+
+/// The entries directly in `folder`; none when `folder` does not exist.
+pub fn folder_entries(folder: &Path) -> Vec<DirEntry> {
+    match fs::read_dir(folder).and_then(Iterator::collect) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => Vec::new(),
+        Err(error) => panic!("cannot list {}: {error}", folder.display()),
     }
 }
 
@@ -160,53 +164,59 @@ pub fn corpus_tests() -> BTreeSet<String> {
     tests
 }
 
-/// The baseline file of the corpus test that runs on this thread, or None on any other thread.
-fn corpus_file() -> Option<String> {
-    let name = thread::current().name()?.to_owned();
-    let (module, test) = name.split_once("::")?;
+/// The baseline file of the corpus test that runs on a thread of this name, or None for any other
+/// thread. The test harness names a test's thread after the test, `<module>::<test>`.
+pub fn corpus_file_of(thread_name: Option<&str>) -> Option<String> {
+    let (module, test) = thread_name?.split_once("::")?;
     (CORPUS_MODULES.contains(&module) && !test.contains("::"))
         .then(|| format!("stability/{module}/{test}.json"))
 }
 
 /// Checks a run that `Run::with_assets` or `Run::rerun` made against the baseline file of the
-/// corpus test on this thread, or records it there: the k-th run of the test matches the file's
-/// k-th entry, and a run past the file's last entry fails. Does nothing outside a corpus test, or
-/// for a test without a file when not recording.
+/// corpus test on this thread, or records it there. Does nothing outside a corpus test, or for a
+/// test without a file when not recording.
 pub fn check_corpus_run(document: &Document, report: &Report) {
-    let Some(relative) = corpus_file() else {
+    let Some(relative) = corpus_file_of(thread::current().name()) else {
         return;
     };
-    let recording = recording();
-    let recorded = if recording {
-        Vec::new()
-    } else {
-        match read_runs(&relative) {
-            Some(runs) => runs,
-            None => return,
-        }
+    if recording() {
+        let entry = run_entry(document, report);
+        CORPUS_RUNS.with_borrow_mut(|runs| {
+            runs.push(entry);
+            write_runs(&relative, runs);
+        });
+        return;
+    }
+    let Some(recorded) = read_runs(&relative) else {
+        return;
     };
     let entry = run_entry(document, report);
-    CORPUS_RUNS.with_borrow_mut(|runs| {
+    let checked = CORPUS_RUNS.with_borrow_mut(|runs| {
+        let checked = check_run(runs.len(), &entry, &recorded, &shown_path(&relative));
         runs.push(entry);
-        if recording {
-            write_runs(&relative, runs);
-            return;
-        }
-        let run = runs.len() - 1;
-        let path = shown_path(&relative);
-        let Some(expected) = recorded.get(run) else {
-            panic!(
-                "The test makes more runs than the naming baseline file {path} holds ({}).",
-                recorded.len()
-            );
-        };
-        let mismatches = mismatches(&format!("/{run}"), &runs[run], expected);
-        assert!(
-            mismatches.is_empty(),
-            "Run {run} does not match the naming baseline file {path}:\n{}",
-            mismatches.join("\n")
-        );
+        checked
     });
+    checked.unwrap_or_else(|failure| panic!("{failure}"));
+}
+
+/// Checks the entry of run `run` (from 0) of a corpus test against the runs its baseline file
+/// `path` holds: the run matches the file's entry of the same index, and a run past the file's
+/// last entry fails.
+pub fn check_run(run: usize, entry: &Value, recorded: &[Value], path: &str) -> Result<(), String> {
+    let Some(expected) = recorded.get(run) else {
+        return Err(format!(
+            "The test makes more runs than the naming baseline file {path} holds ({}).",
+            recorded.len()
+        ));
+    };
+    let mismatches = mismatches(&format!("/{run}"), entry, expected);
+    if mismatches.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Run {run} does not match the naming baseline file {path}:\n{}",
+        mismatches.join("\n")
+    ))
 }
 
 /// The baseline entry of a run of `document` that gave `report`.

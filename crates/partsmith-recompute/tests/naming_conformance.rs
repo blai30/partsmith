@@ -3,17 +3,21 @@
 //! naming maps of the body reports; positions and normals from the kernel's element geometry.
 //! Test 196 checks every example against the naming baseline (`feature_support::naming_baseline`).
 
+use std::any::Any;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::num::NonZeroUsize;
+use std::panic::{self, UnwindSafe};
+use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, thread};
 
 use crate::common;
 use crate::feature_support::naming_baseline::{
-    RECORD_IN_CI, StoredReference, baseline_files, corpus_tests, files_below, mismatches,
-    read_runs, record_mode, recording, run_entry, shown_path, stored_references, write_runs,
+    RECORD_IN_CI, StoredReference, baseline_files, check_run, corpus_file_of, corpus_tests,
+    files_below, folder_entries, mismatches, read_runs, record_mode, recording, run_entry,
+    shown_path, stored_references, write_runs,
 };
 use crate::feature_support::{Assets, Run, examples_folder, load_example};
 
@@ -23,7 +27,7 @@ use common::{
     sketch, state_before, status,
 };
 use partsmith_features::BodyState;
-use partsmith_model::Document;
+use partsmith_model::{Document, is_asset_name};
 use partsmith_naming::{ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve};
 use serde_json::{Value, json};
 
@@ -467,17 +471,20 @@ fn examples() -> Vec<String> {
         .collect()
 }
 
-/// The asset bytes of an example: every file in its folder's `assets/`, by name, as `partsmith
-/// rebuild` reads them (cli.md section 2.3).
+/// The asset bytes of an example, as `partsmith rebuild` reads them (cli.md section 2.3): every
+/// regular file directly in its folder's `assets/` whose name is an asset name, by name.
 fn example_assets(example: &str) -> Assets {
     let folder = examples_folder().join(example).with_file_name("assets");
-    files_below(&folder)
+    folder_entries(&folder)
         .into_iter()
-        .map(|name| {
-            let path = folder.join(&name);
-            let bytes = fs::read(&path)
-                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-            (name, Arc::from(bytes))
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let path = entry.path();
+            (is_asset_name(&name) && path.is_file()).then(|| {
+                let bytes = fs::read(&path)
+                    .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+                (name, Arc::from(bytes))
+            })
         })
         .collect()
 }
@@ -497,13 +504,16 @@ fn has_example_or_test(file: &str, examples: &BTreeSet<&str>, tests: &BTreeSet<S
         .is_some_and(|(module, test)| tests.contains(&format!("{module}::{test}")))
 }
 
-/// The problem of each baseline file whose example or test no longer exists.
-fn orphan_problems(examples: &[String]) -> Vec<Problem> {
+/// The problem of each of these baseline files whose example or corpus test no longer exists.
+fn orphan_problems(
+    files: Vec<String>,
+    examples: &[String],
+    tests: &BTreeSet<String>,
+) -> Vec<Problem> {
     let examples: BTreeSet<&str> = examples.iter().map(String::as_str).collect();
-    let tests = corpus_tests();
-    baseline_files()
+    files
         .into_iter()
-        .filter(|file| !has_example_or_test(file, &examples, &tests))
+        .filter(|file| !has_example_or_test(file, &examples, tests))
         .map(|file| {
             let path = shown_path(&file);
             let text = format!("The naming baseline file {path} has no example or test.");
@@ -512,33 +522,63 @@ fn orphan_problems(examples: &[String]) -> Vec<Problem> {
         .collect()
 }
 
+/// The baseline file of an example, relative to the baseline folder.
+fn example_file(example: &str) -> String {
+    format!("examples/{example}.json")
+}
+
+/// The baseline entry of one run of an example with its assets.
+fn example_entry(example: &str) -> Value {
+    let document = load_example(&format!("{example}.ptsm"));
+    let run = Run::with_assets(document, &example_assets(example));
+    run_entry(&run.document, &run.report)
+}
+
 /// Runs an example once and records its baseline file, or compares the run with the file; an
 /// example without a file is not run unless recording.
 fn example_problems(example: &str, recording: bool) -> Vec<Problem> {
-    let relative = format!("examples/{example}.json");
-    let recorded = if recording {
-        None
-    } else {
-        match read_runs(&relative) {
-            Some(runs) => Some(runs),
-            None => return Vec::new(),
-        }
-    };
-    let document = load_example(&format!("{example}.ptsm"));
-    let run = Run::with_assets(document, &example_assets(example));
-    let runs = vec![run_entry(&run.document, &run.report)];
-    let Some(recorded) = recorded else {
-        write_runs(&relative, &runs);
+    let relative = example_file(example);
+    if recording {
+        write_runs(&relative, &[example_entry(example)]);
+        return Vec::new();
+    }
+    let Some(recorded) = read_runs(&relative) else {
         return Vec::new();
     };
     let path = shown_path(&relative);
-    mismatches("", &Value::Array(runs), &Value::Array(recorded))
-        .into_iter()
-        .map(|mismatch| (path.clone(), format!("{path}: {mismatch}")))
-        .collect()
+    mismatches(
+        "",
+        &json!([example_entry(example)]),
+        &Value::Array(recorded),
+    )
+    .into_iter()
+    .map(|mismatch| (path.clone(), format!("{path}: {mismatch}")))
+    .collect()
 }
 
-/// The problems of every example, run in parallel over `available_parallelism` workers.
+/// The problems a check of the baseline file `path` gives, or one problem with the text of its
+/// panic when it panics.
+fn problems_or_panic(
+    path: &str,
+    check: impl FnOnce() -> Vec<Problem> + UnwindSafe,
+) -> Vec<Problem> {
+    panic::catch_unwind(check).unwrap_or_else(|payload| {
+        let text = format!("{path}: {}", panic_text(payload.as_ref()));
+        vec![(path.to_owned(), text)]
+    })
+}
+
+/// The text of a panic payload, or `a panic without a text` when it is not text.
+fn panic_text(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("a panic without a text")
+}
+
+/// The problems of every example, run in parallel over `available_parallelism` workers. A panic
+/// while an example runs is a problem of its file, and the other examples are still checked.
 fn every_example_problems(examples: &[String], recording: bool) -> Vec<Problem> {
     let next = AtomicUsize::new(0);
     let workers = thread::available_parallelism().map_or(1, NonZeroUsize::get);
@@ -548,7 +588,10 @@ fn every_example_problems(examples: &[String], recording: bool) -> Vec<Problem> 
                 scope.spawn(|| {
                     let mut problems = Vec::new();
                     while let Some(example) = examples.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        problems.extend(example_problems(example, recording));
+                        let path = shown_path(&example_file(example));
+                        problems.extend(problems_or_panic(&path, || {
+                            example_problems(example, recording)
+                        }));
                     }
                     problems
                 })
@@ -559,7 +602,7 @@ fn every_example_problems(examples: &[String], recording: bool) -> Vec<Problem> 
             .flat_map(|handle| {
                 handle
                     .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                    .expect("a worker panics only inside catch_unwind")
             })
             .collect()
     })
@@ -570,7 +613,7 @@ fn t196_m1_names_and_resolutions_match_the_recorded_baseline() {
     let recording = recording();
     let examples = examples();
 
-    let mut problems = orphan_problems(&examples);
+    let mut problems = orphan_problems(baseline_files(), &examples, &corpus_tests());
     problems.extend(every_example_problems(&examples, recording));
 
     problems.sort_by(|first, second| first.0.cmp(&second.0));
@@ -673,4 +716,92 @@ fn a_baseline_file_belongs_to_an_example_or_a_corpus_test_that_exists() {
         "stability/reference_stability_9/r01_line_redrawn.json"
     ));
     assert!(!belongs("notes.txt"));
+}
+
+#[test]
+fn a_baseline_file_without_its_example_or_test_fails_with_the_spec_text() {
+    let files = vec![
+        "examples/box/cube.json".to_owned(),
+        "examples/box/gone.json".to_owned(),
+    ];
+
+    let problems = orphan_problems(files, &["box/cube".to_owned()], &BTreeSet::new());
+
+    let path = "crates/partsmith-recompute/tests/naming_baseline/examples/box/gone.json";
+    assert_eq!(
+        problems,
+        vec![(
+            path.to_owned(),
+            format!("The naming baseline file {path} has no example or test.")
+        )]
+    );
+}
+
+#[test]
+fn a_corpus_run_finds_its_test_by_the_name_of_its_thread() {
+    assert_eq!(
+        thread::current().name(),
+        Some("naming_conformance::a_corpus_run_finds_its_test_by_the_name_of_its_thread")
+    );
+}
+
+#[test]
+fn a_corpus_test_thread_names_its_baseline_file() {
+    assert_eq!(
+        corpus_file_of(Some("reference_stability_2::r25_x")),
+        Some("stability/reference_stability_2/r25_x.json".to_owned())
+    );
+}
+
+#[test]
+fn a_thread_outside_the_corpus_names_no_baseline_file() {
+    assert_eq!(corpus_file_of(Some("naming_conformance::t196_x")), None);
+    assert_eq!(
+        corpus_file_of(Some("reference_stability_1::inner::x")),
+        None
+    );
+    assert_eq!(corpus_file_of(Some("main")), None);
+    assert_eq!(corpus_file_of(None), None);
+}
+
+#[test]
+fn a_corpus_run_past_the_last_entry_of_its_file_fails() {
+    let entry = json!({"features": []});
+    let path = shown_path("stability/reference_stability_1/r01_line_redrawn.json");
+
+    assert_eq!(check_run(0, &entry, slice::from_ref(&entry), &path), Ok(()));
+    assert_eq!(
+        check_run(1, &entry, slice::from_ref(&entry), &path),
+        Err(format!(
+            "The test makes more runs than the naming baseline file {path} holds (1)."
+        ))
+    );
+}
+
+#[test]
+fn a_corpus_run_mismatch_names_its_file_and_a_pointer_from_the_run_index() {
+    let path = shown_path("stability/reference_stability_1/r01_line_redrawn.json");
+    let recorded = [json!({"features": []}), json!({"features": ["f-box1"]})];
+
+    assert_eq!(
+        check_run(1, &json!({"features": ["f-ext1"]}), &recorded, &path),
+        Err(format!(
+            "Run 1 does not match the naming baseline file {path}:\n/1/features/0 is \"f-ext1\", expected \"f-box1\""
+        ))
+    );
+}
+
+#[test]
+fn a_panic_while_an_example_runs_is_a_problem_of_its_file() {
+    let path = shown_path("examples/fillet/edge.json");
+
+    let problems = problems_or_panic(&path, || panic!("the document has no feature {}", "f-fil1"));
+
+    assert_eq!(
+        problems,
+        vec![(
+            path.clone(),
+            format!("{path}: the document has no feature f-fil1")
+        )]
+    );
 }
