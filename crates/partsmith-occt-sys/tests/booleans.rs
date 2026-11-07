@@ -1,16 +1,18 @@
 //! Acceptance tests for fuse, cut and common (kernel spec sections 2.7, 3.3, 3.4.5, 3.5 and
-//! tests 34 to 43, 110, 111 and 114).
+//! tests 34 to 43, 110, 111, 114, 146 and 147).
 
 use crate::common;
 
 use common::{
-    POINT_TOLERANCE, assert_invalid_input, assert_near, assert_point_near, assert_relative,
-    box_primitive, box_with_displaced_corner, cube_a, cube_at, cube_b, cube_c, cube_d,
+    POINT_TOLERANCE, assert_images, assert_invalid_input, assert_kept_whole, assert_near,
+    assert_point_near, assert_relative, box_primitive, box_with_displaced_corner,
+    centroid_and_measure, cube_a, cube_at, cube_b, cube_c, cube_d, elements_at, elements_where,
     face_with_role, geometry, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    OpResult, Operation, Origin, Point, Primitive, PrimitiveFace, Shape, ShapeKind, SubShape,
-    SubShapeKind, common, cut, fuse, make_box, make_cylinder, make_sphere,
+    ElementGeometry, Interrupt, OpResult, Operation, Origin, Point, Primitive, PrimitiveFace,
+    Shape, ShapeKind, SubShape, SubShapeKind, common, cut, fuse, make_box, make_cylinder,
+    make_sphere,
 };
 
 /// A cylinder placed with its axis origin at `(x, y, -1)` and height 32, piercing BOX.
@@ -20,12 +22,13 @@ fn piercing_cylinder(x: f64, y: f64, radius: f64) -> Primitive {
 
 /// Test 37: BOX minus the radius 2 cylinder at (5, 10).
 fn box_with_hole(box_shape: &Shape, cylinder: &Shape) -> OpResult {
-    cut(box_shape, std::slice::from_ref(cylinder)).expect("the hole is cut")
+    cut(box_shape, std::slice::from_ref(cylinder), &Interrupt::new()).expect("the hole is cut")
 }
 
 #[test]
 fn t034_fuse_of_overlapping_cubes() {
-    let result = fuse(&cube_a().shape, &[cube_b().shape]).expect("the cubes fuse");
+    let result =
+        fuse(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("the cubes fuse");
 
     assert_relative(volume(&result.shape), 1875.0, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 12);
@@ -35,7 +38,8 @@ fn t034_fuse_of_overlapping_cubes() {
 
 #[test]
 fn t035_cut_of_overlapping_cubes() {
-    let result = cut(&cube_a().shape, &[cube_b().shape]).expect("the cube is cut");
+    let result =
+        cut(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("the cube is cut");
 
     assert_relative(volume(&result.shape), 875.0, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 9);
@@ -43,7 +47,8 @@ fn t035_cut_of_overlapping_cubes() {
 
 #[test]
 fn t035_common_of_overlapping_cubes() {
-    let result = common(&cube_a().shape, &[cube_b().shape]).expect("the cubes intersect");
+    let result =
+        common(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("the cubes intersect");
 
     assert_relative(volume(&result.shape), 125.0, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 6);
@@ -51,7 +56,8 @@ fn t035_common_of_overlapping_cubes() {
 
 #[test]
 fn t036_touching_cubes_fuse_into_one_box() {
-    let result = fuse(&cube_a().shape, &[cube_c().shape]).expect("the cubes fuse");
+    let result =
+        fuse(&cube_a().shape, &[cube_c().shape], &Interrupt::new()).expect("the cubes fuse");
 
     assert_eq!(result.shape.kind(), ShapeKind::Solid);
     assert_relative(volume(&result.shape), 2000.0, 1e-9, "volume");
@@ -65,7 +71,12 @@ fn t036_coplanar_top_faces_merge_into_one_face() {
     let first = cube_a();
     let second = cube_c();
 
-    let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("the cubes fuse");
+    let result = fuse(
+        &first.shape,
+        std::slice::from_ref(&second.shape),
+        &Interrupt::new(),
+    )
+    .expect("the cubes fuse");
 
     let first_top =
         &result.history.inputs[0].faces[face_with_role(&first, PrimitiveFace::Top) as usize - 1];
@@ -80,7 +91,12 @@ fn t036_touching_faces_are_deleted() {
     let first = cube_a();
     let second = cube_c();
 
-    let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("the cubes fuse");
+    let result = fuse(
+        &first.shape,
+        std::slice::from_ref(&second.shape),
+        &Interrupt::new(),
+    )
+    .expect("the cubes fuse");
 
     let first_right =
         &result.history.inputs[0].faces[face_with_role(&first, PrimitiveFace::Right) as usize - 1];
@@ -88,6 +104,183 @@ fn t036_touching_faces_are_deleted() {
         &result.history.inputs[1].faces[face_with_role(&second, PrimitiveFace::Left) as usize - 1];
     assert!(first_right.is_deleted(), "{first_right:?}");
     assert!(second_left.is_deleted(), "{second_left:?}");
+}
+
+/// Test 36's fuse of `A` and `C`, which unifies the faces, edges and vertices where they touch.
+fn touching_cubes_fused() -> (Primitive, Primitive, OpResult) {
+    let first = cube_a();
+    let second = cube_c();
+    let result = fuse(
+        &first.shape,
+        std::slice::from_ref(&second.shape),
+        &Interrupt::new(),
+    )
+    .expect("the cubes fuse");
+    (first, second, result)
+}
+
+/// True when `value` is `expected` within `POINT_TOLERANCE`.
+fn near(value: f64, expected: f64) -> bool {
+    (value - expected).abs() <= POINT_TOLERANCE
+}
+
+#[test]
+fn t146_edges_along_x_join_into_one_edge() {
+    let (first, second, result) = touching_cubes_fused();
+
+    let along_x = elements_where(&first.shape, SubShapeKind::Edge, |edge| {
+        near(edge.centroid.x, 5.0)
+    });
+    assert_eq!(along_x.len(), 4, "A has four edges along X");
+    for edge in along_x {
+        let (centroid, _) = centroid_and_measure(&first.shape, SubShapeKind::Edge, edge);
+        let fate = &result.history.inputs[0].edges[edge as usize - 1];
+        assert_images(
+            &result.shape,
+            SubShapeKind::Edge,
+            &fate.modified,
+            &[(Point::new(10.0, centroid.y, centroid.z), 20.0)],
+            &format!("A's edge {edge}"),
+        );
+        let partner = elements_at(
+            &second.shape,
+            SubShapeKind::Edge,
+            Point::new(15.0, centroid.y, centroid.z),
+        );
+        assert_eq!(partner.len(), 1, "C's edge along X at {centroid:?}");
+        let partner_fate = &result.history.inputs[1].edges[partner[0] as usize - 1];
+        assert_eq!(
+            partner_fate.modified, fate.modified,
+            "C's edge {} lists A's edge {edge}'s image",
+            partner[0]
+        );
+    }
+}
+
+#[test]
+fn t146_edges_where_the_cubes_touch_list_none() {
+    let (first, second, result) = touching_cubes_fused();
+
+    for (input, cube) in [(0, &first), (1, &second)] {
+        let touching = elements_where(&cube.shape, SubShapeKind::Edge, |edge| {
+            near(edge.centroid.x, 10.0)
+        });
+        assert_eq!(touching.len(), 4, "input {input} has four edges at x = 10");
+        for edge in touching {
+            let fate = &result.history.inputs[input].edges[edge as usize - 1];
+            assert!(
+                fate.modified.is_empty(),
+                "input {input} edge {edge}: {fate:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn t146_outer_edges_keep_one_image() {
+    let (first, second, result) = touching_cubes_fused();
+
+    for (input, cube, x) in [(0, &first, 0.0), (1, &second, 20.0)] {
+        let outer = elements_where(&cube.shape, SubShapeKind::Edge, |edge| {
+            near(edge.centroid.x, x)
+        });
+        assert_eq!(outer.len(), 4, "input {input} has four edges at x = {x}");
+        assert_kept_whole(&result, input, &cube.shape, SubShapeKind::Edge, |edge| {
+            near(edge.centroid.x, x)
+        });
+    }
+}
+
+#[test]
+fn t146_vertices_keep_their_position_or_list_none_where_the_cubes_touch() {
+    let (first, second, result) = touching_cubes_fused();
+
+    for (input, cube, outer_x) in [(0, &first, 0.0), (1, &second, 20.0)] {
+        let outer = elements_where(&cube.shape, SubShapeKind::Vertex, |vertex| {
+            near(vertex.centroid.x, outer_x)
+        });
+        assert_eq!(
+            outer.len(),
+            4,
+            "input {input} has four vertices at x = {outer_x}"
+        );
+        assert_kept_whole(
+            &result,
+            input,
+            &cube.shape,
+            SubShapeKind::Vertex,
+            |vertex| near(vertex.centroid.x, outer_x),
+        );
+        let touching = elements_where(&cube.shape, SubShapeKind::Vertex, |vertex| {
+            near(vertex.centroid.x, 10.0)
+        });
+        assert_eq!(
+            touching.len(),
+            4,
+            "input {input} has four vertices at x = 10"
+        );
+        for vertex in touching {
+            let fate = &result.history.inputs[input].vertices[vertex as usize - 1];
+            assert!(
+                fate.modified.is_empty(),
+                "input {input} vertex {vertex}: {fate:?}"
+            );
+        }
+    }
+}
+
+/// Test 147: `A` with the slot `S` cut across its top.
+fn slotted_cube() -> (Primitive, OpResult) {
+    let cube = cube_a();
+    let slot = make_box(&xy_plane_at(4.0, -1.0, 8.0), 2.0, 12.0, 3.0).expect("S builds");
+    let result = cut(&cube.shape, &[slot.shape], &Interrupt::new()).expect("the slot is cut");
+    (cube, result)
+}
+
+/// True for the two edges of `A` along X at z = 10, which the slot cuts in two.
+fn cut_by_the_slot(edge: &ElementGeometry) -> bool {
+    near(edge.centroid.x, 5.0) && near(edge.centroid.z, 10.0)
+}
+
+#[test]
+fn t147_slot_counts() {
+    let (_, result) = slotted_cube();
+
+    assert_eq!(result.shape.count(SubShapeKind::Face), 10);
+    assert_eq!(result.shape.count(SubShapeKind::Edge), 24);
+    assert_eq!(result.shape.count(SubShapeKind::Vertex), 16);
+}
+
+#[test]
+fn t147_edges_across_the_slot_list_both_pieces() {
+    let (cube, result) = slotted_cube();
+
+    let crossing = elements_where(&cube.shape, SubShapeKind::Edge, cut_by_the_slot);
+    assert_eq!(crossing.len(), 2, "two edges of A cross the slot");
+    for edge in crossing {
+        let (centroid, _) = centroid_and_measure(&cube.shape, SubShapeKind::Edge, edge);
+        let fate = &result.history.inputs[0].edges[edge as usize - 1];
+        assert_images(
+            &result.shape,
+            SubShapeKind::Edge,
+            &fate.modified,
+            &[
+                (Point::new(2.0, centroid.y, 10.0), 4.0),
+                (Point::new(8.0, centroid.y, 10.0), 4.0),
+            ],
+            &format!("A's edge {edge}"),
+        );
+    }
+}
+
+#[test]
+fn t147_other_edges_and_every_vertex_keep_one_image() {
+    let (cube, result) = slotted_cube();
+
+    assert_kept_whole(&result, 0, &cube.shape, SubShapeKind::Edge, |edge| {
+        !cut_by_the_slot(edge)
+    });
+    assert_kept_whole(&result, 0, &cube.shape, SubShapeKind::Vertex, |_| true);
 }
 
 #[test]
@@ -177,7 +370,7 @@ fn t039_cut_with_two_tools() {
         piercing_cylinder(7.0, 10.0, 1.0).shape,
     ];
 
-    let result = cut(&block.shape, &tools).expect("both holes are cut");
+    let result = cut(&block.shape, &tools, &Interrupt::new()).expect("both holes are cut");
 
     assert_relative(volume(&result.shape), 5811.504440784613, 1e-7, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 8);
@@ -186,8 +379,12 @@ fn t039_cut_with_two_tools() {
 
 #[test]
 fn t040_common_intersects_every_tool() {
-    let result =
-        common(&cube_a().shape, &[cube_b().shape, cube_d().shape]).expect("the cubes intersect");
+    let result = common(
+        &cube_a().shape,
+        &[cube_b().shape, cube_d().shape],
+        &Interrupt::new(),
+    )
+    .expect("the cubes intersect");
 
     assert_relative(volume(&result.shape), 27.0, 1e-9, "volume");
 }
@@ -197,7 +394,8 @@ fn t041_cut_removing_everything_is_an_empty_compound() {
     let block = cube_a();
     let tool = make_cube(-5.0, 20.0);
 
-    let result = cut(&block.shape, &[tool]).expect("an empty result is not an error");
+    let result =
+        cut(&block.shape, &[tool], &Interrupt::new()).expect("an empty result is not an error");
 
     assert_eq!(result.shape.kind(), ShapeKind::Compound);
     assert_eq!(result.shape.count(SubShapeKind::Solid), 0);
@@ -209,7 +407,7 @@ fn t041_cut_removing_everything_is_an_empty_compound() {
 
 #[test]
 fn t042_boolean_without_tools_is_rejected() {
-    let error = fuse(&cube_a().shape, &[]).expect_err("a boolean needs a tool");
+    let error = fuse(&cube_a().shape, &[], &Interrupt::new()).expect_err("a boolean needs a tool");
 
     assert_invalid_input(
         &error,
@@ -220,7 +418,8 @@ fn t042_boolean_without_tools_is_rejected() {
 
 #[test]
 fn t042_boolean_with_an_empty_tool_is_rejected() {
-    let error = fuse(&cube_a().shape, &[Shape::empty()]).expect_err("the tool has no solid");
+    let error = fuse(&cube_a().shape, &[Shape::empty()], &Interrupt::new())
+        .expect_err("the tool has no solid");
 
     assert_invalid_input(
         &error,
@@ -256,14 +455,19 @@ fn t043_booleans_leave_their_inputs_unchanged() {
         .map(|shape| shape.to_brep().expect("BRep bytes"))
         .collect();
 
-    fuse(&first, std::slice::from_ref(&second)).expect("test 34");
-    cut(&first, std::slice::from_ref(&second)).expect("test 35 cut");
-    common(&first, std::slice::from_ref(&second)).expect("test 35 common");
-    fuse(&first, std::slice::from_ref(&third)).expect("test 36");
-    cut(&block, std::slice::from_ref(&hole)).expect("test 37");
-    cut(&block, &[left_hole.clone(), right_hole.clone()]).expect("test 39");
-    common(&first, &[second.clone(), fourth.clone()]).expect("test 40");
-    cut(&first, std::slice::from_ref(&large)).expect("test 41");
+    fuse(&first, std::slice::from_ref(&second), &Interrupt::new()).expect("test 34");
+    cut(&first, std::slice::from_ref(&second), &Interrupt::new()).expect("test 35 cut");
+    common(&first, std::slice::from_ref(&second), &Interrupt::new()).expect("test 35 common");
+    fuse(&first, std::slice::from_ref(&third), &Interrupt::new()).expect("test 36");
+    cut(&block, std::slice::from_ref(&hole), &Interrupt::new()).expect("test 37");
+    cut(
+        &block,
+        &[left_hole.clone(), right_hole.clone()],
+        &Interrupt::new(),
+    )
+    .expect("test 39");
+    common(&first, &[second.clone(), fourth.clone()], &Interrupt::new()).expect("test 40");
+    cut(&first, std::slice::from_ref(&large), &Interrupt::new()).expect("test 41");
 
     for (position, shape) in inputs.iter().enumerate() {
         assert!(
@@ -275,8 +479,12 @@ fn t043_booleans_leave_their_inputs_unchanged() {
 
 #[test]
 fn fuse_of_separate_cubes_is_a_compound_of_two_solids() {
-    let result = fuse(&cube_a().shape, &[cube_at(20.0, 0.0, 0.0).shape])
-        .expect("separate cubes fuse into two solids");
+    let result = fuse(
+        &cube_a().shape,
+        &[cube_at(20.0, 0.0, 0.0).shape],
+        &Interrupt::new(),
+    )
+    .expect("separate cubes fuse into two solids");
 
     assert_eq!(result.shape.kind(), ShapeKind::Compound);
     assert_eq!(result.shape.count(SubShapeKind::Solid), 2);
@@ -285,7 +493,8 @@ fn fuse_of_separate_cubes_is_a_compound_of_two_solids() {
 
 #[test]
 fn cut_with_one_remaining_solid_is_a_solid() {
-    let result = cut(&cube_a().shape, &[cube_b().shape]).expect("the cube is cut");
+    let result =
+        cut(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("the cube is cut");
 
     assert_eq!(result.shape.kind(), ShapeKind::Solid);
 }
@@ -297,7 +506,7 @@ fn split_face_lists_every_piece() {
     let block = cube_a();
     let slab = make_cuboid((4.0, -1.0, -1.0), (2.0, 12.0, 12.0));
 
-    let result = cut(&block.shape, &[slab]).expect("the slot is cut");
+    let result = cut(&block.shape, &[slab], &Interrupt::new()).expect("the slot is cut");
 
     assert_eq!(result.shape.count(SubShapeKind::Solid), 2);
     let top = face_with_role(&block, PrimitiveFace::Top);
@@ -331,7 +540,7 @@ fn t110_cut_through_a_face_with_an_invalid_corner_is_repaired() {
     let invalid = box_with_displaced_corner();
     let cylinder = piercing_cylinder(5.0, 10.0, 2.0);
 
-    let result = cut(&invalid, &[cylinder.shape]).expect("the hole is cut");
+    let result = cut(&invalid, &[cylinder.shape], &Interrupt::new()).expect("the hole is cut");
 
     // The cut changes `Top`, which holds the displaced corner, so its check finds the corner
     // and the repair makes the result valid.
@@ -346,7 +555,7 @@ fn t111_faces_a_cut_keeps_unchanged_are_not_checked_again() {
         .expect("the notch builds")
         .shape;
 
-    let result = cut(&invalid, &[notch]).expect("the notch is cut");
+    let result = cut(&invalid, &[notch], &Interrupt::new()).expect("the notch is cut");
 
     // The notch changes `Left`, `Front` and `Bottom`; `Right`, `Back` and `Top`, which hold the
     // displaced corner, are the input's own faces, so they are not checked again (section 3.5).
@@ -388,13 +597,18 @@ fn spheres_of_test_114() -> (Shape, Shape, Shape) {
 #[test]
 fn t114_a_boolean_never_writes_to_its_inputs() {
     let (first, second, third) = spheres_of_test_114();
-    let fused = fuse(&first, std::slice::from_ref(&second)).expect("the spheres fuse");
+    let fused =
+        fuse(&first, std::slice::from_ref(&second), &Interrupt::new()).expect("the spheres fuse");
     assert!(fused.shape.is_valid().expect("validity check"));
     let fused_bytes = fused.shape.to_brep().expect("BRep bytes");
     let first_bytes = first.to_brep().expect("BRep bytes");
     let fused_volume = volume(&fused.shape);
 
-    let outcome = cut(&fused.shape, std::slice::from_ref(&third));
+    let outcome = cut(
+        &fused.shape,
+        std::slice::from_ref(&third),
+        &Interrupt::new(),
+    );
 
     // Unification writes curves on faces to the edges the result shares with its arguments,
     // also when the cut then fails, so the cut runs on copies (kernel spec section 3.1).
@@ -405,6 +619,7 @@ fn t114_a_boolean_never_writes_to_its_inputs() {
     if let Ok(result) = outcome {
         assert!(result.shape.is_valid().expect("validity check"));
     }
-    let again = fuse(&first, std::slice::from_ref(&second)).expect("the spheres fuse again");
+    let again = fuse(&first, std::slice::from_ref(&second), &Interrupt::new())
+        .expect("the spheres fuse again");
     assert!(again.shape.to_brep().expect("BRep bytes") == fused_bytes);
 }

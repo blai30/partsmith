@@ -8,6 +8,7 @@ mod blends;
 mod booleans;
 mod determinism_and_concurrency;
 mod exchange;
+mod interrupts;
 mod primitives_and_queries;
 mod profiles_and_sweeps;
 mod tessellation;

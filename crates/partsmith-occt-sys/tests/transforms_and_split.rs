@@ -1,19 +1,20 @@
 //! Acceptance tests for transforms, split, section and compound (kernel spec sections 2.9,
-//! 3.4.10 to 3.4.13 and tests 54 to 63).
+//! 3.4.10 to 3.4.13 and tests 54 to 63 and 149).
 
 use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 
 use common::{
-    BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, assert_bounds, assert_invalid_input,
-    assert_leaves_unchanged, assert_near, assert_point_near, assert_relative, assert_vector_near,
-    box_primitive, cube_a, cube_c, face_at, face_direction, face_with_role, geometry, volume,
-    xy_plane_at, z_axis,
+    BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, assert_bounds, assert_images, assert_invalid_input,
+    assert_kept_whole, assert_leaves_unchanged, assert_near, assert_point_near, assert_relative,
+    assert_vector_near, box_primitive, centroid_and_measure, cube_a, cube_c, elements_where,
+    face_at, face_direction, face_with_role, geometry, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
-    GeometryKind, Operation, Plane, PlaneSide, Point, PrimitiveFace, Shape, ShapeKind, SplitResult,
-    SubShapeKind, Transform, Vector, compound, fuse, make_box, section, split, transform,
+    ElementGeometry, GeometryKind, Interrupt, Operation, Plane, PlaneSide, Point, PrimitiveFace,
+    Shape, ShapeKind, SplitResult, SubShapeKind, Transform, Vector, compound, fuse, make_box,
+    section, split, transform,
 };
 
 const SIMILARITY_MESSAGE: &str =
@@ -21,7 +22,7 @@ const SIMILARITY_MESSAGE: &str =
 
 /// Test 59: BOX split by the plane z = 10.
 fn split_at_ten(shape: &Shape) -> SplitResult {
-    split(shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("BOX splits at z = 10")
+    split(shape, &xy_plane_at(0.0, 0.0, 10.0), &Interrupt::new()).expect("BOX splits at z = 10")
 }
 
 #[test]
@@ -181,6 +182,55 @@ fn t059_split_gives_two_pieces_by_side() {
     assert_eq!(result.result.shape.count(SubShapeKind::Face), 12);
 }
 
+/// True for BOX's four edges along Z, which the plane z = 10 cuts in two.
+fn along_z(edge: &ElementGeometry) -> bool {
+    (edge.centroid.z - 15.0).abs() <= POINT_TOLERANCE
+}
+
+#[test]
+fn t149_split_counts() {
+    let result = split_at_ten(&box_primitive().shape);
+
+    assert_eq!(result.result.shape.count(SubShapeKind::Edge), 24);
+    assert_eq!(result.result.shape.count(SubShapeKind::Vertex), 16);
+}
+
+#[test]
+fn t149_edges_along_z_list_both_pieces() {
+    let block = box_primitive().shape;
+
+    let result = split_at_ten(&block);
+
+    let vertical = elements_where(&block, SubShapeKind::Edge, along_z);
+    assert_eq!(vertical.len(), 4, "BOX has four edges along Z");
+    for edge in vertical {
+        let (centroid, _) = centroid_and_measure(&block, SubShapeKind::Edge, edge);
+        let fate = &result.result.history.inputs[0].edges[edge as usize - 1];
+        assert_images(
+            &result.result.shape,
+            SubShapeKind::Edge,
+            &fate.modified,
+            &[
+                (Point::new(centroid.x, centroid.y, 5.0), 10.0),
+                (Point::new(centroid.x, centroid.y, 20.0), 20.0),
+            ],
+            &format!("BOX's edge {edge}"),
+        );
+    }
+}
+
+#[test]
+fn t149_other_edges_and_every_vertex_keep_one_image() {
+    let block = box_primitive().shape;
+
+    let result = split_at_ten(&block);
+
+    assert_kept_whole(&result.result, 0, &block, SubShapeKind::Edge, |edge| {
+        !along_z(edge)
+    });
+    assert_kept_whole(&result.result, 0, &block, SubShapeKind::Vertex, |_| true);
+}
+
 #[test]
 fn t059_section_faces_bound_each_side() {
     let result = split_at_ten(&box_primitive().shape);
@@ -226,8 +276,12 @@ fn t060_split_history_lists_both_pieces_of_a_cut_face() {
 
 #[test]
 fn t061_plane_missing_the_shape_keeps_it_whole() {
-    let result = split(&box_primitive().shape, &xy_plane_at(0.0, 0.0, 50.0))
-        .expect("a plane past the shape splits nothing");
+    let result = split(
+        &box_primitive().shape,
+        &xy_plane_at(0.0, 0.0, 50.0),
+        &Interrupt::new(),
+    )
+    .expect("a plane past the shape splits nothing");
 
     assert_eq!(result.result.shape.count(SubShapeKind::Solid), 1);
     assert_eq!(result.solid_sides, [PlaneSide::Negative]);
@@ -316,8 +370,12 @@ fn locate_reports_missing_elements() {
 
 #[test]
 fn split_of_a_shape_without_solid_is_rejected() {
-    let error =
-        split(&Shape::empty(), &xy_plane_at(0.0, 0.0, 10.0)).expect_err("split needs a solid");
+    let error = split(
+        &Shape::empty(),
+        &xy_plane_at(0.0, 0.0, 10.0),
+        &Interrupt::new(),
+    )
+    .expect_err("split needs a solid");
 
     assert_invalid_input(
         &error,
@@ -362,7 +420,7 @@ fn rotation_keeps_element_indices() {
 fn l_shape() -> Shape {
     let base = make_box(&Plane::XY, 30.0, 10.0, 10.0).expect("the base builds");
     let tower = make_box(&xy_plane_at(0.0, 0.0, 10.0), 10.0, 10.0, 20.0).expect("the tower builds");
-    fuse(&base.shape, &[tower.shape])
+    fuse(&base.shape, &[tower.shape], &Interrupt::new())
         .expect("the L shape fuses")
         .shape
 }
@@ -372,7 +430,8 @@ fn split_through_a_face_on_the_plane_reports_only_new_section_faces() {
     let shape = l_shape();
     let step = face_at(&shape, Point::new(20.0, 5.0, 10.0));
 
-    let result = split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
+    let result =
+        split(&shape, &xy_plane_at(0.0, 0.0, 10.0), &Interrupt::new()).expect("the L shape splits");
 
     assert_eq!(result.result.shape.count(SubShapeKind::Solid), 2);
     assert_eq!(result.section_faces.len(), 2, "{:?}", result.section_faces);
@@ -408,8 +467,12 @@ fn plane_touching_a_face_creates_no_section_face() {
         (0.0, PrimitiveFace::Bottom, PlaneSide::Positive),
     ];
     for (height, role, side) in cases {
-        let result = split(&block.shape, &xy_plane_at(0.0, 0.0, height))
-            .expect("a plane on a face splits nothing");
+        let result = split(
+            &block.shape,
+            &xy_plane_at(0.0, 0.0, height),
+            &Interrupt::new(),
+        )
+        .expect("a plane on a face splits nothing");
 
         assert_eq!(
             result.result.shape.count(SubShapeKind::Solid),
@@ -439,8 +502,8 @@ fn split_leaves_its_input_unchanged() {
     let shape = l_shape();
 
     assert_leaves_unchanged(&shape, || {
-        split(&shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the L shape splits");
-        split(&shape, &xy_plane_at(0.0, 0.0, 5.0)).expect("the L shape splits");
+        split(&shape, &xy_plane_at(0.0, 0.0, 10.0), &Interrupt::new()).expect("the L shape splits");
+        split(&shape, &xy_plane_at(0.0, 0.0, 5.0), &Interrupt::new()).expect("the L shape splits");
     });
 }
 

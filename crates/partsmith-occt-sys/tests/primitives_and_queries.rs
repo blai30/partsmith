@@ -17,10 +17,10 @@ use common::{
     sphere_primitive, stair, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
-    Continuity, EdgeNormals, EdgeRadius, GeometryKind, LINEAR_TOLERANCE, Operation, Plane, Point,
-    PrimitiveFace, Shape, ShapeKind, SubShapeKind, Topology, Transform, Vector, compound, cut,
-    fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_torus, section, shell,
-    transform,
+    Continuity, EdgeNormals, EdgeRadius, GeometryKind, Interrupt, LINEAR_TOLERANCE, Operation,
+    Plane, Point, PrimitiveFace, Shape, ShapeKind, SubShapeKind, Topology, Transform, Vector,
+    compound, cut, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_torus,
+    section, shell, transform,
 };
 
 const BOX_MESSAGE: &str = "A box needs a length, width and height greater than 0 mm.";
@@ -501,7 +501,9 @@ fn plate() -> &'static Shape {
                     .shape
             })
             .collect();
-        cut(&block, &holes).expect("the holes cut").shape
+        cut(&block, &holes, &Interrupt::new())
+            .expect("the holes cut")
+            .shape
     })
 }
 
@@ -603,7 +605,12 @@ fn half_disc_centroid_is_exact() {
 fn quarter_cylinder_fillet_face_centroid_is_exact() {
     let block = box_primitive();
     let edge = top_front_edge(&block);
-    let rounded = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF rounds");
+    let rounded = fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("TF rounds");
     let round = rounded.history.inputs[0].edges[edge as usize - 1].generated[0].index;
 
     let face = geometry(&rounded.shape, SubShapeKind::Face, round);
@@ -770,6 +777,7 @@ fn rounded_cylinder() -> RoundedCylinder {
             edge: rim,
             radius: 2.0,
         }],
+        &Interrupt::new(),
     )
     .expect("the rim is filleted")
     .shape;
@@ -1407,7 +1415,12 @@ struct RoundedBox {
 fn rounded_box() -> RoundedBox {
     let block = box_primitive();
     let edge = top_front_edge(&block);
-    let result = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF rounds");
+    let result = fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("TF rounds");
     let input = &result.history.inputs[0];
     let rounds = generated_faces(&input.edges[edge as usize - 1]);
     assert_eq!(rounds.len(), 1, "TF generates one face");
@@ -1477,7 +1490,7 @@ fn t109_fuse_keeps_the_records_of_the_edges_it_keeps() {
         .expect("the tower builds")
         .shape;
 
-    let fused = fuse(&rounded.shape, &[tower])
+    let fused = fuse(&rounded.shape, &[tower], &Interrupt::new())
         .expect("the tower fuses")
         .shape;
 
@@ -1602,7 +1615,7 @@ fn t116_volume_is_exact_on_planes_and_cylinders() {
     let hole = make_cylinder(&xy_plane_at(5.0, 10.0, -1.0), 2.0, 32.0)
         .expect("the cylinder builds")
         .shape;
-    let holed = cut(&box_primitive().shape, &[hole])
+    let holed = cut(&box_primitive().shape, &[hole], &Interrupt::new())
         .expect("the hole is cut")
         .shape;
     let mirrored = transform(&holed, &Transform::mirror(&Plane::YZ))
@@ -1649,13 +1662,17 @@ fn cup() -> Shape {
     let pocket = make_box(&xy_plane_at(10.0, 10.0, 10.0), 10.0, 10.0, 30.0)
         .expect("the pocket tool builds")
         .shape;
-    cut(&cube, &[pocket]).expect("the pocket is cut").shape
+    cut(&cube, &[pocket], &Interrupt::new())
+        .expect("the pocket is cut")
+        .shape
 }
 
 /// `R` of test 118: `CUP` closed by `LID`, a 30 x 30 x 10 box on its top.
 fn closed_cup() -> Shape {
     let lid = make_box(&xy_plane_at(0.0, 0.0, 30.0), 30.0, 30.0, 10.0).expect("LID builds");
-    fuse(&cup(), &[lid.shape]).expect("LID fuses").shape
+    fuse(&cup(), &[lid.shape], &Interrupt::new())
+        .expect("LID fuses")
+        .shape
 }
 
 /// Asserts the number of solids and of shells of a shape.
@@ -1683,7 +1700,7 @@ fn t117_open_shell_has_one_shell() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
 
-    let open = shell(&block.shape, &[top], 1.0).expect("BOX shells open");
+    let open = shell(&block.shape, &[top], 1.0, &Interrupt::new()).expect("BOX shells open");
 
     assert_solids_and_shells(&open.shape, 1, 1);
 }
@@ -1697,7 +1714,7 @@ fn t117_closed_hollow_has_an_inner_shell() {
 fn t117_separate_cubes_are_two_solids_of_one_shell_each() {
     let far_cube = cube_at(20.0, 0.0, 0.0).shape;
 
-    let joined = fuse(&cube_a().shape, &[far_cube]).expect("the cubes fuse");
+    let joined = fuse(&cube_a().shape, &[far_cube], &Interrupt::new()).expect("the cubes fuse");
 
     assert_solids_and_shells(&joined.shape, 2, 2);
 }
@@ -1708,7 +1725,7 @@ fn t117_shapes_without_solids_have_no_shells() {
     let larger = make_box(&xy_plane_at(-5.0, -5.0, -5.0), 20.0, 20.0, 20.0)
         .expect("the larger box builds")
         .shape;
-    let emptied = cut(&cube_a().shape, &[larger]).expect("the cut runs");
+    let emptied = cut(&cube_a().shape, &[larger], &Interrupt::new()).expect("the cut runs");
 
     assert_solids_and_shells(&emptied.shape, 0, 0);
     assert_solids_and_shells(&Shape::empty(), 0, 0);
@@ -1778,7 +1795,7 @@ fn t118_vent_through_the_lid_opens_the_cavity() {
         .expect("the vent builds")
         .shape;
 
-    let vented = cut(&closed_cup(), &[vent]).expect("the vent is cut");
+    let vented = cut(&closed_cup(), &[vent], &Interrupt::new()).expect("the vent is cut");
 
     assert_relative(volume(&vented.shape), 33960.0, 1e-9, "vented volume");
     assert_solids_and_shells(&vented.shape, 1, 1);

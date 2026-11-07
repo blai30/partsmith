@@ -1,5 +1,5 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103, 110, 115, 131 to 133 and 142), including the history behavior
+//! and tests 44 to 53, 68, 102, 103, 110, 115, 131 to 133, 142, 148 and 150), including the history behavior
 //! the spec asks to verify on the built library (section 7, open issues 3 and 4).
 
 use crate::common;
@@ -8,19 +8,19 @@ use std::f64::consts::PI;
 
 use common::{
     POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input,
-    assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
-    assert_vector_near, box_edge_chamfers, box_edge_radii, box_primitive,
+    assert_kept_whole, assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near,
+    assert_relative, assert_vector_near, box_edge_chamfers, box_edge_radii, box_primitive,
     box_with_displaced_corner, cube_20, cube_a, cube_at, cube_edge, cube_with_vertical_rounds,
-    cylinder_primitive, edge_at, edge_between, face_direction, face_groups, face_with_role,
-    faces_of_kind, fillet_top_front, fully_rounded_box, generated_faces, geometry, hollow_box,
-    index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile, region,
-    seam_edge, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
+    cylinder_primitive, edge_at, edge_between, elements_where, face_direction, face_groups,
+    face_with_role, faces_of_kind, fillet_top_front, fully_rounded_box, generated_faces, geometry,
+    hollow_box, index_from_position, l_body, l_body_with_round, line, planar_face,
+    rectangle_profile, region, seam_edge, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
-    ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
-    OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
-    Transform, Vector, chamfer, cut, extrude, fillet, fuse, make_box, make_cylinder, make_profile,
-    shell, transform,
+    ChamferEdge, ChamferSize, EdgeRadius, ElementFate, ElementGeometry, GeometryKind, Interrupt,
+    KernelError, KernelErrorKind, OpResult, Operation, Plane, Point, Primitive, PrimitiveFace,
+    Shape, SubShapeKind, SweepFace, Transform, Vector, chamfer, cut, extrude, fillet, fuse,
+    make_box, make_cylinder, make_profile, shell, transform,
 };
 
 /// The fillet message of section 4.3 (test 46).
@@ -33,7 +33,7 @@ const SHELL_FAILED: &str =
 /// Test 51: BOX shelled with its `Top` removed and a 1 mm wall.
 fn open_box_shell(block: &Primitive) -> OpResult {
     let top = face_with_role(block, PrimitiveFace::Top);
-    shell(&block.shape, &[top], 1.0).expect("the open box is shelled")
+    shell(&block.shape, &[top], 1.0, &Interrupt::new()).expect("the open box is shelled")
 }
 
 /// The fate of input face `face` of input 0.
@@ -95,7 +95,7 @@ fn l_prism() -> (Shape, u32, u32) {
         line(6, (0.0, 20.0), (0.0, 0.0)),
     ];
     let profile = make_profile(&Plane::XY, &[region(curves)]).expect("the L profile builds");
-    let prism = extrude(&profile, UP, 0.0, 10.0).expect("the L prism builds");
+    let prism = extrude(&profile, UP, 0.0, 10.0, &Interrupt::new()).expect("the L prism builds");
     let end_cap = swept_face(&prism, SweepFace::EndCap);
     let concave = prism
         .shape
@@ -116,7 +116,7 @@ fn l_prism() -> (Shape, u32, u32) {
 /// Test 102: `L` shelled with `STEP` removed and a 2 mm wall.
 fn l_shell() -> (Shape, u32, OpResult) {
     let (body, step) = l_body();
-    let result = shell(&body, &[step], 2.0).expect("the fallback shells L");
+    let result = shell(&body, &[step], 2.0, &Interrupt::new()).expect("the fallback shells L");
     (body, step, result)
 }
 
@@ -177,11 +177,55 @@ fn t044_trimmed_faces_keep_one_image() {
     }
 }
 
+/// True for the two vertices of `TF`, BOX's edge between `Top` (z = 30) and `Front` (y = 0).
+fn on_top_front_edge(vertex: &ElementGeometry) -> bool {
+    vertex.centroid.y.abs() <= POINT_TOLERANCE
+        && (vertex.centroid.z - 30.0).abs() <= POINT_TOLERANCE
+}
+
+#[test]
+fn t148_rounded_edge_lists_nothing_and_the_other_edges_one_each() {
+    let block = box_primitive();
+    let rounded = top_front_edge(&block);
+
+    let result = fillet_top_front(&block);
+
+    let edges = &result.history.inputs[0].edges;
+    assert!(
+        edges[rounded as usize - 1].modified.is_empty(),
+        "TF: {:?}",
+        edges[rounded as usize - 1]
+    );
+    for (position, fate) in edges.iter().enumerate() {
+        if index_from_position(position) != rounded {
+            assert_eq!(fate.modified.len(), 1, "edge {}: {fate:?}", position + 1);
+        }
+    }
+}
+
+#[test]
+fn t148_vertices_of_the_rounded_edge_list_nothing_and_the_others_keep_their_position() {
+    let block = box_primitive();
+
+    let result = fillet_top_front(&block);
+
+    let rounded_ends = elements_where(&block.shape, SubShapeKind::Vertex, on_top_front_edge);
+    assert_eq!(rounded_ends.len(), 2, "TF has two vertices");
+    for vertex in rounded_ends {
+        let fate = &result.history.inputs[0].vertices[vertex as usize - 1];
+        assert!(fate.modified.is_empty(), "vertex {vertex}: {fate:?}");
+    }
+    assert_kept_whole(&result, 0, &block.shape, SubShapeKind::Vertex, |vertex| {
+        !on_top_front_edge(vertex)
+    });
+}
+
 #[test]
 fn t045_fillet_of_every_box_edge() {
     let block = box_primitive();
 
-    let result = fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
+    let result = fillet(&block.shape, &box_edge_radii(1.0), &Interrupt::new())
+        .expect("every edge is filleted");
 
     assert_eq!(result.shape.count(SubShapeKind::Face), 26);
     assert_eq!(faces_of_kind(&result.shape, GeometryKind::Plane).len(), 6);
@@ -196,7 +240,8 @@ fn t045_fillet_of_every_box_edge() {
 fn t045_each_corner_vertex_generates_its_corner_face() {
     let block = box_primitive();
 
-    let result = fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
+    let result = fillet(&block.shape, &box_edge_radii(1.0), &Interrupt::new())
+        .expect("every edge is filleted");
 
     let vertices = &result.history.inputs[0].vertices;
     assert_eq!(vertices.len(), 8);
@@ -212,8 +257,12 @@ fn t045_each_corner_vertex_generates_its_corner_face() {
 
 #[test]
 fn t046_fillet_radius_too_large_fails() {
-    let error = fillet(&box_primitive().shape, &box_edge_radii(6.0))
-        .expect_err("a 6 mm round does not fit a 10 mm wide box");
+    let error = fillet(
+        &box_primitive().shape,
+        &box_edge_radii(6.0),
+        &Interrupt::new(),
+    )
+    .expect_err("a 6 mm round does not fit a 10 mm wide box");
 
     assert!(
         matches!(
@@ -231,8 +280,12 @@ fn t047_zero_fillet_radius_is_rejected() {
     let block = box_primitive();
     let edge = top_front_edge(&block);
 
-    let error = fillet(&block.shape, &[EdgeRadius { edge, radius: 0.0 }])
-        .expect_err("the radius must be positive");
+    let error = fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 0.0 }],
+        &Interrupt::new(),
+    )
+    .expect_err("the radius must be positive");
 
     assert_argument_error(
         &error,
@@ -249,6 +302,7 @@ fn t047_edge_index_out_of_range_is_rejected() {
             edge: 13,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .expect_err("edge 13 does not exist");
 
@@ -270,6 +324,7 @@ fn t047_edge_listed_twice_is_rejected() {
             EdgeRadius { edge, radius: 1.0 },
             EdgeRadius { edge, radius: 1.0 },
         ],
+        &Interrupt::new(),
     )
     .expect_err("an edge is listed twice");
 
@@ -282,7 +337,8 @@ fn t047_edge_listed_twice_is_rejected() {
 
 #[test]
 fn t047_empty_fillet_list_is_rejected() {
-    let error = fillet(&box_primitive().shape, &[]).expect_err("a fillet needs an edge");
+    let error =
+        fillet(&box_primitive().shape, &[], &Interrupt::new()).expect_err("a fillet needs an edge");
 
     assert_invalid_input(
         &error,
@@ -302,6 +358,7 @@ fn t047_cylinder_seam_cannot_be_filleted() {
             edge: seam,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .expect_err("a seam cannot be filleted");
 
@@ -323,6 +380,7 @@ fn t048_equal_distance_chamfer() {
             edge,
             size: ChamferSize::Equal { distance: 2.0 },
         }],
+        &Interrupt::new(),
     )
     .expect("TF is chamfered");
 
@@ -353,6 +411,7 @@ fn t049_two_distance_chamfer_measures_distance_on_the_given_face() {
                 face: top,
             },
         }],
+        &Interrupt::new(),
     )
     .expect("TF is chamfered");
 
@@ -392,6 +451,7 @@ fn t050_chamfer_side_face_must_touch_the_edge() {
                 face: bottom,
             },
         }],
+        &Interrupt::new(),
     )
     .expect_err("the bottom face does not touch TF");
 
@@ -417,6 +477,7 @@ fn two_distance_chamfer_on_face_zero_is_rejected() {
                 face: 0,
             },
         }],
+        &Interrupt::new(),
     )
     .expect_err("face 0 does not exist");
 
@@ -442,6 +503,7 @@ fn two_distance_chamfer_on_a_face_out_of_range_is_rejected() {
                 face: 7,
             },
         }],
+        &Interrupt::new(),
     )
     .expect_err("face 7 does not exist");
 
@@ -454,7 +516,8 @@ fn two_distance_chamfer_on_a_face_out_of_range_is_rejected() {
 
 /// Test 142: every edge of BOX chamfered with `Equal { distance: 1 }`.
 fn chamfer_every_box_edge(block: &Primitive) -> OpResult {
-    chamfer(&block.shape, &box_edge_chamfers(1.0)).expect("every edge is chamfered")
+    chamfer(&block.shape, &box_edge_chamfers(1.0), &Interrupt::new())
+        .expect("every edge is chamfered")
 }
 
 /// `point` moved by `distance` against each of `normals`: into a box, when they are the outward
@@ -667,6 +730,24 @@ fn t051_removed_face_becomes_the_rim() {
 }
 
 #[test]
+fn t150_shell_counts() {
+    let result = open_box_shell(&box_primitive());
+
+    assert_eq!(result.shape.count(SubShapeKind::Edge), 24);
+    assert_eq!(result.shape.count(SubShapeKind::Vertex), 16);
+}
+
+#[test]
+fn t150_every_edge_and_vertex_keeps_one_image() {
+    let block = box_primitive();
+
+    let result = open_box_shell(&block);
+
+    assert_kept_whole(&result, 0, &block.shape, SubShapeKind::Edge, |_| true);
+    assert_kept_whole(&result, 0, &block.shape, SubShapeKind::Vertex, |_| true);
+}
+
+#[test]
 fn t051_kept_faces_keep_their_image_and_generate_the_inner_wall() {
     let block = box_primitive();
     let kept = [
@@ -746,7 +827,8 @@ fn t053_shell_too_thick_fails() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
 
-    let error = shell(&block.shape, &[top], 6.0).expect_err("a 6 mm wall does not fit");
+    let error =
+        shell(&block.shape, &[top], 6.0, &Interrupt::new()).expect_err("a 6 mm wall does not fit");
 
     assert!(
         matches!(
@@ -764,7 +846,8 @@ fn t053_zero_shell_thickness_is_rejected() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
 
-    let error = shell(&block.shape, &[top], 0.0).expect_err("the wall must be thicker than 0");
+    let error = shell(&block.shape, &[top], 0.0, &Interrupt::new())
+        .expect_err("the wall must be thicker than 0");
 
     assert_argument_error(
         &error,
@@ -775,8 +858,13 @@ fn t053_zero_shell_thickness_is_rejected() {
 
 #[test]
 fn t053_removing_every_face_is_rejected() {
-    let error =
-        shell(&box_primitive().shape, &[1, 2, 3, 4, 5, 6], 1.0).expect_err("a shell keeps a face");
+    let error = shell(
+        &box_primitive().shape,
+        &[1, 2, 3, 4, 5, 6],
+        1.0,
+        &Interrupt::new(),
+    )
+    .expect_err("a shell keeps a face");
 
     assert_invalid_input(
         &error,
@@ -787,10 +875,15 @@ fn t053_removing_every_face_is_rejected() {
 
 #[test]
 fn t053_shell_of_two_solids_is_rejected() {
-    let pair = fuse(&cube_a().shape, &[cube_at(20.0, 0.0, 0.0).shape])
-        .expect("separate cubes fuse into two solids");
+    let pair = fuse(
+        &cube_a().shape,
+        &[cube_at(20.0, 0.0, 0.0).shape],
+        &Interrupt::new(),
+    )
+    .expect("separate cubes fuse into two solids");
 
-    let error = shell(&pair.shape, &[], 1.0).expect_err("shell needs exactly one solid");
+    let error =
+        shell(&pair.shape, &[], 1.0, &Interrupt::new()).expect_err("shell needs exactly one solid");
 
     assert_invalid_input(
         &error,
@@ -851,7 +944,7 @@ fn closed_box_shell_keeps_every_face_and_generates_its_inner_face() {
 fn shell_rounds_the_wall_at_a_concave_edge() {
     let (prism, end_cap, _) = l_prism();
 
-    let result = shell(&prism, &[end_cap], 1.0).expect("the L prism is shelled");
+    let result = shell(&prism, &[end_cap], 1.0, &Interrupt::new()).expect("the L prism is shelled");
 
     // Outer prism 300 x 10 minus a 9 mm deep cavity whose outline is the L shrunk by 1 mm with
     // a 1 mm arc around the concave corner: 3000 - 9 * (225 - pi / 4).
@@ -863,7 +956,7 @@ fn shell_rounds_the_wall_at_a_concave_edge() {
 fn shell_arc_join_is_generated_by_the_concave_edge() {
     let (prism, end_cap, concave) = l_prism();
 
-    let result = shell(&prism, &[end_cap], 1.0).expect("the L prism is shelled");
+    let result = shell(&prism, &[end_cap], 1.0, &Interrupt::new()).expect("the L prism is shelled");
 
     let fate = &result.history.inputs[0].edges[concave as usize - 1];
     let joins = generated_faces(fate);
@@ -885,7 +978,7 @@ fn shell_arc_join_is_generated_by_the_concave_edge() {
 fn shell_of_l_prism_gives_every_face_an_origin() {
     let (prism, end_cap, _) = l_prism();
 
-    let result = shell(&prism, &[end_cap], 1.0).expect("the L prism is shelled");
+    let result = shell(&prism, &[end_cap], 1.0, &Interrupt::new()).expect("the L prism is shelled");
 
     assert_every_face_has_an_origin(&result);
 }
@@ -996,7 +1089,7 @@ fn t102_every_face_of_the_cavity_cut_comes_from_an_input_face() {
 fn t102_thin_wall_beside_a_concave_edge() {
     let (body, step) = l_body();
 
-    let result = shell(&body, &[step], 0.5).expect("a 0.5 mm wall fits");
+    let result = shell(&body, &[step], 0.5, &Interrupt::new()).expect("a 0.5 mm wall fits");
 
     assert_relative(volume(&result.shape), 1531.0, 1e-9, "volume");
 }
@@ -1005,7 +1098,8 @@ fn t102_thin_wall_beside_a_concave_edge() {
 fn t102_wall_too_thick_beside_a_concave_edge_fails() {
     let (body, step) = l_body();
 
-    let error = shell(&body, &[step], 10.0).expect_err("a 10 mm wall does not fit");
+    let error =
+        shell(&body, &[step], 10.0, &Interrupt::new()).expect_err("a 10 mm wall does not fit");
 
     assert_shell_failed(&error);
 }
@@ -1015,7 +1109,8 @@ fn t103_wall_thinner_than_a_cylinder_radius() {
     let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
     let top = face_with_role(&cylinder, PrimitiveFace::Top);
 
-    let result = shell(&cylinder.shape, &[top], 19.0).expect("a 19 mm wall leaves a bore");
+    let result = shell(&cylinder.shape, &[top], 19.0, &Interrupt::new())
+        .expect("a 19 mm wall leaves a bore");
 
     assert_relative(volume(&result.shape), 50199.50901171131, 1e-9, "volume");
 }
@@ -1025,7 +1120,8 @@ fn t103_wall_thicker_than_a_cylinder_radius_fails() {
     let cylinder = make_cylinder(&Plane::XY, 20.0, 40.0).expect("CYL20 builds");
     let top = face_with_role(&cylinder, PrimitiveFace::Top);
 
-    let error = shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
+    let error = shell(&cylinder.shape, &[top], 25.0, &Interrupt::new())
+        .expect_err("a 25 mm wall does not fit");
 
     assert_shell_failed(&error);
 }
@@ -1064,7 +1160,7 @@ fn top_face(shape: &Shape) -> u32 {
 /// `RC` shelled with `RT` removed and a wall of `thickness`.
 fn open_rounded_cube_shell(thickness: f64) -> (Shape, u32, OpResult) {
     let (rounded, top) = rounded_cube();
-    let result = shell(&rounded, &[top], thickness)
+    let result = shell(&rounded, &[top], thickness, &Interrupt::new())
         .unwrap_or_else(|error| panic!("RC shells open at {thickness} mm: {error:?}"));
     (rounded, top, result)
 }
@@ -1239,7 +1335,7 @@ fn assert_sharp_closed_hollow(thickness: f64) {
     let (rounded, _) = rounded_cube();
     let cavity = 20.0 - 2.0 * thickness;
 
-    let result = shell(&rounded, &[], thickness)
+    let result = shell(&rounded, &[], thickness, &Interrupt::new())
         .unwrap_or_else(|error| panic!("RC is hollowed at {thickness} mm: {error:?}"));
 
     assert!(result.shape.is_valid().expect("validity check"));
@@ -1324,7 +1420,8 @@ fn t131_walls_up_to_the_middle_of_the_rounded_cube_fit() {
 fn t131_walls_that_meet_in_the_middle_of_the_rounded_cube_fail() {
     let (rounded, top) = rounded_cube();
 
-    let error = shell(&rounded, &[top], 10.0).expect_err("10 mm walls leave no cavity");
+    let error =
+        shell(&rounded, &[top], 10.0, &Interrupt::new()).expect_err("10 mm walls leave no cavity");
 
     assert_shell_failed(&error);
 }
@@ -1340,7 +1437,8 @@ fn t131_closed_hollow_of_a_box_with_every_edge_rounded() {
     // Test 45's spherical corners vanish too.
     let rounded = fully_rounded_box();
 
-    let result = shell(&rounded, &[], 2.0).expect("the rounded BOX is hollowed with a 2 mm wall");
+    let result = shell(&rounded, &[], 2.0, &Interrupt::new())
+        .expect("the rounded BOX is hollowed with a 2 mm wall");
 
     // The volume of test 116 minus a 6 x 16 x 26 mm box cavity with sharp edges and corners.
     assert!(result.shape.is_valid().expect("validity check"));
@@ -1381,7 +1479,7 @@ fn t131_rounds_thinner_and_thicker_than_the_wall() {
         })
         .collect();
 
-    let result = shell(&mixed, &[top], 2.0).expect("the mixed cube shells open");
+    let result = shell(&mixed, &[top], 2.0, &Interrupt::new()).expect("the mixed cube shells open");
 
     // Sections: outer 400 - 20 (1 - pi/4), inner 16 mm square with its back corners rounded at
     // radius 1; heights 20 and 18.
@@ -1411,7 +1509,7 @@ fn t131_shell_thicker_than_the_rounds_leaves_its_input_unchanged() {
     let (rounded, top) = rounded_cube();
 
     assert_leaves_unchanged(&rounded, || {
-        shell(&rounded, &[top], 3.0).expect("RC shells open at 3 mm");
+        shell(&rounded, &[top], 3.0, &Interrupt::new()).expect("RC shells open at 3 mm");
     });
 }
 
@@ -1452,9 +1550,13 @@ fn cylinder_with_rounded_top() -> Shape {
         face_with_role(&cylinder, PrimitiveFace::Side),
         face_with_role(&cylinder, PrimitiveFace::Top),
     );
-    fillet(&cylinder.shape, &[EdgeRadius { edge, radius: 2.0 }])
-        .expect("the top circle edge rounds")
-        .shape
+    fillet(
+        &cylinder.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("the top circle edge rounds")
+    .shape
 }
 
 #[test]
@@ -1471,7 +1573,8 @@ fn t132_wall_past_a_round_on_a_circular_edge_closes_into_a_sharp_inner_corner() 
     assert_eq!(side.len(), 1, "one side");
     let top = planar_face(&rounded, UP, Point::new(0.0, 0.0, 20.0));
 
-    let result = shell(&rounded, &[bottom], 3.0).expect("a 3 mm wall fits past the 2 mm round");
+    let result = shell(&rounded, &[bottom], 3.0, &Interrupt::new())
+        .expect("a 3 mm wall fits past the 2 mm round");
 
     // The cylinder without its round, 2000 pi, less the round's material by Pappus, 2 pi (100 / 3
     // - 8 pi), less a cavity of radius 7 and depth 17 with a sharp circular corner, 833 pi.
@@ -1545,6 +1648,7 @@ fn t132_wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
             edge: concave,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .expect("the concave edge rounds")
     .shape;
@@ -1561,7 +1665,8 @@ fn t132_wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
         .collect();
     assert_eq!(end_caps.len(), 1, "one face looks up");
 
-    let result = shell(&rounded, &end_caps, 2.0).expect("the rounded L prism is shelled");
+    let result =
+        shell(&rounded, &end_caps, 2.0, &Interrupt::new()).expect("the rounded L prism is shelled");
 
     // The prism, 10 (300 + 1 - pi / 4), less an 8 mm deep cavity: the L shrunk by 2 mm, 156,
     // with the corner square [8, 11] x [8, 11] outside the round's offset of radius 3,
@@ -1634,7 +1739,8 @@ fn assert_round_vanishes_beside_an_arc_join(
 fn t132_wall_past_a_round_keeps_the_arc_join_at_a_concave_edge() {
     let (rounded, top, _) = l_body_with_round(1.0);
 
-    let result = shell(&rounded, &[top], 2.0).expect("L with a 1 mm round shells 2 mm thick");
+    let result = shell(&rounded, &[top], 2.0, &Interrupt::new())
+        .expect("L with a 1 mm round shells 2 mm thick");
 
     // L, 12000, less the round's material, 10 (1 - pi / 4), less the cavity with its arc join
     // of the shell without the round, 6592 - 16 pi.
@@ -1645,7 +1751,8 @@ fn t132_wall_past_a_round_keeps_the_arc_join_at_a_concave_edge() {
 fn t132_wall_as_thick_as_a_round_keeps_the_arc_join_at_a_concave_edge() {
     let (rounded, top, _) = l_body_with_round(2.0);
 
-    let result = shell(&rounded, &[top], 2.0).expect("L with a 2 mm round shells 2 mm thick");
+    let result = shell(&rounded, &[top], 2.0, &Interrupt::new())
+        .expect("L with a 2 mm round shells 2 mm thick");
 
     // L less the round's material, 10 (4 - pi), less the same cavity, 6592 - 16 pi.
     assert_round_vanishes_beside_an_arc_join(&rounded, &result, 5368.0 + 26.0 * PI);
@@ -1655,7 +1762,8 @@ fn t132_wall_as_thick_as_a_round_keeps_the_arc_join_at_a_concave_edge() {
 fn t132_wall_as_thick_as_a_round_beside_a_removed_concave_edge_cuts_a_sharp_cavity() {
     let (rounded, _, step) = l_body_with_round(2.0);
 
-    let result = shell(&rounded, &[step], 2.0).expect("L with a 2 mm round shells 2 mm thick");
+    let result = shell(&rounded, &[step], 2.0, &Interrupt::new())
+        .expect("L with a 2 mm round shells 2 mm thick");
 
     // The shell of test 102, 5344, less the round's material, 10 (4 - pi).
     assert!(result.shape.is_valid().expect("validity check"));
@@ -1692,7 +1800,8 @@ fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
     // The top meets its rounds tangentially.
     let (rounded, top) = fully_rounded_box_and_top();
 
-    let result = shell(&rounded, &[top], 2.0).expect("the rounded BOX shells open 2 mm thick");
+    let result = shell(&rounded, &[top], 2.0, &Interrupt::new())
+        .expect("the rounded BOX shells open 2 mm thick");
 
     // The volume of test 116 less a 6 x 16 x 28 mm cavity open at the top. The rim is 1 mm wide,
     // the wall less the rounds' radius.
@@ -1722,7 +1831,8 @@ fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
 fn t132_opening_tangent_to_rounds_as_thick_as_the_wall() {
     let (rounded, top) = fully_rounded_box_and_top();
 
-    let result = shell(&rounded, &[top], 1.0).expect("the rounded BOX shells open 1 mm thick");
+    let result = shell(&rounded, &[top], 1.0, &Interrupt::new())
+        .expect("the rounded BOX shells open 1 mm thick");
 
     // The volume of test 116 less a 8 x 18 x 29 mm cavity open at the top: the cavity reaches the
     // edges where the top met its rounds, so no rim is left.
@@ -1797,7 +1907,8 @@ fn assert_wall_ends(body: &Shape, face: u32, result: &OpResult, thickness: f64) 
 fn t133_opening_tangent_to_rounds_thicker_than_the_wall() {
     let (rounded, top) = fully_rounded_box_and_top();
 
-    let result = shell(&rounded, &[top], 0.5).expect("the rounded BOX shells open 0.5 mm thick");
+    let result = shell(&rounded, &[top], 0.5, &Interrupt::new())
+        .expect("the rounded BOX shells open 0.5 mm thick");
 
     // Test 116's volume less the closed hollow's cavity (8 x 18 x 28 mm with rounds of radius
     // 0.5) and the 8 x 18 x 0.5 mm opening above it.
@@ -1857,7 +1968,7 @@ fn t133_opening_tangent_to_rounds_beside_a_vanishing_round() {
         edge: cube_edge(&cube, PrimitiveFace::Top, side),
         radius: 3.0,
     });
-    let rounded = fillet(&cube.shape, &top_edges)
+    let rounded = fillet(&cube.shape, &top_edges, &Interrupt::new())
         .expect("the top edges round")
         .shape;
     let bottom_front = edge_at(&rounded, Point::new(0.0, -10.0, 0.0));
@@ -1867,6 +1978,7 @@ fn t133_opening_tangent_to_rounds_beside_a_vanishing_round() {
             edge: bottom_front,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .expect("the bottom front edge rounds")
     .shape;
@@ -1881,7 +1993,8 @@ fn t133_opening_tangent_to_rounds_beside_a_vanishing_round() {
         .collect::<Vec<_>>();
     assert_eq!(vanishing.len(), 1, "one round of radius 1");
 
-    let result = shell(&body, &[top], 2.0).expect("the body shells open 2 mm thick");
+    let result =
+        shell(&body, &[top], 2.0, &Interrupt::new()).expect("the body shells open 2 mm thick");
 
     // The body, 7440 + 131 pi, less the cavity of the body without the small round (a 16 mm
     // square prism from z = 2 to 17, then rounds of radius 1 up to the 14 mm square at z = 18)
@@ -1920,7 +2033,9 @@ fn t133_opening_tangent_to_concave_rounds() {
     let pocket = make_box(&xy_plane_at(-10.0, -10.0, 10.0), 20.0, 20.0, 20.0)
         .expect("the pocket builds")
         .shape;
-    let pocketed = cut(&block, &[pocket]).expect("the pocket cuts").shape;
+    let pocketed = cut(&block, &[pocket], &Interrupt::new())
+        .expect("the pocket cuts")
+        .shape;
     let sharp_floor = planar_face(&pocketed, UP, Point::new(0.0, 0.0, 10.0));
     let floor_edges: Vec<EdgeRadius> = pocketed.topology().expect("topology").faces
         [sharp_floor as usize - 1]
@@ -1928,13 +2043,15 @@ fn t133_opening_tangent_to_concave_rounds() {
         .iter()
         .map(|&edge| EdgeRadius { edge, radius: 2.0 })
         .collect();
-    let body = fillet(&pocketed, &floor_edges)
+    let body = fillet(&pocketed, &floor_edges, &Interrupt::new())
         .expect("the floor edges round")
         .shape;
     let floor = planar_face(&body, UP, Point::new(0.0, 0.0, 10.0));
-    let closed = shell(&body, &[], 1.0).expect("the body is hollowed 1 mm thick");
+    let closed =
+        shell(&body, &[], 1.0, &Interrupt::new()).expect("the body is hollowed 1 mm thick");
 
-    let result = shell(&body, &[floor], 1.0).expect("the body shells open 1 mm thick");
+    let result =
+        shell(&body, &[floor], 1.0, &Interrupt::new()).expect("the body shells open 1 mm thick");
 
     // The closed hollow less the 16 x 16 x 1 mm slab between the floor and its inner face.
     assert!(result.shape.is_valid().expect("validity check"));
@@ -1962,6 +2079,7 @@ fn fillet_on_a_shape_without_solid_is_rejected() {
             edge: 1,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .expect_err("a face has no solid to fillet");
 
@@ -1974,7 +2092,8 @@ fn fillet_on_a_shape_without_solid_is_rejected() {
 
 #[test]
 fn empty_chamfer_list_is_rejected() {
-    let error = chamfer(&box_primitive().shape, &[]).expect_err("a chamfer needs an edge");
+    let error = chamfer(&box_primitive().shape, &[], &Interrupt::new())
+        .expect_err("a chamfer needs an edge");
 
     assert_invalid_input(
         &error,
@@ -1994,6 +2113,7 @@ fn zero_chamfer_distance_is_rejected() {
             edge,
             size: ChamferSize::Equal { distance: 0.0 },
         }],
+        &Interrupt::new(),
     )
     .expect_err("chamfer distances must be positive");
 
@@ -2006,7 +2126,8 @@ fn zero_chamfer_distance_is_rejected() {
 
 #[test]
 fn shell_face_index_out_of_range_is_rejected() {
-    let error = shell(&box_primitive().shape, &[7], 1.0).expect_err("face 7 does not exist");
+    let error = shell(&box_primitive().shape, &[7], 1.0, &Interrupt::new())
+        .expect_err("face 7 does not exist");
 
     assert_argument_error(
         &error,
@@ -2020,7 +2141,8 @@ fn shell_face_listed_twice_is_rejected() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
 
-    let error = shell(&block.shape, &[top, top], 1.0).expect_err("a face is listed twice");
+    let error = shell(&block.shape, &[top, top], 1.0, &Interrupt::new())
+        .expect_err("a face is listed twice");
 
     assert_invalid_input(
         &error,
@@ -2034,7 +2156,8 @@ fn fillet_leaves_its_input_unchanged() {
     let block = box_primitive();
 
     assert_leaves_unchanged(&block.shape, || {
-        fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
+        fillet(&block.shape, &box_edge_radii(1.0), &Interrupt::new())
+            .expect("every edge is filleted");
     });
 }
 
@@ -2052,7 +2175,7 @@ fn shell_beside_a_concave_edge_leaves_its_input_unchanged() {
     let (body, step) = l_body();
 
     assert_leaves_unchanged(&body, || {
-        shell(&body, &[step], 2.0).expect("the fallback shells L");
+        shell(&body, &[step], 2.0, &Interrupt::new()).expect("the fallback shells L");
     });
 }
 
@@ -2062,7 +2185,8 @@ fn failed_shell_leaves_its_input_unchanged() {
     let top = face_with_role(&cylinder, PrimitiveFace::Top);
 
     assert_leaves_unchanged(&cylinder.shape, || {
-        shell(&cylinder.shape, &[top], 25.0).expect_err("a 25 mm wall does not fit");
+        shell(&cylinder.shape, &[top], 25.0, &Interrupt::new())
+            .expect_err("a 25 mm wall does not fit");
     });
 }
 
@@ -2078,7 +2202,12 @@ fn t110_fillet_next_to_an_invalid_corner_is_repaired() {
         face_with_role(&block, PrimitiveFace::Back),
     );
 
-    let result = fillet(&invalid, &[EdgeRadius { edge, radius: 1.0 }]).expect("the edge rounds");
+    let result = fillet(
+        &invalid,
+        &[EdgeRadius { edge, radius: 1.0 }],
+        &Interrupt::new(),
+    )
+    .expect("the edge rounds");
 
     assert!(result.shape.is_valid().expect("validity check"));
 }
@@ -2095,11 +2224,13 @@ fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
     ];
 
     for removed in [vec![top], Vec::new()] {
-        let unmoved = shell(&rounded, &removed, 0.5).expect("the rounded box shells");
+        let unmoved =
+            shell(&rounded, &removed, 0.5, &Interrupt::new()).expect("the rounded box shells");
         for (position, motion) in motions.iter().enumerate() {
             let moved = transform(&rounded, motion).expect("the box moves").shape;
 
-            let shelled = shell(&moved, &removed, 0.5).expect("the moved box shells");
+            let shelled =
+                shell(&moved, &removed, 0.5, &Interrupt::new()).expect("the moved box shells");
 
             assert!(shelled.shape.is_valid().expect("validity check"));
             assert_relative(
@@ -2135,19 +2266,21 @@ fn t115_shell_of_a_moved_and_fused_body_matches_the_unmoved_one() {
     .expect("the box moves")
     .shape;
     // The fuse keeps the moved box's untouched faces, which carry its location.
-    let fused = fuse(&moved, &[cube_at(58.0, 5.0, 5.0).shape])
+    let fused = fuse(&moved, &[cube_at(58.0, 5.0, 5.0).shape], &Interrupt::new())
         .expect("the moved box fuses")
         .shape;
-    let unmoved = fuse(&rounded, &[cube_at(8.0, 5.0, 5.0).shape])
+    let unmoved = fuse(&rounded, &[cube_at(8.0, 5.0, 5.0).shape], &Interrupt::new())
         .expect("the box fuses")
         .shape;
     let top_of = |shape: &Shape, x: f64| {
         planar_face(shape, Vector::new(0.0, 0.0, 1.0), Point::new(x, 10.0, 30.0))
     };
 
-    let shelled = shell(&fused, &[top_of(&fused, 55.0)], 0.5).expect("the moved body shells");
+    let shelled = shell(&fused, &[top_of(&fused, 55.0)], 0.5, &Interrupt::new())
+        .expect("the moved body shells");
 
-    let expected = shell(&unmoved, &[top_of(&unmoved, 5.0)], 0.5).expect("the body shells");
+    let expected =
+        shell(&unmoved, &[top_of(&unmoved, 5.0)], 0.5, &Interrupt::new()).expect("the body shells");
     assert!(shelled.shape.is_valid().expect("validity check"));
     assert_relative(
         volume(&shelled.shape),

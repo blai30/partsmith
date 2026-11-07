@@ -5,23 +5,22 @@
 use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, TAU};
-use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 use common::{
-    OPT, UP, box_edge_chamfers, box_edge_radii, box_primitive, box_with_displaced_corner, cube_20,
-    cube_a, cube_b, cube_c, cube_with_vertical_rounds, edge_between, face_with_role,
-    fully_rounded_box, l_body, l_body_with_round, planar_face, rectangle_profile,
-    rectangle_with_hole_profile, ring_profile, top_front_edge, uncolored_body, xy_plane_at, z_axis,
+    OPT, UP, assert_no_lock_left_held, box_edge_chamfers, box_edge_radii, box_primitive,
+    box_with_displaced_corner, cube_20, cube_a, cube_b, cube_c, cube_with_vertical_rounds,
+    edge_between, face_with_role, fully_rounded_box, l_body, l_body_with_round, planar_face,
+    rectangle_profile, rectangle_with_hole_profile, ring_profile, top_front_edge, uncolored_body,
+    xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
-    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, KernelError, KernelErrorKind,
-    OpResult, Plane, Point, PrimitiveFace, Shape, StepBody, StepImport, SubShapeKind, Topology,
-    Transform, Vector, chamfer, common, compound, cut, extrude, fillet, fuse, make_box, make_cone,
-    make_cylinder, make_sphere, make_torus, read_step, revolve, section, shell, split, transform,
-    write_step,
+    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, Interrupt, KernelError,
+    KernelErrorKind, OpResult, Plane, Point, PrimitiveFace, Shape, StepBody, StepImport,
+    SubShapeKind, Topology, Transform, Vector, chamfer, common, compound, cut, extrude, fillet,
+    fuse, make_box, make_cone, make_cylinder, make_sphere, make_torus, read_step, revolve, section,
+    shell, split, transform, write_step,
 };
 
 /// Number of threads in the concurrency tests.
@@ -69,7 +68,7 @@ fn measure(shape: &Shape) -> Measurements {
     Measurements {
         volume_bits: shape.volume().expect("volume").to_bits(),
         faces: shape.elements(SubShapeKind::Face).expect("faces"),
-        mesh: shape.tessellate(&OPT).expect("mesh"),
+        mesh: shape.tessellate(&OPT, &Interrupt::new()).expect("mesh"),
         brep: shape.to_brep().expect("BRep bytes"),
     }
 }
@@ -103,8 +102,8 @@ fn thread_body(thread_number: usize) -> StepBody {
 
 /// Writes one body to STEP and reads it back.
 fn step_round_trip(body: &StepBody) -> StepRoundTrip {
-    let written = write_step(std::slice::from_ref(body)).expect("written");
-    let read = read_step(&written)
+    let written = write_step(std::slice::from_ref(body), &Interrupt::new()).expect("written");
+    let read = read_step(&written, &Interrupt::new())
         .expect("read")
         .bodies
         .into_iter()
@@ -128,9 +127,13 @@ fn step_round_trip(body: &StepBody) -> StepRoundTrip {
 fn t090_shared_fillet_result_measures_identically_on_every_thread() {
     let block = box_primitive();
     let edge = top_front_edge(&block);
-    let rounded = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }])
-        .expect("TF is filleted")
-        .shape;
+    let rounded = fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("TF is filleted")
+    .shape;
 
     assert_same_on_every_thread(|| measure(&rounded));
 }
@@ -174,7 +177,7 @@ fn t091_concurrent_step_round_trips_match_single_threaded_ones() {
 /// side.
 fn cube_beside_a_wider_box() -> (Shape, u32, u32) {
     let wider = make_box(&xy_plane_at(10.0, -20.0, 0.0), 20.0, 40.0, 20.0).expect("the box builds");
-    let body = fuse(&cube_20().shape, &[wider.shape])
+    let body = fuse(&cube_20().shape, &[wider.shape], &Interrupt::new())
         .expect("the boxes fuse")
         .shape;
     let front = planar_face(
@@ -203,7 +206,7 @@ fn t134_chamfers_built_on_every_thread_match_a_single_threaded_one() {
     let edges = [ChamferEdge { edge, size }];
 
     assert_same_on_every_thread(|| {
-        Outcome::of_result(&chamfer(&body, &edges).expect("CB chamfers"))
+        Outcome::of_result(&chamfer(&body, &edges, &Interrupt::new()).expect("CB chamfers"))
     });
 }
 
@@ -216,47 +219,9 @@ fn t134_fillets_built_on_every_thread_match_a_single_threaded_one() {
     let (body, _, edge) = cube_beside_a_wider_box();
     let edges = [EdgeRadius { edge, radius: 2.0 }];
 
-    assert_same_on_every_thread(|| Outcome::of_result(&fillet(&body, &edges).expect("CB fillets")));
-}
-
-/// How long test 136 waits for each result from its second thread: far longer than any of its
-/// calls takes, so a lock left held fails the test instead of blocking the test binary.
-const SECOND_THREAD_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Runs `failing` and then `next` on this thread and checks their results, then runs them on a
-/// second thread that sends each result back on a channel and checks those (test 136). A lock
-/// that `failing` left held makes `next` fail on this thread and block on the other one, whose
-/// wait `SECOND_THREAD_TIMEOUT` ends.
-fn assert_no_lock_left_held<FailingResult, NextResult>(
-    failing: fn() -> FailingResult,
-    check_failure: fn(FailingResult),
-    next: fn() -> NextResult,
-    check_next: fn(NextResult),
-) where
-    FailingResult: Send + 'static,
-    NextResult: Send + 'static,
-{
-    check_failure(failing());
-    check_next(next());
-
-    let (failure_sender, failures) = mpsc::channel();
-    let (next_sender, nexts) = mpsc::channel();
-    // Not joined: a thread blocked on a lock never ends.
-    thread::spawn(move || {
-        // A send fails only when the test stopped waiting, so it has failed already.
-        let _ = failure_sender.send(failing());
-        let _ = next_sender.send(next());
+    assert_same_on_every_thread(|| {
+        Outcome::of_result(&fillet(&body, &edges, &Interrupt::new()).expect("CB fillets"))
     });
-    check_failure(
-        failures
-            .recv_timeout(SECOND_THREAD_TIMEOUT)
-            .expect("the failing call returns on the second thread"),
-    );
-    check_next(
-        nexts
-            .recv_timeout(SECOND_THREAD_TIMEOUT)
-            .expect("the next call returns on the second thread, so no lock was left held"),
-    );
 }
 
 /// The fillet of BOX's edge between `Front` and `Left` (parallel to Z, between faces 10 and
@@ -268,7 +233,11 @@ fn front_left_fillet(radius: f64) -> Result<OpResult, KernelError> {
         face_with_role(&block, PrimitiveFace::Front),
         face_with_role(&block, PrimitiveFace::Left),
     );
-    fillet(&block.shape, &[EdgeRadius { edge, radius }])
+    fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius }],
+        &Interrupt::new(),
+    )
 }
 
 /// Asserts that a fillet failed inside the blend builder's guarded region: OCCT's builder was not
@@ -298,10 +267,13 @@ fn assert_unreadable(result: Result<StepImport, KernelError>) {
 
 /// `read_step` of `write_step` of BOX as one body.
 fn box_step_round_trip() -> Result<StepImport, KernelError> {
-    read_step(&write_step(&[uncolored_body(
-        box_primitive().shape,
-        "Block",
-    )])?)
+    read_step(
+        &write_step(
+            &[uncolored_body(box_primitive().shape, "Block")],
+            &Interrupt::new(),
+        )?,
+        &Interrupt::new(),
+    )
 }
 
 /// Asserts that a STEP file was read with one body.
@@ -331,7 +303,7 @@ fn t136_a_failed_fillet_leaves_no_lock_held() {
 )]
 fn t136_an_unreadable_step_file_leaves_no_lock_held() {
     assert_no_lock_left_held(
-        || read_step(b"hello"),
+        || read_step(b"hello", &Interrupt::new()),
         assert_unreadable,
         box_step_round_trip,
         assert_one_body,
@@ -340,8 +312,8 @@ fn t136_an_unreadable_step_file_leaves_no_lock_held() {
 
 #[test]
 fn t092_extrude_is_deterministic() {
-    let first = extrude(&rectangle_profile(), UP, 0.0, 30.0).expect("extruded");
-    let second = extrude(&rectangle_profile(), UP, 0.0, 30.0).expect("extruded");
+    let first = extrude(&rectangle_profile(), UP, 0.0, 30.0, &Interrupt::new()).expect("extruded");
+    let second = extrude(&rectangle_profile(), UP, 0.0, 30.0, &Interrupt::new()).expect("extruded");
 
     assert!(first.shape.to_brep().expect("bytes") == second.shape.to_brep().expect("bytes"));
     assert_eq!(first.faces, second.faces);
@@ -349,8 +321,8 @@ fn t092_extrude_is_deterministic() {
 
 #[test]
 fn t092_fuse_is_deterministic() {
-    let first = fuse(&cube_a().shape, &[cube_b().shape]).expect("fused");
-    let second = fuse(&cube_a().shape, &[cube_b().shape]).expect("fused");
+    let first = fuse(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("fused");
+    let second = fuse(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("fused");
 
     assert!(first.shape.to_brep().expect("bytes") == second.shape.to_brep().expect("bytes"));
     assert_eq!(first.history, second.history);
@@ -361,7 +333,12 @@ fn t092_fillet_is_deterministic() {
     let run = || {
         let block = box_primitive();
         let edge = top_front_edge(&block);
-        fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("filleted")
+        fillet(
+            &block.shape,
+            &[EdgeRadius { edge, radius: 2.0 }],
+            &Interrupt::new(),
+        )
+        .expect("filleted")
     };
 
     let first = run();
@@ -376,7 +353,7 @@ fn t092_shell_is_deterministic() {
     let run = || {
         let block = box_primitive();
         let top = face_with_role(&block, PrimitiveFace::Top);
-        shell(&block.shape, &[top], 1.0).expect("shelled")
+        shell(&block.shape, &[top], 1.0, &Interrupt::new()).expect("shelled")
     };
 
     let first = run();
@@ -388,7 +365,14 @@ fn t092_shell_is_deterministic() {
 
 #[test]
 fn t092_split_is_deterministic() {
-    let run = || split(&box_primitive().shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("split");
+    let run = || {
+        split(
+            &box_primitive().shape,
+            &xy_plane_at(0.0, 0.0, 10.0),
+            &Interrupt::new(),
+        )
+        .expect("split")
+    };
 
     let first = run();
     let second = run();
@@ -404,13 +388,22 @@ fn t092_split_is_deterministic() {
 
 #[test]
 fn results_do_not_depend_on_earlier_operations() {
-    let before = fuse(&cube_a().shape, &[cube_b().shape]).expect("fused");
+    let before = fuse(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("fused");
     let block = box_primitive();
     let edge = top_front_edge(&block);
-    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("filleted");
-    write_step(&[uncolored_body(block.shape.clone(), "Bracket")]).expect("written");
+    fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("filleted");
+    write_step(
+        &[uncolored_body(block.shape.clone(), "Bracket")],
+        &Interrupt::new(),
+    )
+    .expect("written");
 
-    let after = fuse(&cube_a().shape, &[cube_b().shape]).expect("fused");
+    let after = fuse(&cube_a().shape, &[cube_b().shape], &Interrupt::new()).expect("fused");
 
     assert!(before.shape.to_brep().expect("bytes") == after.shape.to_brep().expect("bytes"));
     assert_eq!(before.history, after.history);
@@ -495,21 +488,25 @@ fn knob() -> OpResult {
     let sphere = make_sphere(&xy_plane_at(0.0, 0.0, 40.0), 15.0)
         .expect("the sphere builds")
         .shape;
-    fuse(&cylinder, &[sphere]).expect("the knob fuses")
+    fuse(&cylinder, &[sphere], &Interrupt::new()).expect("the knob fuses")
 }
 
 // Test 104: closed shells.
 
 fn closed_box_shell() -> Outcome {
-    Outcome::of_result(&shell(&box_primitive().shape, &[], 1.0).expect("BOX shells"))
+    Outcome::of_result(
+        &shell(&box_primitive().shape, &[], 1.0, &Interrupt::new()).expect("BOX shells"),
+    )
 }
 
 fn closed_l_shell() -> Outcome {
-    Outcome::of_result(&shell(&l_body().0, &[], 2.0).expect("L shells"))
+    Outcome::of_result(&shell(&l_body().0, &[], 2.0, &Interrupt::new()).expect("L shells"))
 }
 
 fn closed_rounded_box_shell() -> Outcome {
-    Outcome::of_result(&shell(&fully_rounded_box(), &[], 0.5).expect("the rounded box shells"))
+    Outcome::of_result(
+        &shell(&fully_rounded_box(), &[], 0.5, &Interrupt::new()).expect("the rounded box shells"),
+    )
 }
 
 /// `L` of test 102 moved by a rigid transform, which gives it a location (section 3.4.10).
@@ -529,19 +526,22 @@ fn l_bottom() -> u32 {
 }
 
 fn closed_moved_l_shell() -> Outcome {
-    Outcome::of_result(&shell(&moved_l(), &[], 2.0).expect("the moved L shells"))
+    Outcome::of_result(&shell(&moved_l(), &[], 2.0, &Interrupt::new()).expect("the moved L shells"))
 }
 
 // Test 105: an open shell with an arc join, and the fallback of test 102.
 
 fn l_shell_with_arc_join() -> Outcome {
     let (body, _) = l_body();
-    Outcome::of_result(&shell(&body, &[l_bottom()], 2.0).expect("L shells without its bottom"))
+    Outcome::of_result(
+        &shell(&body, &[l_bottom()], 2.0, &Interrupt::new()).expect("L shells without its bottom"),
+    )
 }
 
 fn moved_l_shell_with_arc_join() -> Outcome {
     Outcome::of_result(
-        &shell(&moved_l(), &[l_bottom()], 2.0).expect("the moved L shells without its bottom"),
+        &shell(&moved_l(), &[l_bottom()], 2.0, &Interrupt::new())
+            .expect("the moved L shells without its bottom"),
     )
 }
 
@@ -552,12 +552,16 @@ fn open_rounded_box_shell() -> Outcome {
         Vector::new(0.0, 0.0, -1.0),
         Point::new(5.0, 10.0, 0.0),
     );
-    Outcome::of_result(&shell(&body, &[bottom], 0.5).expect("the rounded box shells open"))
+    Outcome::of_result(
+        &shell(&body, &[bottom], 0.5, &Interrupt::new()).expect("the rounded box shells open"),
+    )
 }
 
 fn l_shell_fallback() -> Outcome {
     let (body, step) = l_body();
-    Outcome::of_result(&shell(&body, &[step], 2.0).expect("the fallback shells L"))
+    Outcome::of_result(
+        &shell(&body, &[step], 2.0, &Interrupt::new()).expect("the fallback shells L"),
+    )
 }
 
 // Test 131: walls thicker than the rounds, whose inner offsets vanish.
@@ -572,25 +576,33 @@ fn rounded_cube() -> (Shape, u32) {
 
 fn open_rounded_cube_shell_past_its_rounds() -> Outcome {
     let (rounded, top) = rounded_cube();
-    Outcome::of_result(&shell(&rounded, &[top], 3.0).expect("RC shells open at 3 mm"))
+    Outcome::of_result(
+        &shell(&rounded, &[top], 3.0, &Interrupt::new()).expect("RC shells open at 3 mm"),
+    )
 }
 
 fn closed_rounded_box_shell_past_its_rounds() -> Outcome {
     Outcome::of_result(
-        &shell(&fully_rounded_box(), &[], 2.0).expect("the rounded box is hollowed at 2 mm"),
+        &shell(&fully_rounded_box(), &[], 2.0, &Interrupt::new())
+            .expect("the rounded box is hollowed at 2 mm"),
     )
 }
 
 fn open_rounded_cube_shell_as_thick_as_its_rounds() -> Outcome {
     let (rounded, top) = rounded_cube();
-    Outcome::of_result(&shell(&rounded, &[top], 2.0).expect("RC shells open at 2 mm"))
+    Outcome::of_result(
+        &shell(&rounded, &[top], 2.0, &Interrupt::new()).expect("RC shells open at 2 mm"),
+    )
 }
 
 // Test 132: a round thinner than the wall beside an arc join.
 
 fn l_shell_past_a_round_with_arc_join() -> Outcome {
     let (rounded, top, _) = l_body_with_round(1.0);
-    Outcome::of_result(&shell(&rounded, &[top], 2.0).expect("L with a 1 mm round shells at 2 mm"))
+    Outcome::of_result(
+        &shell(&rounded, &[top], 2.0, &Interrupt::new())
+            .expect("L with a 1 mm round shells at 2 mm"),
+    )
 }
 
 // Test 106: every other operation.
@@ -626,17 +638,24 @@ fn profile_case() -> Outcome {
 }
 
 fn extrude_case() -> Outcome {
-    let prism = extrude(&rectangle_with_hole_profile(), UP, 0.0, 30.0).expect("extruded");
+    let prism = extrude(
+        &rectangle_with_hole_profile(),
+        UP,
+        0.0,
+        30.0,
+        &Interrupt::new(),
+    )
+    .expect("extruded");
     Outcome::of_shape(&prism.shape, format!("{:?}", prism.faces))
 }
 
 fn partial_revolve_case() -> Outcome {
-    let ring = revolve(&ring_profile(), &z_axis(), FRAC_PI_2).expect("revolved");
+    let ring = revolve(&ring_profile(), &z_axis(), FRAC_PI_2, &Interrupt::new()).expect("revolved");
     Outcome::of_shape(&ring.shape, format!("{:?}", ring.faces))
 }
 
 fn full_revolve_case() -> Outcome {
-    let ring = revolve(&ring_profile(), &z_axis(), TAU).expect("revolved");
+    let ring = revolve(&ring_profile(), &z_axis(), TAU, &Interrupt::new()).expect("revolved");
     Outcome::of_shape(&ring.shape, format!("{:?}", ring.faces))
 }
 
@@ -656,7 +675,7 @@ fn cut_case() -> Outcome {
                 .shape
         })
         .collect();
-    Outcome::of_result(&cut(&block, &holes).expect("the holes cut"))
+    Outcome::of_result(&cut(&block, &holes, &Interrupt::new()).expect("the holes cut"))
 }
 
 fn common_case() -> Outcome {
@@ -666,17 +685,23 @@ fn common_case() -> Outcome {
     let sphere = make_sphere(&xy_plane_at(0.0, 0.0, 20.0), 25.0)
         .expect("the sphere builds")
         .shape;
-    Outcome::of_result(&common(&cylinder, &[sphere]).expect("the intersection builds"))
+    Outcome::of_result(
+        &common(&cylinder, &[sphere], &Interrupt::new()).expect("the intersection builds"),
+    )
 }
 
 fn fillet_case() -> Outcome {
     let edges = box_edge_radii(1.0);
-    Outcome::of_result(&fillet(&box_primitive().shape, &edges).expect("every edge rounds"))
+    Outcome::of_result(
+        &fillet(&box_primitive().shape, &edges, &Interrupt::new()).expect("every edge rounds"),
+    )
 }
 
 fn equal_chamfer_case() -> Outcome {
     let edges = box_edge_chamfers(1.0);
-    Outcome::of_result(&chamfer(&box_primitive().shape, &edges).expect("every edge bevels"))
+    Outcome::of_result(
+        &chamfer(&box_primitive().shape, &edges, &Interrupt::new()).expect("every edge bevels"),
+    )
 }
 
 fn two_distance_chamfer_case() -> Outcome {
@@ -689,7 +714,7 @@ fn two_distance_chamfer_case() -> Outcome {
             face: face_with_role(&block, PrimitiveFace::Top),
         },
     };
-    Outcome::of_result(&chamfer(&block.shape, &[edge]).expect("TF bevels"))
+    Outcome::of_result(&chamfer(&block.shape, &[edge], &Interrupt::new()).expect("TF bevels"))
 }
 
 fn rigid_transform_case() -> Outcome {
@@ -711,7 +736,8 @@ fn scale_transform_case() -> Outcome {
 }
 
 fn split_case() -> Outcome {
-    let pieces = split(&knob().shape, &oblique_plane()).expect("the knob splits");
+    let pieces =
+        split(&knob().shape, &oblique_plane(), &Interrupt::new()).expect("the knob splits");
     let mut outcome = Outcome::of_result(&pieces.result);
     outcome.rest += &format!("{:?} {:?}", pieces.solid_sides, pieces.section_faces);
     outcome
@@ -726,7 +752,8 @@ fn repaired_cut_case() -> Outcome {
     let cylinder = make_cylinder(&xy_plane_at(5.0, 10.0, -1.0), 2.0, 32.0)
         .expect("the cylinder builds")
         .shape;
-    let result = cut(&box_with_displaced_corner(), &[cylinder]).expect("the hole is cut");
+    let result =
+        cut(&box_with_displaced_corner(), &[cylinder], &Interrupt::new()).expect("the hole is cut");
     Outcome::of_result(&result)
 }
 
@@ -737,7 +764,9 @@ fn compound_case() -> Outcome {
 fn tessellate_case() -> Outcome {
     Outcome::of_value(format!(
         "{:?}",
-        fully_rounded_box().tessellate(&OPT).expect("meshed")
+        fully_rounded_box()
+            .tessellate(&OPT, &Interrupt::new())
+            .expect("meshed")
     ))
 }
 
@@ -751,12 +780,16 @@ fn write_step_case() -> Outcome {
             blue: 0.6,
         }),
     };
-    Outcome::of_value(format!("{:?}", write_step(&[body]).expect("written")))
+    Outcome::of_value(format!(
+        "{:?}",
+        write_step(&[body], &Interrupt::new()).expect("written")
+    ))
 }
 
 fn read_step_case() -> Outcome {
-    let bytes = write_step(&[uncolored_body(knob().shape, "Knob")]).expect("written");
-    let import = read_step(&bytes).expect("read");
+    let bytes =
+        write_step(&[uncolored_body(knob().shape, "Knob")], &Interrupt::new()).expect("written");
+    let import = read_step(&bytes, &Interrupt::new()).expect("read");
     let first = &import.bodies[0];
     let rest = format!("{} {:?} {:?}", first.name, first.color, import.warnings);
     Outcome::of_shape(&first.shape, rest)

@@ -5,14 +5,17 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use partsmith_mesh::{Mesh, Point3, TessellationTolerance};
 use partsmith_occt_sys::{
-    Axis, ChamferEdge, ChamferSize, EdgeRadius, ElementFate, ElementGeometry, GeometryKind,
-    KernelError, KernelErrorKind, OpResult, Operation, PlanarCurve, PlanarLoop, PlanarProfile,
-    PlanarRegion, Plane, Point, Point2, Primitive, PrimitiveFace, Shape, StepBody, SubShapeKind,
-    SweepFace, SweepResult, TaggedCurve, Vector, cut, fillet, fuse, make_box, make_cylinder,
-    make_profile, make_sphere, shell,
+    Axis, ChamferEdge, ChamferSize, Color, EdgeRadius, ElementFate, ElementGeometry, GeometryKind,
+    Interrupt, KernelError, KernelErrorKind, OpResult, Operation, PlanarCurve, PlanarLoop,
+    PlanarProfile, PlanarRegion, Plane, Point, Point2, Primitive, PrimitiveFace, Shape, StepBody,
+    SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector, cut, fillet, fuse, make_box,
+    make_cylinder, make_profile, make_sphere, shell,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -103,7 +106,7 @@ pub fn cube_with_vertical_rounds(front: f64, back: f64) -> Shape {
         edge: cube_edge(&cube, first, second),
         radius,
     });
-    fillet(&cube.shape, &edges)
+    fillet(&cube.shape, &edges, &Interrupt::new())
         .expect("the vertical edges round")
         .shape
 }
@@ -117,7 +120,9 @@ pub fn l_body() -> (Shape, u32) {
     let high = make_box(&xy_plane_at(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
         .expect("the high box builds")
         .shape;
-    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
+    let body = fuse(&low, &[high], &Interrupt::new())
+        .expect("the boxes fuse")
+        .shape;
     assert_relative(volume(&body), 12000.0, 1e-9, "L volume");
     assert_eq!(body.count(SubShapeKind::Face), 8);
     let step = planar_face(
@@ -192,7 +197,9 @@ pub fn stair() -> Shape {
     let step = make_box(&xy_plane_at(0.0, -15.0, 7.6), 20.0, 30.0, 5.0)
         .expect("the step tool builds")
         .shape;
-    cut(&block, &[step]).expect("the step is cut").shape
+    cut(&block, &[step], &Interrupt::new())
+        .expect("the step is cut")
+        .shape
 }
 
 /// Test 132: `L` of test 102 with its vertical edge at x = -20, y = -10 (between the low box's
@@ -201,7 +208,7 @@ pub fn stair() -> Shape {
 pub fn l_body_with_round(radius: f64) -> (Shape, u32, u32) {
     let (body, _) = l_body();
     let edge = edge_at(&body, Point::new(-20.0, -10.0, 5.0));
-    let rounded = fillet(&body, &[EdgeRadius { edge, radius }])
+    let rounded = fillet(&body, &[EdgeRadius { edge, radius }], &Interrupt::new())
         .expect("the vertical edge rounds")
         .shape;
     let top = planar_face(&rounded, UP, Point::new(10.0, 0.0, 20.0));
@@ -352,12 +359,17 @@ pub fn top_front_edge(primitive: &Primitive) -> u32 {
 /// Test 44: BOX with `TF` rounded at radius 2.
 pub fn fillet_top_front(block: &Primitive) -> OpResult {
     let edge = top_front_edge(block);
-    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF is filleted")
+    fillet(
+        &block.shape,
+        &[EdgeRadius { edge, radius: 2.0 }],
+        &Interrupt::new(),
+    )
+    .expect("TF is filleted")
 }
 
 /// Test 52: the closed 1 mm shell of `block`, hollowed with no face removed.
 pub fn hollow_box(block: &Primitive) -> OpResult {
-    shell(&block.shape, &[], 1.0).expect("the box is hollowed")
+    shell(&block.shape, &[], 1.0, &Interrupt::new()).expect("the box is hollowed")
 }
 
 /// Every edge of `BOX`, 1 to 12 in order, rounded at `radius`.
@@ -377,9 +389,47 @@ pub fn box_edge_chamfers(distance: f64) -> Vec<ChamferEdge> {
 
 /// The result of test 45: every BOX edge rounded at radius 1.
 pub fn fully_rounded_box() -> Shape {
-    fillet(&box_primitive().shape, &box_edge_radii(1.0))
-        .expect("every edge rounds")
-        .shape
+    fillet(
+        &box_primitive().shape,
+        &box_edge_radii(1.0),
+        &Interrupt::new(),
+    )
+    .expect("every edge rounds")
+    .shape
+}
+
+/// An interrupt requested before the call it is passed to (section 6, interrupts).
+pub fn requested_interrupt() -> Interrupt {
+    let interrupt = Interrupt::new();
+    interrupt.request();
+    interrupt
+}
+
+/// A `size` x `size` x 10 box (origin (0,0,-5)) and `holes` tool cylinders of radius 4 and height
+/// 20, in rows of `columns` 13.5 mm apart from (10, 10), each through the box.
+pub fn holed_plate_parts(size: f64, holes: u32, columns: u32) -> (Shape, Vec<Shape>) {
+    let block = make_box(&xy_plane_at(0.0, 0.0, -5.0), size, size, 10.0)
+        .expect("the plate builds")
+        .shape;
+    let tools = (0..holes)
+        .map(|position| {
+            let column = f64::from(position % columns);
+            let row = f64::from(position / columns);
+            make_cylinder(
+                &xy_plane_at(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
+                4.0,
+                20.0,
+            )
+            .expect("the hole tool builds")
+            .shape
+        })
+        .collect();
+    (block, tools)
+}
+
+/// The box and the 194 tool cylinders of `PLATE` (section 5), cut in one call.
+pub fn plate_parts() -> (Shape, Vec<Shape>) {
+    holed_plate_parts(200.0, 194, 14)
 }
 
 /// A STEP body without color.
@@ -388,6 +438,22 @@ pub fn uncolored_body(shape: Shape, name: &str) -> StepBody {
         shape,
         name: name.to_owned(),
         color: None,
+    }
+}
+
+/// The color of test 78.
+pub const BRACKET_BLUE: Color = Color {
+    red: 0.231,
+    green: 0.510,
+    blue: 0.965,
+};
+
+/// The body of test 78: BOX named `Bracket` in `BRACKET_BLUE`.
+pub fn bracket_body() -> StepBody {
+    StepBody {
+        shape: box_primitive().shape,
+        name: "Bracket".to_owned(),
+        color: Some(BRACKET_BLUE),
     }
 }
 
@@ -561,6 +627,103 @@ pub fn faces_of_kind(shape: &Shape, kind: GeometryKind) -> Vec<u32> {
         .filter(|(_, element)| element.kind == kind)
         .map(|(position, _)| index_from_position(position))
         .collect()
+}
+
+/// The elements of `kind` whose geometry `select` accepts, ascending.
+pub fn elements_where(
+    shape: &Shape,
+    kind: SubShapeKind,
+    select: impl Fn(&ElementGeometry) -> bool,
+) -> Vec<u32> {
+    shape
+        .elements(kind)
+        .expect("elements can be queried")
+        .iter()
+        .enumerate()
+        .filter(|(_, element)| select(element))
+        .map(|(position, _)| index_from_position(position))
+        .collect()
+}
+
+/// The elements of `kind` whose centroid is `centroid`, ascending.
+pub fn elements_at(shape: &Shape, kind: SubShapeKind, centroid: Point) -> Vec<u32> {
+    elements_where(shape, kind, |element| {
+        coordinates_near(
+            point_coordinates(element.centroid),
+            point_coordinates(centroid),
+            POINT_TOLERANCE,
+        )
+    })
+}
+
+/// The centroid and measure of an element, which describe it in the edge and vertex history tests
+/// (section 6).
+pub fn centroid_and_measure(shape: &Shape, kind: SubShapeKind, index: u32) -> (Point, f64) {
+    let element = geometry(shape, kind, index);
+    (element.centroid, element.measure)
+}
+
+/// Asserts that the elements `images` of kind `kind` in `result` are, as a set, the elements that
+/// `expected` describes by centroid and measure: points within `POINT_TOLERANCE`, measures within
+/// 1e-9 relative (section 6, edge and vertex history).
+#[track_caller]
+pub fn assert_images(
+    result: &Shape,
+    kind: SubShapeKind,
+    images: &[u32],
+    expected: &[(Point, f64)],
+    what: &str,
+) {
+    let mut found: Vec<(Point, f64)> = images
+        .iter()
+        .map(|&image| centroid_and_measure(result, kind, image))
+        .collect();
+    assert_eq!(
+        found.len(),
+        expected.len(),
+        "{what}: {kind:?} images {images:?} are {found:?}, expected {expected:?}"
+    );
+    for &(centroid, measure) in expected {
+        let position = found.iter().position(|&(image_centroid, image_measure)| {
+            coordinates_near(
+                point_coordinates(image_centroid),
+                point_coordinates(centroid),
+                POINT_TOLERANCE,
+            ) && (image_measure - measure).abs() <= 1e-9 * measure.abs().max(1.0)
+        });
+        let position = position.unwrap_or_else(|| {
+            panic!("{what}: no {kind:?} image at {centroid:?} with measure {measure} in {found:?}")
+        });
+        found.swap_remove(position);
+    }
+}
+
+/// Asserts that every element of `kind` of input `input` of `result`'s history that `select`
+/// accepts lists one image, with its own centroid and measure.
+#[track_caller]
+pub fn assert_kept_whole(
+    result: &OpResult,
+    input: usize,
+    shape: &Shape,
+    kind: SubShapeKind,
+    select: impl Fn(&ElementGeometry) -> bool,
+) {
+    let history = &result.history.inputs[input];
+    let fates = match kind {
+        SubShapeKind::Edge => &history.edges,
+        SubShapeKind::Vertex => &history.vertices,
+        _ => &history.faces,
+    };
+    for index in elements_where(shape, kind, select) {
+        let fate = &fates[index as usize - 1];
+        assert_images(
+            &result.shape,
+            kind,
+            &fate.modified,
+            &[centroid_and_measure(shape, kind, index)],
+            &format!("{kind:?} {index} of input {input}"),
+        );
+    }
 }
 
 /// The faces in an element's `generated` list, ascending.
@@ -846,6 +1009,48 @@ pub fn assert_closed(triangles: &[[usize; 3]]) {
 /// The distinct face ids of a mesh.
 pub fn mesh_face_ids(mesh: &Mesh) -> BTreeSet<u32> {
     mesh.face_ids().iter().copied().collect()
+}
+
+// Concurrency helpers.
+
+/// How long tests 136 and 165 wait for each result from their second thread: far longer than any
+/// of their calls takes, so a lock left held fails the test instead of blocking the test binary.
+pub const SECOND_THREAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Runs `failing` and then `next` on this thread and checks their results, then runs them on a
+/// second thread that sends each result back on a channel and checks those (tests 136 and 165).
+/// A lock that `failing` left held makes `next` fail on this thread and block on the other one,
+/// whose wait `SECOND_THREAD_TIMEOUT` ends.
+pub fn assert_no_lock_left_held<FailingResult, NextResult>(
+    failing: fn() -> FailingResult,
+    check_failure: fn(FailingResult),
+    next: fn() -> NextResult,
+    check_next: fn(NextResult),
+) where
+    FailingResult: Send + 'static,
+    NextResult: Send + 'static,
+{
+    check_failure(failing());
+    check_next(next());
+
+    let (failure_sender, failures) = mpsc::channel();
+    let (next_sender, nexts) = mpsc::channel();
+    // Not joined: a thread blocked on a lock never ends.
+    thread::spawn(move || {
+        // A send fails only when the test stopped waiting, so it has failed already.
+        let _ = failure_sender.send(failing());
+        let _ = next_sender.send(next());
+    });
+    check_failure(
+        failures
+            .recv_timeout(SECOND_THREAD_TIMEOUT)
+            .expect("the failing call returns on the second thread"),
+    );
+    check_next(
+        nexts
+            .recv_timeout(SECOND_THREAD_TIMEOUT)
+            .expect("the next call returns on the second thread, so no lock was left held"),
+    );
 }
 
 // Test harness helpers.

@@ -1,25 +1,20 @@
 //! Acceptance tests for STEP and BRep exchange (kernel spec sections 2.12, 3.8 and tests 78 to
-//! 86, 135 and 139 to 141), and for mirrors and scales of the solids that repair could not fix
-//! (section 3.5 and test 144).
+//! 86, 135 and 139 to 141), for mirrors and scales of the solids that repair could not fix
+//! (section 3.5 and test 144), and for STEP files whose check list holds a fail (section 3.8.1 read
+//! item 4 and tests 169 to 171).
 
 use crate::common;
 
 use common::{
-    ORIGIN, assert_argument_error, assert_bounds, assert_invalid_input, assert_leaves_unchanged,
-    assert_near, assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role,
-    fully_rounded_box, rectangle, region, uncolored_body, volume, xy_plane_at,
+    BRACKET_BLUE, ORIGIN, assert_argument_error, assert_bounds, assert_invalid_input,
+    assert_leaves_unchanged, assert_near, assert_relative, box_primitive, cube_a,
+    cylinder_primitive, face_with_role, fully_rounded_box, rectangle, region, uncolored_body,
+    volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    Color, EdgeRadius, KernelError, KernelErrorKind, OpResult, Operation, PlanarRegion, Plane,
-    PrimitiveFace, Shape, ShapeKind, StepBody, StepImport, SubShapeKind, Transform, Vector,
+    Color, EdgeRadius, Interrupt, KernelError, KernelErrorKind, OpResult, Operation, PlanarRegion,
+    Plane, PrimitiveFace, Shape, ShapeKind, StepBody, StepImport, SubShapeKind, Transform, Vector,
     compound, cut, fillet, make_box, make_profile, read_step, shell, transform, write_step,
-};
-
-/// The color of test 78.
-const BRACKET_BLUE: Color = Color {
-    red: 0.231,
-    green: 0.510,
-    blue: 0.965,
 };
 
 /// The valid STEP file without data of test 83.
@@ -87,7 +82,7 @@ fn block_beside(faces: Shape) -> Result<Vec<u8>, KernelError> {
     let shape = compound(&[box_primitive().shape, faces])
         .expect("the shapes are grouped")
         .shape;
-    write_step(&[uncolored_body(shape, "Block")])
+    write_step(&[uncolored_body(shape, "Block")], &Interrupt::new())
 }
 
 /// `FACES` of test 135: the shape of `make_profile` of two squares with 10 mm sides on `Plane::XY`,
@@ -124,14 +119,17 @@ fn hollow() -> Shape {
     let cavity = make_box(&xy_plane_at(2.0, 2.0, 2.0), 6.0, 16.0, 26.0)
         .expect("the cavity box builds")
         .shape;
-    cut(&box_primitive().shape, &[cavity])
+    cut(&box_primitive().shape, &[cavity], &Interrupt::new())
         .expect("the cavity is cut out")
         .shape
 }
 
 /// The STEP text `write_step` gives for `shape` as one body named `Hollow`.
 fn hollow_step(shape: Shape) -> String {
-    text(&write_step(&[uncolored_body(shape, "Hollow")]).expect("the body contains a solid"))
+    text(
+        &write_step(&[uncolored_body(shape, "Hollow")], &Interrupt::new())
+            .expect("the body contains a solid"),
+    )
 }
 
 /// The entity number of a reference such as `#47`.
@@ -293,8 +291,11 @@ fn self_void(step: &str) -> String {
 /// `Block`.
 fn block_with_self_void() -> String {
     self_void(&text(
-        &write_step(&[uncolored_body(box_primitive().shape, "Block")])
-            .expect("the body contains a solid"),
+        &write_step(
+            &[uncolored_body(box_primitive().shape, "Block")],
+            &Interrupt::new(),
+        )
+        .expect("the body contains a solid"),
     ))
 }
 
@@ -342,7 +343,7 @@ fn hundred_along_x() -> Transform {
 
 /// Reads a STEP text that must parse.
 fn read_text(step: &str) -> StepImport {
-    read_step(step.as_bytes()).expect("the file is read")
+    read_step(step.as_bytes(), &Interrupt::new()).expect("the file is read")
 }
 
 /// The only body of an import, asserting there is exactly one with this name.
@@ -388,8 +389,8 @@ fn t078_named_colored_body_round_trips() {
         color: Some(BRACKET_BLUE),
     }];
 
-    let bytes = write_step(&bodies).expect("the body is written");
-    let import = read_step(&bytes).expect("the file is read");
+    let bytes = write_step(&bodies, &Interrupt::new()).expect("the body is written");
+    let import = read_step(&bytes, &Interrupt::new()).expect("the file is read");
 
     assert_eq!(import.bodies.len(), 1);
     let imported = &import.bodies[0];
@@ -408,7 +409,7 @@ fn t078_step_text_holds_srgb_components() {
         color: Some(BRACKET_BLUE),
     }];
 
-    let bytes = write_step(&bodies).expect("the body is written");
+    let bytes = write_step(&bodies, &Interrupt::new()).expect("the body is written");
 
     let colours = colour_entities(&text(&bytes));
     assert!(!colours.is_empty(), "the file has a COLOUR_RGB entity");
@@ -426,7 +427,11 @@ fn t079_two_bodies_round_trip_in_order() {
         uncolored_body(cylinder_primitive().shape, "Second"),
     ];
 
-    let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+    let import = read_step(
+        &write_step(&bodies, &Interrupt::new()).expect("written"),
+        &Interrupt::new(),
+    )
+    .expect("read");
 
     assert_eq!(import.bodies.len(), 2);
     assert_eq!(import.bodies[0].name, "First");
@@ -450,8 +455,8 @@ fn t080_step_output_is_deterministic() {
         color: Some(BRACKET_BLUE),
     }];
 
-    let first = write_step(&bodies).expect("written");
-    let second = write_step(&bodies).expect("written");
+    let first = write_step(&bodies, &Interrupt::new()).expect("written");
+    let second = write_step(&bodies, &Interrupt::new()).expect("written");
 
     assert!(first == second, "two writes differ");
     let step = text(&first);
@@ -461,7 +466,8 @@ fn t080_step_output_is_deterministic() {
 
 #[test]
 fn t081_file_units_are_converted_to_millimeters() {
-    let bytes = write_step(&[uncolored_body(cube_a().shape, "Cube")]).expect("written");
+    let bytes =
+        write_step(&[uncolored_body(cube_a().shape, "Cube")], &Interrupt::new()).expect("written");
     let step = text(&bytes);
     assert!(
         step.contains("SI_UNIT(.MILLI.,.METRE.)"),
@@ -469,7 +475,8 @@ fn t081_file_units_are_converted_to_millimeters() {
     );
     let in_meters = step.replace("SI_UNIT(.MILLI.,.METRE.)", "SI_UNIT($,.METRE.)");
 
-    let import = read_step(in_meters.as_bytes()).expect("the meter file is read");
+    let import =
+        read_step(in_meters.as_bytes(), &Interrupt::new()).expect("the meter file is read");
 
     assert_eq!(import.bodies.len(), 1);
     assert_relative(volume(&import.bodies[0].shape), 1e12, 1e-6, "volume");
@@ -477,20 +484,28 @@ fn t081_file_units_are_converted_to_millimeters() {
 
 #[test]
 fn t082_unnamed_body_is_written_with_a_default_name() {
-    let bytes = write_step(&[uncolored_body(box_primitive().shape, "")]).expect("written");
+    let bytes = write_step(
+        &[uncolored_body(box_primitive().shape, "")],
+        &Interrupt::new(),
+    )
+    .expect("written");
 
     assert!(text(&bytes).contains("'Body 1'"));
-    let import = read_step(&bytes).expect("read");
+    let import = read_step(&bytes, &Interrupt::new()).expect("read");
     assert_eq!(import.bodies.len(), 1);
     assert_eq!(import.bodies[0].name, "Body 1");
 }
 
 #[test]
 fn t082_unnamed_part_reads_with_an_empty_name() {
-    let bytes = write_step(&[uncolored_body(box_primitive().shape, "")]).expect("written");
+    let bytes = write_step(
+        &[uncolored_body(box_primitive().shape, "")],
+        &Interrupt::new(),
+    )
+    .expect("written");
     let unnamed = text(&bytes).replace("'Body 1'", "''");
 
-    let import = read_step(unnamed.as_bytes()).expect("read");
+    let import = read_step(unnamed.as_bytes(), &Interrupt::new()).expect("read");
 
     assert_eq!(import.bodies.len(), 1);
     assert_eq!(import.bodies[0].name, "");
@@ -498,7 +513,8 @@ fn t082_unnamed_part_reads_with_an_empty_name() {
 
 #[test]
 fn t083_bytes_that_are_not_step_fail_to_read() {
-    let error = read_step(b"not a step file").expect_err("the bytes are not STEP");
+    let error =
+        read_step(b"not a step file", &Interrupt::new()).expect_err("the bytes are not STEP");
 
     assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
     assert_eq!(error.operation, Operation::ReadStep);
@@ -507,7 +523,8 @@ fn t083_bytes_that_are_not_step_fail_to_read() {
 
 #[test]
 fn t083_step_file_without_solids_is_empty() {
-    let error = read_step(EMPTY_STEP.as_bytes()).expect_err("the file has no solid");
+    let error =
+        read_step(EMPTY_STEP.as_bytes(), &Interrupt::new()).expect_err("the file has no solid");
 
     assert_eq!(error.kind, KernelErrorKind::EmptyResult, "{error:?}");
     assert_eq!(error.operation, Operation::ReadStep);
@@ -517,17 +534,106 @@ fn t083_step_file_without_solids_is_empty() {
     );
 }
 
+/// `IMPORT`: the STEP file of the import example, whose lines end in LF (tests 170 and 171).
+const IMPORT: &[u8] = include_bytes!(
+    "../../../examples/import/assets/b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step"
+);
+
+/// The input of the first fuzz finding (delivery.md section 3.8, test 169).
+const FIRST_FUZZ_FINDING: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/10df39693bdfe46c07bc7d9505965cb76bb5a846");
+
+/// `IMPORT`'s line that defines entity 13, the direction that `#11` refers to (test 170).
+const DIRECTION_13: &str = "#13 = DIRECTION('',(0.,0.,1.));\n";
+
+/// `IMPORT` as text.
+fn import_text() -> String {
+    text(IMPORT)
+}
+
+/// Asserts a `read_step` error of kind `ReadFailed` from the check list of section 3.8.1 read
+/// item 4, with its raw message.
+#[track_caller]
+fn assert_check_list_fail(error: &KernelError, message: &str) {
+    assert_eq!(error.operation, Operation::ReadStep, "{error:?}");
+    assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
+    assert_eq!(error.exception, "Partsmith_ReadError", "{error:?}");
+    assert_eq!(error.message, message);
+    assert_eq!(error.user_message(), "The file is not a valid STEP file.");
+}
+
+#[test]
+fn t169_the_first_fuzz_finding_is_refused() {
+    assert_eq!(FIRST_FUZZ_FINDING.len(), 10_377);
+
+    let error = read_step(FIRST_FUZZ_FINDING, &Interrupt::new())
+        .expect_err("the file's check list holds fails");
+
+    assert_check_list_fail(
+        &error,
+        "STEPCAFControl_Reader found 54 fails in the file's check list, the first: Undefined Parsing: Line 110: Incorrect syntax: unexpected QUID, expecting ENDSEC or ENTITY",
+    );
+}
+
+#[test]
+fn t170_a_reference_to_a_missing_entity_is_refused() {
+    let full = import_text();
+    assert_eq!(
+        full.matches("#13 = ").count(),
+        1,
+        "IMPORT numbers one entity 13"
+    );
+    assert!(full.contains("#11 = AXIS2_PLACEMENT_3D('',#12,#13,#14);"));
+    let input = full.replacen(DIRECTION_13, "", 1);
+    assert_eq!(input.len(), full.len() - DIRECTION_13.len());
+
+    let error =
+        read_step(input.as_bytes(), &Interrupt::new()).expect_err("#11 refers to the missing #13");
+
+    assert_check_list_fail(
+        &error,
+        "STEPCAFControl_Reader found 2 fails in the file's check list, the first: Unresolved Reference, Ent.Id.#11 Param.n0 3 (Id.#13)",
+    );
+}
+
+#[test]
+fn t171_an_unknown_entity_type_without_fails_reads_as_before() {
+    let input = import_text().replacen(
+        "DATA;\n",
+        "DATA;\n#99999 = PARTSMITH_UNKNOWN_ENTITY('x',1.);\n",
+        1,
+    );
+    assert_ne!(input, import_text(), "the line is added after DATA;");
+
+    let with_unknown =
+        read_step(input.as_bytes(), &Interrupt::new()).expect("a file with no fail reads");
+    let plain = read_step(IMPORT, &Interrupt::new()).expect("IMPORT reads");
+
+    for import in [&with_unknown, &plain] {
+        assert_eq!(import.bodies.len(), 1);
+        assert_relative(volume(&import.bodies[0].shape), 6000.0, 1e-9, "volume");
+        assert_eq!(import.bodies[0].shape.count(SubShapeKind::Face), 6);
+        assert_eq!(import.skipped_shapes, 0);
+        assert_eq!(import.invalid_solids, 0);
+        assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    }
+    assert_eq!(with_unknown.bodies[0].name, plain.bodies[0].name);
+}
+
 #[test]
 fn t084_nothing_to_export_is_rejected() {
-    let error = write_step(&[]).expect_err("there are no bodies");
+    let error = write_step(&[], &Interrupt::new()).expect_err("there are no bodies");
 
     assert_invalid_input(&error, Operation::WriteStep, "There is nothing to export.");
 }
 
 #[test]
 fn t084_body_without_solid_is_rejected() {
-    let error =
-        write_step(&[uncolored_body(Shape::empty(), "Empty")]).expect_err("the body has no solid");
+    let error = write_step(
+        &[uncolored_body(Shape::empty(), "Empty")],
+        &Interrupt::new(),
+    )
+    .expect_err("the body has no solid");
 
     assert_invalid_input(
         &error,
@@ -548,7 +654,7 @@ fn t084_color_component_out_of_range_is_rejected() {
         }),
     }];
 
-    let error = write_step(&bodies).expect_err("1.5 is out of range");
+    let error = write_step(&bodies, &Interrupt::new()).expect_err("1.5 is out of range");
 
     assert_argument_error(
         &error,
@@ -573,7 +679,7 @@ fn t085_filleted_box_survives_the_brep_round_trip() {
 fn t085_shelled_box_survives_the_brep_round_trip() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
-    let hollow = shell(&block.shape, &[top], 1.0).expect("the box is shelled");
+    let hollow = shell(&block.shape, &[top], 1.0, &Interrupt::new()).expect("the box is shelled");
 
     assert_brep_round_trip(&hollow.shape);
 }
@@ -620,7 +726,7 @@ fn t135_body_with_a_solid_and_free_faces_is_written() {
 fn t135_free_faces_are_left_out_of_the_body() {
     let bytes = block_beside_two_faces().expect("the body contains a solid");
 
-    let import = read_step(&bytes).expect("the file is read");
+    let import = read_step(&bytes, &Interrupt::new()).expect("the file is read");
 
     let imported = only_body(&import, "Block");
     assert_relative(volume(&imported.shape), 6000.0, 1e-6, "volume");
@@ -631,7 +737,7 @@ fn t135_free_faces_are_left_out_of_the_body() {
 fn t135_both_free_faces_are_counted() {
     let bytes = block_beside_two_faces().expect("the body contains a solid");
 
-    let import = read_step(&bytes).expect("the file is read");
+    let import = read_step(&bytes, &Interrupt::new()).expect("the file is read");
 
     assert_eq!(import.skipped_shapes, 2);
     assert_eq!(import.invalid_solids, 0);
@@ -641,7 +747,7 @@ fn t135_both_free_faces_are_counted() {
 fn t135_both_free_faces_are_named_in_one_sentence() {
     let bytes = block_beside_two_faces().expect("the body contains a solid");
 
-    let import = read_step(&bytes).expect("the file is read");
+    let import = read_step(&bytes, &Interrupt::new()).expect("the file is read");
 
     assert_eq!(
         import.warnings,
@@ -659,7 +765,7 @@ fn t139_face_fixture_is_one_face() {
 
 #[test]
 fn t139_one_free_face_is_left_out_of_the_body() {
-    let import = read_step(&block_beside_one_face()).expect("the file is read");
+    let import = read_step(&block_beside_one_face(), &Interrupt::new()).expect("the file is read");
 
     let imported = only_body(&import, "Block");
     assert_relative(volume(&imported.shape), 6000.0, 1e-6, "volume");
@@ -668,7 +774,7 @@ fn t139_one_free_face_is_left_out_of_the_body() {
 
 #[test]
 fn t139_one_free_face_is_counted() {
-    let import = read_step(&block_beside_one_face()).expect("the file is read");
+    let import = read_step(&block_beside_one_face(), &Interrupt::new()).expect("the file is read");
 
     assert_eq!(import.skipped_shapes, 1);
     assert_eq!(import.invalid_solids, 0);
@@ -676,7 +782,7 @@ fn t139_one_free_face_is_counted() {
 
 #[test]
 fn t139_one_free_face_is_named_in_the_singular() {
-    let import = read_step(&block_beside_one_face()).expect("the file is read");
+    let import = read_step(&block_beside_one_face(), &Interrupt::new()).expect("the file is read");
 
     assert_eq!(import.warnings, [ONE_SHAPE_SKIPPED]);
 }
@@ -804,8 +910,11 @@ fn t141_both_names_the_solid_before_the_skipped_shape() {
 #[test]
 fn t144_self_void_lists_the_outer_shell_as_its_void() {
     let original = text(
-        &write_step(&[uncolored_body(box_primitive().shape, "Block")])
-            .expect("the body contains a solid"),
+        &write_step(
+            &[uncolored_body(box_primitive().shape, "Block")],
+            &Interrupt::new(),
+        )
+        .expect("the body contains a solid"),
     );
     let largest = defined_entities(&original).max().expect("entities");
 
@@ -919,6 +1028,7 @@ fn t144_a_fillet_of_void_twice_keeps_invalid_result() {
             edge: 1,
             radius: 1.0,
         }],
+        &Interrupt::new(),
     )
     .map(|_| ())
     .expect_err("the filleted solid stays invalid");
@@ -929,7 +1039,7 @@ fn t144_a_fillet_of_void_twice_keeps_invalid_result() {
 
 #[test]
 fn t144_a_shell_of_self_void_keeps_invalid_result() {
-    let error = shell(&self_void_solid(), &[], 2.0)
+    let error = shell(&self_void_solid(), &[], 2.0, &Interrupt::new())
         .map(|_| ())
         .expect_err("the shelled solid stays invalid");
 
@@ -950,7 +1060,11 @@ fn step_writing_leaves_the_bodies_unchanged() {
     let shape = box_primitive().shape;
 
     assert_leaves_unchanged(&shape, || {
-        write_step(&[uncolored_body(shape.clone(), "Bracket")]).expect("written");
+        write_step(
+            &[uncolored_body(shape.clone(), "Bracket")],
+            &Interrupt::new(),
+        )
+        .expect("written");
     });
 }
 
@@ -993,7 +1107,9 @@ mod standard_streams {
         OPT, box_edge_radii, box_primitive, face_with_role, harness_test_name, uncolored_body,
         xy_plane_at,
     };
-    use partsmith_occt_sys::{PrimitiveFace, Shape, fillet, read_step, shell, split, write_step};
+    use partsmith_occt_sys::{
+        Interrupt, PrimitiveFace, Shape, fillet, read_step, shell, split, write_step,
+    };
 
     /// Set in the child process `kernel_prints_nothing` starts.
     const QUIET_PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_QUIET_PROBE";
@@ -1011,15 +1127,28 @@ mod standard_streams {
             Shape::from_brep(bad).expect_err("the bytes are not a whole BRep stream");
         }
         Shape::from_brep(&bytes).expect("the bytes reload");
-        read_step(b"not a step file").expect_err("the bytes are not STEP");
-        read_step(EMPTY_STEP.as_bytes()).expect_err("the file has no solid");
-        let step = write_step(&[uncolored_body(block.shape.clone(), "Bracket")]).expect("written");
-        read_step(&step).expect("read back");
-        fillet(&block.shape, &box_edge_radii(6.0)).expect_err("the radius is too large");
+        read_step(b"not a step file", &Interrupt::new()).expect_err("the bytes are not STEP");
+        read_step(EMPTY_STEP.as_bytes(), &Interrupt::new()).expect_err("the file has no solid");
+        let step = write_step(
+            &[uncolored_body(block.shape.clone(), "Bracket")],
+            &Interrupt::new(),
+        )
+        .expect("written");
+        read_step(&step, &Interrupt::new()).expect("read back");
+        fillet(&block.shape, &box_edge_radii(6.0), &Interrupt::new())
+            .expect_err("the radius is too large");
         let top = face_with_role(&block, PrimitiveFace::Top);
-        shell(&block.shape, &[top], 6.0).expect_err("the wall is too thick");
-        split(&block.shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the box splits");
-        block.shape.tessellate(&OPT).expect("the box is meshed");
+        shell(&block.shape, &[top], 6.0, &Interrupt::new()).expect_err("the wall is too thick");
+        split(
+            &block.shape,
+            &xy_plane_at(0.0, 0.0, 10.0),
+            &Interrupt::new(),
+        )
+        .expect("the box splits");
+        block
+            .shape
+            .tessellate(&OPT, &Interrupt::new())
+            .expect("the box is meshed");
     }
 
     /// Asserts that a stream of the child holds nothing between the markers and nothing after

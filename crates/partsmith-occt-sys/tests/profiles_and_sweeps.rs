@@ -13,8 +13,8 @@ use common::{
     z_axis,
 };
 use partsmith_occt_sys::{
-    Axis, GeometryKind, Operation, PlanarProfile, Plane, Point, ShapeKind, SubShapeKind, SweepFace,
-    SweepResult, TaggedCurve, Vector, extrude, make_profile, revolve,
+    Axis, GeometryKind, Interrupt, Operation, PlanarProfile, Plane, Point, ShapeKind, SubShapeKind,
+    SweepFace, SweepResult, TaggedCurve, Vector, extrude, make_profile, revolve,
 };
 
 const GAP_MESSAGE: &str = "The profile is not closed: curves 3 and 4 do not meet (gap 0.01 mm).";
@@ -264,7 +264,8 @@ fn t023_bow_tie_loop_is_rejected() {
 
 #[test]
 fn t024_extruded_rectangle_volume_and_face_roles() {
-    let result = extrude(&rectangle_profile(), UP, 0.0, 30.0).expect("the extrusion builds");
+    let result = extrude(&rectangle_profile(), UP, 0.0, 30.0, &Interrupt::new())
+        .expect("the extrusion builds");
 
     assert_relative(volume(&result.shape), 120000.0, 1e-9, "extrusion volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 6);
@@ -320,6 +321,7 @@ fn t025_extrusion_runs_from_start_to_end_along_the_normalized_direction() {
         Vector::new(0.0, 0.0, 2.0),
         -15.0,
         15.0,
+        &Interrupt::new(),
     )
     .expect("the extrusion builds");
 
@@ -334,7 +336,8 @@ fn t025_extrusion_runs_from_start_to_end_along_the_normalized_direction() {
 
 #[test]
 fn t026_extruded_circle_is_a_cylinder_with_caps() {
-    let result = extrude(&circle_profile(), UP, 0.0, 10.0).expect("the extrusion builds");
+    let result =
+        extrude(&circle_profile(), UP, 0.0, 10.0, &Interrupt::new()).expect("the extrusion builds");
 
     assert_relative(volume(&result.shape), 785.3981633974483, 1e-9, "volume");
     assert_eq!(result.faces.len(), 3);
@@ -350,8 +353,14 @@ fn t026_extruded_circle_is_a_cylinder_with_caps() {
 
 #[test]
 fn t027_extruded_profile_with_hole() {
-    let result =
-        extrude(&rectangle_with_hole_profile(), UP, 0.0, 30.0).expect("the extrusion builds");
+    let result = extrude(
+        &rectangle_with_hole_profile(),
+        UP,
+        0.0,
+        30.0,
+        &Interrupt::new(),
+    )
+    .expect("the extrusion builds");
 
     assert_eq!(result.shape.count(SubShapeKind::Face), 7);
     assert_eq!(result.faces.len(), 7);
@@ -363,16 +372,28 @@ fn t027_extruded_profile_with_hole() {
 
 #[test]
 fn t028_oblique_extrusion_volume() {
-    let result = extrude(&rectangle_profile(), Vector::new(0.0, 1.0, 1.0), 0.0, 10.0)
-        .expect("an oblique extrusion builds");
+    let result = extrude(
+        &rectangle_profile(),
+        Vector::new(0.0, 1.0, 1.0),
+        0.0,
+        10.0,
+        &Interrupt::new(),
+    )
+    .expect("an oblique extrusion builds");
 
     assert_relative(volume(&result.shape), 28284.2712474619, 1e-9, "volume");
 }
 
 #[test]
 fn t029_direction_in_the_plane_is_rejected() {
-    let error = extrude(&rectangle_profile(), Vector::new(1.0, 0.0, 0.0), 0.0, 10.0)
-        .expect_err("the direction lies in the sketch plane");
+    let error = extrude(
+        &rectangle_profile(),
+        Vector::new(1.0, 0.0, 0.0),
+        0.0,
+        10.0,
+        &Interrupt::new(),
+    )
+    .expect_err("the direction lies in the sketch plane");
 
     assert_invalid_input(
         &error,
@@ -383,8 +404,8 @@ fn t029_direction_in_the_plane_is_rejected() {
 
 #[test]
 fn t029_end_equal_to_start_is_rejected() {
-    let error =
-        extrude(&rectangle_profile(), UP, 5.0, 5.0).expect_err("the end must be beyond the start");
+    let error = extrude(&rectangle_profile(), UP, 5.0, 5.0, &Interrupt::new())
+        .expect_err("the end must be beyond the start");
 
     assert_invalid_input(
         &error,
@@ -395,8 +416,14 @@ fn t029_end_equal_to_start_is_rejected() {
 
 #[test]
 fn t029_zero_direction_is_rejected() {
-    let error = extrude(&rectangle_profile(), Vector::new(0.0, 0.0, 0.0), 0.0, 10.0)
-        .expect_err("the direction is zero");
+    let error = extrude(
+        &rectangle_profile(),
+        Vector::new(0.0, 0.0, 0.0),
+        0.0,
+        10.0,
+        &Interrupt::new(),
+    )
+    .expect_err("the direction is zero");
 
     assert_invalid_input(
         &error,
@@ -407,7 +434,8 @@ fn t029_zero_direction_is_rejected() {
 
 #[test]
 fn t030_full_revolution_of_the_ring() {
-    let result = revolve(&ring_profile(), &z_axis(), 2.0 * PI).expect("the revolution builds");
+    let result = revolve(&ring_profile(), &z_axis(), 2.0 * PI, &Interrupt::new())
+        .expect("the revolution builds");
 
     assert_relative(volume(&result.shape), 9424.77796076938, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 4);
@@ -439,7 +467,8 @@ fn t030_full_revolution_of_the_ring() {
 
 #[test]
 fn t031_quarter_revolution_has_caps() {
-    let result = revolve(&ring_profile(), &z_axis(), FRAC_PI_2).expect("the revolution builds");
+    let result = revolve(&ring_profile(), &z_axis(), FRAC_PI_2, &Interrupt::new())
+        .expect("the revolution builds");
 
     assert_relative(volume(&result.shape), 2356.194490192345, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 6);
@@ -451,7 +480,8 @@ fn t031_quarter_revolution_has_caps() {
 
 #[test]
 fn t031_negative_angle_turns_the_other_way() {
-    let result = revolve(&ring_profile(), &z_axis(), -FRAC_PI_2).expect("the revolution builds");
+    let result = revolve(&ring_profile(), &z_axis(), -FRAC_PI_2, &Interrupt::new())
+        .expect("the revolution builds");
 
     assert_relative(volume(&result.shape), 2356.194490192345, 1e-9, "volume");
     let end = geometry(
@@ -471,7 +501,8 @@ fn t032_curve_on_the_axis_generates_no_face() {
     let curves = rectangle((0.0, 0.0), (10.0, 10.0));
     let profile = make_profile(&Plane::XZ, &[region(curves)]).expect("the rectangle builds");
 
-    let result = revolve(&profile, &z_axis(), 2.0 * PI).expect("the revolution builds");
+    let result =
+        revolve(&profile, &z_axis(), 2.0 * PI, &Interrupt::new()).expect("the revolution builds");
 
     assert_relative(volume(&result.shape), 3141.5926535897934, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 3);
@@ -480,8 +511,13 @@ fn t032_curve_on_the_axis_generates_no_face() {
 
 #[test]
 fn t033_profile_crossing_the_axis_is_rejected() {
-    let error = revolve(&ring_across_the_axis(), &z_axis(), 2.0 * PI)
-        .expect_err("the profile crosses the axis");
+    let error = revolve(
+        &ring_across_the_axis(),
+        &z_axis(),
+        2.0 * PI,
+        &Interrupt::new(),
+    )
+    .expect_err("the profile crosses the axis");
 
     assert_invalid_input(
         &error,
@@ -497,7 +533,8 @@ fn t033_axis_outside_the_plane_is_rejected() {
         direction: Vector::new(1.0, 0.0, 0.0),
     };
 
-    let error = revolve(&ring_profile(), &axis, 2.0 * PI).expect_err("the axis is not in XZ");
+    let error = revolve(&ring_profile(), &axis, 2.0 * PI, &Interrupt::new())
+        .expect_err("the axis is not in XZ");
 
     assert_invalid_input(
         &error,
@@ -508,15 +545,16 @@ fn t033_axis_outside_the_plane_is_rejected() {
 
 #[test]
 fn t033_zero_angle_is_rejected() {
-    let error = revolve(&ring_profile(), &z_axis(), 0.0).expect_err("the angle must be positive");
+    let error = revolve(&ring_profile(), &z_axis(), 0.0, &Interrupt::new())
+        .expect_err("the angle must be positive");
 
     assert_invalid_input(&error, Operation::Revolve, REVOLVE_ANGLE_MESSAGE);
 }
 
 #[test]
 fn t033_angle_beyond_a_full_turn_is_rejected() {
-    let error =
-        revolve(&ring_profile(), &z_axis(), 7.0).expect_err("the angle is above a full turn");
+    let error = revolve(&ring_profile(), &z_axis(), 7.0, &Interrupt::new())
+        .expect_err("the angle is above a full turn");
 
     assert_invalid_input(&error, Operation::Revolve, REVOLVE_ANGLE_MESSAGE);
 }
@@ -565,7 +603,7 @@ fn extruding_two_regions_gives_two_solids() {
     let right = region(vec![circle(2, (5.0, 0.0), 1.0)]);
     let profile = make_profile(&Plane::XY, &[left, right]).expect("two discs build");
 
-    let result = extrude(&profile, UP, 0.0, 1.0).expect("the extrusion builds");
+    let result = extrude(&profile, UP, 0.0, 1.0, &Interrupt::new()).expect("the extrusion builds");
 
     assert_eq!(result.shape.kind(), ShapeKind::Compound);
     assert_eq!(result.shape.count(SubShapeKind::Solid), 2);
@@ -590,8 +628,15 @@ fn extrude_leaves_its_profile_unchanged() {
     let profile = rectangle_with_hole_profile();
 
     assert_leaves_unchanged(&profile.shape, || {
-        extrude(&profile, UP, 0.0, 30.0).expect("the profile is extruded");
-        extrude(&profile, Vector::new(0.0, 1.0, 1.0), -5.0, 10.0).expect("the profile is extruded");
+        extrude(&profile, UP, 0.0, 30.0, &Interrupt::new()).expect("the profile is extruded");
+        extrude(
+            &profile,
+            Vector::new(0.0, 1.0, 1.0),
+            -5.0,
+            10.0,
+            &Interrupt::new(),
+        )
+        .expect("the profile is extruded");
     });
 }
 
@@ -600,7 +645,9 @@ fn revolve_leaves_its_profile_unchanged() {
     let profile = ring_profile();
 
     assert_leaves_unchanged(&profile.shape, || {
-        revolve(&profile, &z_axis(), 2.0 * PI).expect("the profile is revolved fully");
-        revolve(&profile, &z_axis(), FRAC_PI_2).expect("the profile is revolved partly");
+        revolve(&profile, &z_axis(), 2.0 * PI, &Interrupt::new())
+            .expect("the profile is revolved fully");
+        revolve(&profile, &z_axis(), FRAC_PI_2, &Interrupt::new())
+            .expect("the profile is revolved partly");
     });
 }

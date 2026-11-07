@@ -1,5 +1,5 @@
 //! Acceptance tests for the value types, constants and errors (kernel spec sections 2.1, 2.13,
-//! 4 and tests 1 to 4, 87 to 89, 93, 127 to 130 and 145).
+//! 4 and tests 1 to 4, 87 to 89, 93, 127 to 130, 145, 167 and 168).
 
 use crate::common;
 
@@ -9,8 +9,8 @@ use common::{assert_point_near, assert_vector_near, box_primitive, uncolored_bod
 use partsmith_mesh::TessellationTolerance;
 use partsmith_message_lint::assert_passes_lint;
 use partsmith_occt_sys::{
-    Color, KernelError, KernelErrorKind, LINEAR_TOLERANCE, OCCT_VERSION, Operation, Plane, Point,
-    Point2, Shape, StepBody, Transform, Vector, write_step,
+    Color, Interrupt, KernelError, KernelErrorKind, LINEAR_TOLERANCE, OCCT_VERSION, Operation,
+    Plane, Point, Point2, Shape, StepBody, Transform, Vector, write_step,
 };
 
 /// The texts of section 4.3 for one operation.
@@ -45,6 +45,12 @@ const NO_SOLID_IN_STEP: &str = "The STEP file contains no solid bodies.";
 const INVALID_INPUT_SHAPE_HINT: &str = "The shape it was given was already not valid, so repair the STEP file that shape came from, or export the file again.";
 /// The raw message of the `InvalidInputShape` errors of test 145.
 const INVALID_INPUT_SHAPE_MESSAGE: &str = "BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran";
+/// The hint of every `Canceled` error (test 167).
+const CANCELED_HINT: &str = "It was stopped before it finished.";
+/// The user message of every `Canceled` error (test 167).
+const CANCELED_MESSAGE: &str = "Partsmith stopped this step before it finished.";
+/// The raw message of the `Canceled` errors of test 167.
+const CANCELED_CUT_MESSAGE: &str = "BRepAlgoAPI_Cut stopped by its interrupt";
 /// The kinds whose texts the operation tables of section 4.3 give.
 const BUILD_FAILURES: [KernelErrorKind; 3] = [
     KernelErrorKind::Failed,
@@ -52,21 +58,23 @@ const BUILD_FAILURES: [KernelErrorKind; 3] = [
     KernelErrorKind::EmptyResult,
 ];
 /// Every kind of kernel error.
-const ALL_KINDS: [KernelErrorKind; 6] = [
+const ALL_KINDS: [KernelErrorKind; 7] = [
     KernelErrorKind::InvalidInput,
     KernelErrorKind::Failed,
     KernelErrorKind::InvalidResult,
     KernelErrorKind::EmptyResult,
     KernelErrorKind::ReadFailed,
     KernelErrorKind::Internal,
+    KernelErrorKind::Canceled,
 ];
 /// Every kind but `InvalidInput`, whose user message is the facade's own sentence.
-const KINDS_WITH_OWN_TEXTS: [KernelErrorKind; 5] = [
+const KINDS_WITH_OWN_TEXTS: [KernelErrorKind; 6] = [
     KernelErrorKind::Failed,
     KernelErrorKind::InvalidResult,
     KernelErrorKind::EmptyResult,
     KernelErrorKind::ReadFailed,
     KernelErrorKind::Internal,
+    KernelErrorKind::Canceled,
 ];
 /// What no hint or user message may contain (test 130).
 const KERNEL_WORDS: [&str; 5] = [
@@ -78,7 +86,7 @@ const KERNEL_WORDS: [&str; 5] = [
 ];
 
 /// Every operation with its texts (section 4.3).
-const OPERATION_TEXTS: [OperationTexts; 25] = [
+const OPERATION_TEXTS: [OperationTexts; 26] = [
     OperationTexts {
         operation: Operation::MakeBox,
         name: "make_box",
@@ -229,6 +237,12 @@ const OPERATION_TEXTS: [OperationTexts; 25] = [
         hint: "The cached geometry could not be read, so it will be rebuilt.",
         noun: None,
     },
+    OperationTexts {
+        operation: Operation::WaitForInterrupt,
+        name: "wait_for_interrupt",
+        hint: "The test wait could not run; report it with the details.",
+        noun: None,
+    },
 ];
 
 impl OperationTexts {
@@ -301,24 +315,33 @@ fn assert_plain_message(text: &str) {
 /// The user messages of the checks hosts show (section 4.2), from the calls that raise them.
 fn host_check_messages() -> Vec<String> {
     let block = box_primitive().shape;
-    let nothing = write_step(&[]).expect_err("there are no bodies");
-    let no_solid = write_step(&[uncolored_body(Shape::empty(), "Bracket")])
-        .expect_err("the body has no solid");
-    let bad_color = write_step(&[StepBody {
-        shape: block.clone(),
-        name: "Bracket".to_owned(),
-        color: Some(Color {
-            red: 1.5,
-            green: 0.5,
-            blue: 0.5,
-        }),
-    }])
+    let nothing = write_step(&[], &Interrupt::new()).expect_err("there are no bodies");
+    let no_solid = write_step(
+        &[uncolored_body(Shape::empty(), "Bracket")],
+        &Interrupt::new(),
+    )
+    .expect_err("the body has no solid");
+    let bad_color = write_step(
+        &[StepBody {
+            shape: block.clone(),
+            name: "Bracket".to_owned(),
+            color: Some(Color {
+                red: 1.5,
+                green: 0.5,
+                blue: 0.5,
+            }),
+        }],
+        &Interrupt::new(),
+    )
     .expect_err("1.5 is out of range");
     let bad_tolerance = block
-        .tessellate(&TessellationTolerance {
-            chord_deviation: 0.0,
-            angular_deviation: 0.5,
-        })
+        .tessellate(
+            &TessellationTolerance {
+                chord_deviation: 0.0,
+                angular_deviation: 0.5,
+            },
+            &Interrupt::new(),
+        )
         .expect_err("a chord deviation of 0 is rejected");
     [nothing, no_solid, bad_color, bad_tolerance]
         .iter()
@@ -720,6 +743,15 @@ fn detail_writes_every_kind_in_snake_case() {
             ),
             "read_step read_failed: Partsmith_ReadError: no entity",
         ),
+        (
+            kernel_error(
+                Operation::WaitForInterrupt,
+                KernelErrorKind::Canceled,
+                "Partsmith_Canceled",
+                "wait_for_interrupt stopped by its interrupt",
+            ),
+            "wait_for_interrupt canceled: Partsmith_Canceled: wait_for_interrupt stopped by its interrupt",
+        ),
     ];
 
     for (failure, detail) in cases {
@@ -864,6 +896,77 @@ fn t145_no_text_holds_the_raw_message() {
             }
         }
     }
+}
+
+/// The `Canceled` error of test 167 for `operation`.
+fn canceled(operation: Operation) -> KernelError {
+    kernel_error(
+        operation,
+        KernelErrorKind::Canceled,
+        "Partsmith_Canceled",
+        CANCELED_CUT_MESSAGE,
+    )
+}
+
+#[test]
+fn t167_canceled_has_one_hint_and_one_user_message_for_every_operation() {
+    for texts in &OPERATION_TEXTS {
+        let error = canceled(texts.operation);
+
+        assert_eq!(error.hint(), CANCELED_HINT, "{error:?}");
+        assert_eq!(error.user_message(), CANCELED_MESSAGE, "{error:?}");
+        assert_eq!(error.to_string(), CANCELED_MESSAGE, "{error:?}");
+    }
+}
+
+#[test]
+fn t167_canceled_cut_detail() {
+    assert_eq!(
+        canceled(Operation::Cut).detail(),
+        "cut canceled: Partsmith_Canceled: BRepAlgoAPI_Cut stopped by its interrupt"
+    );
+}
+
+#[test]
+fn t167_the_texts_pass_the_checks_of_test_130() {
+    for texts in &OPERATION_TEXTS {
+        let error = canceled(texts.operation);
+        let hint = error.hint();
+
+        assert_plain_message(&hint);
+        assert_plain_message(&error.user_message());
+        assert_eq!(hint.matches('.').count(), 1, "{hint:?}");
+    }
+}
+
+#[test]
+fn t167_no_text_holds_the_raw_message() {
+    for texts in &OPERATION_TEXTS {
+        let error = canceled(texts.operation);
+
+        for text in [error.hint(), error.user_message()] {
+            for word in ["Partsmith_", "BRepAlgoAPI", "interrupt"] {
+                assert!(!text.contains(word), "{text:?} contains {word:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn t168_the_test_wait_displays_in_snake_case() {
+    assert_eq!(
+        Operation::WaitForInterrupt.to_string(),
+        "wait_for_interrupt"
+    );
+}
+
+#[test]
+fn t168_a_failed_test_wait_asks_for_a_report() {
+    let failure = not_done(Operation::WaitForInterrupt, KernelErrorKind::Failed);
+    let text = "The test wait could not run; report it with the details.";
+
+    assert_eq!(failure.hint(), text);
+    assert_eq!(failure.user_message(), text);
 }
 
 /// Compiles only when `T` implements `std::error::Error`.

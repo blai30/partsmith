@@ -16,7 +16,7 @@ use common::{
 };
 use partsmith_mesh::{Mesh, TessellationTolerance, WELD_TOLERANCE};
 use partsmith_occt_sys::{
-    ElementDisplay, KernelError, KernelErrorKind, Operation, Plane, Point, Primitive,
+    ElementDisplay, Interrupt, KernelError, KernelErrorKind, Operation, Plane, Point, Primitive,
     PrimitiveFace, Shape, SubShapeKind, TaggedCurve, Transform, Vector, make_cone, make_profile,
     make_torus, revolve, transform,
 };
@@ -26,17 +26,22 @@ const TOLERANCE_MESSAGE: &str =
 
 /// Tessellates with `OPT`.
 fn mesh_of(shape: &Shape) -> Mesh {
-    shape.tessellate(&OPT).expect("the shape tessellates")
+    shape
+        .tessellate(&OPT, &Interrupt::new())
+        .expect("the shape tessellates")
 }
 
 /// Tessellates BOX with the given tolerance values, returning the error.
 fn box_tolerance_error(chord_deviation: f64, angular_deviation: f64) -> KernelError {
     box_primitive()
         .shape
-        .tessellate(&TessellationTolerance {
-            chord_deviation,
-            angular_deviation,
-        })
+        .tessellate(
+            &TessellationTolerance {
+                chord_deviation,
+                angular_deviation,
+            },
+            &Interrupt::new(),
+        )
         .expect_err("the tolerance is invalid")
 }
 
@@ -204,7 +209,9 @@ fn t076_tessellating_again_with_the_same_tolerance_is_identical() {
     };
 
     let first = mesh_of(&shape);
-    shape.tessellate(&coarse).expect("the coarse mesh builds");
+    shape
+        .tessellate(&coarse, &Interrupt::new())
+        .expect("the coarse mesh builds");
     let third = mesh_of(&shape);
 
     assert!(first == third, "meshes differ after a coarser tessellation");
@@ -285,7 +292,7 @@ fn t077_right_angle_deviation_is_accepted() {
 
     let mesh = box_primitive()
         .shape
-        .tessellate(&tolerance)
+        .tessellate(&tolerance, &Interrupt::new())
         .expect("90 degrees is allowed");
 
     assert_eq!(mesh.triangle_count(), 12);
@@ -335,6 +342,7 @@ mod environment {
     use std::hash::{Hash, Hasher};
 
     use crate::common::{OPT, fully_rounded_box, harness_test_name, sphere_primitive};
+    use partsmith_occt_sys::Interrupt;
 
     /// Set in the child process of `t113_meshes_do_not_depend_on_the_environment`.
     const PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_MESH_PROBE";
@@ -344,8 +352,12 @@ mod environment {
     /// A digest of the meshes of the result of test 45 and of the sphere of test 11 with `OPT`.
     /// `DefaultHasher::new` uses fixed keys, so the same binary gives the same digest anywhere.
     fn meshes_line() -> String {
-        let meshes = [fully_rounded_box(), sphere_primitive().shape]
-            .map(|shape| format!("{:?}", shape.tessellate(&OPT).expect("meshed")));
+        let meshes = [fully_rounded_box(), sphere_primitive().shape].map(|shape| {
+            format!(
+                "{:?}",
+                shape.tessellate(&OPT, &Interrupt::new()).expect("meshed")
+            )
+        });
         let mut hasher = DefaultHasher::new();
         meshes.hash(&mut hasher);
         format!("{LINE_PREFIX}{:016x}", hasher.finish())
@@ -828,7 +840,7 @@ fn assert_untriangulated(error: &KernelError) {
 #[test]
 fn face_without_a_boundary_cannot_be_tessellated() {
     let error = unbounded_face()
-        .tessellate(&OPT)
+        .tessellate(&OPT, &Interrupt::new())
         .expect_err("the face gets no triangulation");
 
     assert_untriangulated(&error);
@@ -1030,7 +1042,7 @@ fn circle_polygon() -> Shape {
 #[test]
 fn t137_polygon_vertices_are_its_mesh_vertices_in_order() {
     let mesh = circle_polygon()
-        .tessellate(&FINE)
+        .tessellate(&FINE, &Interrupt::new())
         .expect("the polygon tessellates");
 
     let expected: Vec<[f64; 3]> = CIRCLE_POINTS.iter().map(|&(x, y)| [x, y, 0.0]).collect();
@@ -1040,7 +1052,7 @@ fn t137_polygon_vertices_are_its_mesh_vertices_in_order() {
 #[test]
 fn t137_cocircular_vertices_give_the_same_triangles_everywhere() {
     let mesh = circle_polygon()
-        .tessellate(&FINE)
+        .tessellate(&FINE, &Interrupt::new())
         .expect("the polygon tessellates");
 
     assert_eq!(mesh.triangles(), CIRCLE_TRIANGLES);
@@ -1050,7 +1062,7 @@ fn t137_cocircular_vertices_give_the_same_triangles_everywhere() {
 /// undirected edge is used by exactly two triangles (test 138).
 fn assert_closed_when_welded(shape: &Shape) {
     let welded = shape
-        .tessellate(&FINE)
+        .tessellate(&FINE, &Interrupt::new())
         .expect("the shape tessellates")
         .weld(WELD_TOLERANCE)
         .expect("WELD_TOLERANCE is a valid weld tolerance")
@@ -1099,7 +1111,8 @@ fn t138_quarter_revolution_mesh_is_closed() {
     // The body of `revolve/quarter`: x from 10 to 20, z from 0 to 30, a quarter turn about Z.
     let profile = make_profile(&Plane::XZ, &[region(rectangle((10.0, 0.0), (20.0, 30.0)))])
         .expect("the rectangle builds");
-    let quarter = revolve(&profile, &z_axis(), FRAC_PI_2).expect("the rectangle revolves");
+    let quarter =
+        revolve(&profile, &z_axis(), FRAC_PI_2, &Interrupt::new()).expect("the rectangle revolves");
 
     assert_closed_when_welded(&quarter.shape);
 }

@@ -18,10 +18,10 @@ use std::time::Duration;
 use partsmith_budgets::{Report, median_time_of};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
-    Axis, EdgeRadius, GeometryKind, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane,
-    Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut, extrude, fillet, fuse,
-    make_box, make_cone, make_cylinder, make_profile, make_sphere, make_torus, read_step, shell,
-    transform, write_step,
+    Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+    make_torus, read_step, shell, transform, write_step,
 };
 
 /// Times each operation runs; the median counts.
@@ -121,9 +121,15 @@ fn part() -> Shape {
         point(80.0, 50.0),
         point(0.0, 50.0),
     ]);
-    let block = extrude(&profile(rectangle), common::UP, 0.0, 30.0)
-        .expect("the block extrudes")
-        .shape;
+    let block = extrude(
+        &profile(rectangle),
+        common::UP,
+        0.0,
+        30.0,
+        &Interrupt::new(),
+    )
+    .expect("the block extrudes")
+    .shape;
     let vertical: Vec<EdgeRadius> = block
         .elements(SubShapeKind::Edge)
         .expect("edges can be queried")
@@ -138,7 +144,7 @@ fn part() -> Shape {
             radius: 5.0,
         })
         .collect();
-    let rounded = fillet(&block, &vertical)
+    let rounded = fillet(&block, &vertical, &Interrupt::new())
         .expect("the vertical edges round")
         .shape;
 
@@ -165,15 +171,23 @@ fn part() -> Shape {
             ),
         ],
     };
-    let slot = extrude(&profile(slot_outline), common::UP, -1.0, 31.0)
-        .expect("the slot extrudes")
-        .shape;
-    let drilled = cut(&rounded, &[hole, slot])
+    let slot = extrude(
+        &profile(slot_outline),
+        common::UP,
+        -1.0,
+        31.0,
+        &Interrupt::new(),
+    )
+    .expect("the slot extrudes")
+    .shape;
+    let drilled = cut(&rounded, &[hole, slot], &Interrupt::new())
         .expect("the hole and slot cut")
         .shape;
 
     let top = planar_face(&drilled, common::UP, 30.0);
-    shell(&drilled, &[top], 2.0).expect("the part shells").shape
+    shell(&drilled, &[top], 2.0, &Interrupt::new())
+        .expect("the part shells")
+        .shape
 }
 
 /// `RC` of spec test 131: a 20 mm cube from (-10,-10,0) with its four vertical edges rounded at
@@ -196,7 +210,7 @@ fn rounded_cube() -> Shape {
             radius: 2.0,
         })
         .collect();
-    fillet(&block, &vertical)
+    fillet(&block, &vertical, &Interrupt::new())
         .expect("the vertical edges round")
         .shape
 }
@@ -204,23 +218,10 @@ fn rounded_cube() -> Shape {
 /// A `size` x `size` x 10 box (origin (0,0,-5)) with `holes` through holes of radius 4 cut in
 /// one call, in rows of `columns` holes 13.5 mm apart from (10, 10).
 fn holed_plate(size: f64, holes: u32, columns: u32) -> Shape {
-    let block = make_box(&common::xy_plane_at(0.0, 0.0, -5.0), size, size, 10.0)
-        .expect("the plate builds")
+    let (block, tools) = common::holed_plate_parts(size, holes, columns);
+    let plate = cut(&block, &tools, &Interrupt::new())
+        .expect("the holes cut")
         .shape;
-    let tools: Vec<Shape> = (0..holes)
-        .map(|position| {
-            let column = f64::from(position % columns);
-            let row = f64::from(position / columns);
-            make_cylinder(
-                &common::xy_plane_at(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
-                4.0,
-                20.0,
-            )
-            .expect("the hole tool builds")
-            .shape
-        })
-        .collect();
-    let plate = cut(&block, &tools).expect("the holes cut").shape;
     assert_eq!(plate.count(SubShapeKind::Face), holes + 6);
     plate
 }
@@ -305,15 +306,21 @@ fn main() -> ExitCode {
     });
     report.measure("extrude, 100-edge profile", milliseconds(20), || {
         let outline = profile(hundred_gon.clone());
-        median_time_of(RUNS, || extrude(&outline, common::UP, 0.0, 10.0))
+        median_time_of(RUNS, || {
+            extrude(&outline, common::UP, 0.0, 10.0, &Interrupt::new())
+        })
     });
 
     let (first, second) = (common::cube_a().shape, common::cube_b().shape);
     report.measure("fuse, two primitives", milliseconds(10), || {
-        median_time_of(RUNS, || fuse(&first, std::slice::from_ref(&second)))
+        median_time_of(RUNS, || {
+            fuse(&first, std::slice::from_ref(&second), &Interrupt::new())
+        })
     });
     report.measure("cut, two primitives", milliseconds(10), || {
-        median_time_of(RUNS, || cut(&first, std::slice::from_ref(&second)))
+        median_time_of(RUNS, || {
+            cut(&first, std::slice::from_ref(&second), &Interrupt::new())
+        })
     });
     report.measure("cut, 20 cylinders from a box", milliseconds(60), || {
         let block = make_box(&Plane::XY, 80.0, 50.0, 30.0)
@@ -332,7 +339,7 @@ fn main() -> ExitCode {
                 .shape
             })
             .collect();
-        median_time_of(RUNS, || cut(&block, &cylinders))
+        median_time_of(RUNS, || cut(&block, &cylinders, &Interrupt::new()))
     });
 
     let block = make_box(&Plane::XY, 10.0, 20.0, 30.0)
@@ -341,23 +348,23 @@ fn main() -> ExitCode {
     // Every edge of the box rounded at radius 1 (kernel spec test 45).
     let every_edge = common::box_edge_radii(1.0);
     report.measure("fillet, 12 edges of a box", milliseconds(40), || {
-        median_time_of(RUNS, || fillet(&block, &every_edge))
+        median_time_of(RUNS, || fillet(&block, &every_edge, &Interrupt::new()))
     });
     report.measure("shell, box", milliseconds(20), || {
         let top = planar_face(&block, common::UP, 30.0);
-        median_time_of(RUNS, || shell(&block, &[top], 1.0))
+        median_time_of(RUNS, || shell(&block, &[top], 1.0, &Interrupt::new()))
     });
     report.measure(
         "shell, rounded box with an opening tangent to its rounds",
         milliseconds(60),
         || {
-            let rounded = fillet(&block, &every_edge)
+            let rounded = fillet(&block, &every_edge, &Interrupt::new())
                 .expect("every edge rounds")
                 .shape;
             let top = planar_face(&rounded, common::UP, 30.0);
             // A failed shell returns early, so its time would say nothing about the budget.
-            shell(&rounded, &[top], 0.5).expect("the rounded box shells open");
-            median_time_of(RUNS, || shell(&rounded, &[top], 0.5))
+            shell(&rounded, &[top], 0.5, &Interrupt::new()).expect("the rounded box shells open");
+            median_time_of(RUNS, || shell(&rounded, &[top], 0.5, &Interrupt::new()))
         },
     );
     report.measure("transform, rigid", Duration::from_micros(100), || {
@@ -378,6 +385,7 @@ fn main() -> ExitCode {
                 common::UP,
                 0.0,
                 10.0,
+                &Interrupt::new(),
             )
             .expect("the prism extrudes")
             .shape;
@@ -414,7 +422,9 @@ fn main() -> ExitCode {
             let sphere = make_sphere(&Plane::XY, 250.0)
                 .expect("the sphere builds")
                 .shape;
-            median_time_of(RUNS, || sphere.tessellate(&engine_tolerance(0.0125)))
+            median_time_of(RUNS, || {
+                sphere.tessellate(&engine_tolerance(0.0125), &Interrupt::new())
+            })
         },
     );
     report.measure(
@@ -422,7 +432,9 @@ fn main() -> ExitCode {
         milliseconds(1500),
         || {
             let plate = plate();
-            median_time_of(RUNS, || plate.tessellate(&engine_tolerance(0.05)))
+            median_time_of(RUNS, || {
+                plate.tessellate(&engine_tolerance(0.05), &Interrupt::new())
+            })
         },
     );
     report.measure(
@@ -455,8 +467,8 @@ fn main() -> ExitCode {
         || {
             let (body, step) = common::l_body();
             // A failed shell returns early, so its time would say nothing about the budget.
-            shell(&body, &[step], 2.0).expect("the fallback shells L");
-            median_time_of(RUNS, || shell(&body, &[step], 2.0))
+            shell(&body, &[step], 2.0, &Interrupt::new()).expect("the fallback shells L");
+            median_time_of(RUNS, || shell(&body, &[step], 2.0, &Interrupt::new()))
         },
     );
     report.measure(
@@ -466,8 +478,9 @@ fn main() -> ExitCode {
             let rounded = rounded_cube();
             let top = planar_face(&rounded, common::UP, 20.0);
             // A failed shell returns early, so its time would say nothing about the budget.
-            shell(&rounded, &[top], 3.0).expect("the rounded cube shells past its rounds");
-            median_time_of(RUNS, || shell(&rounded, &[top], 3.0))
+            shell(&rounded, &[top], 3.0, &Interrupt::new())
+                .expect("the rounded cube shells past its rounds");
+            median_time_of(RUNS, || shell(&rounded, &[top], 3.0, &Interrupt::new()))
         },
     );
     report.measure(
@@ -476,8 +489,9 @@ fn main() -> ExitCode {
         || {
             let rounded = rounded_cube();
             let top = planar_face(&rounded, common::UP, 20.0);
-            shell(&rounded, &[top], 2.0).expect("the rounded cube shells as thick as its rounds");
-            median_time_of(RUNS, || shell(&rounded, &[top], 2.0))
+            shell(&rounded, &[top], 2.0, &Interrupt::new())
+                .expect("the rounded cube shells as thick as its rounds");
+            median_time_of(RUNS, || shell(&rounded, &[top], 2.0, &Interrupt::new()))
         },
     );
     report.measure(
@@ -486,7 +500,8 @@ fn main() -> ExitCode {
         || {
             let rounded = rounded_cube();
             let top = planar_face(&rounded, common::UP, 20.0);
-            let succeeds = |thickness| shell(&rounded, &[top], thickness).is_ok();
+            let succeeds =
+                |thickness| shell(&rounded, &[top], thickness, &Interrupt::new()).is_ok();
             let largest = too_large_search(12.0, succeeds).expect("a thinner wall fits");
             assert!(
                 (9.0..10.0).contains(&largest),
@@ -514,7 +529,7 @@ fn main() -> ExitCode {
                 chord_deviation: 0.05,
                 angular_deviation: 0.1,
             };
-            median_time_of(RUNS, || part.tessellate(&tolerance))
+            median_time_of(RUNS, || part.tessellate(&tolerance, &Interrupt::new()))
         },
     );
     report.measure("to_brep and from_brep, part", milliseconds(5), || {
@@ -525,11 +540,11 @@ fn main() -> ExitCode {
     });
     let bodies = [common::uncolored_body(part.clone(), "Part")];
     report.measure("write_step, part", milliseconds(100), || {
-        median_time_of(RUNS, || write_step(&bodies))
+        median_time_of(RUNS, || write_step(&bodies, &Interrupt::new()))
     });
     report.measure("read_step, part", milliseconds(150), || {
-        let bytes = write_step(&bodies).expect("the part exports");
-        median_time_of(RUNS, || read_step(&bytes))
+        let bytes = write_step(&bodies, &Interrupt::new()).expect("the part exports");
+        median_time_of(RUNS, || read_step(&bytes, &Interrupt::new()))
     });
 
     report.finish()

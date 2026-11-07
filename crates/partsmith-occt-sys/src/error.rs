@@ -443,6 +443,33 @@ mod tests {
     }
 
     #[test]
+    fn the_canceled_exception_maps_to_its_kind() {
+        let error = KernelError::from_shim(
+            Operation::Cut,
+            "Partsmith_Canceled: BRepAlgoAPI_Cut stopped by its interrupt",
+        );
+
+        assert_eq!(error.kind, KernelErrorKind::Canceled);
+        assert_eq!(error.exception, "Partsmith_Canceled");
+        assert_eq!(error.message, "BRepAlgoAPI_Cut stopped by its interrupt");
+    }
+
+    #[test]
+    fn the_canceled_kind_has_a_snake_case_name() {
+        assert_eq!(KernelErrorKind::Canceled.name(), "canceled");
+    }
+
+    #[test]
+    fn the_test_wait_has_a_snake_case_name_and_no_noun() {
+        assert_eq!(Operation::WaitForInterrupt.name(), "wait_for_interrupt");
+        assert_eq!(Operation::WaitForInterrupt.noun(), None);
+        assert_eq!(
+            Operation::WaitForInterrupt.failure_hint(),
+            "The test wait could not run; report it with the details."
+        );
+    }
+
+    #[test]
     fn unknown_shim_values_are_internal_errors_naming_the_value() {
         let error = KernelError::unknown_from_shim(Operation::Query, "geometry kind", 42);
 
