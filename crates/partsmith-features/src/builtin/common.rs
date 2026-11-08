@@ -3,8 +3,8 @@
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{
-    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE, OptionHint,
-    SelectionKind,
+    BodyCreation, Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE,
+    OptionHint, SelectionKind, StartValue,
 };
 use partsmith_naming::{
     DirectSources, ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap, Reference,
@@ -34,6 +34,12 @@ pub(crate) const BODY_OP_OPTIONS: [(&str, &str); 4] = [
     ("intersect", "Intersect"),
 ];
 
+/// The help of the `op` hint of a feature that adds material from a sketch.
+pub(crate) const SKETCH_OP_HELP: &str = "New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap.";
+
+/// The help of the `body` hint of a feature that adds material from a sketch.
+pub(crate) const SKETCH_BODY_HELP: &str = "The body that Join, Cut and Intersect change.";
+
 /// How far past the farthest corner of the body's bounding box a through-all extrusion or hole
 /// goes, in millimeters (decision D21).
 pub(crate) const THROUGH_ALL_MARGIN: f64 = 1.0;
@@ -43,15 +49,17 @@ pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// A version 1 manifest (features.md section 3.13).
+/// A version 1 manifest (features.md section 3.13) with the description its feature spec lists.
 pub(crate) fn manifest(
     label: &str,
+    description: &str,
     category: Category,
     icon: &str,
     fields: Vec<FieldHint>,
 ) -> FeatureManifest {
     FeatureManifest {
         label: label.to_string(),
+        description: description.to_string(),
         category,
         icon: icon.to_string(),
         version: 1,
@@ -68,6 +76,9 @@ pub(crate) fn hint(path: &str, label: &str) -> FieldHint {
         unit: None,
         selection: None,
         options: Vec::new(),
+        help: None,
+        start: None,
+        creates_body: None,
     }
 }
 
@@ -75,6 +86,42 @@ pub(crate) fn hint(path: &str, label: &str) -> FieldHint {
 pub(crate) fn essential(hint: FieldHint) -> FieldHint {
     FieldHint {
         essential: true,
+        ..hint
+    }
+}
+
+/// The same hint with hover help.
+pub(crate) fn with_help(hint: FieldHint, help: &str) -> FieldHint {
+    FieldHint {
+        help: Some(help.to_string()),
+        ..hint
+    }
+}
+
+/// The same hint, starting at `expr` in a new feature.
+pub(crate) fn with_start_expr(hint: FieldHint, expr: &str) -> FieldHint {
+    FieldHint {
+        start: Some(StartValue::Expr {
+            expr: Expr::new(expr),
+        }),
+        ..hint
+    }
+}
+
+/// The same hint, starting at the option `value` in a new feature.
+pub(crate) fn with_start_choice(hint: FieldHint, value: &str) -> FieldHint {
+    FieldHint {
+        start: Some(StartValue::Choice {
+            value: value.to_string(),
+        }),
+        ..hint
+    }
+}
+
+/// The same hint, receiving the body a host's command creates as `creation` says.
+pub(crate) fn creates_body(hint: FieldHint, creation: BodyCreation) -> FieldHint {
+    FieldHint {
+        creates_body: Some(creation),
         ..hint
     }
 }

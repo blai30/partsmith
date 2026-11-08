@@ -1,13 +1,15 @@
 //! The `mirror` feature: reflects a body across a plane and fuses the image into the source, or
 //! puts it into another, empty body (docs/spec/features/mirror.md).
 
-use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
+use partsmith_model::{BodyCreation, Category, FeatureManifest, Id, SelectionKind};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::Transform;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{essential, into_keyword, manifest, selection_hint, target_hint};
+use super::common::{
+    creates_body, essential, into_keyword, manifest, selection_hint, target_hint, with_help,
+};
 use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -50,6 +52,7 @@ impl Feature for Mirror {
     fn manifest() -> FeatureManifest {
         manifest(
             "Mirror",
+            "Mirrors a body across a plane, joined to it or as a new body.",
             Category::Pattern,
             "mirror",
             vec![
@@ -59,8 +62,11 @@ impl Feature for Mirror {
                     "Mirror plane",
                     SelectionKind::Plane,
                 )),
-                essential(copy::op_hint()),
-                essential(target_hint()),
+                with_help(
+                    essential(copy::op_hint()),
+                    "Join adds the mirrored copy to the body. New body puts it in a separate body.",
+                ),
+                creates_body(essential(target_hint()), BodyCreation::WhileNew),
             ],
         )
     }

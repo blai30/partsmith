@@ -2,10 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use partsmith_model::{FeatureManifest, FeatureRecord};
+use partsmith_model::{
+    BodyCreation, EmptyContext, Expr, FeatureManifest, FeatureRecord, FieldHint, FieldUnit,
+    ParameterValues, Scope, SelectionKind, StartValue, Units,
+};
 use schemars::Schema;
 use serde_json::{Map, Value};
 
+use crate::context::{expected_dimension, is_count};
 use crate::error::field::{Segment, segments};
 use crate::registry::RegistryError;
 
@@ -163,7 +167,120 @@ fn check_manifest(
             return Err((property.clone(), "the field has no hint".to_string()));
         }
     }
+    // Since M2: each hint's start value, then its new body, in hint order.
+    let mut receiver_found = false;
+    for hint in &manifest.fields {
+        let start = hint
+            .start
+            .as_ref()
+            .and_then(|start| start_problem(hint, start, manifest));
+        let new_body = || {
+            let creation = hint.creates_body?;
+            new_body_problem(hint, creation, manifest, &schema, receiver_found).map(str::to_string)
+        };
+        if let Some(problem) = start.or_else(new_body) {
+            return Err((hint.path.clone(), problem));
+        }
+        receiver_found |= hint.creates_body.is_some();
+    }
     Ok(())
+}
+
+/// Why the start value of `hint` does not fit it, if it does not (section 3.3, since M2).
+fn start_problem(
+    hint: &FieldHint,
+    start: &StartValue,
+    manifest: &FeatureManifest,
+) -> Option<String> {
+    match start {
+        StartValue::Expr { expr } => match hint.unit {
+            None => Some("its start value is an expression, but it has no unit".to_string()),
+            Some(unit) => fixed_value_problem(expr, unit),
+        },
+        StartValue::Choice { value } => (!hint.options.iter().any(|option| option.value == *value))
+            .then(|| format!("its start value '{value}' is not one of its options")),
+        StartValue::Multiple { field, factor } => {
+            if hint.unit.is_none() {
+                return Some(
+                    "its start value follows another field, but it has no unit".to_string(),
+                );
+            }
+            let Some(followed) = manifest.fields.iter().find(|other| {
+                other.path == *field && other.path != hint.path && other.unit == hint.unit
+            }) else {
+                return Some(format!(
+                    "its start value follows '{field}', which is not another field with the same unit"
+                ));
+            };
+            if matches!(followed.start, Some(StartValue::Multiple { .. })) {
+                return Some(format!(
+                    "its start value follows '{field}', whose own start value follows another field"
+                ));
+            }
+            (!(factor.is_finite() && *factor > 0.0)).then(|| {
+                format!("its start value's factor {factor} is not a finite number above 0")
+            })
+        }
+    }
+}
+
+/// Why `expr` is not a fixed value of `unit` that means the same in every document unit, if it
+/// is not: it is evaluated without parameters or dotted names in millimeters and in inches.
+fn fixed_value_problem(expr: &Expr, unit: FieldUnit) -> Option<String> {
+    let parameters = ParameterValues::default();
+    let value_in = |units| {
+        let scope = Scope {
+            units,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+        expr.evaluate(&scope, Some(expected_dimension(unit)))
+            .ok()
+            .map(|quantity| quantity.value)
+            .filter(|value| value.is_finite() && (unit != FieldUnit::Count || is_count(*value)))
+    };
+    match (value_in(Units::Mm), value_in(Units::In)) {
+        (Some(millimeters), Some(inches)) if millimeters == inches => None,
+        (Some(_), Some(_)) => Some(format!(
+            "its start value '{expr}' depends on the document units"
+        )),
+        _ => {
+            let noun = match unit {
+                FieldUnit::Length => "length",
+                FieldUnit::Angle => "angle",
+                FieldUnit::Scalar => "plain number",
+                FieldUnit::Count => "whole number",
+            };
+            Some(format!("its start value '{expr}' is not a fixed {noun}"))
+        }
+    }
+}
+
+/// Why `hint` cannot receive a new body as `creation` says, if it cannot (section 3.3, since
+/// M2). `receiver_found` tells whether an earlier hint already receives one.
+fn new_body_problem(
+    hint: &FieldHint,
+    creation: BodyCreation,
+    manifest: &FeatureManifest,
+    schema: &SchemaView<'_>,
+    receiver_found: bool,
+) -> Option<&'static str> {
+    if hint.selection != Some(SelectionKind::Body) {
+        return Some("it receives a new body, but its selection is not a body");
+    }
+    // The first loop of `check_manifest` accepted the path, so it has segments.
+    let steps = segments(&hint.path).unwrap_or_default();
+    let indexed = steps.iter().any(|step| !matches!(step, Segment::Name(_)));
+    if indexed || schema.holds_list(&schema.resolve(&steps)) {
+        return Some("it receives a new body, but the field holds a list");
+    }
+    let has_new_op = manifest.fields.iter().any(|other| {
+        other.path == "op" && other.options.iter().any(|option| option.value == "new")
+    });
+    if creation == BodyCreation::WhileNew && !has_new_op {
+        return Some("it receives a new body while op is new, but no op field has the option new");
+    }
+    receiver_found.then_some("another field already receives the new body")
 }
 
 /// A root schema, for looking up the schemas of field paths.
@@ -290,6 +407,18 @@ impl<'a> SchemaView<'a> {
         })
     }
 
+    /// True when one of the schemas is an array, or an optional one, in any branch.
+    fn holds_list(&self, nodes: &[&'a Value]) -> bool {
+        nodes
+            .iter()
+            .flat_map(|node| self.expand(node))
+            .any(|object| match object.get("type") {
+                Some(Value::String(kind)) => kind == "array",
+                Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "array"),
+                _ => false,
+            })
+    }
+
     /// The string values the schemas allow through `enum` and `const`, in any branch.
     fn string_values(&self, nodes: &[&'a Value]) -> BTreeSet<&'a str> {
         nodes
@@ -361,6 +490,9 @@ mod tests {
             unit: None,
             selection: None,
             options: Vec::new(),
+            help: None,
+            start: None,
+            creates_body: None,
         }
     }
 

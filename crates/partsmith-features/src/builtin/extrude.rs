@@ -8,10 +8,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    THROUGH_ALL_MARGIN, bodies, body_hint, body_op_hint, call, essential, face_name,
-    farthest_corner, flag, has_face, hint, is_false, is_positive_length, length_in_range, manifest,
-    op_keyword, options_hint, positive_length, profile_arguments, require_selection, result_faces,
-    reverse_checked, selection_hint, swept_tool, unit_hint,
+    SKETCH_BODY_HELP, SKETCH_OP_HELP, THROUGH_ALL_MARGIN, bodies, body_hint, body_op_hint, call,
+    essential, face_name, farthest_corner, flag, has_face, hint, is_false, is_positive_length,
+    length_in_range, manifest, op_keyword, options_hint, positive_length, profile_arguments,
+    require_selection, result_faces, reverse_checked, selection_hint, swept_tool, unit_hint,
+    with_help,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -73,33 +74,43 @@ impl Feature for Extrude {
     fn manifest() -> FeatureManifest {
         manifest(
             "Extrude",
+            "Pulls a closed sketch shape straight out into a solid, or cuts it into one.",
             Category::Create,
             "extrude",
             vec![
-                essential(selection_hint(
-                    "profile",
-                    "Profile",
-                    SelectionKind::SketchRegion,
-                )),
-                essential(options_hint(
-                    "extent.kind",
-                    "Extent",
-                    &[
-                        ("distance", "Distance"),
-                        ("symmetric", "Symmetric"),
-                        ("two_sides", "Two sides"),
-                        ("through_all", "Through all"),
-                    ],
-                )),
+                with_help(
+                    essential(selection_hint(
+                        "profile",
+                        "Profile",
+                        SelectionKind::SketchRegion,
+                    )),
+                    "The closed sketch shapes to extrude. Click inside a shape to add it.",
+                ),
+                with_help(
+                    essential(options_hint(
+                        "extent.kind",
+                        "Extent",
+                        &[
+                            ("distance", "Distance"),
+                            ("symmetric", "Symmetric"),
+                            ("two_sides", "Two sides"),
+                            ("through_all", "Through all"),
+                        ],
+                    )),
+                    "Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body.",
+                ),
                 essential(unit_hint("extent.expr", "Distance", FieldUnit::Length)),
                 essential(unit_hint(
                     "extent.opposite_expr",
                     "Opposite distance",
                     FieldUnit::Length,
                 )),
-                body_op_hint(),
-                hint("reverse", "Reverse"),
-                body_hint(),
+                with_help(body_op_hint(), SKETCH_OP_HELP),
+                with_help(
+                    essential(hint("reverse", "Reverse")),
+                    "Extrudes to the other side of the sketch.",
+                ),
+                with_help(body_hint(), SKETCH_BODY_HELP),
             ],
         )
     }

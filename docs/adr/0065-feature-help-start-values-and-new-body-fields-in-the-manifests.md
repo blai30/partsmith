@@ -35,6 +35,10 @@ The plan settled where the values go: into `FeatureManifest` and `FieldHint` (m2
 7. *The `reverse` flag.* Options: (i) mark `reverse` essential in the extrude, revolve and hole manifests and drop the inspector's override; (ii) keep the override. The rule takes (i), the safest. The UI then changes no flag a manifest sets. That is the seam of technical design section 15. The inspector shows the same fields as in M1 (ui.md U-31).
 8. *The version of the manifest contract.* Options: (i) `FEATURE_API_VERSION` stays 1; (ii) it becomes 2. The rule takes (i), the safest. A bump protects nothing yet. No plugin can load before the plugin API ships (features.md section 1, Later). No plugin declares a range that a bump would keep from loading. Plugins declare a compatible range once the plugin API ships (features.md section 2.2, technical design section 15). The version counts from there.
 
+Implementation notes of 2026-11-08. The code met one more choice the spec leaves open. It is Accepted (owner's rule of 2026-11-05). It changes no schema, naming algorithm, license or dependency.
+
+9. *How the inspector tells a union's tag from another choice field.* Options: (i) a field whose schema is a `const` (a union's tag inside its variant) keeps that value, and only the other choice fields take their hint's `choice` start; (ii) every field whose hint has a `choice` start takes it. The rule takes (i), the safest. The schema says which field is the tag, whatever its path. With (ii) a `setParam` of Revolve's `extent.kind` to `angle` would start the new variant with the tag `full` (ui.md U-289).
+
 ## Consequences
 
 - partsmith-model gains `FeatureManifest::description`, `FieldHint::help`, `start` and `creates_body`, `StartValue` and `BodyCreation` (model.md tests 106 to 112).

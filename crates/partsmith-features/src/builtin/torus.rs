@@ -68,6 +68,7 @@ impl Feature for Torus {
     fn manifest() -> FeatureManifest {
         primitive_manifest(
             "Torus",
+            "Adds a ring from the radius of its center line and the radius of its tube.",
             "torus",
             &[
                 ("major_radius", "Ring radius"),

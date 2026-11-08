@@ -25,7 +25,7 @@ import {
   solvedSketch,
 } from '../sketch/fixtures.testing'
 import type { DocumentState } from '../state/store'
-import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
+import { catalogOf, GEAR_ENTRY, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import {
   CUBE_FEATURES_DOCUMENT,
   emptyDocument,
@@ -41,7 +41,6 @@ import { actionLabels, onlyNotification, runAction } from '../test/fakes/test-ap
 import { createFakeViewport, expectBoundsContain, lastFramedBounds } from '../test/fakes/viewport'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
-import { FEATURE_DESCRIPTIONS } from './descriptions'
 import { featureCommands } from './features'
 import { COMMAND_KEYWORDS } from './keywords'
 import type { CommandDefinition, Keyword } from './registry'
@@ -90,32 +89,6 @@ const KEYWORDS: readonly (readonly [string, readonly Keyword[]])[] = [
   ['torus', [freecad('Additive Torus'), 'ring', 'donut', 'primitive', 'shape']],
 ]
 
-// ui.md 2.10, FEATURE_DESCRIPTIONS.
-const DESCRIPTIONS: readonly (readonly [string, string])[] = [
-  [
-    'sketch',
-    'Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from.',
-  ],
-  ['extrude', 'Pulls a closed sketch shape straight out into a solid, or cuts it into one.'],
-  ['revolve', 'Spins a closed sketch shape around an axis into a round solid, or cuts with it.'],
-  ['hole', 'Drills round holes where you click on a flat face or at sketch points.'],
-  ['box', 'Adds a box of the given length, width and height.'],
-  ['cylinder', 'Adds a cylinder of the given radius and height.'],
-  ['sphere', 'Adds a ball of the given radius.'],
-  ['cone', 'Adds a cone, or a tapered cylinder, from two radii and a height.'],
-  ['torus', 'Adds a ring from the radius of its center line and the radius of its tube.'],
-  ['fillet', 'Rounds the selected edges.'],
-  ['chamfer', 'Bevels the selected edges with a flat cut.'],
-  ['shell', 'Hollows out a body, leaving walls of the given thickness and the picked faces open.'],
-  ['boolean', 'Joins, cuts or intersects one body with other bodies.'],
-  ['move_body', 'Moves and rotates a whole body.'],
-  ['split_body', 'Cuts a body in two along a plane, for example to fit a large part on the bed.'],
-  ['mirror', 'Mirrors a body across a plane, joined to it or as a new body.'],
-  ['linear_pattern', 'Repeats a body in a row, or in a grid with a second direction.'],
-  ['circular_pattern', 'Repeats a body around an axis.'],
-  ['datum_plane', 'Adds a plane offset from another plane, to sketch on or mirror across.'],
-]
-
 describe('featureCommands', () => {
   it('U-29 makes one feature.<type> command per catalog entry, except import', () => {
     const ids = featureCommands(TEST_CATALOG).map((command) => command.id)
@@ -139,15 +112,15 @@ describe('featureCommands', () => {
     expect(commandFor('extrude').keywords).toContainEqual({ word: 'Pad', app: 'FreeCAD' })
   })
 
-  it('U-29 gives extrude the description of FEATURE_DESCRIPTIONS', () => {
-    expect(commandFor('extrude').description).toBe(FEATURE_DESCRIPTIONS['feature.extrude'])
+  it('U-29 gives extrude the description of its manifest', () => {
+    const extrude = TEST_CATALOG_ENTRIES.find((entry) => entry.type === 'extrude')
+    expect(commandFor('extrude').description).toBe(extrude?.manifest.description)
   })
 
   it('U-29 falls back to the Shapes icon for an unknown icon name', () => {
     const unknown: CatalogEntry = {
-      type: 'gear',
-      manifest: { label: 'Gear', category: 'create', icon: 'gear-wheel', version: 1, fields: [] },
-      params_schema: { type: 'object', properties: {} },
+      ...GEAR_ENTRY,
+      manifest: { ...GEAR_ENTRY.manifest, icon: 'gear-wheel' },
     }
     const [command] = featureCommands(catalogOf([unknown]))
     expect(command?.id).toBe('feature.gear')
@@ -212,19 +185,26 @@ describe('featureCommands', () => {
     expect(COMMAND_KEYWORDS[`feature.${type}`]).toEqual(keywords)
   })
 
-  it.each(DESCRIPTIONS)('gives %s the description of 2.10', (type, description) => {
+  it.each(
+    TEST_CATALOG_ENTRIES.filter((entry) => entry.type !== 'import').map(
+      (entry) => [entry.type, entry.manifest.description] as const,
+    ),
+  )('U-289 gives %s the description of its manifest', (type, description) => {
     expect(commandFor(type).description).toBe(description)
   })
 
-  it('gives a type without a table entry no keywords and no description', () => {
-    const unknown: CatalogEntry = {
-      type: 'gear',
-      manifest: { label: 'Gear', category: 'create', icon: 'gear', version: 1, fields: [] },
-      params_schema: { type: 'object', properties: {} },
-    }
-    const [command] = featureCommands(catalogOf([unknown]))
+  it('U-286 gives a plugin feature the description of its manifest and the Shapes icon', () => {
+    const command = featureCommands(catalogOf([...TEST_CATALOG_ENTRIES, GEAR_ENTRY])).find(
+      (candidate) => candidate.id === 'feature.gear',
+    )
+    expect(command?.description).toBe('Adds a spur gear.')
+    expect(command?.icon).toBe(Shapes)
+  })
+
+  it('gives a type without a table entry no keywords and no shortcut', () => {
+    const [command] = featureCommands(catalogOf([GEAR_ENTRY]))
     expect(command?.keywords).toEqual([])
-    expect(command?.description).toBeUndefined()
+    expect(command?.shortcuts ?? []).toEqual([])
   })
 })
 

@@ -96,6 +96,7 @@ impl Feature for Cone {
     fn manifest() -> FeatureManifest {
         primitive_manifest(
             "Cone",
+            "Adds a cone, or a tapered cylinder, from two radii and a height.",
             "cone",
             &[
                 ("bottom_radius", "Bottom radius"),

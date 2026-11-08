@@ -23,7 +23,7 @@ import type { AppState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { isSessionVisible } from '../../state/visibility'
 import { formatArea } from '../area'
-import { activeCommandFeature, bodyCreatingTarget, type InspectorField } from '../model'
+import { activeCommandFeature, bodyCreatingField, type InspectorField } from '../model'
 import {
   bodySelectionItem,
   featureSelectionItem,
@@ -97,7 +97,7 @@ function candidatesFor(
   const features = recipe.features ?? []
   switch (accepts) {
     case 'body':
-      // A body-creating target must be empty, so it lists bodies without geometry (2.12).
+      // A body-creating field must be empty, so it lists bodies without geometry (2.12).
       return (recipe.bodies ?? [])
         .filter((body) => (document.meshes[body.id] !== undefined) !== createsBody)
         .filter((body) => body.id !== state.command?.newBody?.id)
@@ -189,10 +189,10 @@ export function SelectionField({
     [app, path],
   )
   const newBody = useAppState((state) => state.command?.newBody ?? null)
-  // A body-creating target lists "New body" first in its Choose menu (2.12, 3.7).
+  // A body-creating field lists "New body" first in its Choose menu (2.12, 3.7).
   const createsBody = useAppState((state) => {
     const feature = activeCommandFeature(state)
-    return field.path === 'target' && feature !== undefined && bodyCreatingTarget(feature) !== null
+    return feature !== undefined && bodyCreatingField(feature)?.path === field.path
   })
   // Why the field refused the last pick, for 3 s (3.7).
   const pickHint = useAppState((state) =>

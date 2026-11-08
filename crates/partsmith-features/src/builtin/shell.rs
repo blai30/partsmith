@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     body_hint, essential, manifest, name_on_body, positive_length, references, selection_hint,
-    solid_body, unit_hint,
+    solid_body, unit_hint, with_help, with_start_expr,
 };
 use super::dressup::{
     FaceOrigins, add_origins, from_body, modified, names_of_faces, new_face, run_or_search,
@@ -48,15 +48,25 @@ impl Feature for Shell {
     fn manifest() -> FeatureManifest {
         manifest(
             "Shell",
+            "Hollows out a body, leaving walls of the given thickness and the picked faces open.",
             Category::Modify,
             "shell",
             vec![
-                essential(selection_hint(
-                    "remove_faces",
-                    "Faces to remove",
-                    SelectionKind::Face,
-                )),
-                essential(unit_hint("thickness", "Thickness", FieldUnit::Length)),
+                with_help(
+                    essential(selection_hint(
+                        "remove_faces",
+                        "Faces to remove",
+                        SelectionKind::Face,
+                    )),
+                    "Faces to leave open. With none, the body becomes a closed hollow.",
+                ),
+                with_start_expr(
+                    with_help(
+                        essential(unit_hint("thickness", "Thickness", FieldUnit::Length)),
+                        "Wall thickness. For FDM printing, a multiple of the nozzle width prints best.",
+                    ),
+                    "2 mm",
+                ),
                 body_hint(),
             ],
         )
@@ -444,10 +454,15 @@ mod tests {
         assert_eq!(
             serde_json::to_value(manifest).expect("a manifest serializes"),
             json!({
-                "label": "Shell", "category": "modify", "icon": "shell", "version": 1,
+                "label": "Shell",
+                "description": "Hollows out a body, leaving walls of the given thickness and the picked faces open.",
+                "category": "modify", "icon": "shell", "version": 1,
                 "fields": [
-                    {"path": "remove_faces", "label": "Faces to remove", "essential": true, "selection": "face"},
-                    {"path": "thickness", "label": "Thickness", "essential": true, "unit": "length"},
+                    {"path": "remove_faces", "label": "Faces to remove", "essential": true, "selection": "face",
+                        "help": "Faces to leave open. With none, the body becomes a closed hollow."},
+                    {"path": "thickness", "label": "Thickness", "essential": true, "unit": "length",
+                        "help": "Wall thickness. For FDM printing, a multiple of the nozzle width prints best.",
+                        "start": {"kind": "expr", "expr": "2 mm"}},
                     {"path": "body", "label": "Body", "selection": "body"},
                 ]
             })

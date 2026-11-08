@@ -13,7 +13,9 @@ mod size;
 mod tool;
 
 use partsmith_mesh::BoundingBox;
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_model::{
+    Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, SelectionKind, StartValue,
+};
 use partsmith_naming::{ElementName, Generator, roles};
 use partsmith_occt_sys::{Point, Vector};
 use partsmith_sketch::{PointRef, PointRole};
@@ -26,7 +28,8 @@ use self::tool::{Frame, hole_tool};
 use super::common::{
     bodies, body_hint, call, check_canceled, essential, face_name, farthest_corner, flag, has_face,
     hint, is_false, manifest, one_or_list, options_hint, require_selection, result_faces,
-    selection_hint, solid_body, unchanged, unit_hint,
+    selection_hint, solid_body, unchanged, unit_hint, with_help, with_start_choice,
+    with_start_expr,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
@@ -117,47 +120,90 @@ impl Feature for Hole {
     fn manifest() -> FeatureManifest {
         manifest(
             "Hole",
+            "Drills round holes where you click on a flat face or at sketch points.",
             Category::Create,
             "hole",
             vec![
-                essential(selection_hint(
-                    "points",
-                    "Points",
-                    SelectionKind::SketchPoint,
-                )),
-                essential(unit_hint("diameter", "Diameter", FieldUnit::Length)),
-                essential(options_hint(
-                    "hole_type.kind",
-                    "Type",
-                    &[
-                        ("simple", "Simple"),
-                        ("counterbore", "Counterbore"),
-                        ("countersink", "Countersink"),
-                    ],
-                )),
-                essential(unit_hint(
-                    "hole_type.diameter",
-                    "Head diameter",
-                    FieldUnit::Length,
-                )),
-                essential(unit_hint(
-                    "hole_type.depth",
-                    "Counterbore depth",
-                    FieldUnit::Length,
-                )),
-                essential(unit_hint(
-                    "hole_type.angle",
-                    "Countersink angle",
-                    FieldUnit::Angle,
-                )),
-                essential(options_hint(
-                    "extent.kind",
-                    "Extent",
-                    &[("distance", "Depth"), ("through_all", "Through all")],
-                )),
+                with_help(
+                    essential(selection_hint(
+                        "points",
+                        "Points",
+                        SelectionKind::SketchPoint,
+                    )),
+                    "Where the holes go: click a flat face, or pick points of a sketch.",
+                ),
+                with_start_expr(
+                    essential(unit_hint("diameter", "Diameter", FieldUnit::Length)),
+                    "3.2 mm",
+                ),
+                with_help(
+                    essential(options_hint(
+                        "hole_type.kind",
+                        "Type",
+                        &[
+                            ("simple", "Simple"),
+                            ("counterbore", "Counterbore"),
+                            ("countersink", "Countersink"),
+                        ],
+                    )),
+                    "Counterbore adds a wider flat recess for a screw head. Countersink adds a cone for a flat-head screw.",
+                ),
+                FieldHint {
+                    start: Some(StartValue::Multiple {
+                        field: "diameter".to_string(),
+                        factor: 2.0,
+                    }),
+                    ..with_help(
+                        essential(unit_hint(
+                            "hole_type.diameter",
+                            "Head diameter",
+                            FieldUnit::Length,
+                        )),
+                        "Diameter of the wider recess at the top of the hole.",
+                    )
+                },
+                with_start_expr(
+                    with_help(
+                        essential(unit_hint(
+                            "hole_type.depth",
+                            "Counterbore depth",
+                            FieldUnit::Length,
+                        )),
+                        "Depth of the recess.",
+                    ),
+                    "3 mm",
+                ),
+                with_start_expr(
+                    with_help(
+                        essential(unit_hint(
+                            "hole_type.angle",
+                            "Countersink angle",
+                            FieldUnit::Angle,
+                        )),
+                        "Angle of the countersink cone. 90° fits most flat-head screws.",
+                    ),
+                    "90 deg",
+                ),
+                with_start_choice(
+                    with_help(
+                        essential(options_hint(
+                            "extent.kind",
+                            "Extent",
+                            &[("distance", "Depth"), ("through_all", "Through all")],
+                        )),
+                        "Depth stops at a set depth. Through all goes through the whole body.",
+                    ),
+                    "through_all",
+                ),
                 essential(unit_hint("extent.expr", "Depth", FieldUnit::Length)),
-                unit_hint("tip_angle", "Tip angle", FieldUnit::Angle),
-                hint("reverse", "Reverse"),
+                with_help(
+                    unit_hint("tip_angle", "Tip angle", FieldUnit::Angle),
+                    "Gives the bottom a drill-point cone of this angle. Leave it empty for a flat bottom.",
+                ),
+                with_help(
+                    essential(hint("reverse", "Reverse")),
+                    "Drills out of the face instead of into it.",
+                ),
                 selection_hint("sketch", "Sketch", SelectionKind::Sketch),
                 body_hint(),
             ],

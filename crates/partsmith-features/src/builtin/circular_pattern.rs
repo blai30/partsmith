@@ -5,7 +5,7 @@
 use std::f64::consts::TAU;
 
 use partsmith_model::{
-    ANGULAR_TOLERANCE, Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind,
+    ANGULAR_TOLERANCE, BodyCreation, Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind,
 };
 use partsmith_naming::Instance;
 use partsmith_occt_sys::Transform;
@@ -13,8 +13,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    angle_in_range, check_canceled, essential, flag, hint, into_keyword, is_false, manifest,
-    out_of_range, selection_hint, target_hint, unit_hint,
+    angle_in_range, check_canceled, creates_body, essential, flag, hint, into_keyword, is_false,
+    manifest, out_of_range, selection_hint, target_hint, unit_hint, with_help,
 };
 use super::copy::{self, Source};
 use crate::context::BuildContext;
@@ -74,16 +74,23 @@ impl Feature for CircularPattern {
     fn manifest() -> FeatureManifest {
         manifest(
             "Circular pattern",
+            "Repeats a body around an axis.",
             Category::Pattern,
             "circular-pattern",
             vec![
                 essential(selection_hint("body", "Body", SelectionKind::Body)),
                 essential(selection_hint("axis", "Axis", SelectionKind::Axis)),
-                essential(unit_hint("count", "Count", FieldUnit::Count)),
-                essential(unit_hint("angle", "Total angle", FieldUnit::Angle)),
+                with_help(
+                    essential(unit_hint("count", "Count", FieldUnit::Count)),
+                    "How many instances around the axis, counting the original.",
+                ),
+                with_help(
+                    essential(unit_hint("angle", "Total angle", FieldUnit::Angle)),
+                    "The angle the instances spread over.",
+                ),
                 hint("reverse", "Reverse"),
                 copy::op_hint(),
-                target_hint(),
+                creates_body(target_hint(), BodyCreation::WhileNew),
             ],
         )
     }

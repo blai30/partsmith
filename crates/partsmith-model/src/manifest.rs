@@ -3,11 +3,16 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::Expr;
+
 /// Static description of a feature type for the UI, schema and registry.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct FeatureManifest {
     /// Display name, for example "Extrude". Also the base of default feature labels.
     pub label: String,
+    /// What the feature does, in the words of the interface: one sentence of at most 120 characters that ends with a
+    /// period. Hosts show it with the feature's command. Since M2.
+    pub description: String,
     /// Toolbar and palette grouping.
     pub category: Category,
     /// Icon name in the UI icon set, kebab-case, for example "linear-pattern".
@@ -53,6 +58,50 @@ pub struct FieldHint {
     /// Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<OptionHint>,
+    /// Hover help in the words of the interface, for a field whose label alone does not say what it does. Omitted when
+    /// none. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// What the field starts at in a new feature. Omitted when the host's general rule applies. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<StartValue>,
+    /// When the field receives the body a host's command creates. Omitted for every other field. Since M2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creates_body: Option<BodyCreation>,
+}
+
+/// What a field of a new feature starts at in a host's inspector (ui.md section 2.12). Since M2.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StartValue {
+    /// An expression for a hint with a unit, for example "1 mm". A length carries its unit. It means the same in every
+    /// document unit.
+    Expr {
+        /// The expression.
+        expr: Expr,
+    },
+    /// One of the hint's options, for an enumeration or a tag field, for example "through_all".
+    Choice {
+        /// The option's value.
+        value: String,
+    },
+    /// `factor` times the value of another expression field of the same feature, for a hint with a unit.
+    Multiple {
+        /// The path of the other field, for example "diameter".
+        field: String,
+        /// A finite number above 0, for example 2.
+        factor: f64,
+    },
+}
+
+/// When a body field receives the body that a host's command for a new feature creates (ui.md section 2.12). Since M2.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyCreation {
+    /// While the feature's `op` is `new`. Hosts show the field only then.
+    WhileNew,
+    /// From the start. The user can pick another body or clear the field.
+    AtStart,
 }
 
 /// Value kind of an expression field, which sets its input unit, its expected dimension and its validation.
@@ -115,6 +164,9 @@ mod tests {
             unit: Some(FieldUnit::Length),
             selection: None,
             options: Vec::new(),
+            help: None,
+            start: None,
+            creates_body: None,
         };
 
         assert_eq!(

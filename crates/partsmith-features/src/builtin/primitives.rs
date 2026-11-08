@@ -22,6 +22,7 @@ use crate::python::{PythonCall, PythonNames, PythonValue};
 /// essential lengths in field order, `op`, the placement hints, then `body`.
 pub(crate) fn primitive_manifest(
     label: &str,
+    description: &str,
     icon: &str,
     sizes: &[(&str, &str)],
 ) -> FeatureManifest {
@@ -32,7 +33,7 @@ pub(crate) fn primitive_manifest(
     fields.push(body_op_hint());
     fields.extend(PrimitivePlacement::hints());
     fields.push(body_hint());
-    manifest(label, Category::Create, icon, fields)
+    manifest(label, description, Category::Create, icon, fields)
 }
 
 /// A primitive's params as the steps all primitives share read them.
@@ -148,7 +149,12 @@ mod tests {
 
     #[test]
     fn the_manifest_lists_sizes_then_op_then_placement_then_body() {
-        let manifest = primitive_manifest("Cylinder", "cylinder", &[("radius", "Radius")]);
+        let manifest = primitive_manifest(
+            "Cylinder",
+            "Adds a cylinder of the given radius.",
+            "cylinder",
+            &[("radius", "Radius")],
+        );
 
         let paths: Vec<&str> = manifest
             .fields

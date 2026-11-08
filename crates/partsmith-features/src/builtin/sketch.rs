@@ -43,6 +43,7 @@ impl Feature for SketchFeature {
     fn manifest() -> FeatureManifest {
         manifest(
             "Sketch",
+            "Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from.",
             Category::Sketch,
             "sketch",
             vec![

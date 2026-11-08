@@ -294,6 +294,7 @@ mod tests {
     fn manifest_with_target() -> FeatureManifest {
         manifest(
             "Copy",
+            "Copies a body in the tests.",
             Category::Pattern,
             "copy",
             vec![essential(selection_hint(

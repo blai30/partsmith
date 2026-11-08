@@ -14,9 +14,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, body_hint, body_op_hint, call, check_within_tolerance, essential, face_name, flag,
-    hint, is_false, manifest, op_keyword, options_hint, out_of_range, profile_arguments,
-    require_selection, reverse_checked, selection_hint, swept_tool, unit_hint,
+    SKETCH_BODY_HELP, SKETCH_OP_HELP, bodies, body_hint, body_op_hint, call,
+    check_within_tolerance, essential, face_name, flag, hint, is_false, manifest, op_keyword,
+    options_hint, out_of_range, profile_arguments, require_selection, reverse_checked,
+    selection_hint, swept_tool, unit_hint, with_help, with_start_choice,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -68,6 +69,7 @@ impl Feature for Revolve {
     fn manifest() -> FeatureManifest {
         manifest(
             "Revolve",
+            "Spins a closed sketch shape around an axis into a round solid, or cuts with it.",
             Category::Create,
             "revolve",
             vec![
@@ -76,16 +78,28 @@ impl Feature for Revolve {
                     "Profile",
                     SelectionKind::SketchRegion,
                 )),
-                essential(selection_hint("axis", "Axis", SelectionKind::Axis)),
-                essential(options_hint(
-                    "extent.kind",
-                    "Extent",
-                    &[("angle", "Angle"), ("full", "Full")],
-                )),
+                with_help(
+                    essential(selection_hint("axis", "Axis", SelectionKind::Axis)),
+                    "The line to spin around: an origin axis, a sketch line or a straight edge.",
+                ),
+                with_start_choice(
+                    with_help(
+                        essential(options_hint(
+                            "extent.kind",
+                            "Extent",
+                            &[("angle", "Angle"), ("full", "Full")],
+                        )),
+                        "Full makes a complete turn. Angle stops part way.",
+                    ),
+                    "full",
+                ),
                 essential(unit_hint("extent.expr", "Angle", FieldUnit::Angle)),
-                body_op_hint(),
-                hint("reverse", "Reverse"),
-                body_hint(),
+                with_help(body_op_hint(), SKETCH_OP_HELP),
+                with_help(
+                    essential(hint("reverse", "Reverse")),
+                    "Turns the other way around the axis.",
+                ),
+                with_help(body_hint(), SKETCH_BODY_HELP),
             ],
         )
     }

@@ -2,9 +2,11 @@ import type { CatalogEntry, FeatureManifest, FieldHint } from '../../generated/p
 import type { Catalog, CatalogFeature } from '../../state/store'
 
 // The test feature catalog: every built-in feature type of features.md 3.13 with its manifest exactly
-// as its feature spec lists it, and a params schema shaped the way schemars 1 emits it (an object
-// schema titled with the manifest label, `$ref`s into its own `$defs`, defaults where the params
-// struct has them).
+// as its feature spec lists it, the description and each hint's help, start value and new body
+// included (E-174 checks it against the web core), and a params schema shaped the way schemars 1
+// emits it (an object schema titled with the manifest label, `$ref`s into its own `$defs`, defaults
+// where the params struct has them). `GEAR_ENTRY` is a plugin-like entry of ui.md 6.2 (U-286 to
+// U-288).
 
 type Schema = { readonly [key: string]: unknown }
 type HintDetails = Omit<FieldHint, 'path' | 'label'>
@@ -190,7 +192,7 @@ const PRIMITIVE_PLACEMENT_PROPERTIES: Readonly<Record<string, Schema>> = {
 function primitive(
   type: string,
   label: string,
-  description: string,
+  descriptions: { readonly manifest: string; readonly schema: string },
   sizeHints: readonly FieldHint[],
   sizeProperties: Readonly<Record<string, Schema>>,
 ): CatalogEntry {
@@ -198,6 +200,7 @@ function primitive(
     type,
     {
       label,
+      description: descriptions.manifest,
       category: 'create',
       icon: type,
       version: 1,
@@ -210,7 +213,7 @@ function primitive(
     },
     {
       title: label,
-      description,
+      description: descriptions.schema,
       properties: {
         body: ID,
         ...sizeProperties,
@@ -224,21 +227,41 @@ function primitive(
 
 const LENGTH = { essential: true, unit: 'length' } as const
 
+/** The help of the Operation of Extrude and Revolve. */
+const OPERATION_HELP =
+  'New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap.'
+
+/** The help of the Body of Extrude and Revolve. */
+const CHANGED_BODY_HELP = 'The body that Join, Cut and Intersect change.'
+
 export const BOOLEAN_ENTRY = entry(
   'boolean',
   {
     label: 'Boolean',
+    description: 'Joins, cuts or intersects one body with other bodies.',
     category: 'modify',
     icon: 'boolean',
     version: 1,
     fields: [
-      hint('target', 'Target body', { essential: true, selection: 'body' }),
-      hint('tools', 'Tool bodies', { essential: true, selection: 'body' }),
+      hint('target', 'Target body', {
+        essential: true,
+        selection: 'body',
+        help: 'The body that changes.',
+      }),
+      hint('tools', 'Tool bodies', {
+        essential: true,
+        selection: 'body',
+        help: 'The bodies that join, cut or intersect the target. They are used up unless Keep tools is on.',
+      }),
       hint('op', 'Operation', {
         essential: true,
         options: options(['join', 'Join'], ['cut', 'Cut'], ['intersect', 'Intersect']),
+        help: 'Join merges the bodies, Cut removes the tools from the target, and Intersect keeps only the overlap.',
       }),
-      hint('keep_tools', 'Keep tools', { essential: true }),
+      hint('keep_tools', 'Keep tools', {
+        essential: true,
+        help: 'Keeps the tool bodies after the operation instead of using them up.',
+      }),
     ],
   },
   {
@@ -257,7 +280,7 @@ export const BOOLEAN_ENTRY = entry(
 export const BOX_ENTRY = primitive(
   'box',
   'Box',
-  'A rectangular block.',
+  { manifest: 'Adds a box of the given length, width and height.', schema: 'A rectangular block.' },
   [
     hint('size[0]', 'Length', LENGTH),
     hint('size[1]', 'Width', LENGTH),
@@ -270,17 +293,26 @@ export const CHAMFER_ENTRY = entry(
   'chamfer',
   {
     label: 'Chamfer',
+    description: 'Bevels the selected edges with a flat cut.',
     category: 'modify',
     icon: 'chamfer',
     version: 1,
     fields: [
-      hint('edges', 'Edges', { essential: true, selection: 'edge' }),
+      hint('edges', 'Edges', {
+        essential: true,
+        selection: 'edge',
+        help: 'The edges to bevel. Click a face to add all of its edges.',
+      }),
       hint('distance.kind', 'Type', {
         essential: true,
         options: options(['equal', 'Equal distance'], ['two_distances', 'Two distances']),
+        help: 'Equal distance cuts the same amount from both faces. Two distances sets each side.',
       }),
-      hint('distance.expr', 'Distance', LENGTH),
-      hint('distance.second_expr', 'Second distance', LENGTH),
+      hint('distance.expr', 'Distance', { ...LENGTH, start: { kind: 'expr', expr: '1 mm' } }),
+      hint('distance.second_expr', 'Second distance', {
+        ...LENGTH,
+        start: { kind: 'expr', expr: '1 mm' },
+      }),
       hint('distance.flip', 'Flip'),
       hint('body', 'Body', { selection: 'body' }),
     ],
@@ -317,17 +349,26 @@ export const CIRCULAR_PATTERN_ENTRY = entry(
   'circular_pattern',
   {
     label: 'Circular pattern',
+    description: 'Repeats a body around an axis.',
     category: 'pattern',
     icon: 'circular-pattern',
     version: 1,
     fields: [
       hint('body', 'Body', { essential: true, selection: 'body' }),
       hint('axis', 'Axis', { essential: true, selection: 'axis' }),
-      hint('count', 'Count', { essential: true, unit: 'count' }),
-      hint('angle', 'Total angle', { essential: true, unit: 'angle' }),
+      hint('count', 'Count', {
+        essential: true,
+        unit: 'count',
+        help: 'How many instances around the axis, counting the original.',
+      }),
+      hint('angle', 'Total angle', {
+        essential: true,
+        unit: 'angle',
+        help: 'The angle the instances spread over.',
+      }),
       hint('reverse', 'Reverse'),
       hint('op', 'Operation', { options: COPY_OPS }),
-      hint('target', 'Target body', { selection: 'body' }),
+      hint('target', 'Target body', { selection: 'body', creates_body: 'while_new' }),
     ],
   },
   {
@@ -349,7 +390,10 @@ export const CIRCULAR_PATTERN_ENTRY = entry(
 export const CONE_ENTRY = primitive(
   'cone',
   'Cone',
-  'A right circular cone or frustum.',
+  {
+    manifest: 'Adds a cone, or a tapered cylinder, from two radii and a height.',
+    schema: 'A right circular cone or frustum.',
+  },
   [
     hint('bottom_radius', 'Bottom radius', LENGTH),
     hint('top_radius', 'Top radius', LENGTH),
@@ -361,7 +405,10 @@ export const CONE_ENTRY = primitive(
 export const CYLINDER_ENTRY = primitive(
   'cylinder',
   'Cylinder',
-  'A right circular cylinder.',
+  {
+    manifest: 'Adds a cylinder of the given radius and height.',
+    schema: 'A right circular cylinder.',
+  },
   [hint('radius', 'Radius', LENGTH), hint('height', 'Height', LENGTH)],
   { radius: EXPR, height: EXPR },
 )
@@ -370,12 +417,17 @@ export const DATUM_PLANE_ENTRY = entry(
   'datum_plane',
   {
     label: 'Datum plane',
+    description: 'Adds a plane offset from another plane, to sketch on or mirror across.',
     category: 'construct',
     icon: 'datum-plane',
     version: 1,
     fields: [
       hint('base', 'Base plane', { essential: true, selection: 'plane' }),
-      hint('offset', 'Offset', LENGTH),
+      hint('offset', 'Offset', {
+        ...LENGTH,
+        help: 'Distance from the base plane along its normal.',
+        start: { kind: 'expr', expr: '10 mm' },
+      }),
       hint('flip', 'Flip'),
     ],
   },
@@ -395,11 +447,16 @@ export const EXTRUDE_ENTRY = entry(
   'extrude',
   {
     label: 'Extrude',
+    description: 'Pulls a closed sketch shape straight out into a solid, or cuts it into one.',
     category: 'create',
     icon: 'extrude',
     version: 1,
     fields: [
-      hint('profile', 'Profile', { essential: true, selection: 'sketch_region' }),
+      hint('profile', 'Profile', {
+        essential: true,
+        selection: 'sketch_region',
+        help: 'The closed sketch shapes to extrude. Click inside a shape to add it.',
+      }),
       hint('extent.kind', 'Extent', {
         essential: true,
         options: options(
@@ -408,12 +465,16 @@ export const EXTRUDE_ENTRY = entry(
           ['two_sides', 'Two sides'],
           ['through_all', 'Through all'],
         ),
+        help: 'Distance goes one way, Symmetric the same distance both ways, Two sides sets each side, Through all goes through the whole body.',
       }),
       hint('extent.expr', 'Distance', LENGTH),
       hint('extent.opposite_expr', 'Opposite distance', LENGTH),
-      hint('op', 'Operation', { essential: true, options: BODY_OPS }),
-      hint('reverse', 'Reverse'),
-      hint('body', 'Body', { selection: 'body' }),
+      hint('op', 'Operation', { essential: true, options: BODY_OPS, help: OPERATION_HELP }),
+      hint('reverse', 'Reverse', {
+        essential: true,
+        help: 'Extrudes to the other side of the sketch.',
+      }),
+      hint('body', 'Body', { selection: 'body', help: CHANGED_BODY_HELP }),
     ],
   },
   {
@@ -456,12 +517,17 @@ export const FILLET_ENTRY = entry(
   'fillet',
   {
     label: 'Fillet',
+    description: 'Rounds the selected edges.',
     category: 'modify',
     icon: 'fillet',
     version: 1,
     fields: [
-      hint('edges', 'Edges', { essential: true, selection: 'edge' }),
-      hint('radius', 'Radius', LENGTH),
+      hint('edges', 'Edges', {
+        essential: true,
+        selection: 'edge',
+        help: 'The edges to round. Click a face to add all of its edges.',
+      }),
+      hint('radius', 'Radius', { ...LENGTH, start: { kind: 'expr', expr: '1 mm' } }),
       hint('body', 'Body', { selection: 'body' }),
     ],
   },
@@ -477,12 +543,17 @@ export const HOLE_ENTRY = entry(
   'hole',
   {
     label: 'Hole',
+    description: 'Drills round holes where you click on a flat face or at sketch points.',
     category: 'create',
     icon: 'hole',
     version: 1,
     fields: [
-      hint('points', 'Points', { essential: true, selection: 'sketch_point' }),
-      hint('diameter', 'Diameter', LENGTH),
+      hint('points', 'Points', {
+        essential: true,
+        selection: 'sketch_point',
+        help: 'Where the holes go: click a flat face, or pick points of a sketch.',
+      }),
+      hint('diameter', 'Diameter', { ...LENGTH, start: { kind: 'expr', expr: '3.2 mm' } }),
       hint('hole_type.kind', 'Type', {
         essential: true,
         options: options(
@@ -490,17 +561,39 @@ export const HOLE_ENTRY = entry(
           ['counterbore', 'Counterbore'],
           ['countersink', 'Countersink'],
         ),
+        help: 'Counterbore adds a wider flat recess for a screw head. Countersink adds a cone for a flat-head screw.',
       }),
-      hint('hole_type.diameter', 'Head diameter', LENGTH),
-      hint('hole_type.depth', 'Counterbore depth', LENGTH),
-      hint('hole_type.angle', 'Countersink angle', { essential: true, unit: 'angle' }),
+      hint('hole_type.diameter', 'Head diameter', {
+        ...LENGTH,
+        help: 'Diameter of the wider recess at the top of the hole.',
+        start: { kind: 'multiple', field: 'diameter', factor: 2 },
+      }),
+      hint('hole_type.depth', 'Counterbore depth', {
+        ...LENGTH,
+        help: 'Depth of the recess.',
+        start: { kind: 'expr', expr: '3 mm' },
+      }),
+      hint('hole_type.angle', 'Countersink angle', {
+        essential: true,
+        unit: 'angle',
+        help: 'Angle of the countersink cone. 90° fits most flat-head screws.',
+        start: { kind: 'expr', expr: '90 deg' },
+      }),
       hint('extent.kind', 'Extent', {
         essential: true,
         options: options(['distance', 'Depth'], ['through_all', 'Through all']),
+        help: 'Depth stops at a set depth. Through all goes through the whole body.',
+        start: { kind: 'choice', value: 'through_all' },
       }),
       hint('extent.expr', 'Depth', LENGTH),
-      hint('tip_angle', 'Tip angle', { unit: 'angle' }),
-      hint('reverse', 'Reverse'),
+      hint('tip_angle', 'Tip angle', {
+        unit: 'angle',
+        help: 'Gives the bottom a drill-point cone of this angle. Leave it empty for a flat bottom.',
+      }),
+      hint('reverse', 'Reverse', {
+        essential: true,
+        help: 'Drills out of the face instead of into it.',
+      }),
       hint('sketch', 'Sketch', { selection: 'sketch' }),
       hint('body', 'Body', { selection: 'body' }),
     ],
@@ -538,6 +631,7 @@ export const IMPORT_ENTRY = entry(
   'import',
   {
     label: 'Import',
+    description: 'Brings the solids of a STEP file into a body.',
     category: 'create',
     icon: 'import',
     version: 1,
@@ -571,21 +665,29 @@ export const LINEAR_PATTERN_ENTRY = entry(
   'linear_pattern',
   {
     label: 'Linear pattern',
+    description: 'Repeats a body in a row, or in a grid with a second direction.',
     category: 'pattern',
     icon: 'linear-pattern',
     version: 1,
     fields: [
       hint('body', 'Body', { essential: true, selection: 'body' }),
       hint('direction.axis', 'Direction', { essential: true, selection: 'axis' }),
-      hint('direction.count', 'Count', { essential: true, unit: 'count' }),
-      hint('direction.spacing', 'Spacing', LENGTH),
+      hint('direction.count', 'Count', {
+        essential: true,
+        unit: 'count',
+        help: 'How many instances along this direction, counting the original.',
+      }),
+      hint('direction.spacing', 'Spacing', {
+        ...LENGTH,
+        help: 'Distance between neighboring instances.',
+      }),
       hint('direction.reverse', 'Reverse'),
       hint('second_direction.axis', 'Second direction', { selection: 'axis' }),
       hint('second_direction.count', 'Second count', { unit: 'count' }),
       hint('second_direction.spacing', 'Second spacing', { unit: 'length' }),
       hint('second_direction.reverse', 'Second reverse'),
       hint('op', 'Operation', { options: COPY_OPS }),
-      hint('target', 'Target body', { selection: 'body' }),
+      hint('target', 'Target body', { selection: 'body', creates_body: 'while_new' }),
     ],
   },
   {
@@ -606,14 +708,23 @@ export const MIRROR_ENTRY = entry(
   'mirror',
   {
     label: 'Mirror',
+    description: 'Mirrors a body across a plane, joined to it or as a new body.',
     category: 'pattern',
     icon: 'mirror',
     version: 1,
     fields: [
       hint('body', 'Body', { essential: true, selection: 'body' }),
       hint('plane', 'Mirror plane', { essential: true, selection: 'plane' }),
-      hint('op', 'Operation', { essential: true, options: COPY_OPS }),
-      hint('target', 'Target body', { essential: true, selection: 'body' }),
+      hint('op', 'Operation', {
+        essential: true,
+        options: COPY_OPS,
+        help: 'Join adds the mirrored copy to the body. New body puts it in a separate body.',
+      }),
+      hint('target', 'Target body', {
+        essential: true,
+        selection: 'body',
+        creates_body: 'while_new',
+      }),
     ],
   },
   {
@@ -633,6 +744,7 @@ export const MOVE_BODY_ENTRY = entry(
   'move_body',
   {
     label: 'Move body',
+    description: 'Moves and rotates a whole body.',
     category: 'modify',
     icon: 'move-body',
     version: 1,
@@ -641,7 +753,10 @@ export const MOVE_BODY_ENTRY = entry(
       hint('translation[0]', 'Move X', LENGTH),
       hint('translation[1]', 'Move Y', LENGTH),
       hint('translation[2]', 'Move Z', LENGTH),
-      hint('rotation.axis', 'Rotation axis', { selection: 'axis' }),
+      hint('rotation.axis', 'Rotation axis', {
+        selection: 'axis',
+        help: 'The axis to rotate around. Leave it empty to only move.',
+      }),
       hint('rotation.angle', 'Rotation angle', { unit: 'angle' }),
     ],
   },
@@ -666,20 +781,30 @@ export const REVOLVE_ENTRY = entry(
   'revolve',
   {
     label: 'Revolve',
+    description: 'Spins a closed sketch shape around an axis into a round solid, or cuts with it.',
     category: 'create',
     icon: 'revolve',
     version: 1,
     fields: [
       hint('profile', 'Profile', { essential: true, selection: 'sketch_region' }),
-      hint('axis', 'Axis', { essential: true, selection: 'axis' }),
+      hint('axis', 'Axis', {
+        essential: true,
+        selection: 'axis',
+        help: 'The line to spin around: an origin axis, a sketch line or a straight edge.',
+      }),
       hint('extent.kind', 'Extent', {
         essential: true,
         options: options(['angle', 'Angle'], ['full', 'Full']),
+        help: 'Full makes a complete turn. Angle stops part way.',
+        start: { kind: 'choice', value: 'full' },
       }),
       hint('extent.expr', 'Angle', { essential: true, unit: 'angle' }),
-      hint('op', 'Operation', { essential: true, options: BODY_OPS }),
-      hint('reverse', 'Reverse'),
-      hint('body', 'Body', { selection: 'body' }),
+      hint('op', 'Operation', { essential: true, options: BODY_OPS, help: OPERATION_HELP }),
+      hint('reverse', 'Reverse', {
+        essential: true,
+        help: 'Turns the other way around the axis.',
+      }),
+      hint('body', 'Body', { selection: 'body', help: CHANGED_BODY_HELP }),
     ],
   },
   {
@@ -707,12 +832,22 @@ export const SHELL_ENTRY = entry(
   'shell',
   {
     label: 'Shell',
+    description:
+      'Hollows out a body, leaving walls of the given thickness and the picked faces open.',
     category: 'modify',
     icon: 'shell',
     version: 1,
     fields: [
-      hint('remove_faces', 'Faces to remove', { essential: true, selection: 'face' }),
-      hint('thickness', 'Thickness', LENGTH),
+      hint('remove_faces', 'Faces to remove', {
+        essential: true,
+        selection: 'face',
+        help: 'Faces to leave open. With none, the body becomes a closed hollow.',
+      }),
+      hint('thickness', 'Thickness', {
+        ...LENGTH,
+        help: 'Wall thickness. For FDM printing, a multiple of the nozzle width prints best.',
+        start: { kind: 'expr', expr: '2 mm' },
+      }),
       hint('body', 'Body', { selection: 'body' }),
     ],
   },
@@ -732,6 +867,8 @@ export const SKETCH_ENTRY = entry(
   'sketch',
   {
     label: 'Sketch',
+    description:
+      'Draws a 2D shape on a plane or a flat face, to extrude, revolve or place holes from.',
     category: 'sketch',
     icon: 'sketch',
     version: 1,
@@ -757,7 +894,7 @@ export const SKETCH_ENTRY = entry(
 export const SPHERE_ENTRY = primitive(
   'sphere',
   'Sphere',
-  'A sphere.',
+  { manifest: 'Adds a ball of the given radius.', schema: 'A sphere.' },
   [hint('radius', 'Radius', LENGTH)],
   { radius: EXPR },
 )
@@ -766,14 +903,23 @@ export const SPLIT_BODY_ENTRY = entry(
   'split_body',
   {
     label: 'Split body',
+    description: 'Cuts a body in two along a plane, for example to fit a large part on the bed.',
     category: 'modify',
     icon: 'split-body',
     version: 1,
     fields: [
       hint('body', 'Body', { essential: true, selection: 'body' }),
       hint('plane', 'Split plane', { essential: true, selection: 'plane' }),
-      hint('target', 'Target body', { essential: true, selection: 'body' }),
-      hint('flip', 'Flip', { essential: true }),
+      hint('target', 'Target body', {
+        essential: true,
+        selection: 'body',
+        help: 'The body that gets the other part. Leave it empty to discard that part.',
+        creates_body: 'at_start',
+      }),
+      hint('flip', 'Flip', {
+        essential: true,
+        help: 'Keeps the back part in Body instead of the front part.',
+      }),
     ],
   },
   {
@@ -792,7 +938,10 @@ export const SPLIT_BODY_ENTRY = entry(
 export const TORUS_ENTRY = primitive(
   'torus',
   'Torus',
-  'A ring torus.',
+  {
+    manifest: 'Adds a ring from the radius of its center line and the radius of its tube.',
+    schema: 'A ring torus.',
+  },
   [hint('major_radius', 'Ring radius', LENGTH), hint('minor_radius', 'Tube radius', LENGTH)],
   { major_radius: EXPR, minor_radius: EXPR },
 )
@@ -820,6 +969,62 @@ export const TEST_CATALOG_ENTRIES: readonly CatalogEntry[] = [
   SPLIT_BODY_ENTRY,
   TORUS_ENTRY,
 ]
+
+/**
+ * A plugin-like catalog entry of ui.md 6.2 (U-286 to U-288): a type the UI has no table row for,
+ * whose description, help, start values and new body come from its manifest alone.
+ */
+export const GEAR_ENTRY = entry(
+  'gear',
+  {
+    label: 'Gear',
+    description: 'Adds a spur gear.',
+    category: 'create',
+    icon: 'gear',
+    version: 1,
+    fields: [
+      hint('teeth', 'Teeth', {
+        essential: true,
+        unit: 'count',
+        start: { kind: 'expr', expr: '20' },
+      }),
+      hint('module', 'Module', {
+        essential: true,
+        unit: 'length',
+        help: 'The size of each tooth.',
+        start: { kind: 'expr', expr: '1 mm' },
+      }),
+      hint('bore', 'Bore', {
+        essential: true,
+        unit: 'length',
+        start: { kind: 'multiple', field: 'module', factor: 3 },
+      }),
+      hint('profile.kind', 'Profile', {
+        essential: true,
+        options: options(['involute', 'Involute'], ['cycloid', 'Cycloid']),
+        start: { kind: 'choice', value: 'cycloid' },
+      }),
+      hint('destination', 'Destination', { selection: 'body', creates_body: 'at_start' }),
+    ],
+  },
+  {
+    title: 'Gear',
+    description: 'A spur gear of a test plugin.',
+    properties: {
+      teeth: EXPR,
+      module: EXPR,
+      bore: EXPR,
+      profile: {
+        oneOf: [
+          variant('involute', {}, 'Involute teeth.'),
+          variant('cycloid', {}, 'Cycloid teeth.'),
+        ],
+      },
+      destination: optional(ID),
+    },
+    required: ['teeth', 'module', 'bore', 'profile'],
+  },
+)
 
 /** A catalog entry in the store's form (ui.md 2.8). */
 export function catalogFeature(catalogEntry: CatalogEntry): CatalogFeature {

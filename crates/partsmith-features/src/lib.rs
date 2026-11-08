@@ -66,7 +66,8 @@ pub use params::{
     point, vector,
 };
 pub use partsmith_model::manifest::{
-    Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
+    BodyCreation, Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
+    StartValue,
 };
 pub use partsmith_occt_sys::OCCT_VERSION;
 pub use primitive::{

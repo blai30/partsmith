@@ -855,7 +855,7 @@ mod tests {
     #[test]
     fn catalog_entry_names_its_feature_type_field_type() {
         let entry: CatalogEntry = serde_json::from_str(
-            r#"{"type":"box","manifest":{"label":"Box","category":"create","icon":"box","version":1,"fields":[]},"params_schema":true}"#,
+            r#"{"type":"box","manifest":{"label":"Box","description":"Adds a box.","category":"create","icon":"box","version":1,"fields":[]},"params_schema":true}"#,
         )
         .expect("the entry deserializes");
 

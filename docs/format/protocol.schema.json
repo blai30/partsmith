@@ -3448,6 +3448,10 @@
           "description": "Display name, for example \"Extrude\". Also the base of default feature labels.",
           "type": "string"
         },
+        "description": {
+          "description": "What the feature does, in the words of the interface: one sentence of at most 120 characters that ends with a\nperiod. Hosts show it with the feature's command. Since M2.",
+          "type": "string"
+        },
         "category": {
           "description": "Toolbar and palette grouping.",
           "$ref": "#/$defs/Category"
@@ -3472,6 +3476,7 @@
       },
       "required": [
         "label",
+        "description",
         "category",
         "icon",
         "version",
@@ -3552,6 +3557,35 @@
           "items": {
             "$ref": "#/$defs/OptionHint"
           }
+        },
+        "help": {
+          "description": "Hover help in the words of the interface, for a field whose label alone does not say what it does. Omitted when\nnone. Since M2.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "description": "What the field starts at in a new feature. Omitted when the host's general rule applies. Since M2.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StartValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creates_body": {
+          "description": "When the field receives the body a host's command creates. Omitted for every other field. Since M2.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BodyCreation"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -3645,6 +3679,86 @@
       "required": [
         "value",
         "label"
+      ]
+    },
+    "StartValue": {
+      "description": "What a field of a new feature starts at in a host's inspector (ui.md section 2.12). Since M2.",
+      "oneOf": [
+        {
+          "description": "An expression for a hint with a unit, for example \"1 mm\". A length carries its unit. It means the same in every\ndocument unit.",
+          "type": "object",
+          "properties": {
+            "expr": {
+              "description": "The expression.",
+              "$ref": "#/$defs/Expr"
+            },
+            "kind": {
+              "type": "string",
+              "const": "expr"
+            }
+          },
+          "required": [
+            "kind",
+            "expr"
+          ]
+        },
+        {
+          "description": "One of the hint's options, for an enumeration or a tag field, for example \"through_all\".",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "The option's value.",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "choice"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "description": "`factor` times the value of another expression field of the same feature, for a hint with a unit.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "description": "The path of the other field, for example \"diameter\".",
+              "type": "string"
+            },
+            "factor": {
+              "description": "A finite number above 0, for example 2.",
+              "type": "number",
+              "format": "double"
+            },
+            "kind": {
+              "type": "string",
+              "const": "multiple"
+            }
+          },
+          "required": [
+            "kind",
+            "field",
+            "factor"
+          ]
+        }
+      ]
+    },
+    "BodyCreation": {
+      "description": "When a body field receives the body that a host's command for a new feature creates (ui.md section 2.12). Since M2.",
+      "oneOf": [
+        {
+          "description": "While the feature's `op` is `new`. Hosts show the field only then.",
+          "type": "string",
+          "const": "while_new"
+        },
+        {
+          "description": "From the start. The user can pick another body or clear the field.",
+          "type": "string",
+          "const": "at_start"
+        }
       ]
     },
     "PrinterProfile": {

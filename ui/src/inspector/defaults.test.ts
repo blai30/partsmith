@@ -1,12 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, FeatureStatus } from '../generated/protocol'
+import type { Document, FeatureStatus, FieldHint } from '../generated/protocol'
 import { testFeature } from '../layout/fixtures.testing'
 import { CUBE_DOCUMENT, CUBE_REGION, featuresOf } from '../test/fakes/documents'
-import { buildInspectorModel, defaultParams, setParam, type DefaultsContext } from './model'
-import { START_VALUES, startValue } from './start-values'
+import {
+  GEAR_ENTRY,
+  TEST_CATALOG,
+  TEST_CATALOG_ENTRIES,
+  catalogFeature,
+} from '../test/fakes/catalog'
+import type { CatalogFeature } from '../state/store'
+import {
+  buildInspectorModel,
+  defaultParams,
+  fieldsOf,
+  getParam,
+  setParam,
+  type DefaultsContext,
+} from './model'
+import { isRecord } from './param-path'
 
 // Starting values that work on printed parts and the reuse of the document's last values (ui.md
-// 2.12), and what "More options" says it hides (3.7).
+// 2.12), what "More options" says it hides (3.7), and since M2 the start values, help and new-body
+// fields that reach the inspector from the manifests (ADR 0065, U-287 and U-289).
 
 const NEW_DOCUMENT: DefaultsContext = {
   bodies: [],
@@ -121,15 +136,24 @@ describe('start values (U-103)', () => {
   })
 
   it('keeps a plain number without a unit word plain when doubling it', () => {
-    expect(startValue('hole', 'hole_type.diameter', { diameter: '2.5' })).toBe('5')
-    expect(startValue('hole', 'hole_type.diameter', { diameter: '3mm' })).toBe('6mm')
+    const hole = testFeature('hole')
+    const head = (diameter: string) =>
+      getParam(setParam(hole, { diameter }, 'hole_type.kind', 'counterbore'), 'hole_type.diameter')
+    expect(head('2.5')).toBe('5')
+    expect(head('3mm')).toBe('6mm')
   })
 
-  it('gives every start value an explicit unit', () => {
-    for (const values of Object.values(START_VALUES)) {
-      for (const [path, value] of Object.entries(values)) {
-        expect(path.endsWith('.kind') || /(mm|deg)$/.test(value)).toBe(true)
-      }
+  it('gives every length and angle start of the test catalog an explicit unit', () => {
+    const starts = TEST_CATALOG.features.flatMap((feature) =>
+      feature.manifest.fields.flatMap((hint) =>
+        hint.start?.kind === 'expr' && (hint.unit === 'length' || hint.unit === 'angle')
+          ? [hint.start.expr]
+          : [],
+      ),
+    )
+    expect(starts.length).toBeGreaterThan(0)
+    for (const expr of starts) {
+      expect(expr).toMatch(/ (mm|deg)$/)
     }
   })
 })
@@ -217,5 +241,124 @@ describe('body-creating targets in the model (2.12)', () => {
       errors: {},
     })
     expect(model.complete).toBe(true)
+  })
+})
+
+const GEAR = catalogFeature(GEAR_ENTRY)
+
+describe("a plugin's start values (U-287)", () => {
+  it('U-287 starts the gear from its manifest', () => {
+    const params = defaultParams(GEAR, NEW_DOCUMENT)
+    expect(params.teeth).toBe('20')
+    expect(params.module).toBe('1 mm')
+    expect(params.bore).toBe('3 mm')
+    expect(params.profile).toEqual({ kind: 'cycloid' })
+    expect('destination' in params).toBe(false)
+  })
+
+  it('U-287 starts an op with options new and join at new in a document without bodies', () => {
+    const properties = GEAR.paramsSchema['properties']
+    if (!isRecord(properties)) {
+      throw new Error('The gear params schema has properties.')
+    }
+    const opHint: FieldHint = {
+      path: 'op',
+      label: 'Operation',
+      options: [
+        { value: 'new', label: 'New body' },
+        { value: 'join', label: 'Join' },
+      ],
+      start: { kind: 'choice', value: 'join' },
+    }
+    const withOp = catalogFeature({
+      ...GEAR_ENTRY,
+      manifest: { ...GEAR_ENTRY.manifest, fields: [...GEAR_ENTRY.manifest.fields, opHint] },
+      params_schema: {
+        ...GEAR.paramsSchema,
+        properties: { ...properties, op: { type: 'string', enum: ['new', 'join'] } },
+        required: ['teeth', 'module', 'bore', 'profile', 'op'],
+      },
+    })
+    expect(defaultParams(withOp, NEW_DOCUMENT).op).toBe('new')
+  })
+})
+
+/** The tag hints of a feature: hints whose path ends in `.kind` and that list options. */
+function tagHints(feature: CatalogFeature) {
+  return feature.manifest.fields.filter(
+    (hint) => hint.path.endsWith('.kind') && (hint.options ?? []).length > 0,
+  )
+}
+
+/**
+ * Params of a new `feature` in a document without features that show the field at `path`: its
+ * `defaultParams`, else those params with one union tag set to one of its options, else with op
+ * `new` (U-289).
+ */
+function paramsShowing(feature: CatalogFeature, path: string): Readonly<Record<string, unknown>> {
+  const start = defaultParams(feature, NEW_DOCUMENT)
+  const candidates = [
+    start,
+    ...tagHints(feature).flatMap((hint) =>
+      (hint.options ?? []).map((option) => setParam(feature, start, hint.path, option.value)),
+    ),
+    setParam(feature, start, 'op', 'new'),
+  ]
+  const shown = candidates.find((params) =>
+    fieldsOf(buildInspectorModel({ feature, params, errors: {} })).some(
+      (field) => field.path === path,
+    ),
+  )
+  if (shown === undefined) {
+    throw new Error(`No params of a new ${feature.type} show ${path}.`)
+  }
+  return shown
+}
+
+const BUILT_IN_HINTS = TEST_CATALOG_ENTRIES.filter((entry) => entry.type !== 'import').flatMap(
+  (entry) => entry.manifest.fields.map((hint) => [entry.type, hint.path, hint] as const),
+)
+
+/** How many hints of the built-in types but import pass `test`. */
+function hintsWith(test: (hint: (typeof BUILT_IN_HINTS)[number][2]) => boolean): number {
+  return BUILT_IN_HINTS.filter(([, , hint]) => test(hint)).length
+}
+
+describe("each built-in feature's values reach the inspector from the manifest (U-289)", () => {
+  it.each(BUILT_IN_HINTS.filter(([, , hint]) => hint.help !== undefined))(
+    "U-289 gives the %s field %s its hint's help",
+    (type, path, hint) => {
+      const feature = testFeature(type)
+      const model = buildInspectorModel({
+        feature,
+        params: paramsShowing(feature, path),
+        errors: {},
+      })
+      expect(fieldsOf(model).find((field) => field.path === path)?.help).toBe(hint.help)
+    },
+  )
+
+  it.each(BUILT_IN_HINTS.filter(([, , hint]) => hint.start?.kind === 'expr'))(
+    "U-289 starts the %s field %s at its hint's expression",
+    (type, path, hint) => {
+      const feature = testFeature(type)
+      const expected = hint.start?.kind === 'expr' ? hint.start.expr : undefined
+      expect(getParam(paramsShowing(feature, path), path)).toBe(expected)
+    },
+  )
+
+  it.each(
+    BUILT_IN_HINTS.filter(
+      ([, path, hint]) => hint.start?.kind === 'choice' && path.endsWith('.kind'),
+    ),
+  )("U-289 starts the %s union %s at its hint's choice", (type, path, hint) => {
+    const value = hint.start?.kind === 'choice' ? hint.start.value : undefined
+    expect(getParam(defaultParams(testFeature(type), NEW_DOCUMENT), path)).toBe(value)
+  })
+
+  it('covers the help, expression starts and choice starts the specs list', () => {
+    expect(hintsWith((hint) => hint.help !== undefined)).toBe(36)
+    expect(hintsWith((hint) => hint.start?.kind === 'expr')).toBe(8)
+    expect(hintsWith((hint) => hint.start?.kind === 'choice')).toBe(2)
   })
 })

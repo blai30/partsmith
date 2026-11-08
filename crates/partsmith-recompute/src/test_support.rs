@@ -204,6 +204,7 @@ pub(crate) fn with_view(members: Value, check: impl FnOnce(&RunView<'_>)) {
 fn manifest(label: &str, fields: Vec<FieldHint>) -> FeatureManifest {
     FeatureManifest {
         label: label.to_string(),
+        description: "A feature that only the tests register.".to_string(),
         category: Category::Construct,
         icon: "test".to_string(),
         version: 1,
@@ -225,6 +226,9 @@ fn hint(
         unit,
         selection,
         options: Vec::new(),
+        help: None,
+        start: None,
+        creates_body: None,
     }
 }
 

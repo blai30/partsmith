@@ -567,6 +567,9 @@ mod tests {
             unit: None,
             selection: None,
             options: Vec::new(),
+            help: None,
+            start: None,
+            creates_body: None,
         };
         let option = |value: &str| OptionHint {
             value: value.to_string(),

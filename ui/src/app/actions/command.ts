@@ -17,7 +17,7 @@ import type {
 import {
   activeCommandFeature,
   activeCommandModel,
-  bodyCreatingTarget,
+  bodyCreatingField,
   buildInspectorModel,
   defaultParams,
   fieldsOf,
@@ -310,13 +310,13 @@ function wantedBody(
   command: ActiveCommand,
   params: Params,
 ): { readonly body: NewBody | null; readonly params: Params } {
-  const rule = bodyCreatingTarget(session.feature)
+  const created = bodyCreatingField(session.feature)
   const current = command.newBody
-  if (rule !== null) {
-    // A body-creating target holds the created body until it is cleared or replaced (2.12).
-    const target = getParam(params, 'target')
+  if (created !== null) {
+    // A body-creating field holds the created body until it is cleared or replaced (2.12).
+    const held = getParam(params, created.path)
     return {
-      body: current !== null && target === current.id ? current : null,
+      body: current !== null && held === current.id ? current : null,
       params,
     }
   }
@@ -330,8 +330,8 @@ function wantedBody(
   if (!isEmptyValue(body)) {
     return { body: null, params }
   }
-  const created = allocateBody(app, session, 'body')
-  return { body: created, params: { ...params, body: created.id } }
+  const added = allocateBody(app, session, 'body')
+  return { body: added, params: { ...params, body: added.id } }
 }
 
 /** The sketch record of a helper. */
@@ -343,7 +343,7 @@ function helperRecord(helper: HelperSketch): FeatureRecord {
 type PreviewPlan = {
   readonly edits: readonly Edit[]
   readonly params: Params
-  /** The store's created body after the application (unchanged for body-creating targets). */
+  /** The store's created body after the application (unchanged for body-creating fields). */
   readonly newBody: ActiveCommand['newBody']
   readonly addedBody: string | null
   readonly appliedHelper: string | null
@@ -405,7 +405,7 @@ function previewEdits(
   return {
     edits,
     params: next,
-    newBody: bodyCreatingTarget(session.feature) === null ? body : command.newBody,
+    newBody: bodyCreatingField(session.feature) === null ? body : command.newBody,
     addedBody: body?.id ?? null,
     appliedHelper: helper?.id ?? null,
   }
@@ -636,8 +636,8 @@ function withoutCreatedBodies(
   if (created.path === 'body') {
     return { params: setParam(session.feature, saved.params, 'body', undefined), newBody: null }
   }
-  const body = allocateBody(app, session, 'target')
-  return { params: setParam(session.feature, saved.params, 'target', body.id), newBody: body }
+  const body = allocateBody(app, session, created.path)
+  return { params: setParam(session.feature, saved.params, created.path, body.id), newBody: body }
 }
 
 /**
@@ -758,11 +758,11 @@ function openingParams(
     featureStatus: document?.featureStatus ?? {},
   })
   const params = preselected(state, feature, defaults, state.selection, finishedSketch)
-  const rule = bodyCreatingTarget(feature)
-  if (rule === 'always' || (rule === 'op' && params['op'] === 'new')) {
+  const created = bodyCreatingField(feature)
+  if (created !== null && (created.creation === 'at_start' || params['op'] === 'new')) {
     // Both parts are kept, or the copies go to a new body, until the user says otherwise (2.12).
-    const newBody = allocateBody(app, session, 'target')
-    return { params: setParam(feature, params, 'target', newBody.id), newBody }
+    const newBody = allocateBody(app, session, created.path)
+    return { params: setParam(feature, params, created.path, newBody.id), newBody }
   }
   return { params, newBody: null }
 }
@@ -1002,18 +1002,18 @@ function afterOperationChange(
   const previous = command.params['op']
   let next = params
   let newBody = command.newBody
-  const rule = bodyCreatingTarget(feature)
+  const created = bodyCreatingField(feature)
   const hasBodyField = hasSelectionField(feature, 'body', 'body')
-  if (rule === 'op') {
+  if (created?.creation === 'while_new') {
     // Op new puts the copies in a new body; leaving it lets them join again (2.12).
     if (value === 'new' && previous !== 'new') {
-      newBody = allocateBody(app, session, 'target')
-      next = setParam(feature, next, 'target', newBody.id)
+      newBody = allocateBody(app, session, created.path)
+      next = setParam(feature, next, created.path, newBody.id)
     } else if (value !== 'new' && previous === 'new') {
-      next = setParam(feature, next, 'target', undefined)
+      next = setParam(feature, next, created.path, undefined)
       newBody = null
     }
-  } else if (rule === null && hasBodyField) {
+  } else if (created === null && hasBodyField) {
     // Leaving op new targets the last body again; returning to it makes a fresh body (3.7).
     if (value === 'new') {
       next = setParam(feature, next, 'body', undefined)
@@ -1092,8 +1092,8 @@ export function setCommandField(
       : { params: written, newBody: command.newBody }
   let params = operation.params
   let newBody = operation.newBody
-  if (path === 'target' && newBody !== null && getParam(params, 'target') !== newBody.id) {
-    // A cleared or replaced target no longer holds the body this command made (2.12).
+  if (path === newBody?.path && getParam(params, path) !== newBody.id) {
+    // A cleared or replaced body-creating field no longer holds the body this command made (2.12).
     newBody = null
   }
   params = withoutFilledBody(session, params, path)
@@ -1115,14 +1115,14 @@ export function noteFieldFocused(app: App, path: string): void {
   }
 }
 
-/** Sets a body-creating target to a new body, the Choose menu's "New body" (2.12, 3.7). */
+/** Sets a body-creating field to a new body, the Choose menu's "New body" (2.12, 3.7). */
 export function chooseNewBody(app: App, path: string): void {
   const session = sessionOf(app)
   const command = commandOf(app)
-  if (session === null || command === null || bodyCreatingTarget(session.feature) === null) {
+  if (session === null || command === null || bodyCreatingField(session.feature) === null) {
     return
   }
-  const body = allocateBody(app, session, 'target')
+  const body = allocateBody(app, session, path)
   session.changedAt = performance.now()
   updateCommand(app, () => ({
     params: setParam(session.feature, command.params, path, body.id),

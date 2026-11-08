@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     body_hint, essential, manifest, positive_length, references, require_selection, selection_hint,
-    solid_body, unit_hint,
+    solid_body, unit_hint, with_help, with_start_expr,
 };
 use super::dressup::{
     SelectedEdge, face_limit, finish_blend, kept_edges, no_effect, run_or_search, select_edges,
@@ -41,11 +41,18 @@ impl Feature for Fillet {
     fn manifest() -> FeatureManifest {
         manifest(
             "Fillet",
+            "Rounds the selected edges.",
             Category::Modify,
             "fillet",
             vec![
-                essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
-                essential(unit_hint("radius", "Radius", FieldUnit::Length)),
+                with_help(
+                    essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
+                    "The edges to round. Click a face to add all of its edges.",
+                ),
+                with_start_expr(
+                    essential(unit_hint("radius", "Radius", FieldUnit::Length)),
+                    "1 mm",
+                ),
                 body_hint(),
             ],
         )
@@ -167,10 +174,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(manifest).expect("a manifest serializes"),
             json!({
-                "label": "Fillet", "category": "modify", "icon": "fillet", "version": 1,
+                "label": "Fillet",
+                "description": "Rounds the selected edges.",
+                "category": "modify", "icon": "fillet", "version": 1,
                 "fields": [
-                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge"},
-                    {"path": "radius", "label": "Radius", "essential": true, "unit": "length"},
+                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge",
+                        "help": "The edges to round. Click a face to add all of its edges."},
+                    {"path": "radius", "label": "Radius", "essential": true, "unit": "length",
+                        "start": {"kind": "expr", "expr": "1 mm"}},
                     {"path": "body", "label": "Body", "selection": "body"},
                 ]
             })

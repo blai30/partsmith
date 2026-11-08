@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { FeatureManifest } from '../generated/protocol'
 import { FILLET_EDGES_COMMAND, readyState, testFeature } from '../layout/fixtures.testing'
 import { INITIAL_STATE, type AppState, type CatalogFeature } from '../state/store'
-import { catalogFeature } from '../test/fakes/catalog'
+import { catalogFeature, GEAR_ENTRY, MIRROR_ENTRY } from '../test/fakes/catalog'
 import { CUBE_REGION } from '../test/fakes/documents'
 import {
   activeCommandFeature,
   activeCommandModel,
+  bodyCreatingField,
   buildInspectorModel,
   defaultParams,
   fieldsOf,
@@ -58,7 +59,14 @@ function customFeature(
 ): CatalogFeature {
   return catalogFeature({
     type: 'custom',
-    manifest: { label: 'Custom', category: 'create', icon: 'custom', version: 1, fields },
+    manifest: {
+      label: 'Custom',
+      description: 'Adds a custom shape.',
+      category: 'create',
+      icon: 'custom',
+      version: 1,
+      fields,
+    },
     params_schema: {
       title: 'Custom',
       type: 'object',
@@ -201,18 +209,49 @@ describe('buildInspectorModel with the extrude entry', () => {
     expect(field(model, 'profile').value).toBeUndefined()
   })
 
-  it('U-111 gives the extrude op the help of FIELD_HELP', () => {
+  it("U-111 gives the extrude op its hint's help", () => {
     const model = extrudeModel(DISTANCE_PARAMS)
-    expect(field(model, 'op').help).toBe(
-      'New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap.',
-    )
+    const hint = EXTRUDE.manifest.fields.find((candidate) => candidate.path === 'op')
+    expect(hint?.help).toBeDefined()
+    expect(field(model, 'op').help).toBe(hint?.help)
   })
 
-  it('U-111 gives a field without an entry help null even when its schema has a description', () => {
-    // Reverse has the schema description "Extrude against the sketch normal.", which is never shown.
+  it('U-111 gives a field whose hint has no help help null even when its schema has a description', () => {
+    // Extent's schema has the description "How far the extrusion goes...", which is never shown.
     const model = extrudeModel(DISTANCE_PARAMS)
     expect(field(model, 'extent.expr').help).toBeNull()
     expect(field(model, 'reverse').help).toBe('Extrudes to the other side of the sketch.')
+  })
+
+  it('reads the help from the hint alone, so a hint without help gives no help (2.12)', () => {
+    const withoutHelp = catalogFeature({
+      type: 'extrude',
+      manifest: {
+        ...EXTRUDE.manifest,
+        fields: EXTRUDE.manifest.fields.map(({ help: _help, ...hint }) => hint),
+      },
+      params_schema: EXTRUDE.paramsSchema,
+    })
+    const model = buildInspectorModel({ feature: withoutHelp, params: DISTANCE_PARAMS, errors: {} })
+    expect(fieldsOf(model).map((entry) => entry.help)).toEqual(fieldsOf(model).map(() => null))
+  })
+
+  it('keeps a reverse whose hint is not essential an ordinary switch under More (2.12)', () => {
+    const plain = catalogFeature({
+      type: 'extrude',
+      manifest: {
+        ...EXTRUDE.manifest,
+        fields: EXTRUDE.manifest.fields.map((hint) =>
+          hint.path === 'reverse' ? { ...hint, essential: false } : hint,
+        ),
+      },
+      params_schema: EXTRUDE.paramsSchema,
+    })
+    const model = buildInspectorModel({ feature: plain, params: DISTANCE_PARAMS, errors: {} })
+    expect(paths(model.essential)).not.toContain('reverse')
+    expect(paths(model.more)).toEqual(['reverse', 'body'])
+    expect(field(model, 'reverse').control).toEqual({ type: 'switch' })
+    expect(field(model, 'reverse').attachedTo).toBeNull()
   })
 
   it('marks fields required when every object on the path requires them', () => {
@@ -658,5 +697,68 @@ describe('siblingsOf', () => {
   it('is empty when the parent is missing or no object', () => {
     expect(siblingsOf(params, 'axis.line')).toEqual({})
     expect(siblingsOf(params, 'op.kind')).toEqual({})
+  })
+})
+
+const GEAR = catalogFeature(GEAR_ENTRY)
+const MIRROR = testFeature('mirror')
+
+/** The test catalog's mirror entry with a `target` hint that receives no new body. */
+const PLAIN_MIRROR = catalogFeature({
+  ...MIRROR_ENTRY,
+  manifest: {
+    ...MIRROR_ENTRY.manifest,
+    fields: MIRROR_ENTRY.manifest.fields.map(({ creates_body: _creation, ...hint }) => hint),
+  },
+})
+
+/** The paths of the fields a new `feature` shows with op `join`. */
+function joinPaths(feature: CatalogFeature): string[] {
+  return paths(fieldsOf(buildInspectorModel({ feature, params: { op: 'join' }, errors: {} })))
+}
+
+describe('a plugin feature reads its texts from its manifest (U-286)', () => {
+  it('U-286 gives the gear module the help of its hint and teeth help null', () => {
+    const model = buildInspectorModel({
+      feature: GEAR,
+      params: defaultParams(GEAR, NO_BODIES),
+      errors: {},
+    })
+    expect(field(model, 'module').help).toBe('The size of each tooth.')
+    expect(field(model, 'teeth').help).toBeNull()
+  })
+})
+
+describe('bodyCreatingField (U-288)', () => {
+  it('U-288 follows the hint of a plugin field, not the path target', () => {
+    expect(bodyCreatingField(GEAR)).toEqual({ path: 'destination', creation: 'at_start' })
+  })
+
+  it.each(['mirror', 'linear_pattern', 'circular_pattern'])(
+    'U-288 gives the %s target the body a command creates while op is new',
+    (type) => {
+      expect(bodyCreatingField(testFeature(type))).toEqual({
+        path: 'target',
+        creation: 'while_new',
+      })
+    },
+  )
+
+  it('U-288 gives the split body target a new body from the start', () => {
+    expect(bodyCreatingField(testFeature('split_body'))).toEqual({
+      path: 'target',
+      creation: 'at_start',
+    })
+  })
+
+  it('U-288 gives none for boolean, extrude and a target hint without creates_body', () => {
+    expect(bodyCreatingField(testFeature('boolean'))).toBeNull()
+    expect(bodyCreatingField(EXTRUDE)).toBeNull()
+    expect(bodyCreatingField(PLAIN_MIRROR)).toBeNull()
+  })
+
+  it('U-288 shows a target without creates_body with op join, and hides the mirror target', () => {
+    expect(joinPaths(PLAIN_MIRROR)).toContain('target')
+    expect(joinPaths(MIRROR)).not.toContain('target')
   })
 })

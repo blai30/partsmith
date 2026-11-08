@@ -61,6 +61,7 @@ pub(crate) fn reference(json: &str) -> Reference {
 pub(crate) fn manifest(fields: Vec<FieldHint>) -> FeatureManifest {
     FeatureManifest {
         label: "Test".to_string(),
+        description: "A feature that only the tests register.".to_string(),
         category: Category::Create,
         icon: "test".to_string(),
         version: 1,

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::common::{
     BODY_OP_OPTIONS, bodies, body_op_name, essential, flag, hint, is_false, manifest, one_or_list,
     options_hint, part, require_selection, selection_hint, solid_body, target_hint, unchanged,
-    without_separate_solids,
+    with_help, without_separate_solids,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
@@ -72,14 +72,24 @@ impl Feature for Boolean {
     fn manifest() -> FeatureManifest {
         manifest(
             "Boolean",
+            "Joins, cuts or intersects one body with other bodies.",
             Category::Modify,
             "boolean",
             vec![
-                essential(target_hint()),
-                essential(selection_hint("tools", "Tool bodies", SelectionKind::Body)),
+                with_help(essential(target_hint()), "The body that changes."),
+                with_help(
+                    essential(selection_hint("tools", "Tool bodies", SelectionKind::Body)),
+                    "The bodies that join, cut or intersect the target. They are used up unless Keep tools is on.",
+                ),
                 // Every body op but new.
-                essential(options_hint("op", "Operation", &BODY_OP_OPTIONS[1..])),
-                essential(hint("keep_tools", "Keep tools")),
+                with_help(
+                    essential(options_hint("op", "Operation", &BODY_OP_OPTIONS[1..])),
+                    "Join merges the bodies, Cut removes the tools from the target, and Intersect keeps only the overlap.",
+                ),
+                with_help(
+                    essential(hint("keep_tools", "Keep tools")),
+                    "Keeps the tool bodies after the operation instead of using them up.",
+                ),
             ],
         )
     }

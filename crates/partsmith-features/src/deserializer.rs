@@ -619,6 +619,7 @@ mod tests {
         let problem = from_params::<Params>(&map).expect_err("the params are invalid");
         let manifest = FeatureManifest {
             label: "Test".to_string(),
+            description: "A feature that only the tests register.".to_string(),
             category: Category::Create,
             icon: "test".to_string(),
             version: 1,
@@ -630,6 +631,9 @@ mod tests {
                     unit: None,
                     selection: None,
                     options: Vec::new(),
+                    help: None,
+                    start: None,
+                    creates_body: None,
                 },
                 FieldHint {
                     path: "size[*]".to_string(),
@@ -638,6 +642,9 @@ mod tests {
                     unit: None,
                     selection: None,
                     options: Vec::new(),
+                    help: None,
+                    start: None,
+                    creates_body: None,
                 },
             ],
         };

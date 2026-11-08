@@ -64,6 +64,7 @@ impl Feature for Cylinder {
     fn manifest() -> FeatureManifest {
         primitive_manifest(
             "Cylinder",
+            "Adds a cylinder of the given radius and height.",
             "cylinder",
             &[("radius", "Radius"), ("height", "Height")],
         )

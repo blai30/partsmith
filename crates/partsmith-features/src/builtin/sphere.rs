@@ -60,7 +60,12 @@ impl Feature for Sphere {
     type Params = SphereParams;
 
     fn manifest() -> FeatureManifest {
-        primitive_manifest("Sphere", "sphere", &[("radius", "Radius")])
+        primitive_manifest(
+            "Sphere",
+            "Adds a ball of the given radius.",
+            "sphere",
+            &[("radius", "Radius")],
+        )
     }
 
     fn dependencies(params: &SphereParams) -> Dependencies {

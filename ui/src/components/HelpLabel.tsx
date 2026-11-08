@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { Tooltip } from './Tooltip'
 
 export type HelpLabelProps = {
-  /** The field's help (FIELD_HELP), or null for a label without help. */
+  /** The field's help (its hint's `help`), or null for a label without help. */
   readonly help: string | null
   /** The id of the visually hidden help, which the field's control lists in `aria-describedby`. */
   readonly helpId: string

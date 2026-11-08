@@ -49,7 +49,10 @@ pub use file::{
 };
 pub use id::{Id, IdError, IdGenerator, IdKind, MAX_ID_ATTEMPTS, RandomIdGenerator, SequentialIds};
 pub use inspect::{ExprLink, FeatureInspector, FeatureLinks, OpaqueFeatures};
-pub use manifest::{Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind};
+pub use manifest::{
+    BodyCreation, Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,
+    StartValue,
+};
 pub use names::{
     LabelError, LabelField, MAX_FEATURE_TYPE_LENGTH, MAX_LABEL_LENGTH, MAX_PARAMETER_NAME_LENGTH,
     NameError, RESERVED_NAMES, is_asset_name, is_valid_feature_type, validate_label,

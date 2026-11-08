@@ -69,7 +69,12 @@ impl Feature for BoxFeature {
             .into_iter()
             .zip(["Length", "Width", "Height"])
             .collect();
-        primitive_manifest("Box", "box", &sizes)
+        primitive_manifest(
+            "Box",
+            "Adds a box of the given length, width and height.",
+            "box",
+            &sizes,
+        )
     }
 
     fn dependencies(params: &BoxParams) -> Dependencies {

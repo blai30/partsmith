@@ -1,6 +1,8 @@
 import type { WorldAxis } from '../core/labels'
+import { scalePlainNumber } from '../expression/step'
 import type {
   Body,
+  BodyCreation,
   Document,
   FeatureStatus,
   FieldHint,
@@ -8,7 +10,6 @@ import type {
   SelectionKind,
 } from '../generated/protocol'
 import type { ActiveCommand, AppState, CatalogFeature } from '../state/store'
-import { fieldHelp } from './help'
 import { isRecord, parentPath, parsePath, writtenParams } from './param-path'
 import {
   isExpression,
@@ -24,7 +25,6 @@ import {
   type JsonSchema,
   type Located,
 } from './schema'
-import { startValue } from './start-values'
 
 // The schema-driven inspector model (ui.md 2.12): manifest field hints mapped onto the params JSON
 // Schema (draft 2020-12 as schemars 1 emits it) to controls, defaults and param updates.
@@ -229,22 +229,18 @@ function hasValue(control: FieldControl, value: unknown): boolean {
 }
 
 /**
- * How a feature creates a body through its `target` field (2.12): `op` when its op options include
- * `new` (Mirror, Linear pattern, Circular pattern: the target is shown only while op is new), and
- * `always` when it has no op and an optional target (Split body: it starts set to a new body).
- * Null for every other feature, whose `body` field receives the body op `new` creates.
+ * The field that receives the body a command creates, from its hint's `creates_body`, or null when
+ * no hint has one (2.12). Every other feature's `body` field receives the body op `new` creates.
  */
-export function bodyCreatingTarget(feature: CatalogFeature): 'op' | 'always' | null {
-  const hints = feature.manifest.fields
-  const target = hints.find((hint) => hint.path === 'target')
-  if (target?.selection !== 'body') {
-    return null
+export function bodyCreatingField(
+  feature: CatalogFeature,
+): { readonly path: string; readonly creation: BodyCreation } | null {
+  for (const hint of feature.manifest.fields) {
+    if (hint.creates_body !== undefined && hint.creates_body !== null) {
+      return { path: hint.path, creation: hint.creates_body }
+    }
   }
-  const op = hints.find((hint) => hint.path === 'op')
-  if (op === undefined) {
-    return requiredOf(feature.paramsSchema).includes('target') ? null : 'always'
-  }
-  return op.options?.some((option) => option.value === 'new') === true ? 'op' : null
+  return null
 }
 
 /** A body field the command fills itself: an empty body beside op `new` gets a new body (3.7). */
@@ -256,7 +252,7 @@ export function filledByCommand(
   if (
     field.control.type !== 'selection' ||
     field.control.accepts !== 'body' ||
-    bodyCreatingTarget(feature) !== null
+    bodyCreatingField(feature) !== null
   ) {
     return false
   }
@@ -338,6 +334,9 @@ const REVERSE_IGNORED: ReadonlySet<string> = new Set(['symmetric', 'full'])
 
 /** Whether the feature's params have a top-level boolean `reverse` and a top-level tagged union `extent` (2.12). */
 function hasInlineReverse(feature: CatalogFeature): boolean {
+  if (hintFor(feature, 'reverse')?.essential !== true) {
+    return false
+  }
   const root = feature.paramsSchema
   const properties = propertiesOf(root)
   const reverse = schemaOrNull(properties['reverse'])
@@ -359,36 +358,28 @@ function withInlineReverse(
   more: readonly InspectorField[],
   params: Params,
 ): { readonly essential: InspectorField[]; readonly more: InspectorField[] } {
-  const reverse = [...essential, ...more].find((field) => field.path === 'reverse')
-  const others = {
-    essential: essential.filter((field) => field.path !== 'reverse'),
-    more: more.filter((field) => field.path !== 'reverse'),
-  }
+  const reverse = essential.find((field) => field.path === 'reverse')
+  const others = essential.filter((field) => field.path !== 'reverse')
   const kind = getParam(params, 'extent.kind')
   if (reverse === undefined || (typeof kind === 'string' && REVERSE_IGNORED.has(kind))) {
-    return others
+    return { essential: others, more: [...more] }
   }
   const anchor =
-    others.essential.find(
+    others.find(
       (field) => field.control.type === 'expression' && field.path.startsWith('extent.'),
-    ) ?? others.essential.find((field) => field.path === 'extent.kind')
+    ) ?? others.find((field) => field.path === 'extent.kind')
   if (anchor === undefined) {
     return { essential: [...essential], more: [...more] }
   }
   const toggle: InspectorField = {
     ...reverse,
-    essential: true,
     control: { type: 'toggle' },
     attachedTo: anchor.path,
   }
-  const index = others.essential.indexOf(anchor)
+  const index = others.indexOf(anchor)
   return {
-    essential: [
-      ...others.essential.slice(0, index + 1),
-      toggle,
-      ...others.essential.slice(index + 1),
-    ],
-    more: others.more,
+    essential: [...others.slice(0, index + 1), toggle, ...others.slice(index + 1)],
+    more: [...more],
   }
 }
 
@@ -428,7 +419,7 @@ export function buildInspectorModel(input: {
 }): InspectorModel {
   const { feature, params } = input
   const root = feature.paramsSchema
-  const targetRule = bodyCreatingTarget(feature)
+  const created = bodyCreatingField(feature)
   const essentialFields: InspectorField[] = []
   const moreFields: InspectorField[] = []
   for (const hint of feature.manifest.fields) {
@@ -437,8 +428,8 @@ export function buildInspectorModel(input: {
     if (located === null) {
       continue
     }
-    // A body-creating target of a feature with op is shown only while op is new (2.12).
-    if (targetRule === 'op' && hint.path === 'target' && params['op'] !== 'new') {
+    // A field that receives a new body while op is new is shown only then (2.12).
+    if (created?.creation === 'while_new' && hint.path === created.path && params['op'] !== 'new') {
       continue
     }
     const control = controlFor(hint, located, root)
@@ -446,7 +437,7 @@ export function buildInspectorModel(input: {
       path: hint.path,
       label: hint.label,
       // Help in the interface's words; schema descriptions are never shown (2.12).
-      help: fieldHelp(feature.type, hint.path),
+      help: hint.help ?? null,
       essential: hint.essential ?? false,
       required: located.required,
       control,
@@ -521,6 +512,32 @@ function hintFor(feature: CatalogFeature, path: string): FieldHint | undefined {
 }
 
 /**
+ * The text an expression hint's start value gives (2.12): an `expr` start as written, or a
+ * `multiple` start's factor times the text of the field it follows in `scope`. Undefined without
+ * one, or when the followed field holds no text yet.
+ */
+function expressionStart(hint: FieldHint | undefined, scope: Params): string | undefined {
+  const start = hint?.start
+  if (start?.kind === 'expr') {
+    return start.expr
+  }
+  if (start?.kind !== 'multiple') {
+    return undefined
+  }
+  const followed = getParam(scope, start.field)
+  if (typeof followed !== 'string' || followed.trim() === '') {
+    return undefined
+  }
+  return scalePlainNumber(followed, start.factor) ?? `${String(start.factor)} * (${followed})`
+}
+
+/** The option a choice hint's start value names, or undefined without one (2.12). */
+function choiceStart(hint: FieldHint | undefined): string | undefined {
+  const start = hint?.start
+  return start?.kind === 'choice' ? start.value : undefined
+}
+
+/**
  * The starting value of one property, or undefined to leave it out (2.12): an expression's start
  * value, the variant a union's start value names, the schema default, then the unit's default.
  * `scope` holds the params known so far, for start values that follow another field.
@@ -539,16 +556,21 @@ function defaultValue(
   const unit = hint?.unit ?? null
   const expression = unit !== null && isExpression(leaf.written, root)
   if (expression) {
-    const start = startValue(feature.type, path, scope)
+    const start = expressionStart(hint, scope)
     if (start !== undefined) {
       return start
     }
   }
   const variants = variantsOf(leaf.schema, root)
-  const startKind = variants === null ? undefined : startValue(feature.type, `${path}.kind`, scope)
+  const startKind = variants === null ? undefined : choiceStart(hintFor(feature, `${path}.kind`))
   const named = variants?.find((variant) => tagOf(variant, root) === startKind)
   if (named !== undefined) {
     return variantDefaults(feature, named, path, scope)
+  }
+  // A choice field other than a union's tag, which its variant fixes, takes its start (2.12).
+  const chosen = leaf.schema['const'] === undefined ? choiceStart(hint) : undefined
+  if (chosen !== undefined) {
+    return chosen
   }
   const declared = schema['default'] ?? direct['default']
   if (declared !== undefined) {

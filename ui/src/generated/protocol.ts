@@ -1345,6 +1345,42 @@ export type FieldUnit = ("length" | "angle" | "scalar" | "count")
  */
 export type SelectionKind = ("body" | "sketch" | "sketch_region" | "sketch_point" | "face" | "edge" | "plane" | "axis")
 /**
+ * What a field of a new feature starts at in a host's inspector (ui.md section 2.12). Since M2.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "StartValue".
+ */
+export type StartValue = ({
+/**
+ * The expression.
+ */
+expr: Expr
+kind: "expr"
+} | {
+/**
+ * The option's value.
+ */
+value: string
+kind: "choice"
+} | {
+/**
+ * The path of the other field, for example "diameter".
+ */
+field: string
+/**
+ * A finite number above 0, for example 2.
+ */
+factor: number
+kind: "multiple"
+})
+/**
+ * When a body field receives the body that a host's command for a new feature creates (ui.md section 2.12). Since M2.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "BodyCreation".
+ */
+export type BodyCreation = ("while_new" | "at_start")
+/**
  * Constraint state of a sketch.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -2664,6 +2700,11 @@ export interface FeatureManifest {
  */
 label: string
 /**
+ * What the feature does, in the words of the interface: one sentence of at most 120 characters that ends with a
+ * period. Hosts show it with the feature's command. Since M2.
+ */
+description: string
+/**
  * Toolbar and palette grouping.
  */
 category: Category
@@ -2711,6 +2752,19 @@ selection?: (SelectionKind | null)
  * Labels for the values of an enumeration or a tag field, in display order. Omitted when empty.
  */
 options?: OptionHint[]
+/**
+ * Hover help in the words of the interface, for a field whose label alone does not say what it does. Omitted when
+ * none. Since M2.
+ */
+help?: (string | null)
+/**
+ * What the field starts at in a new feature. Omitted when the host's general rule applies. Since M2.
+ */
+start?: (StartValue | null)
+/**
+ * When the field receives the body a host's command creates. Omitted for every other field. Since M2.
+ */
+creates_body?: (BodyCreation | null)
 }
 /**
  * Display label for one value of an enumeration field.

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     bodies, essential, manifest, naming_motion, selection_hint, solid_body, three_lengths,
-    unchanged, unit_hint,
+    unchanged, unit_hint, with_help,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -78,17 +78,22 @@ impl Feature for MoveBody {
                 .zip(["Move X", "Move Y", "Move Z"])
                 .map(|(path, label)| essential(unit_hint(path, label, FieldUnit::Length))),
         );
-        fields.push(selection_hint(
-            "rotation.axis",
-            "Rotation axis",
-            SelectionKind::Axis,
+        fields.push(with_help(
+            selection_hint("rotation.axis", "Rotation axis", SelectionKind::Axis),
+            "The axis to rotate around. Leave it empty to only move.",
         ));
         fields.push(unit_hint(
             "rotation.angle",
             "Rotation angle",
             FieldUnit::Angle,
         ));
-        manifest("Move body", Category::Modify, "move-body", fields)
+        manifest(
+            "Move body",
+            "Moves and rotates a whole body.",
+            Category::Modify,
+            "move-body",
+            fields,
+        )
     }
 
     /// Writes the body; reads the translation lengths, then what the rotation axis reads and the

@@ -175,6 +175,7 @@ mod tests {
     fn manifest() -> FeatureManifest {
         FeatureManifest {
             label: "Test".to_string(),
+            description: "A feature that only the tests register.".to_string(),
             category: Category::Create,
             icon: "test".to_string(),
             version: 1,

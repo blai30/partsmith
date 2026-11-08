@@ -8,7 +8,6 @@ import { MESSAGES } from '../messages'
 import { openEnds } from '../sketch/issues'
 import { selectFeatureLabel } from '../state/selectors'
 import type { AppContext, AppState, Catalog, CatalogFeature, DocumentState } from '../state/store'
-import { FEATURE_DESCRIPTIONS } from './descriptions'
 import { featureIcon } from './icons'
 import { keywordsFor } from './keywords'
 import {
@@ -151,6 +150,8 @@ function featureCommand(feature: CatalogFeature): CommandDefinition {
   const definition: CommandDefinition = {
     id: `feature.${feature.type}`,
     title: feature.manifest.label,
+    // What the feature does, from its manifest (2.10).
+    description: feature.manifest.description,
     category: CATEGORIES[feature.manifest.category],
     icon: featureIcon(feature.manifest.icon),
     keywords: keywordsFor(`feature.${feature.type}`),
@@ -161,12 +162,7 @@ function featureCommand(feature: CatalogFeature): CommandDefinition {
     // The sketch type starts a new sketch; startFeatureCommand switches to Model first (3.3).
     run: (app: App) => startFeatureCommand(app, feature.type),
   }
-  const description = FEATURE_DESCRIPTIONS[definition.id]
-  return {
-    ...definition,
-    ...(description === undefined ? {} : { description }),
-    ...(bound === undefined ? {} : { shortcutContexts: bound.contexts }),
-  }
+  return bound === undefined ? definition : { ...definition, shortcutContexts: bound.contexts }
 }
 
 /** The commands of the catalog's feature types, in catalog order. */

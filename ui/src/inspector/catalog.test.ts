@@ -13,7 +13,14 @@ afterEach(() => {
 function brokenEntry(params_schema: unknown): CatalogEntry {
   return {
     type: 'broken',
-    manifest: { label: 'Broken', category: 'create', icon: 'broken', version: 1, fields: [] },
+    manifest: {
+      label: 'Broken',
+      description: 'Adds nothing.',
+      category: 'create',
+      icon: 'broken',
+      version: 1,
+      fields: [],
+    },
     params_schema: params_schema as CatalogEntry['params_schema'],
   }
 }

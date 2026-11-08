@@ -150,6 +150,7 @@ mod tests {
     fn manifest(paths: &[(&str, &str)]) -> FeatureManifest {
         FeatureManifest {
             label: "Test".to_string(),
+            description: "A feature that only the tests register.".to_string(),
             category: Category::Create,
             icon: "test".to_string(),
             version: 1,
@@ -162,6 +163,9 @@ mod tests {
                     unit: None,
                     selection: None,
                     options: Vec::new(),
+                    help: None,
+                    start: None,
+                    creates_body: None,
                 })
                 .collect(),
         }

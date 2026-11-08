@@ -460,6 +460,12 @@ fn count(value: f64, minimum: u32) -> Result<u32, CountProblem> {
     Ok(nearest as u32)
 }
 
+/// True when `value` stands for a count from 0 to `u32::MAX` (section 3.4). Registration checks
+/// start values of count fields with it (section 3.3).
+pub(crate) fn is_count(value: f64) -> bool {
+    count(value, 0).is_ok()
+}
+
 /// The noun of a value kind in an `UndeclaredDependency` description.
 fn unit_noun(kind: FieldUnit) -> &'static str {
     match kind {
@@ -864,6 +870,9 @@ mod tests {
             unit: None,
             selection: None,
             options: Vec::new(),
+            help: None,
+            start: None,
+            creates_body: None,
         }]);
 
         assert_eq!(fixture.context().field("edges[3]").label, "Edges");

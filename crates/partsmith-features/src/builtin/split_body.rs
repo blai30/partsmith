@@ -3,15 +3,15 @@
 
 use std::sync::Arc;
 
-use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
+use partsmith_model::{BodyCreation, Category, FeatureManifest, Id, SelectionKind};
 use partsmith_naming::{FaceSource, NamingMap, roles};
 use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, face_name, flag, hint, is_false, manifest, name_on_body, part,
-    selection_hint, single_or_compound, solid_body, target_hint,
+    bodies, creates_body, essential, face_name, flag, hint, is_false, manifest, name_on_body, part,
+    selection_hint, single_or_compound, solid_body, target_hint, with_help,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -48,13 +48,23 @@ impl Feature for SplitBody {
     fn manifest() -> FeatureManifest {
         manifest(
             "Split body",
+            "Cuts a body in two along a plane, for example to fit a large part on the bed.",
             Category::Modify,
             "split-body",
             vec![
                 essential(selection_hint("body", "Body", SelectionKind::Body)),
                 essential(selection_hint("plane", "Split plane", SelectionKind::Plane)),
-                essential(target_hint()),
-                essential(hint("flip", "Flip")),
+                creates_body(
+                    with_help(
+                        essential(target_hint()),
+                        "The body that gets the other part. Leave it empty to discard that part.",
+                    ),
+                    BodyCreation::AtStart,
+                ),
+                with_help(
+                    essential(hint("flip", "Flip")),
+                    "Keeps the back part in Body instead of the front part.",
+                ),
             ],
         )
     }

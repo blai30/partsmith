@@ -100,6 +100,9 @@ impl PrimitivePlacement<'_> {
             unit: None,
             selection: None,
             options: Vec::new(),
+            help: None,
+            start: None,
+            creates_body: None,
         };
         let mut hints = vec![FieldHint {
             selection: Some(SelectionKind::Plane),

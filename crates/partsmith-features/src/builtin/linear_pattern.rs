@@ -2,15 +2,17 @@
 //! as a grid, and fuses the copies into the source or puts them into another, empty body
 //! (docs/spec/features/linear_pattern.md).
 
-use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_model::{
+    BodyCreation, Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind,
+};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{Transform, Vector};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    check_canceled, essential, flag, hint, into_keyword, is_false, length_in_range, manifest,
-    selection_hint, target_hint, unit_hint,
+    check_canceled, creates_body, essential, flag, hint, into_keyword, is_false, length_in_range,
+    manifest, selection_hint, target_hint, unit_hint, with_help,
 };
 use super::copy::{self, Source};
 use crate::context::{BuildContext, WithWarnings};
@@ -119,6 +121,7 @@ impl Feature for LinearPattern {
     fn manifest() -> FeatureManifest {
         manifest(
             "Linear pattern",
+            "Repeats a body in a row, or in a grid with a second direction.",
             Category::Pattern,
             "linear-pattern",
             vec![
@@ -128,8 +131,14 @@ impl Feature for LinearPattern {
                     "Direction",
                     SelectionKind::Axis,
                 )),
-                essential(unit_hint("direction.count", "Count", FieldUnit::Count)),
-                essential(unit_hint("direction.spacing", "Spacing", FieldUnit::Length)),
+                with_help(
+                    essential(unit_hint("direction.count", "Count", FieldUnit::Count)),
+                    "How many instances along this direction, counting the original.",
+                ),
+                with_help(
+                    essential(unit_hint("direction.spacing", "Spacing", FieldUnit::Length)),
+                    "Distance between neighboring instances.",
+                ),
                 hint("direction.reverse", "Reverse"),
                 selection_hint(
                     "second_direction.axis",
@@ -144,7 +153,7 @@ impl Feature for LinearPattern {
                 ),
                 hint("second_direction.reverse", "Second reverse"),
                 copy::op_hint(),
-                target_hint(),
+                creates_body(target_hint(), BodyCreation::WhileNew),
             ],
         )
     }

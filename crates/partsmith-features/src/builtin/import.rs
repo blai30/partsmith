@@ -43,6 +43,7 @@ impl Feature for Import {
     fn manifest() -> FeatureManifest {
         manifest(
             "Import",
+            "Brings the solids of a STEP file into a body.",
             Category::Create,
             "import",
             vec![

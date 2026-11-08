@@ -10,6 +10,7 @@ import {
   CUBE_TOP_FACE,
   featuresOf,
 } from '../../test/fakes/documents'
+import { GEAR_ENTRY, TEST_CATALOG_ENTRIES } from '../../test/fakes/catalog'
 import { bodyItem, originItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../../test/fakes/state'
@@ -42,6 +43,19 @@ describe('new bodies for copies and split parts (U-105)', () => {
     ).toBeUndefined()
     expect(second[1]).toEqual({ type: 'remove_body', id: newBody?.id })
     expect(activeCommand(fake.app).newBody).toBeNull()
+  })
+
+  it("U-288 a plugin's command fills the field its manifest names with the new body", async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
+      core: { catalog: [...TEST_CATALOG_ENTRIES, GEAR_ENTRY] },
+    })
+    await startFeatureCommand(fake.app, 'gear')
+    await settle()
+    const newBody = activeCommand(fake.app).newBody
+    expect(newBody).toMatchObject({ path: 'destination' })
+    const [first] = appliedEdits(fake)
+    expect(first?.map((edit) => edit.type)).toEqual(['add_body', 'add_feature'])
+    expect(first?.[1]).toMatchObject({ feature: { type: 'gear', destination: newBody?.id } })
   })
 
   it('U-105 a mirror makes a new body only with op new, and removes it when op goes back', async () => {

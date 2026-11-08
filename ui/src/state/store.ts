@@ -218,11 +218,12 @@ export type ActiveCommand = {
   readonly fieldErrors: Readonly<Record<string, string>>
   /** Whether the feature record has been applied inside the transaction yet. */
   readonly applied: boolean
-  /** Body this command creates (for op new, or for a body-creating target, 2.12) and the field it fills, if any. */
+  /** Body this command creates (for op new, or for a body-creating field, 2.12) and the field it fills, if any. */
   readonly newBody: {
     readonly id: string
     readonly name: string
-    readonly path: 'body' | 'target'
+    /** `body`, or the path of the field whose hint has `creates_body`. */
+    readonly path: string
   } | null
   /** The helper sketch of "Placing holes on a face" (3.7), or null. */
   readonly helper: HelperSketch | null

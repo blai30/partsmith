@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     body_hint, call, essential, flag, hint, is_false, manifest, options_hint, positive_length,
-    references, require_selection, selection_hint, solid_body, unit_hint,
+    references, require_selection, selection_hint, solid_body, unit_hint, with_help,
+    with_start_expr,
 };
 use super::dressup::{
     SelectedEdge, face_limit, finish_blend, kept_edges, no_effect, run_or_search, select_edges,
@@ -108,24 +109,37 @@ impl Feature for Chamfer {
     fn manifest() -> FeatureManifest {
         manifest(
             "Chamfer",
+            "Bevels the selected edges with a flat cut.",
             Category::Modify,
             "chamfer",
             vec![
-                essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
-                essential(options_hint(
-                    "distance.kind",
-                    "Type",
-                    &[
-                        ("equal", "Equal distance"),
-                        ("two_distances", "Two distances"),
-                    ],
-                )),
-                essential(unit_hint("distance.expr", "Distance", FieldUnit::Length)),
-                essential(unit_hint(
-                    "distance.second_expr",
-                    "Second distance",
-                    FieldUnit::Length,
-                )),
+                with_help(
+                    essential(selection_hint("edges", "Edges", SelectionKind::Edge)),
+                    "The edges to bevel. Click a face to add all of its edges.",
+                ),
+                with_help(
+                    essential(options_hint(
+                        "distance.kind",
+                        "Type",
+                        &[
+                            ("equal", "Equal distance"),
+                            ("two_distances", "Two distances"),
+                        ],
+                    )),
+                    "Equal distance cuts the same amount from both faces. Two distances sets each side.",
+                ),
+                with_start_expr(
+                    essential(unit_hint("distance.expr", "Distance", FieldUnit::Length)),
+                    "1 mm",
+                ),
+                with_start_expr(
+                    essential(unit_hint(
+                        "distance.second_expr",
+                        "Second distance",
+                        FieldUnit::Length,
+                    )),
+                    "1 mm",
+                ),
                 hint("distance.flip", "Flip"),
                 body_hint(),
             ],
@@ -498,15 +512,20 @@ mod tests {
         assert_eq!(
             serde_json::to_value(manifest).expect("a manifest serializes"),
             json!({
-                "label": "Chamfer", "category": "modify", "icon": "chamfer", "version": 1,
+                "label": "Chamfer",
+                "description": "Bevels the selected edges with a flat cut.",
+                "category": "modify", "icon": "chamfer", "version": 1,
                 "fields": [
-                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge"},
+                    {"path": "edges", "label": "Edges", "essential": true, "selection": "edge",
+                        "help": "The edges to bevel. Click a face to add all of its edges."},
                     {"path": "distance.kind", "label": "Type", "essential": true, "options": [
                         {"value": "equal", "label": "Equal distance"},
                         {"value": "two_distances", "label": "Two distances"},
-                    ]},
-                    {"path": "distance.expr", "label": "Distance", "essential": true, "unit": "length"},
-                    {"path": "distance.second_expr", "label": "Second distance", "essential": true, "unit": "length"},
+                    ], "help": "Equal distance cuts the same amount from both faces. Two distances sets each side."},
+                    {"path": "distance.expr", "label": "Distance", "essential": true, "unit": "length",
+                        "start": {"kind": "expr", "expr": "1 mm"}},
+                    {"path": "distance.second_expr", "label": "Second distance", "essential": true, "unit": "length",
+                        "start": {"kind": "expr", "expr": "1 mm"}},
                     {"path": "distance.flip", "label": "Flip"},
                     {"path": "body", "label": "Body", "selection": "body"},
                 ]

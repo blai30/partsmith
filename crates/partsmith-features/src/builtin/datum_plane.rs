@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     call, essential, flag, hint, is_false, manifest, selection_hint, signed_length, unit_hint,
+    with_help, with_start_expr,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -52,11 +53,18 @@ impl Feature for DatumPlane {
     fn manifest() -> FeatureManifest {
         manifest(
             "Datum plane",
+            "Adds a plane offset from another plane, to sketch on or mirror across.",
             Category::Construct,
             "datum-plane",
             vec![
                 essential(selection_hint("base", "Base plane", SelectionKind::Plane)),
-                essential(unit_hint("offset", "Offset", FieldUnit::Length)),
+                with_start_expr(
+                    with_help(
+                        essential(unit_hint("offset", "Offset", FieldUnit::Length)),
+                        "Distance from the base plane along its normal.",
+                    ),
+                    "10 mm",
+                ),
                 hint("flip", "Flip"),
             ],
         )
