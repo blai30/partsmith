@@ -2,7 +2,7 @@
 //! The last group, `ENGINE_EXAMPLES`, holds engine-filled records: compact uses, causes, messages and repairs as the engine writes them (engine.md and the corpora), which are not spec examples of this crate.
 
 /// Every command type of section 2.5, in the order of test 34.
-pub const COMMAND_TYPES: [&str; 36] = [
+pub const COMMAND_TYPES: [&str; 37] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -39,6 +39,7 @@ pub const COMMAND_TYPES: [&str; 36] = [
     "list_uses",
     "attach_plane",
     "remove_printer_profile",
+    "rebuild",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -52,11 +53,12 @@ pub const EVENT_TYPES: [&str; 6] = [
 ];
 
 /// Every error code of section 4, in table order.
-pub const ERROR_CODES: [&str; 40] = [
+pub const ERROR_CODES: [&str; 41] = [
     "malformed_frame",
     "malformed_request",
     "protocol_version_mismatch",
     "superseded",
+    "canceled",
     "internal_error",
     "unknown_document",
     "document_poisoned",
@@ -99,17 +101,18 @@ pub const ERROR_CODES: [&str; 40] = [
 pub const STALE_FIX_MESSAGE: &str = "This fix no longer applies because the document changed after it was offered. Look at the problem again.";
 
 /// Requests for the command types that section 2.5 lists without a request example (field lists from section 2.5).
-pub const SUPPLEMENTARY_COMMANDS: [&str; 6] = [
+pub const SUPPLEMENTARY_COMMANDS: [&str; 7] = [
     r#"{"type": "close_document", "doc": 1}"#,
     r#"{"type": "cancel_transaction", "doc": 1}"#,
     r#"{"type": "undo", "doc": 1}"#,
     r#"{"type": "redo", "doc": 1}"#,
     r#"{"type": "end_sketch_drag", "doc": 1, "feature": "f-sk1", "commit": true}"#,
     REMOVE_PRINTER_PROFILE_REQUEST,
+    REBUILD_REQUEST,
 ];
 
 /// Results for the command types that section 2.5 lists without a result example (field lists from section 2.5; sketch and element values from other spec examples).
-pub const SUPPLEMENTARY_RESULTS: [&str; 9] = [
+pub const SUPPLEMENTARY_RESULTS: [&str; 10] = [
     r#"{"type": "close_document"}"#,
     r#"{"type": "set_focus"}"#,
     r#"{"type": "cancel_transaction", "revision": 8}"#,
@@ -119,6 +122,7 @@ pub const SUPPLEMENTARY_RESULTS: [&str; 9] = [
     r#"{"type": "end_sketch_drag", "revision": 9}"#,
     r#"{"type": "list_elements", "elements": [{"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}]}"#,
     REMOVE_PRINTER_PROFILE_RESULT,
+    REBUILD_RESULT,
 ];
 
 /// The `internal_error` outcome of section 2.8, with the panic text in `detail`.
@@ -210,6 +214,12 @@ pub const REMOVE_PRINTER_PROFILE_REQUEST: &str =
 
 /// The `remove_printer_profile` result example of section 2.5.
 pub const REMOVE_PRINTER_PROFILE_RESULT: &str = r#"{"type": "remove_printer_profile"}"#;
+
+/// The `rebuild` request example of section 2.5 (command 37, ADR 0063).
+pub const REBUILD_REQUEST: &str = r#"{"type": "rebuild", "doc": 1}"#;
+
+/// The `rebuild` result example of section 2.5.
+pub const REBUILD_RESULT: &str = r#"{"type": "rebuild"}"#;
 
 /// The `list_printer_profiles` result example of section 2.5: `generic-fdm` in the written form.
 pub const LIST_PRINTER_PROFILES_RESULT: &str = r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#;

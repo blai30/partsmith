@@ -18,6 +18,11 @@ export async function loadCore(modulePath, wasmPath) {
   return core
 }
 
+/** Gives the module the page's cancel word, as ui/src/core/bridge.ts's useCancelWord does (protocol.md section 2.10). */
+export function useCancelWord(core, word) {
+  core.partsmithCancelWord = word
+}
+
 /** Encodes a frame without buffers: magic, little-endian header length, header, zero padding to 8. */
 export function frameWithoutBuffers(header) {
   const headerBytes = new TextEncoder().encode(header)

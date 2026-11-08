@@ -14,7 +14,16 @@ type Invocation = {
   fail(error: Error): void
 }
 
-type FakeTauri = { readonly tauri: TauriGlobal; readonly invocations: Invocation[] }
+/** One `invoke` whose payload is not a frame: `cancel_call` (protocol.md 2.12). */
+type CancelInvocation = { readonly command: string; readonly payload: unknown }
+
+type FakeTauri = {
+  readonly tauri: TauriGlobal
+  readonly invocations: Invocation[]
+  readonly cancels: CancelInvocation[]
+  /** When set, the `cancel_call` invokes reject with it; else they resolve with null. */
+  cancelError: Error | null
+}
 
 function engineInfoResult(protocolVersion: number): ArrayBuffer {
   return responseFrame({
@@ -29,22 +38,35 @@ function engineInfoResult(protocolVersion: number): ArrayBuffer {
   })
 }
 
-/** A Tauri global whose `invoke` answers engine_info at once (with `protocolVersion`) and holds every other call. */
+/**
+ * A Tauri global whose `invoke` answers engine_info at once (with `protocolVersion`), holds every
+ * other call, and answers `cancel_call` at once.
+ */
 function fakeTauri(protocolVersion: number = PROTOCOL_VERSION): FakeTauri {
   const invocations: Invocation[] = []
-  const tauri: TauriGlobal = {
-    core: {
-      invoke: (command, payload) =>
-        new Promise<ArrayBuffer>((resolve, reject) => {
-          const request = readRequest(payload)
-          invocations.push({ command, request, answer: resolve, fail: reject })
-          if (request.command.type === 'engine_info' && request.id === 0) {
-            resolve(engineInfoResult(protocolVersion))
+  const fake: FakeTauri = {
+    tauri: {
+      core: {
+        invoke: (command, payload) => {
+          if (!(payload instanceof ArrayBuffer)) {
+            fake.cancels.push({ command, payload })
+            return fake.cancelError === null ? Promise.resolve(null) : Promise.reject(fake.cancelError)
           }
-        }),
+          return new Promise<ArrayBuffer>((resolve, reject) => {
+            const request = readRequest(payload)
+            invocations.push({ command, request, answer: resolve, fail: reject })
+            if (request.command.type === 'engine_info' && request.id === 0) {
+              resolve(engineInfoResult(protocolVersion))
+            }
+          })
+        },
+      },
     },
+    invocations,
+    cancels: [],
+    cancelError: null,
   }
-  return { tauri, invocations }
+  return fake
 }
 
 function drag(id: number): ArrayBuffer {
@@ -158,7 +180,7 @@ describe('createTauriTransport', () => {
     const { tauri, invocations } = fakeTauri()
     const transport = createTauriTransport(tauri)
     await transport.start()
-    const reply = transport.send(drag(1))
+    const reply = transport.send(drag(1), 1)
     await settle()
     expect(invocations.map((invocation) => invocation.request.id)).toEqual([0, 1])
     expect(invocations[1]?.command).toBe('call')
@@ -171,10 +193,10 @@ describe('createTauriTransport', () => {
     const { tauri, invocations } = fakeTauri()
     const transport = createTauriTransport(tauri)
     await transport.start()
-    const first = transport.send(drag(1))
+    const first = transport.send(drag(1), 1)
     await settle()
-    const second = transport.send(drag(2))
-    const third = transport.send(drag(3))
+    const second = transport.send(drag(2), 2)
+    const third = transport.send(drag(3), 3)
     await settle()
     expect(invocations.map((invocation) => invocation.request.id)).toEqual([0, 1])
     invocations[1]?.answer(dragAnswer(1))
@@ -196,8 +218,8 @@ describe('createTauriTransport', () => {
     const { tauri, invocations } = fakeTauri()
     const transport = createTauriTransport(tauri)
     await transport.start()
-    const first = transport.send(requestFrame(1, { type: 'undo', doc: 1 }))
-    const second = transport.send(requestFrame(2, { type: 'redo', doc: 1 }))
+    const first = transport.send(requestFrame(1, { type: 'undo', doc: 1 }), 1)
+    const second = transport.send(requestFrame(2, { type: 'redo', doc: 1 }), 2)
     await settle()
     expect(invocations.map((invocation) => invocation.request.id)).toEqual([0, 1])
     invocations[1]?.answer(
@@ -218,7 +240,7 @@ describe('createTauriTransport', () => {
     const fatal = vi.fn<(error: CoreFatalError) => void>()
     transport.onFatal(fatal)
     await transport.start()
-    const reply = transport.send(requestFrame(7, { type: 'undo', doc: 1 }))
+    const reply = transport.send(requestFrame(7, { type: 'undo', doc: 1 }), 7)
     await settle()
     invocations[1]?.fail(new Error('boom'))
     const { response, events } = readResponse(await reply)
@@ -233,8 +255,8 @@ describe('createTauriTransport', () => {
     const { tauri, invocations } = fakeTauri()
     const transport = createTauriTransport(tauri)
     await transport.start()
-    const failed = transport.send(requestFrame(1, { type: 'undo', doc: 1 }))
-    const next = transport.send(requestFrame(2, { type: 'undo', doc: 1 }))
+    const failed = transport.send(requestFrame(1, { type: 'undo', doc: 1 }), 1)
+    const next = transport.send(requestFrame(2, { type: 'undo', doc: 1 }), 2)
     await settle()
     invocations[1]?.fail(new Error('boom'))
     await failed
@@ -243,5 +265,68 @@ describe('createTauriTransport', () => {
       responseFrame({ id: 2, result: { type: 'undo', revision: 2, label: 'Edit' } }),
     )
     expect(readResponse(await next).response.id).toBe(2)
+  })
+
+  describe('cancel (ui.md 2.4 item 4, protocol.md 2.12)', () => {
+    it('can cancel a running call', () => {
+      expect(createTauriTransport(fakeTauri().tauri).canCancel).toBe(true)
+    })
+
+    it('protocol test 104: cancel(5) invokes cancel_call once while request 5 is pending, and nothing without it', async () => {
+      const fake = fakeTauri()
+      const transport = createTauriTransport(fake.tauri)
+      await transport.start()
+      expect(transport.cancel(5)).toBe(false)
+      expect(fake.cancels).toEqual([])
+
+      const reply = transport.send(requestFrame(5, { type: 'undo', doc: 1 }), 5)
+      await settle()
+      expect(transport.cancel(5)).toBe(true)
+      expect(fake.cancels).toEqual([{ command: 'cancel_call', payload: { request: 5 } }])
+      const answer = responseFrame({ id: 5, result: { type: 'undo', revision: 1, label: 'Edit' } })
+      fake.invocations[1]?.answer(answer)
+      await expect(reply).resolves.toBe(answer)
+      expect(transport.cancel(5)).toBe(false)
+      expect(fake.cancels).toHaveLength(1)
+    })
+
+    it('protocol test 104: a cancel_call rejection goes to console.error, and the send resolves with its own frame', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const fake = fakeTauri()
+      fake.cancelError = new Error('The host is gone.')
+      const transport = createTauriTransport(fake.tauri)
+      await transport.start()
+      const reply = transport.send(requestFrame(5, { type: 'undo', doc: 1 }), 5)
+      await settle()
+      expect(transport.cancel(5)).toBe(true)
+      await settle()
+      expect(error).toHaveBeenCalled()
+      const answer = responseFrame({ id: 5, result: { type: 'undo', revision: 1, label: 'Edit' } })
+      fake.invocations[1]?.answer(answer)
+      await expect(reply).resolves.toBe(answer)
+      error.mockRestore()
+    })
+
+    it('cancel of a queued request asks the host to stop it too', async () => {
+      const fake = fakeTauri()
+      const transport = createTauriTransport(fake.tauri)
+      await transport.start()
+      const first = transport.send(requestFrame(5, { type: 'undo', doc: 1 }), 5)
+      const second = transport.send(requestFrame(6, { type: 'redo', doc: 1 }), 6)
+      await settle()
+      expect(fake.invocations.map((invocation) => invocation.request.id)).toEqual([0, 5])
+      expect(transport.cancel(6)).toBe(true)
+      expect(fake.cancels).toEqual([{ command: 'cancel_call', payload: { request: 6 } }])
+      fake.invocations[1]?.answer(
+        responseFrame({ id: 5, result: { type: 'undo', revision: 1, label: 'Edit' } }),
+      )
+      await first
+      await settle()
+      expect(fake.invocations.map((invocation) => invocation.request.id)).toEqual([0, 5, 6])
+      fake.invocations[2]?.answer(
+        responseFrame({ id: 6, result: { type: 'redo', revision: 2, label: 'Edit' } }),
+      )
+      expect(readResponse(await second).response.id).toBe(6)
+    })
   })
 })

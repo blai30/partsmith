@@ -3,6 +3,8 @@
 //! `.cargo/config.toml` gives every `wasm32-unknown-emscripten` build some link arguments through `rustflags`, and a `RUSTFLAGS` environment variable replaces those. The module must not change when that happens, so `build.rs` has to pass each of them too.
 //!
 //! It also checks the profile the module is built with (protocol.md test 84): `scripts/build-wasm.sh` builds it with `wasm-release`, which keeps `panic = "unwind"`, so a panic in the web core unwinds into the engine's `internal_error` instead of trapping.
+//!
+//! Test 103 checks that the cancel word of ADR 0063 adds no export, no shared memory and no JavaScript library to the link (protocol.md test 103).
 
 /// The build script of this crate.
 const BUILD_SCRIPT: &str = include_str!("../build.rs");
@@ -98,6 +100,37 @@ fn t084_build_wasm_builds_the_module_with_its_profile() {
         BUILD_WASM_SCRIPT.contains("--profile wasm-release"),
         "scripts/build-wasm.sh no longer builds the module with --profile wasm-release, the profile protocol.md test 84 checks"
     );
+}
+
+/// The quoted arguments of `EMSCRIPTEN_LINK_ARGUMENTS` in the build script.
+fn emscripten_link_arguments() -> Vec<&'static str> {
+    let start = BUILD_SCRIPT
+        .find("const EMSCRIPTEN_LINK_ARGUMENTS")
+        .expect("build.rs defines EMSCRIPTEN_LINK_ARGUMENTS");
+    let list = &BUILD_SCRIPT[start..];
+    let end = list.find("];").expect("the list ends");
+    list[..end]
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("//"))
+        .flat_map(|line| line.split('"').skip(1).step_by(2))
+        .collect()
+}
+
+#[test]
+fn t103_the_link_keeps_three_exports_and_no_shared_memory() {
+    let arguments = emscripten_link_arguments();
+
+    assert!(
+        arguments.contains(&"-sEXPORTED_FUNCTIONS=_main,_ps_alloc,_ps_free,_ps_call"),
+        "{arguments:?}"
+    );
+    for word in ["pthread", "SHARED_MEMORY", "js-library"] {
+        assert!(
+            arguments.iter().all(|argument| !argument.contains(word)),
+            "no link argument contains {word}: {arguments:?}"
+        );
+    }
 }
 
 #[test]

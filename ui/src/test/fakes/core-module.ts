@@ -26,7 +26,12 @@ export type FakeCoreModule = CoreModule & {
   failResponse: boolean
   /** When set, `call` throws it (a trap). */
   callError: Error | null
+  /** Every `useCancelWord` call (M2), with how many requests `call` had received before it. */
+  readonly cancelWords: readonly CancelWordUse[]
 }
+
+/** One `useCancelWord` call of the fake module. */
+export type CancelWordUse = { readonly word: BigInt64Array; readonly callsBefore: number }
 
 const PAGE = 65_536
 
@@ -37,6 +42,7 @@ export function createFakeCoreModule(handler: FrameHandler): FakeCoreModule {
   const frees: Block[] = []
   const requests: ArrayBuffer[] = []
   const live = new Map<number, number>()
+  const cancelWords: CancelWordUse[] = []
 
   function grow(minimum: number): void {
     const size = Math.ceil((Math.max(minimum, memory.byteLength) + PAGE) / PAGE) * PAGE
@@ -67,6 +73,7 @@ export function createFakeCoreModule(handler: FrameHandler): FakeCoreModule {
     failAllocation: false,
     failResponse: false,
     callError: null,
+    cancelWords,
     alloc(length) {
       return module.failAllocation ? 0 : allocate(length)
     },
@@ -100,6 +107,9 @@ export function createFakeCoreModule(handler: FrameHandler): FakeCoreModule {
     },
     memory() {
       return new Uint8Array(memory)
+    },
+    useCancelWord(word: BigInt64Array) {
+      cancelWords.push({ word, callsBefore: requests.length })
     },
   }
   return module

@@ -1,4 +1,4 @@
-//! Acceptance tests for `partsmith rebuild` (cli spec sections 3.3 and 6, tests 26 to 33 and 65).
+//! Acceptance tests for `partsmith rebuild` (cli spec sections 3.3, 3.6 and 6, tests 26 to 33, 65 and 85).
 
 use crate::common;
 
@@ -265,4 +265,24 @@ fn t065_a_body_without_volume_is_ready_to_print() {
         run.stdout_lines().last(),
         Some(&"  print health: Ready to print (generic-fdm)")
     );
+}
+
+#[test]
+fn t085_the_cli_never_stops_a_rebuild() {
+    let workspace = Workspace::new();
+    let reference_part = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/bench/fifty-features/model.ptsm");
+    let text = std::fs::read_to_string(&reference_part)
+        .unwrap_or_else(|error| panic!("{} is readable: {error}", reference_part.display()));
+    workspace.write("model.ptsm", text);
+
+    let run = workspace.run(&["rebuild", "--json", "model.ptsm"]);
+
+    run.assert_code(0);
+    let report = run.json();
+    let features = items(&report["features"]);
+    assert_eq!(features.len(), 50);
+    for feature in features {
+        assert_ne!(feature["status"], "not_run", "status of {}", feature["id"]);
+    }
 }

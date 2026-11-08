@@ -53,9 +53,9 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use common::{Sent, doc_handle, headless_session, request_frame, session};
+use common::{Sent, display_options, doc_handle, headless_session, request_frame, session};
 use partsmith_budgets::{Report, median};
-use partsmith_engine::Session;
+use partsmith_engine::{CancelFlag, Session, SessionOptions};
 use serde_json::{Value, json};
 
 /// Times each operation runs; the median counts.
@@ -555,6 +555,46 @@ fn resident_bytes() -> Option<u64> {
     Some(kilobytes * 1024)
 }
 
+/// The median time from a cancel to the return of `Session::call` (engine.md section 5, the cancel rows): each
+/// sample opens `text` as request 1 in a cold display session with a `CancelFlag::word()`, while a thread sleeps
+/// `delay`, cancels request 1 and reads the clock. None when a sample's `recomputed` holds no `not_run`.
+fn cancel_to_response(text: &str, delay: Duration) -> Option<Duration> {
+    let mut stopped = true;
+    let time = median(RUNS, |_| {
+        let flag = CancelFlag::word();
+        let mut driver = Driver {
+            session: Session::new(SessionOptions {
+                cancel: flag.clone(),
+                ..display_options()
+            }),
+            next_id: 1,
+        };
+        let frame = request_frame(
+            1,
+            json!({"type": "open_document", "text": text, "assets": []}),
+            &[],
+        );
+        let canceler = std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            flag.cancel(1);
+            Instant::now()
+        });
+        let response = black_box(driver.session.call(black_box(&frame)));
+        let returned = Instant::now();
+        let canceled = canceler.join().expect("the cancel thread finishes");
+        let answer = Sent::from_frame(&response);
+        stopped &= answer.event("recomputed")["features"]
+            .as_array()
+            .is_some_and(|features| {
+                features
+                    .iter()
+                    .any(|feature| feature["status"] == "not_run")
+            });
+        returned.saturating_duration_since(canceled)
+    });
+    stopped.then_some(time)
+}
+
 fn main() -> ExitCode {
     let mut report = Report::from_arguments();
 
@@ -580,6 +620,8 @@ fn main() -> ExitCode {
         "set_document_units with keep_sizes on the reference part, including the edit set, recompute, tessellation of changed bodies and frame encoding",
         "list_uses of the reference part",
         "ghost capture of one lost edge on the reference part",
+        "From a cancel to the response, when the cancel comes 100 ms into open_document of the reference part in a cold session, including the loss diagnosis of the features that finished, the display meshes of the states left and frame encoding",
+        "From a cancel to the response, when the cancel comes late in open_document of the reference part in a cold session, including the loss diagnosis, the display meshes of the states left and frame encoding",
     ];
     let selected: Vec<&str> = reference_operations
         .into_iter()
@@ -609,19 +651,37 @@ fn main() -> ExitCode {
                     time
                 })
             });
+            let cold_open = || {
+                median(RUNS, |_| {
+                    let mut driver = Driver::new();
+                    let (time, answer) =
+                        driver.timed(json!({"type": "open_document", "text": text, "assets": []}));
+                    answer.ok();
+                    time
+                })
+            };
+            let mut cold_open_median = None;
             report.measure(
                 reference_operations[1],
                 Duration::from_millis(2_200),
-                || {
-                    median(RUNS, |_| {
-                        let mut driver = Driver::new();
-                        let (time, answer) = driver
-                            .timed(json!({"type": "open_document", "text": text, "assets": []}));
-                        answer.ok();
-                        time
-                    })
-                },
+                || *cold_open_median.insert(cold_open()),
             );
+            for (operation, delay) in [
+                (reference_operations[10], Some(Duration::from_millis(100))),
+                (reference_operations[11], None),
+            ] {
+                if !report.includes(operation) {
+                    continue;
+                }
+                // The late row cancels at three quarters of the cold open's median of this run.
+                let delay = delay.unwrap_or_else(|| {
+                    cold_open_median.get_or_insert_with(cold_open).mul_f64(0.75)
+                });
+                match cancel_to_response(&text, delay) {
+                    Some(time) => report.record_time(operation, time, Duration::from_millis(200)),
+                    None => report.record_unmeasured(operation),
+                }
+            }
             report.measure(reference_operations[2], Duration::from_millis(300), || {
                 let mut driver = Driver::new();
                 let mut doc = driver.open(&text).doc();

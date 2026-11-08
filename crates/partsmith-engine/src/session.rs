@@ -641,4 +641,116 @@ mod tests {
 
         assert_eq!(session.recompute.cache_len(), 1);
     }
+
+    /// The plan of `document` against the session's result cache, with the printer values and assets of `doc`
+    /// and no stop point: each feature with its predicted action.
+    fn planned(
+        session: &Session,
+        doc: DocHandle,
+        document: &Document,
+    ) -> Vec<(partsmith_model::Id, partsmith_recompute::Action)> {
+        let open = session.open(doc).expect("the document is open");
+        let context = PrinterValues::new(&open.computed.profile.profile);
+        let input = partsmith_recompute::Input {
+            document,
+            context: &context,
+            stop_at: None,
+            assets: &open.assets,
+        };
+        session
+            .recompute
+            .plan(&input)
+            .steps
+            .into_iter()
+            .map(|step| (step.feature, step.action))
+            .collect()
+    }
+
+    #[test]
+    fn t210_a_stopped_request_evicts_nothing_and_caches_what_finished() {
+        let flag = crate::CancelFlag::word();
+        let text = include_str!("../../../examples/bench/fifty-features/model.ptsm");
+        let mut session = Session::new(SessionOptions {
+            cancel: flag.clone(),
+            ..SessionOptions::headless()
+        });
+        let opened = session.execute(
+            serde_json::from_value(serde_json::json!({
+                "id": 3,
+                "command": {"type": "open_document", "text": text, "assets": []}
+            }))
+            .expect("the open request deserializes"),
+            Vec::new(),
+        );
+        assert!(
+            matches!(opened.response.result, partsmith_protocol::Outcome::Ok(_)),
+            "the reference part opens"
+        );
+        let doc = DocHandle(1);
+        let opened_recipe = session.document(doc).expect("the document is open").clone();
+        let before = planned(&session, doc, &opened_recipe);
+        assert!(
+            before
+                .iter()
+                .all(|(_, action)| *action != partsmith_recompute::Action::Build),
+            "the open cached every feature that built: {before:?}"
+        );
+
+        let remote = flag.clone();
+        let canceler = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            remote.cancel(4);
+        });
+        let changed = session.execute(
+            serde_json::from_value(serde_json::json!({
+                "id": 4,
+                "command": {
+                    "type": "apply_edits",
+                    "doc": 1,
+                    "label": "Change base",
+                    "edits": [{"type": "update_parameter", "parameter": {"id": "p-base", "name": "base", "expr": "250 mm"}}]
+                }
+            }))
+            .expect("the base change deserializes"),
+            Vec::new(),
+        );
+        canceler.join().expect("the cancel thread finishes");
+
+        let statuses = changed
+            .events
+            .iter()
+            .find_map(|event| match event {
+                partsmith_protocol::Event::Recomputed { features, .. } => Some(features.clone()),
+                _ => None,
+            })
+            .expect("the base change emits recomputed");
+        assert!(
+            statuses
+                .iter()
+                .any(|status| status.status == partsmith_protocol::FeatureState::NotRun),
+            "the base change stopped"
+        );
+        assert_eq!(
+            planned(&session, doc, &opened_recipe),
+            before,
+            "the cache holds every key it held before request 4"
+        );
+        let current = session.document(doc).expect("the document is open").clone();
+        let after = planned(&session, doc, &current);
+        for status in statuses
+            .iter()
+            .filter(|status| status.status != partsmith_protocol::FeatureState::NotRun)
+        {
+            let action = after
+                .iter()
+                .find(|(feature, _)| *feature == status.id)
+                .map(|(_, action)| *action);
+            assert_eq!(
+                action,
+                Some(partsmith_recompute::Action::Reuse),
+                "{} finished in request 4, so its result is cached",
+                status.id
+            );
+        }
+    }
 }

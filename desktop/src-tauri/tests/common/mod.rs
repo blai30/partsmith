@@ -50,6 +50,14 @@ pub fn request_frame(id: u64, command: Command) -> Vec<u8> {
         .expect("a request without buffers always encodes")
 }
 
+/// The text of the reference part, `examples/bench/fifty-features/model.ptsm` (tests 75 to 78).
+pub fn reference_part_text() -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/bench/fifty-features/model.ptsm");
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("reading {} failed: {error}", path.display()))
+}
+
 /// A `new_document` request frame with default units and no printer.
 pub fn new_document_frame(id: u64) -> Vec<u8> {
     request_frame(

@@ -4,6 +4,7 @@
 
 mod common;
 
+mod cancel;
 mod diagnostics_and_fixes;
 mod frame_decoding;
 mod frame_encoding;

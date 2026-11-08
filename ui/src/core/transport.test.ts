@@ -51,6 +51,7 @@ function track<Value>(promise: Promise<Value>): {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('createWorkerTransport', () => {
@@ -118,8 +119,8 @@ describe('createWorkerTransport', () => {
     const { transport, worker } = await started()
     const first = engineInfoFrame(1)
     const second = engineInfoFrame(2)
-    const firstReply = transport.send(first)
-    const secondReply = transport.send(second)
+    const firstReply = transport.send(first, 1)
+    const secondReply = transport.send(second, 2)
     expect(worker.posted).toEqual([
       { message: { type: 'call', frame: first }, transfer: [first] },
       { message: { type: 'call', frame: second }, transfer: [second] },
@@ -134,9 +135,9 @@ describe('createWorkerTransport', () => {
 
   it('resolves the oldest pending send with each frame reply', async () => {
     const { transport, worker } = await started()
-    const firstReply = transport.send(engineInfoFrame(1))
+    const firstReply = transport.send(engineInfoFrame(1), 1)
     const firstTracked = track(firstReply)
-    const secondReply = transport.send(engineInfoFrame(2))
+    const secondReply = transport.send(engineInfoFrame(2), 2)
     const secondTracked = track(secondReply)
     worker.emit({ type: 'frame', frame: undoResponse(1) })
     await settle()
@@ -150,15 +151,15 @@ describe('createWorkerTransport', () => {
     const { transport, worker } = await started()
     const fatal = vi.fn<(error: CoreFatalError) => void>()
     transport.onFatal(fatal)
-    const firstReply = transport.send(engineInfoFrame(1))
-    const secondReply = transport.send(engineInfoFrame(2))
+    const firstReply = transport.send(engineInfoFrame(1), 1)
+    const secondReply = transport.send(engineInfoFrame(2), 2)
     worker.fail('RuntimeError: unreachable')
     worker.fail('RuntimeError: unreachable')
     await expect(firstReply).rejects.toBeInstanceOf(CoreFatalError)
     await expect(secondReply).rejects.toBeInstanceOf(CoreFatalError)
     expect(fatal).toHaveBeenCalledTimes(1)
     expect(fatal.mock.calls[0]?.[0]).toBeInstanceOf(CoreFatalError)
-    const later = transport.send(engineInfoFrame(3))
+    const later = transport.send(engineInfoFrame(3), 3)
     await expect(later).rejects.toBeInstanceOf(CoreFatalError)
     expect(worker.posted).toHaveLength(2)
   })
@@ -167,7 +168,7 @@ describe('createWorkerTransport', () => {
     const { transport, worker } = await started()
     const fatal = vi.fn<(error: CoreFatalError) => void>()
     transport.onFatal(fatal)
-    const reply = transport.send(engineInfoFrame(1))
+    const reply = transport.send(engineInfoFrame(1), 1)
     worker.emit({ type: 'fatal', message: 'The core ran out of memory.' })
     await expect(reply).rejects.toThrow('The core ran out of memory.')
     expect(fatal).toHaveBeenCalledTimes(1)
@@ -177,7 +178,7 @@ describe('createWorkerTransport', () => {
     const { transport, worker } = await started()
     const fatal = vi.fn<(error: CoreFatalError) => void>()
     transport.onFatal(fatal)
-    const reply = transport.send(engineInfoFrame(1))
+    const reply = transport.send(engineInfoFrame(1), 1)
     worker.failMessage()
     await expect(reply).rejects.toBeInstanceOf(CoreFatalError)
     expect(fatal).toHaveBeenCalledTimes(1)
@@ -196,21 +197,140 @@ describe('createWorkerTransport', () => {
     const { transport, worker } = await started()
     const fatal = vi.fn<(error: CoreFatalError) => void>()
     transport.onFatal(fatal)
-    const pending = transport.send(engineInfoFrame(1))
+    const pending = transport.send(engineInfoFrame(1), 1)
     transport.stop()
     expect(worker.terminated).toBe(true)
     await expect(pending).rejects.toThrow(new CoreFatalError('The geometry core was stopped.'))
-    await expect(transport.send(engineInfoFrame(2))).rejects.toBeInstanceOf(CoreFatalError)
+    await expect(transport.send(engineInfoFrame(2), 2)).rejects.toBeInstanceOf(CoreFatalError)
     expect(fatal).not.toHaveBeenCalled()
   })
 
   it('decodes nothing itself: the reply frame is handed back as received', async () => {
     const { transport, worker } = await started()
-    const reply = transport.send(engineInfoFrame(4))
+    const reply = transport.send(engineInfoFrame(4), 4)
     const response = undoResponse(4)
     worker.emit({ type: 'frame', frame: response })
     const received = await reply
     expect(readResponse(received).response.id).toBe(4)
+  })
+})
+
+/** The cancel word the transport posted to `worker` (protocol.md 2.11 rule 8), or null. */
+function postedWord(worker: FakeWorker): SharedArrayBuffer | null {
+  for (const { message } of worker.posted) {
+    if (typeof message === 'object' && message !== null && Reflect.get(message, 'type') === 'cancel_word') {
+      const word: unknown = Reflect.get(message, 'word')
+      return word instanceof SharedArrayBuffer ? word : null
+    }
+  }
+  return null
+}
+
+/** The id the word holds, as the core reads it. */
+function wordValue(word: SharedArrayBuffer): bigint {
+  return Atomics.load(new BigInt64Array(word), 0)
+}
+
+describe('the worker transport cancel (ui.md 2.4 item 5, protocol.md 2.11 rule 8)', () => {
+  it('protocol test 100: a cross-origin isolated page shares a word that stops pending request 7 until its frame comes', async () => {
+    vi.stubGlobal('crossOriginIsolated', true)
+    const { transport, worker } = await started()
+    expect(transport.canCancel).toBe(true)
+    expect(worker.posted[0]?.message).toEqual({ type: 'cancel_word', word: expect.any(SharedArrayBuffer) })
+    const word = postedWord(worker)
+    expect(word?.byteLength).toBe(8)
+    if (word === null) {
+      return
+    }
+    expect(wordValue(word)).toBe(0n)
+
+    expect(transport.cancel(7)).toBe(false)
+    expect(wordValue(word)).toBe(0n)
+
+    const reply = transport.send(engineInfoFrame(7), 7)
+    expect(worker.posted.map(({ message }) => Reflect.get(Object(message), 'type'))).toEqual([
+      'cancel_word',
+      'call',
+    ])
+    expect(transport.cancel(7)).toBe(true)
+    expect(wordValue(word)).toBe(7n)
+
+    let wordWhenResolved: bigint | null = null
+    const read = reply.then((frame) => {
+      wordWhenResolved = wordValue(word)
+      return frame
+    })
+    worker.emit({ type: 'frame', frame: undoResponse(7) })
+    expect(wordValue(word)).toBe(0n)
+    await read
+    expect(wordWhenResolved).toBe(0n)
+  })
+
+  it('protocol test 100: without cross-origin isolation no word is posted and cancel stops nothing', async () => {
+    vi.stubGlobal('crossOriginIsolated', false)
+    const { transport, worker } = await started()
+    expect(transport.canCancel).toBe(false)
+    expect(postedWord(worker)).toBeNull()
+    const reply = transport.send(engineInfoFrame(7), 7)
+    expect(transport.cancel(7)).toBe(false)
+    expect(worker.posted.map(({ message }) => Reflect.get(Object(message), 'type'))).toEqual(['call'])
+    worker.emit({ type: 'frame', frame: undoResponse(7) })
+    await expect(reply).resolves.toBeInstanceOf(ArrayBuffer)
+  })
+
+  it('the frame of another request leaves a stop of a later one in place', async () => {
+    vi.stubGlobal('crossOriginIsolated', true)
+    const { transport, worker } = await started()
+    const word = postedWord(worker)
+    if (word === null) {
+      throw new Error('No cancel word was posted.')
+    }
+    const first = transport.send(engineInfoFrame(7), 7)
+    const second = transport.send(engineInfoFrame(8), 8)
+    expect(transport.cancel(8)).toBe(true)
+    worker.emit({ type: 'frame', frame: undoResponse(7) })
+    await first
+    expect(wordValue(word)).toBe(8n)
+    worker.emit({ type: 'frame', frame: undoResponse(8) })
+    await second
+    expect(wordValue(word)).toBe(0n)
+  })
+
+  it('cancel of a request that was already answered returns false', async () => {
+    vi.stubGlobal('crossOriginIsolated', true)
+    const { transport, worker } = await started()
+    const reply = transport.send(engineInfoFrame(7), 7)
+    worker.emit({ type: 'frame', frame: undoResponse(7) })
+    await reply
+    expect(transport.cancel(7)).toBe(false)
+    expect(wordValue(postedWord(worker) ?? new SharedArrayBuffer(8))).toBe(0n)
+  })
+
+  it('a restart makes a new worker with a new word', async () => {
+    vi.stubGlobal('crossOriginIsolated', true)
+    const workers = [new FakeWorker(), new FakeWorker()]
+    let created = 0
+    const transport = createWorkerTransport({
+      createWorker: () => {
+        const worker = workers[created]
+        created += 1
+        if (worker === undefined) {
+          throw new Error('No more fake workers.')
+        }
+        return worker as unknown as Worker
+      },
+    })
+    for (const worker of workers) {
+      const ready = transport.start()
+      await settle()
+      worker.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.1.0' })
+      await ready
+      transport.stop()
+    }
+    const [firstWord, secondWord] = workers.map(postedWord)
+    expect(firstWord).toBeInstanceOf(SharedArrayBuffer)
+    expect(secondWord).toBeInstanceOf(SharedArrayBuffer)
+    expect(secondWord).not.toBe(firstWord)
   })
 })
 

@@ -221,6 +221,8 @@ describe('MutationQueue.discard (4.4)', () => {
 
 type LatestOnlyHarness = {
   readonly sends: Map<string, Deferred<string>>
+  /** The signal each input was sent with (2.5, since M2). */
+  readonly signals: Map<string, AbortSignal>
   readonly sent: string[]
   readonly results: [string, string][]
   readonly errors: [unknown, string][]
@@ -230,12 +232,14 @@ function harness(): LatestOnlyHarness & {
   readonly latest: ReturnType<typeof createLatestOnly<string, string>>
 } {
   const sends = new Map<string, Deferred<string>>()
+  const signals = new Map<string, AbortSignal>()
   const sent: string[] = []
   const results: [string, string][] = []
   const errors: [unknown, string][] = []
   const latest = createLatestOnly<string, string>(
-    (input) => {
+    (input, signal) => {
       sent.push(input)
+      signals.set(input, signal)
       const pending = deferred<string>()
       sends.set(input, pending)
       return pending.promise
@@ -247,7 +251,7 @@ function harness(): LatestOnlyHarness & {
       errors.push([error, input])
     },
   )
-  return { sends, sent, results, errors, latest }
+  return { sends, signals, sent, results, errors, latest }
 }
 
 describe('createLatestOnly', () => {
@@ -292,6 +296,47 @@ describe('createLatestOnly', () => {
     expect(sent).toEqual(['a'])
     expect(results).toEqual([])
     expect(errors).toEqual([])
+  })
+
+  it('U-268 a newer input aborts the signal of the one in flight once, and the next send gets a fresh signal', async () => {
+    const { latest, sends, signals, sent } = harness()
+    latest.submit('a')
+    await settle()
+    const first = signals.get('a')
+    expect(first?.aborted).toBe(false)
+    const aborts = vi.fn()
+    first?.addEventListener('abort', aborts)
+    latest.submit('b')
+    expect(first?.aborted).toBe(true)
+    latest.submit('c')
+    expect(aborts).toHaveBeenCalledTimes(1)
+    sends.get('a')?.resolve('result a')
+    await settle()
+    expect(sent).toEqual(['a', 'c'])
+    const next = signals.get('c')
+    expect(next).toBeDefined()
+    expect(next).not.toBe(first)
+    expect(next?.aborted).toBe(false)
+  })
+
+  it('U-268 cancel() aborts the signal of the input in flight', async () => {
+    const { latest, signals } = harness()
+    latest.submit('a')
+    await settle()
+    latest.cancel()
+    expect(signals.get('a')?.aborted).toBe(true)
+  })
+
+  it('a settled input keeps its signal when a newer one comes', async () => {
+    const { latest, sends, signals } = harness()
+    latest.submit('a')
+    await settle()
+    sends.get('a')?.resolve('result a')
+    await settle()
+    latest.submit('b')
+    await settle()
+    expect(signals.get('a')?.aborted).toBe(false)
+    expect(signals.get('b')?.aborted).toBe(false)
   })
 
   it('U-16 flush() sends the waiting input and resolves after its onResult', async () => {

@@ -32,7 +32,7 @@ async function send(
   command: Command,
   buffers: readonly Uint8Array[] = [],
 ): Promise<ReturnType<typeof readResponse>> {
-  return readResponse(await transport.send(requestFrame(1, command, buffers)))
+  return readResponse(await transport.send(requestFrame(1, command, buffers), 1))
 }
 
 /** The status of `f-imp1` in the recompute of a response. */

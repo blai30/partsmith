@@ -283,7 +283,7 @@ pub fn suppressed(mut record: Value) -> Value {
 
 // Registries and runs.
 
-/// `Registry::with_builtins()` plus the four test features of recompute.md section 6.
+/// `Registry::with_builtins()` plus the five test features of recompute.md section 6.
 pub fn builtin_registry() -> Registry {
     let mut registry = Registry::with_builtins();
     features::register_spec_features(&mut registry);

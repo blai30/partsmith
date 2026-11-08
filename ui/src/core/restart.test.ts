@@ -24,7 +24,7 @@ describe('createWorkerTransport restarts', () => {
     workers[0]?.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.1.0' })
     await first
     workers[0]?.emit({ type: 'fatal', message: 'The core trapped.' })
-    await expect(transport.send(requestFrame(1, { type: 'engine_info' }))).rejects.toBeInstanceOf(
+    await expect(transport.send(requestFrame(1, { type: 'engine_info' }), 1)).rejects.toBeInstanceOf(
       CoreFatalError,
     )
     expect(workers[0]?.terminated).toBe(true)
@@ -34,7 +34,7 @@ describe('createWorkerTransport restarts', () => {
     expect(workers).toHaveLength(2)
     workers[1]?.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.2.0' })
     await expect(second).resolves.toEqual({ protocolVersion: 1, engineVersion: '0.2.0' })
-    const reply = transport.send(requestFrame(2, { type: 'engine_info' }))
+    const reply = transport.send(requestFrame(2, { type: 'engine_info' }), 2)
     const frame = responseFrame({ id: 2, result: { type: 'undo', revision: 1, label: 'Edit' } })
     workers[1]?.emit({ type: 'frame', frame })
     await expect(reply).resolves.toBe(frame)
@@ -89,11 +89,11 @@ describe('createTauriTransport restarts', () => {
     const transport = createTauriTransport(tauri)
     await transport.start()
     transport.stop()
-    await expect(transport.send(requestFrame(1, { type: 'undo', doc: 1 }))).rejects.toBeInstanceOf(
+    await expect(transport.send(requestFrame(1, { type: 'undo', doc: 1 }), 1)).rejects.toBeInstanceOf(
       CoreFatalError,
     )
     await transport.start()
-    const answer = await transport.send(requestFrame(2, { type: 'undo', doc: 1 }))
+    const answer = await transport.send(requestFrame(2, { type: 'undo', doc: 1 }), 2)
     expect(answer.byteLength).toBeGreaterThan(0)
   })
 })

@@ -1,10 +1,13 @@
 //! Acceptance tests for STEP export and import through the kernel (io spec section 6.9).
 //!
-//! These tests need the OCCT install (`OCCT_ROOT`).
+//! These tests need the OCCT install (`OCCT_ROOT`). Since M2 every call passes `&Interrupt::new()`,
+//! and test 62 passes an interrupt requested before the call (io.md section 6.9).
 
 use partsmith_io::{ImportedStep, IoError, StepExportBody, read_step, write_step};
 use partsmith_model::Color;
-use partsmith_occt_sys::{Plane, Shape, StepBody, make_box, make_cylinder};
+use partsmith_occt_sys::{
+    Interrupt, KernelErrorKind, Operation, Plane, Shape, StepBody, make_box, make_cylinder,
+};
 use pretty_assertions::assert_eq;
 
 /// The valid STEP file without any solid of kernel.md test 83.
@@ -41,8 +44,8 @@ fn step_body<'a>(name: &'a str, color: Option<Color>, shape: &'a Shape) -> StepE
 /// Writes bodies and reads the bytes back, both of which must succeed.
 #[track_caller]
 fn round_trip(bodies: &[StepExportBody<'_>]) -> ImportedStep {
-    let bytes = write_step(bodies).expect("write_step succeeds");
-    read_step(&bytes).expect("read_step succeeds")
+    let bytes = write_step(bodies, &Interrupt::new()).expect("write_step succeeds");
+    read_step(&bytes, &Interrupt::new()).expect("read_step succeeds")
 }
 
 /// Asserts `|actual - expected| <= tolerance * |expected|`.
@@ -56,17 +59,20 @@ fn assert_relative(actual: f64, expected: f64, tolerance: f64) {
 
 #[test]
 fn t052_empty_slice_is_nothing_to_export() {
-    assert_eq!(write_step(&[]), Err(IoError::NoBodies));
+    assert_eq!(write_step(&[], &Interrupt::new()), Err(IoError::NoBodies));
 }
 
 #[test]
 fn t053_written_file_is_iso_10303_21() {
     let shape = box_shape();
-    let bytes = write_step(&[step_body(
-        "Bracket",
-        Some(Color::new(0x3b, 0x82, 0xf6)),
-        &shape,
-    )])
+    let bytes = write_step(
+        &[step_body(
+            "Bracket",
+            Some(Color::new(0x3b, 0x82, 0xf6)),
+            &shape,
+        )],
+        &Interrupt::new(),
+    )
     .expect("write_step succeeds");
     assert!(
         bytes.starts_with(b"ISO-10303-21;"),
@@ -163,7 +169,7 @@ fn t056_part_without_name_reads_back_with_empty_name() {
             name: String::new(),
             color: None,
         }],
-        &partsmith_occt_sys::Interrupt::new(),
+        &Interrupt::new(),
     )
     .expect("the kernel writes the box");
     let text = String::from_utf8(kernel_bytes).expect("STEP text is UTF-8");
@@ -172,7 +178,7 @@ fn t056_part_without_name_reads_back_with_empty_name() {
         "the kernel did not name the part Body 1"
     );
     let unnamed = text.replace("'Body 1'", "''");
-    let imported = read_step(unnamed.as_bytes()).expect("read_step succeeds");
+    let imported = read_step(unnamed.as_bytes(), &Interrupt::new()).expect("read_step succeeds");
     assert_eq!(imported.solids.len(), 1);
     assert_eq!(imported.solids[0].name, "");
 }
@@ -185,21 +191,21 @@ fn t057_writing_is_deterministic() {
         step_body("First", Some(Color::new(0x3b, 0x82, 0xf6)), &block),
         step_body("Second", None, &cylinder),
     ];
-    let first = write_step(&bodies).expect("write_step succeeds");
-    let second = write_step(&bodies).expect("write_step succeeds");
+    let first = write_step(&bodies, &Interrupt::new()).expect("write_step succeeds");
+    let second = write_step(&bodies, &Interrupt::new()).expect("write_step succeeds");
     assert!(first == second, "two writes of the same bodies differ");
 }
 
 #[test]
 fn t058_unparsable_bytes_are_not_a_step_file() {
-    let error = read_step(b"not a step file").expect_err("read_step fails");
+    let error = read_step(b"not a step file", &Interrupt::new()).expect_err("read_step fails");
     assert!(matches!(error, IoError::Kernel(_)), "error {error:?}");
     assert_eq!(error.to_string(), "The file is not a valid STEP file.");
 }
 
 #[test]
 fn t058_file_without_solids_is_an_error() {
-    let error = read_step(EMPTY_STEP.as_bytes()).expect_err("read_step fails");
+    let error = read_step(EMPTY_STEP.as_bytes(), &Interrupt::new()).expect_err("read_step fails");
     assert!(matches!(error, IoError::Kernel(_)), "error {error:?}");
     assert_eq!(error.to_string(), "The STEP file contains no solid bodies.");
 }
@@ -207,7 +213,67 @@ fn t058_file_without_solids_is_an_error() {
 #[test]
 fn t058_shape_without_solid_cannot_be_written() {
     let shape = Shape::empty();
-    let error = write_step(&[step_body("Empty", None, &shape)]).expect_err("write_step fails");
+    let error = write_step(&[step_body("Empty", None, &shape)], &Interrupt::new())
+        .expect_err("write_step fails");
     assert!(matches!(error, IoError::Kernel(_)), "error {error:?}");
     assert_eq!(error.to_string(), "Body \"Empty\" has no solid to export.");
+}
+
+/// An interrupt requested before the call it is given to (io.md test 62).
+fn requested_interrupt() -> Interrupt {
+    let interrupt = Interrupt::new();
+    interrupt.request();
+    interrupt
+}
+
+/// The kernel error inside an `IoError` that must be `Kernel`.
+#[track_caller]
+fn kernel_error(error: &IoError) -> &partsmith_occt_sys::KernelError {
+    match error {
+        IoError::Kernel(kernel) => kernel,
+        other => panic!("expected a kernel error, got {other:?}"),
+    }
+}
+
+#[test]
+fn t062_a_requested_interrupt_stops_the_step_writer() {
+    let shape = box_shape();
+
+    let error = write_step(
+        &[step_body("Bracket", None, &shape)],
+        &requested_interrupt(),
+    )
+    .expect_err("write_step stops");
+
+    let kernel = kernel_error(&error);
+    assert_eq!(kernel.kind, KernelErrorKind::Canceled);
+    assert_eq!(kernel.operation, Operation::WriteStep);
+    assert_eq!(
+        error.to_string(),
+        "Partsmith stopped this step before it finished."
+    );
+}
+
+#[test]
+fn t062_a_requested_interrupt_stops_the_step_reader() {
+    let shape = box_shape();
+    let bytes = write_step(
+        &[step_body(
+            "Bracket",
+            Some(Color::new(0x3b, 0x82, 0xf6)),
+            &shape,
+        )],
+        &Interrupt::new(),
+    )
+    .expect("write_step succeeds");
+
+    let error = read_step(&bytes, &requested_interrupt()).expect_err("read_step stops");
+
+    let kernel = kernel_error(&error);
+    assert_eq!(kernel.kind, KernelErrorKind::Canceled);
+    assert_eq!(kernel.operation, Operation::ReadStep);
+    assert_eq!(
+        error.to_string(),
+        "Partsmith stopped this step before it finished."
+    );
 }

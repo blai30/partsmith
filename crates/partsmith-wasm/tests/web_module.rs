@@ -112,6 +112,18 @@ fn built_module_answers_list_uses_of_a_new_document_under_node() {
 }
 
 #[test]
+fn built_module_stops_the_request_its_cancel_word_holds_under_node() {
+    let reference_part = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/bench/fifty-features/model.ptsm");
+    run_round_trip(
+        "cancel_word.mjs",
+        &[reference_part
+            .to_str()
+            .expect("the reference part's path is UTF-8")],
+    );
+}
+
+#[test]
 fn only_the_value_1_requires_the_round_trip() {
     assert!(round_trip_required(Some(OsStr::new("1"))));
     assert!(!round_trip_required(None));

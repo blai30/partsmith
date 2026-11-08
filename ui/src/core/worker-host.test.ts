@@ -287,6 +287,63 @@ describe('createWorkerHost', () => {
     expect(setup.frameIds()).toEqual([])
   })
 
+  describe('the cancel word (protocol.md 2.11 rule 8)', () => {
+    it('protocol test 99: a word received before the load reaches the module once, before engine_info, and the host never writes it', async () => {
+      const loading: { finish: () => void } = { finish: () => undefined }
+      const setup = setUp({
+        load: (module) =>
+          new Promise((resolve) => {
+            loading.finish = () => {
+              resolve(module)
+            }
+          }),
+      })
+      const word = new SharedArrayBuffer(8)
+      setup.host.receive({ type: 'cancel_word', word })
+      await setup.runScheduled()
+      expect(setup.module.cancelWords).toEqual([])
+      loading.finish()
+      await setup.runScheduled()
+      expect(setup.module.cancelWords).toHaveLength(1)
+      const [use] = setup.module.cancelWords
+      expect(use?.callsBefore).toBe(0)
+      expect(use?.word).toBeInstanceOf(BigInt64Array)
+      expect(use?.word.length).toBe(1)
+      expect(use?.word.buffer).toBe(word)
+      expect(readRequest(setup.module.requests[0] ?? new ArrayBuffer(0)).id).toBe(0)
+
+      setup.host.receive({ type: 'call', frame: edit(1) })
+      await setup.runScheduled()
+      expect(setup.frameIds()).toEqual([1])
+      expect(Array.from(new Uint8Array(word))).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    })
+
+    it('a word received after the load reaches the loaded module at once', async () => {
+      const setup = await readyHost()
+      const word = new SharedArrayBuffer(8)
+      setup.host.receive({ type: 'cancel_word', word })
+      expect(setup.module.cancelWords.map((use) => use.word.buffer)).toEqual([word])
+      expect(setup.calledIds()).toEqual([])
+    })
+
+    it('a second word replaces the first', async () => {
+      const setup = await readyHost()
+      const first = new SharedArrayBuffer(8)
+      const second = new SharedArrayBuffer(8)
+      setup.host.receive({ type: 'cancel_word', word: first })
+      setup.host.receive({ type: 'cancel_word', word: second })
+      const words = setup.module.cancelWords.map((use) => use.word.buffer)
+      expect(words.at(-1)).toBe(second)
+    })
+
+    it('a cancel_word message is not a call: it gets no frame', async () => {
+      const setup = await readyHost()
+      setup.host.receive({ type: 'cancel_word', word: new SharedArrayBuffer(8) })
+      await setup.runScheduled()
+      expect(setup.posted.map(({ message }) => message.type)).toEqual(['ready'])
+    })
+  })
+
   it('running out of memory during a call is fatal', async () => {
     const setup = await readyHost()
     setup.module.failAllocation = true

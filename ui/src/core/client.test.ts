@@ -23,6 +23,7 @@ function scriptedTransport(
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
   return {
     kind: 'worker',
+    canCancel: false,
     frames,
     start: async () => ({ protocolVersion: 1, engineVersion: '0.1.0' }),
     async send(frame) {
@@ -33,6 +34,7 @@ function scriptedTransport(
         ? answered
         : responseFrame({ ...answered, id: request.id })
     },
+    cancel: () => false,
     stop: () => undefined,
     onFatal(listener) {
       fatalListeners.add(listener)
@@ -46,6 +48,66 @@ function scriptedTransport(
       }
     },
   }
+}
+
+/** A transport that holds every response until the test answers it, and records sends and cancels. */
+type HeldTransport = Transport & {
+  /** `send <id>` and `cancel <id>` in call order, where `<id>` is the id argument. */
+  readonly calls: string[]
+  /** The request id inside each sent frame, in order. */
+  readonly frameIds: number[]
+  /** What `cancel` returns. */
+  cancelResult: boolean
+  /** Answers pending request `id` with an undo result. */
+  answer(id: number): void
+}
+
+function heldTransport(): HeldTransport {
+  const pending = new Map<number, (frame: ArrayBuffer) => void>()
+  const transport: HeldTransport = {
+    kind: 'worker',
+    canCancel: true,
+    calls: [],
+    frameIds: [],
+    cancelResult: true,
+    start: async () => ({ protocolVersion: 1, engineVersion: '0.1.0' }),
+    send(frame, id) {
+      transport.calls.push(`send ${String(id)}`)
+      transport.frameIds.push(readRequest(frame).id)
+      return new Promise<ArrayBuffer>((resolve) => {
+        pending.set(id, resolve)
+      })
+    },
+    cancel(id) {
+      transport.calls.push(`cancel ${String(id)}`)
+      return transport.cancelResult
+    },
+    stop: () => undefined,
+    onFatal: () => () => undefined,
+    answer(id) {
+      const resolve = pending.get(id)
+      if (resolve === undefined) {
+        throw new Error(`Request ${String(id)} is not pending.`)
+      }
+      pending.delete(id)
+      resolve(responseFrame({ ...undoAnswer(), id }))
+    },
+  }
+  return transport
+}
+
+/** Sends `count` undo requests through `client` and answers each, so the next request id is `count + 1`. */
+async function answerRequests(
+  transport: HeldTransport,
+  client: ReturnType<typeof createCoreClient>,
+  count: number,
+): Promise<void> {
+  for (let id = 1; id <= count; id += 1) {
+    const reply = client.request(UNDO)
+    transport.answer(id)
+    await reply
+  }
+  transport.calls.length = 0
 }
 
 const UNDO: Command = { type: 'undo', doc: 1 }
@@ -313,5 +375,97 @@ describe('createCoreClient', () => {
     client.onEvent(listener)()
     await client.request(UNDO)
     expect(listener).not.toHaveBeenCalled()
+  })
+
+  describe('stopping a request (2.5 item 6, ADR 0063)', () => {
+    it('sends each frame with its own request id', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      await answerRequests(transport, client, 2)
+      expect(transport.frameIds).toEqual([1, 2])
+    })
+
+    it('U-266 aborting the signal of pending request 4 calls cancel(4) once, and the request resolves with its response', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      await answerRequests(transport, client, 3)
+      const controller = new AbortController()
+      const reply = client.request(UNDO, undefined, controller.signal)
+      expect(transport.calls).toEqual(['send 4'])
+      controller.abort()
+      expect(transport.calls).toEqual(['send 4', 'cancel 4'])
+      transport.answer(4)
+      await expect(reply).resolves.toMatchObject({ result: { type: 'undo', revision: 6 } })
+      controller.abort()
+      expect(transport.calls).toEqual(['send 4', 'cancel 4'])
+    })
+
+    it('U-266 aborting after the response calls nothing', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      const controller = new AbortController()
+      const reply = client.request(UNDO, undefined, controller.signal)
+      transport.answer(1)
+      await reply
+      controller.abort()
+      expect(transport.calls).toEqual(['send 1'])
+    })
+
+    it('U-266 a request whose signal is already aborted is sent, then canceled once', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      await answerRequests(transport, client, 4)
+      const controller = new AbortController()
+      controller.abort()
+      const reply = client.request(UNDO, undefined, controller.signal)
+      expect(transport.calls).toEqual(['send 5', 'cancel 5'])
+      transport.answer(5)
+      await expect(reply).resolves.toMatchObject({ result: { type: 'undo' } })
+      expect(transport.calls).toEqual(['send 5', 'cancel 5'])
+    })
+
+    it('an aborted request settles with the core error the core answers, never with an abort', async () => {
+      const transport = scriptedTransport(() => ({
+        error: {
+          code: 'canceled',
+          message: 'The export was stopped before it finished. No file was made.',
+        },
+      }))
+      const client = createCoreClient(transport)
+      const controller = new AbortController()
+      controller.abort()
+      const error = await rejectionOf(client.request(UNDO, undefined, controller.signal))
+      expect(error).toBeInstanceOf(CoreError)
+      expect(error instanceof CoreError ? error.code : null).toBe('canceled')
+    })
+
+    it('U-267 stop() cancels the oldest request with no response and returns what the transport answers', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      await answerRequests(transport, client, 2)
+      const third = client.request(UNDO)
+      const fourth = client.request(UNDO)
+      expect(client.stop()).toBe(true)
+      expect(transport.calls).toEqual(['send 3', 'send 4', 'cancel 3'])
+      transport.cancelResult = false
+      expect(client.stop()).toBe(false)
+      expect(transport.calls.at(-1)).toBe('cancel 3')
+      transport.answer(3)
+      await third
+      transport.cancelResult = true
+      expect(client.stop()).toBe(true)
+      expect(transport.calls.at(-1)).toBe('cancel 4')
+      transport.answer(4)
+      await fourth
+    })
+
+    it('U-267 stop() with no request pending calls nothing and returns false', async () => {
+      const transport = heldTransport()
+      const client = createCoreClient(transport)
+      expect(client.stop()).toBe(false)
+      await answerRequests(transport, client, 1)
+      expect(client.stop()).toBe(false)
+      expect(transport.calls).toEqual([])
+    })
   })
 })

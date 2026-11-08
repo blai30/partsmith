@@ -1,4 +1,4 @@
-//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13 and 63).
+//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13, 63, 77 and 78).
 //!
 //! The app is `configure(tauri::test::mock_builder())` with `Arc<Files>` managed and the real configuration and capability compiled in by `tauri::generate_context!(test = true)`, so Tauri's mock runtime enforces the ACL as the app does (2.7). No window system is needed.
 
@@ -10,10 +10,10 @@ use std::sync::Arc;
 
 use common::{
     SOLID, UNKNOWN_GRANT, error_info, example_a, grant_by_open, new_document_frame, ok_result,
-    response_frame, solid_name, temporary_folder,
+    reference_part_text, request_frame, response_frame, solid_name, temporary_folder,
 };
 use partsmith_desktop::{COMMAND_NAMES, Files, Host, Unsaved, configure};
-use partsmith_protocol::{CommandResult, DocHandle, ErrorCode};
+use partsmith_protocol::{Command, CommandResult, DocHandle, ErrorCode, Event, FeatureState};
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderName, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
@@ -211,7 +211,7 @@ fn t010_write_file_without_a_grant_header_rejects_with_permission() {
 }
 
 #[test]
-fn t011_command_names_are_the_eight_commands_in_registration_order() {
+fn t011_command_names_are_the_nine_commands_in_registration_order() {
     assert_eq!(
         COMMAND_NAMES,
         [
@@ -222,7 +222,8 @@ fn t011_command_names_are_the_eight_commands_in_registration_order() {
             "write_file",
             "read_asset",
             "write_asset",
-            "set_unsaved"
+            "set_unsaved",
+            "cancel_call"
         ]
     );
 }
@@ -537,5 +538,116 @@ fn t063_read_asset_of_a_missing_asset_rejects_with_not_found() {
     assert_eq!(
         rejection(answer),
         json!({ "reason": "not_found", "message": "assets was not found." })
+    );
+}
+
+/// The request frame of test 78: request 9, `open_document` of the reference part.
+fn open_reference_part_frame() -> Vec<u8> {
+    request_frame(
+        9,
+        Command::OpenDocument {
+            text: reference_part_text(),
+            assets: Vec::new(),
+        },
+    )
+}
+
+/// Whether a response frame's `recomputed` event holds a `not_run` status.
+fn holds_not_run(frame: &partsmith_protocol::ResponseFrame) -> bool {
+    frame.events.iter().any(|event| match event {
+        Event::Recomputed { features, .. } => features
+            .iter()
+            .any(|status| status.status == FeatureState::NotRun),
+        _ => false,
+    })
+}
+
+#[test]
+fn t077_cancel_call_answers_null_from_the_main_window() {
+    let app = app();
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "cancel_call",
+        InvokeBody::Json(json!({ "request": 9 })),
+        HeaderMap::new(),
+    );
+
+    assert_eq!(json_answer(answer), Value::Null);
+}
+
+#[test]
+fn t077_cancel_call_from_another_window_is_rejected_by_the_acl() {
+    let app = app();
+    let _main = window(&app, "main");
+    let other = window(&app, "other");
+
+    let answer = invoke(
+        &other,
+        "cancel_call",
+        InvokeBody::Json(json!({ "request": 9 })),
+        HeaderMap::new(),
+    );
+
+    let message = rejection_text(answer);
+    assert!(
+        message.contains("not allowed"),
+        "the ACL rejects cancel_call: {message}"
+    );
+}
+
+#[test]
+fn t077_cancel_call_with_a_request_that_is_not_a_number_is_rejected() {
+    let app = app();
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "cancel_call",
+        InvokeBody::Json(json!({ "request": "nine" })),
+        HeaderMap::new(),
+    );
+
+    let message = rejection_text(answer);
+    assert!(
+        message.contains("request"),
+        "the rejection names request: {message}"
+    );
+}
+
+#[test]
+fn t078_cancel_call_stops_the_running_call_and_answers_first() {
+    let app = app();
+    let main = window(&app, "main");
+    let calling = main.clone();
+    let call = std::thread::spawn(move || {
+        let answer = invoke(
+            &calling,
+            "call",
+            InvokeBody::Raw(open_reference_part_frame()),
+            HeaderMap::new(),
+        );
+        (std::time::Instant::now(), raw_answer(answer))
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let canceled = invoke(
+        &main,
+        "cancel_call",
+        InvokeBody::Json(json!({ "request": 9 })),
+        HeaderMap::new(),
+    );
+    let cancel_answered = std::time::Instant::now();
+    let (call_answered, bytes) = call.join().expect("the calling thread finishes");
+
+    assert_eq!(json_answer(canceled), Value::Null);
+    assert!(
+        cancel_answered < call_answered,
+        "the cancel_call response arrives before the call response"
+    );
+    assert!(
+        holds_not_run(&response_frame(&bytes)),
+        "the stopped open reports not_run"
     );
 }

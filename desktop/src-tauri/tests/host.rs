@@ -1,4 +1,4 @@
-//! Acceptance tests for `Host` (desktop.md section 6, tests 1 to 7): one engine session behind the `call` command, serialized calls and the display option.
+//! Acceptance tests for `Host` (desktop.md section 6, tests 1 to 7, 75 and 76): one engine session behind the `call` command, serialized calls, the display option, and `Host::cancel`, which stops the running call without its lock.
 
 use crate::common;
 
@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::thread;
 
 use common::{
-    EXAMPLE_A_VERSION_OFFSET, error_info, example_a, new_document_frame, ok_result, request_frame,
-    response_frame,
+    EXAMPLE_A_VERSION_OFFSET, error_info, example_a, new_document_frame, ok_result,
+    reference_part_text, request_frame, response_frame,
 };
 use partsmith_desktop::Host;
 use partsmith_engine::{ENGINE_VERSION, SessionOptions};
 use partsmith_protocol::{
-    Command, CommandResult, DocHandle, ErrorCode, Event, FrameError, ResponseFrame,
+    Command, CommandResult, DocHandle, ErrorCode, Event, FeatureState, FrameError, ResponseFrame,
 };
 
 /// Threads sending requests at once in test 5.
@@ -198,4 +198,61 @@ fn t007_a_headless_host_produces_no_display_meshes() {
         !has_body_mesh(&frame),
         "a headless session sends no body_mesh"
     );
+}
+
+/// How long after thread A starts the test thread cancels (tests 75 and 76).
+const CANCEL_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The most `Host::cancel` may take in test 75.
+const CANCEL_RETURN: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// Whether a response frame's `recomputed` event holds a `not_run` status.
+fn holds_not_run(frame: &ResponseFrame) -> bool {
+    frame.events.iter().any(|event| match event {
+        Event::Recomputed { features, .. } => features
+            .iter()
+            .any(|status| status.status == FeatureState::NotRun),
+        _ => false,
+    })
+}
+
+/// Thread A calls `open_document` of the reference part as request 9 on `host`; 50 ms after it started, the test
+/// thread calls `host.cancel(request)`. Returns how long `cancel` took, whether thread A still ran when it returned,
+/// and thread A's response frame.
+fn open_reference_part_and_cancel(request: u64) -> (std::time::Duration, bool, ResponseFrame) {
+    let host = Arc::new(headless_host());
+    let frame = request_frame(
+        9,
+        Command::OpenDocument {
+            text: reference_part_text(),
+            assets: Vec::new(),
+        },
+    );
+    let calling = Arc::clone(&host);
+    let thread_a = thread::spawn(move || calling.call(&frame));
+    thread::sleep(CANCEL_DELAY);
+
+    let start = std::time::Instant::now();
+    host.cancel(request);
+    let took = start.elapsed();
+    let still_running = !thread_a.is_finished();
+
+    let bytes = thread_a.join().expect("thread A finishes");
+    (took, still_running, response_frame(&bytes))
+}
+
+#[test]
+fn t075_cancel_takes_no_lock_and_stops_the_running_call() {
+    let (took, still_running, frame) = open_reference_part_and_cancel(9);
+
+    assert!(took <= CANCEL_RETURN, "cancel took {took:?}");
+    assert!(still_running, "thread A still ran when cancel returned");
+    assert!(holds_not_run(&frame), "the open stopped with not_run");
+}
+
+#[test]
+fn t076_cancel_of_another_id_stops_nothing() {
+    let (_took, _still_running, frame) = open_reference_part_and_cancel(8);
+
+    assert!(!holds_not_run(&frame), "request 9 is not request 8");
 }

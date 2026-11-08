@@ -5,6 +5,7 @@
 mod common;
 mod corpus;
 
+mod cancel;
 mod diagnostics_and_repairs;
 mod display_and_elements;
 mod documents;

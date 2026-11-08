@@ -1,7 +1,7 @@
 //! Test-only feature types.
 //!
-//! The first four are the ones recompute.md section 6 defines (`test_panic`, `test_wait`,
-//! `test_peek`, `test_stray`). The others are small features that let the runner be exercised
+//! The first five are the ones recompute.md section 6 defines (`test_panic`, `test_wait`,
+//! `test_peek`, `test_stray`, and since M2 `test_kernel_wait`). The others are small features that let the runner be exercised
 //! without the built-in feature pipelines: datum outputs (`test_datum`), bodies that hold a real
 //! kernel solid (`test_block`, optionally with direct-generator names on its edges), body readers (`test_probe`), a node with arbitrary links
 //! (`test_node`), an asset reader (`test_asset`), a feature that updates one body twice
@@ -19,7 +19,7 @@ use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
 use partsmith_naming::{Motion, NamingMap};
-use partsmith_occt_sys::{Plane, make_box};
+use partsmith_occt_sys::{Plane, make_box, wait_for_interrupt};
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ const WAIT_LIMIT: Duration = Duration::from_secs(10);
 /// How often `test_wait` checks for cancellation (recompute.md section 6).
 const WAIT_POLL: Duration = Duration::from_millis(1);
 
-/// Registers the four test features of recompute.md section 6.
+/// Registers the five test features of recompute.md section 6.
 pub fn register_spec_features(registry: &mut Registry) {
     registry
         .register::<TestPanic>()
@@ -65,6 +65,9 @@ pub fn register_spec_features(registry: &mut Registry) {
     registry
         .register::<TestStray>()
         .expect("test_stray registers");
+    registry
+        .register::<TestKernelWait>()
+        .expect("test_kernel_wait registers");
 }
 
 /// Registers the runner test features (everything in this module except the spec's four).
@@ -263,6 +266,32 @@ impl Feature for TestWait {
             }
             std::thread::sleep(WAIT_POLL);
         }
+        Ok(output(OutputData::Nothing))
+    }
+}
+
+/// `test_kernel_wait` (since M2): params `{}`; no dependencies; `build` calls the kernel's
+/// `wait_for_interrupt(ctx.interrupt(), 10 s)` and returns its error as a `FeatureError`, else
+/// `Ok(Nothing)` (recompute.md section 6, test 78).
+pub struct TestKernelWait;
+
+impl Feature for TestKernelWait {
+    const TYPE: &'static str = "test_kernel_wait";
+    type Params = TestNoParams;
+
+    fn manifest() -> FeatureManifest {
+        manifest("Test kernel wait", "test-kernel-wait", Vec::new())
+    }
+
+    fn dependencies(_params: &TestNoParams) -> Dependencies {
+        no_dependencies()
+    }
+
+    fn build(
+        _params: &TestNoParams,
+        context: &BuildContext<'_>,
+    ) -> Result<FeatureOutput, FeatureError> {
+        wait_for_interrupt(context.interrupt(), WAIT_LIMIT)?;
         Ok(output(OutputData::Nothing))
     }
 }

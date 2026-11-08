@@ -142,7 +142,7 @@ fn expected_capability() -> Value {
     json!({
         "$schema": "../gen/schemas/desktop-schema.json",
         "identifier": "main",
-        "description": "The main window may call the engine, ask for files in native dialogs, use the files the user chose and the assets next to them, and report unsaved changes.",
+        "description": "The main window may call the engine, stop the call it runs, ask for files in native dialogs, use the files the user chose and the assets next to them, and report unsaved changes.",
         "windows": ["main"],
         "permissions": [
             "allow-call",
@@ -152,7 +152,8 @@ fn expected_capability() -> Value {
             "allow-write-file",
             "allow-read-asset",
             "allow-write-asset",
-            "allow-set-unsaved"
+            "allow-set-unsaved",
+            "allow-cancel-call"
         ]
     })
 }
