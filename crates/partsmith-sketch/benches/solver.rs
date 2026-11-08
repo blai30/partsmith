@@ -1,4 +1,4 @@
-//! Solver and profile benchmarks of spec section 5: `cargo bench -p partsmith-sketch --bench solver`.
+//! Solver, profile, union and chain benchmarks of spec section 5: `cargo bench -p partsmith-sketch --bench solver`.
 //!
 //! Each scenario runs 3 warm-up repetitions, then 21 measured repetitions; the drag scenario runs 5
 //! measured repetitions of 100 frames and pools all frames. Every scenario prints its median and
@@ -13,12 +13,14 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use benchmark::{
-    CHAIN_FREE_END, PLATE_PARAMS_JSON, chain_benchmark, entity_ids, first_cell, grid_benchmark,
-    long_outline_benchmark, redrawn_long_outline_benchmark, split_grid_benchmark,
+    CHAIN_FREE_END, LONG_OUTLINE_SEED, PLATE_PARAMS_JSON, chain_benchmark, entity_ids, first_cell,
+    grid_benchmark, long_outline_benchmark, long_outline_chain_key, redrawn_long_outline_benchmark,
+    split_grid_benchmark,
 };
 use partsmith_sketch::{
     ConstraintKind, DimensionValues, DragSession, DragTarget, Id, NativeSolver, PointRef, Region,
-    RegionRef, SketchParams, Solver, build_profile, match_region,
+    RegionRef, SketchParams, Solver, build_chain, build_profile, chain_through, match_region,
+    union_regions,
 };
 
 /// Unmeasured repetitions before each scenario.
@@ -179,11 +181,17 @@ fn main() -> ExitCode {
     let grid_regions = build_profile(&grid).regions;
     let grid_ids = entity_ids(&grid);
     let grid_references: Vec<RegionRef> = grid_regions.iter().map(Region::reference).collect();
+    let grid_union: Vec<&Region> = grid_regions.iter().collect();
     let split_grid = split_grid_benchmark();
     let split_regions = build_profile(&split_grid).regions;
     let split_ids = entity_ids(&split_grid);
     let first_cell_reference = grid_regions[first_cell(&grid_regions)].reference();
-    let long_outline_reference = build_profile(&long_outline_benchmark()).regions[0].reference();
+    let long_outline = long_outline_benchmark();
+    let long_outline_regions = build_profile(&long_outline).regions;
+    let long_outline_reference = long_outline_regions[0].reference();
+    let long_outline_union: Vec<&Region> = long_outline_regions.iter().collect();
+    let long_outline_key = long_outline_chain_key();
+    let long_outline_seed = Id::new(LONG_OUTLINE_SEED).expect("valid id");
     let redrawn = redrawn_long_outline_benchmark();
     let redrawn_regions = build_profile(&redrawn).regions;
     let redrawn_ids = entity_ids(&redrawn);
@@ -255,6 +263,30 @@ fn main() -> ExitCode {
             name: "match_region, redrawn long outline, the reference before",
             times: time(|| match_region(&redrawn_regions, &redrawn_ids, &long_outline_reference)),
             median_budget: Duration::from_millis(2),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "union_regions, the 722 regions of the grid",
+            times: time(|| union_regions(&grid_union)),
+            median_budget: Duration::from_micros(870),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "union_regions, the long outline",
+            times: time(|| union_regions(&long_outline_union)),
+            median_budget: Duration::from_micros(440),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "build_chain, the long outline as one closed chain",
+            times: time(|| build_chain(&long_outline, &long_outline_key)),
+            median_budget: Duration::from_millis(5),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "chain_through, the long outline from its first line",
+            times: time(|| chain_through(&long_outline, &long_outline_seed)),
+            median_budget: Duration::from_millis(5),
             maximum_budget: None,
         },
     ];

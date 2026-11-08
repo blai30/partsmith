@@ -6,6 +6,7 @@ mod common;
 
 mod benchmark_scenarios;
 mod boundary_matching;
+mod chains;
 mod cross_target;
 mod diagnosis;
 mod drag;
@@ -20,4 +21,5 @@ mod region_loops;
 mod regions;
 mod reserved;
 mod solve;
+mod union;
 mod validation;

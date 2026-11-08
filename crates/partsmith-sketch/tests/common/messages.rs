@@ -256,6 +256,18 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
             },
             Vec::new(),
         ),
+        (
+            SketchError::InvalidChainKey {
+                text: "e-1,,e-2".to_owned(),
+            },
+            Vec::new(),
+        ),
+        (
+            SketchError::InvalidChainFingerprint {
+                text: "s=0,0".to_owned(),
+            },
+            Vec::new(),
+        ),
     ]
 }
 
@@ -309,7 +321,7 @@ pub fn every_finding() -> Vec<ProfileFinding> {
 }
 
 /// The number of `SketchError` variants.
-pub const ERROR_VARIANTS: usize = 21;
+pub const ERROR_VARIANTS: usize = 23;
 
 /// The position of the error's variant among the `ERROR_VARIANTS` of `SketchError`. The match has no wildcard arm, so
 /// a new variant does not compile until it is counted here and given a sample in `every_error`.
@@ -336,6 +348,8 @@ pub fn error_variant(error: &SketchError) -> usize {
         SketchError::NonFiniteCursor => 18,
         SketchError::InvalidRegionKey { .. } => 19,
         SketchError::InvalidFingerprint { .. } => 20,
+        SketchError::InvalidChainKey { .. } => 21,
+        SketchError::InvalidChainFingerprint { .. } => 22,
     }
 }
 

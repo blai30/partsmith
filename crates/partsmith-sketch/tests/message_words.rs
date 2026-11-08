@@ -632,6 +632,8 @@ fn details_of_every_error_variant_list_their_fields_in_order() {
         "non_finite_cursor",
         r#"invalid_region_key text="""#,
         r#"invalid_fingerprint text="c=1,2""#,
+        r#"invalid_chain_key text="e-1,,e-2""#,
+        r#"invalid_chain_fingerprint text="s=0,0""#,
     ];
     let errors = every_error();
     assert_eq!(errors.len(), expected.len(), "one detail per variant");

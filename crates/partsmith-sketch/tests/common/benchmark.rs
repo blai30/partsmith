@@ -10,7 +10,7 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, TAU};
 
 use partsmith_sketch::{
-    ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, Expr, Geometry, Id,
+    ChainKey, ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, Expr, Geometry, Id,
     OriginPlane, PointRef, Region, SketchConstraint, SketchEntity, SketchParams, SketchPlane,
 };
 
@@ -412,6 +412,21 @@ pub fn redrawn_long_outline_benchmark() -> Vec<SketchEntity> {
     let deleted = entities.remove(0);
     entities.push(entity(REDRAWN_LINE, deleted.geometry, false));
     entities
+}
+
+/// The seed of the `chain_through` row of spec section 5.1: the first line of the long outline.
+pub const LONG_OUTLINE_SEED: &str = "e-p-0";
+
+/// The long outline as one closed chain, `e-p-0,e-p-1,...,e-p-999`: the key of the `build_chain` row of spec
+/// section 5.1.
+pub fn long_outline_chain_key() -> ChainKey {
+    let entries: Vec<String> = (0..LONG_OUTLINE_LINES)
+        .map(|i| format!("e-p-{i}"))
+        .collect();
+    entries
+        .join(",")
+        .parse()
+        .unwrap_or_else(|error| panic!("the long outline's chain key is valid: {error}"))
 }
 
 /// The ids of these entities, in their order: the `entities` argument of `match_region`.

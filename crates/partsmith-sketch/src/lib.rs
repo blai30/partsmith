@@ -20,6 +20,7 @@ mod reserved;
 mod solver;
 #[cfg(test)]
 mod test_support;
+mod union;
 mod union_find;
 mod validation;
 mod vector;
