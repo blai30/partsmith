@@ -1,18 +1,18 @@
 //! Acceptance tests for building, renaming, projecting and serializing naming maps (spec
-//! section 6, tests 33 to 55, 115, 123, 131 and 139).
+//! section 6, tests 33 to 55, 115, 123, 131, 139 and 168).
 
 use crate::common;
 
 use common::{
-    BOX_EDGE_NAMES, BOX_FACE_NAMES, BOX_VERTEX_NAMES, aliases, box_map, box_sources, box_topology,
-    build, build_on, build_with, cylinder_map, degenerate_edge_info, edge_info, face_info,
-    face_row_topology, faces_only_topology, from_indexed_sources, from_sources, id, map_from_json,
-    map_with_faces, name, names, names_of, new_source, sphere_map, successions, translation,
-    vertex_info,
+    BOX_EDGE_NAMES, BOX_FACE_NAMES, BOX_VERTEX_NAMES, MapInputs, aliases, box_map, box_sources,
+    box_topology, build_on, build_with, cylinder_map, cylinder_sources, cylinder_topology,
+    degenerate_edge_info, edge_info, face_info, face_row_topology, faces_only_topology,
+    from_indexed_sources, from_sources, id, map_from_json, map_with_faces, name, names, names_of,
+    new_source, sphere_map, sphere_topology, successions, translation, vertex_info,
 };
 use partsmith_naming::{
-    Aliases, ElementKind, FaceInfo, FaceSource, Fingerprint, GeometryKind, Instance, Motion,
-    NamingError, NamingMap, Successions, TopologyInfo,
+    Aliases, DirectSources, ElementKind, FaceInfo, FaceSource, Fingerprint, GeometryKind,
+    Instance, Motion, NamingError, NamingMap, Successions, TopologyInfo,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -57,45 +57,65 @@ fn inherited_with_successions(
     }))
 }
 
-/// Builds `sources` over a row of unit faces, every `From` source from `inherited`.
-fn build_from(inherited: &NamingMap, sources: Vec<FaceSource>) -> NamingMap {
+/// The inputs of `sources` over a row of unit faces, every `From` source from `inherited`.
+fn inputs_from(inherited: &NamingMap, sources: Vec<FaceSource>) -> MapInputs {
     let topology = face_row_topology(sources.len());
-    build_on(sources, &topology, &[inherited])
+    MapInputs::new(sources, topology, &[inherited])
 }
 
-/// Test 37: two pieces of one end cap, face 1 at x = 65 and face 2 at x = 15.
-fn split_end_cap_map() -> NamingMap {
+/// Builds `sources` over a row of unit faces, every `From` source from `inherited`.
+fn build_from(inherited: &NamingMap, sources: Vec<FaceSource>) -> NamingMap {
+    inputs_from(inherited, sources).build()
+}
+
+/// Test 37's inputs: two pieces of one end cap, face 1 at x = 65 and face 2 at x = 15.
+fn split_end_cap_inputs() -> MapInputs {
     let topology = faces_only_topology(&[
         "plane|n=0,0,1|c=65,25,30|a=1500",
         "plane|n=0,0,1|c=15,25,30|a=1500",
     ]);
-    build_on(
+    MapInputs::new(
         vec![
             from_sources(&["f-ext1/end-cap"]),
             from_sources(&["f-ext1/end-cap"]),
         ],
-        &topology,
+        topology,
         &[&map_with_faces(&["f-ext1/end-cap"])],
     )
 }
 
-/// Two pieces of `f-a/x` with the given fingerprints.
-fn two_pieces_map(first: &str, second: &str) -> NamingMap {
-    build_on(
+/// Test 37's map.
+fn split_end_cap_map() -> NamingMap {
+    split_end_cap_inputs().build()
+}
+
+/// The inputs of two pieces of `f-a/x` with the given fingerprints.
+fn two_pieces_inputs(first: &str, second: &str) -> MapInputs {
+    MapInputs::new(
         vec![from_sources(&["f-a/x"]), from_sources(&["f-a/x"])],
-        &faces_only_topology(&[first, second]),
+        faces_only_topology(&[first, second]),
         &[&map_with_faces(&["f-a/x"])],
     )
 }
 
-/// Test 38: equal centroids, face 1 with area 10 and face 2 with area 5.
-fn equal_centroid_map() -> NamingMap {
-    two_pieces_map("plane|n=0,0,1|c=0,0,0|a=10", "plane|n=0,0,1|c=0,0,0|a=5")
+/// Test 38's inputs: equal centroids, face 1 with area 10 and face 2 with area 5.
+fn equal_centroid_inputs() -> MapInputs {
+    two_pieces_inputs("plane|n=0,0,1|c=0,0,0|a=10", "plane|n=0,0,1|c=0,0,0|a=5")
 }
 
-/// Test 38: equal centroids and equal areas.
+/// Test 38's map with equal centroids.
+fn equal_centroid_map() -> NamingMap {
+    equal_centroid_inputs().build()
+}
+
+/// Test 38's inputs: equal centroids and equal areas.
+fn equal_centroid_and_area_inputs() -> MapInputs {
+    two_pieces_inputs("plane|n=0,0,1|c=0,0,0|a=5", "plane|n=0,0,1|c=0,0,0|a=5")
+}
+
+/// Test 38's map with equal centroids and equal areas.
 fn equal_centroid_and_area_map() -> NamingMap {
-    two_pieces_map("plane|n=0,0,1|c=0,0,0|a=5", "plane|n=0,0,1|c=0,0,0|a=5")
+    equal_centroid_and_area_inputs().build()
 }
 
 /// A plane fingerprint at `(x, 0, 0)` with the given area, not rounded to text precision.
@@ -110,9 +130,10 @@ fn unrounded_plane(x: f64, size: f64) -> Fingerprint {
     }
 }
 
-/// Test 39: face 1 at x = 1.0000004 with size 1, face 2 at x = 1.0000001 with size 2. Unquantized,
-/// face 2 would come first by x; quantized, x is equal and the smaller size (face 1) comes first.
-fn quantization_map() -> NamingMap {
+/// Test 39's inputs: face 1 at x = 1.0000004 with size 1, face 2 at x = 1.0000001 with size 2.
+/// Unquantized, face 2 would come first by x; quantized, x is equal and the smaller size (face 1)
+/// comes first.
+fn quantization_inputs() -> MapInputs {
     let topology = TopologyInfo {
         faces: vec![
             FaceInfo {
@@ -127,24 +148,34 @@ fn quantization_map() -> NamingMap {
         edges: Vec::new(),
         vertices: Vec::new(),
     };
-    build_on(
+    MapInputs::new(
         vec![from_sources(&["f-a/x"]), from_sources(&["f-a/x"])],
-        &topology,
+        topology,
         &[&map_with_faces(&["f-a/x"])],
     )
 }
 
-/// Test 40: one face from an inherited piece.
-fn inherited_suffix_map() -> NamingMap {
-    build_from(
+/// Test 39's map.
+fn quantization_map() -> NamingMap {
+    quantization_inputs().build()
+}
+
+/// Test 40's inputs: one face from an inherited piece.
+fn inherited_suffix_inputs() -> MapInputs {
+    inputs_from(
         &map_with_faces(&["f-ext1/end-cap#2"]),
         vec![from_sources(&["f-ext1/end-cap#2"])],
     )
 }
 
-/// Test 41: face 1 from `f-a/x#1`, faces 2 and 3 new `f-a/x`, at x = 0, 1 and 2.
-fn second_pass_map() -> NamingMap {
-    build_from(
+/// Test 40's map.
+fn inherited_suffix_map() -> NamingMap {
+    inherited_suffix_inputs().build()
+}
+
+/// Test 41's inputs: face 1 from `f-a/x#1`, faces 2 and 3 new `f-a/x`, at x = 0, 1 and 2.
+fn second_pass_inputs() -> MapInputs {
+    inputs_from(
         &map_with_faces(&["f-a/x#1"]),
         vec![
             from_sources(&["f-a/x#1"]),
@@ -154,41 +185,66 @@ fn second_pass_map() -> NamingMap {
     )
 }
 
-/// Test 42: one face merged from two end caps.
-fn merge_map() -> NamingMap {
-    build_from(
+/// Test 41's map.
+fn second_pass_map() -> NamingMap {
+    second_pass_inputs().build()
+}
+
+/// Test 42's inputs: one face merged from two end caps.
+fn merge_inputs() -> MapInputs {
+    inputs_from(
         &map_with_faces(&["f-ext1/end-cap", "f-ext2/end-cap"]),
         vec![from_sources(&["f-ext2/end-cap", "f-ext1/end-cap"])],
     )
 }
 
-/// Test 43: two pieces of one face rejoined.
-fn rejoin_map() -> NamingMap {
-    build_from(
+/// Test 42's map.
+fn merge_map() -> NamingMap {
+    merge_inputs().build()
+}
+
+/// Test 43's inputs: two pieces of one face rejoined.
+fn rejoin_inputs() -> MapInputs {
+    inputs_from(
         &map_with_faces(&["f-a/x#1", "f-a/x#2"]),
         vec![from_sources(&["f-a/x#1", "f-a/x#2"])],
     )
 }
 
-/// Test 44: pieces of two different faces merged.
-fn merge_of_pieces_map() -> NamingMap {
-    build_from(
+/// Test 43's map.
+fn rejoin_map() -> NamingMap {
+    rejoin_inputs().build()
+}
+
+/// Test 44's inputs: pieces of two different faces merged.
+fn merge_of_pieces_inputs() -> MapInputs {
+    inputs_from(
         &map_with_faces(&["f-a/x#1", "f-b/y#2"]),
         vec![from_sources(&["f-b/y#2", "f-a/x#1"])],
     )
 }
 
-/// Test 45: an inherited alias to a face that merges into another.
-fn alias_carry_map() -> NamingMap {
-    build_from(
+/// Test 44's map.
+fn merge_of_pieces_map() -> NamingMap {
+    merge_of_pieces_inputs().build()
+}
+
+/// Test 45's inputs: an inherited alias to a face that merges into another.
+fn alias_carry_inputs() -> MapInputs {
+    inputs_from(
         &inherited_with_aliases(&["f-a/x", "f-b/y"], &[("f-c/z", &["f-b/y"])]),
         vec![from_sources(&["f-b/y", "f-a/x"])],
     )
 }
 
-/// Test 46: builds `outputs` (each from one inherited face) on a map holding them and `alias`.
-fn pruning_map(alias: (&str, &[&str]), outputs: &[&str]) -> NamingMap {
-    build_from(
+/// Test 45's map.
+fn alias_carry_map() -> NamingMap {
+    alias_carry_inputs().build()
+}
+
+/// Test 46's inputs: `outputs` (each from one inherited face) on a map holding them and `alias`.
+fn pruning_inputs(alias: (&str, &[&str]), outputs: &[&str]) -> MapInputs {
+    inputs_from(
         &inherited_with_aliases(outputs, &[alias]),
         outputs
             .iter()
@@ -197,9 +253,14 @@ fn pruning_map(alias: (&str, &[&str]), outputs: &[&str]) -> NamingMap {
     )
 }
 
-/// Test 48: face 1 with a degenerate edge 1, a free edge 2 without faces, vertex 1 on face 1 and
-/// a free vertex 2 without faces.
-fn unnamed_elements_map() -> NamingMap {
+/// Test 46's map.
+fn pruning_map(alias: (&str, &[&str]), outputs: &[&str]) -> NamingMap {
+    pruning_inputs(alias, outputs).build()
+}
+
+/// Test 48's inputs: face 1 with a degenerate edge 1, a free edge 2 without faces, vertex 1 on
+/// face 1 and a free vertex 2 without faces.
+fn unnamed_elements_inputs() -> MapInputs {
     let topology = TopologyInfo {
         faces: vec![face_info(&[1], "plane|n=0,0,1|c=0,0,0|a=1")],
         edges: vec![
@@ -211,28 +272,107 @@ fn unnamed_elements_map() -> NamingMap {
             vertex_info(&[2], &[], "point|c=5,5,5"),
         ],
     };
-    build(vec![new_source("f-a/x")], &topology)
+    MapInputs::new(vec![new_source("f-a/x")], topology, &[])
+}
+
+/// Test 48's map.
+fn unnamed_elements_map() -> NamingMap {
+    unnamed_elements_inputs().build()
+}
+
+/// Test 49's inputs: one edge shared by three faces.
+fn non_manifold_inputs() -> MapInputs {
+    let topology = TopologyInfo {
+        faces: vec![
+            face_info(&[1], "plane|n=0,0,1|c=0,0,0|a=1"),
+            face_info(&[1], "plane|n=0,1,0|c=0,0,0|a=1"),
+            face_info(&[1], "plane|n=1,0,0|c=0,0,0|a=1"),
+        ],
+        edges: vec![edge_info(&[1, 2, 3], &[], "line|n=1,0,0|c=0,0,0|l=1")],
+        vertices: Vec::new(),
+    };
+    MapInputs::new(
+        vec![
+            new_source("f-c/z"),
+            new_source("f-a/x"),
+            new_source("f-b/y"),
+        ],
+        topology,
+        &[],
+    )
+}
+
+/// Test 50's inputs: two faces that meet along two edges, at x = 3 and x = 1.
+fn shared_face_pair_inputs() -> MapInputs {
+    let topology = TopologyInfo {
+        faces: vec![
+            face_info(&[1, 2], "plane|n=0,0,1|c=2,0,0|a=1"),
+            face_info(&[1, 2], "plane|n=0,1,0|c=2,0,0|a=1"),
+        ],
+        edges: vec![
+            edge_info(&[1, 2], &[], "line|n=1,0,0|c=3,0,0|l=1"),
+            edge_info(&[1, 2], &[], "line|n=1,0,0|c=1,0,0|l=1"),
+        ],
+        vertices: Vec::new(),
+    };
+    MapInputs::new(vec![new_source("f-a/x"), new_source("f-b/y")], topology, &[])
+}
+
+/// The inputs of every map built by tests 33 to 46.
+fn inputs_of_tests_33_to_46() -> Vec<MapInputs> {
+    vec![
+        MapInputs::new(box_sources(), box_topology(), &[]),
+        MapInputs::new(cylinder_sources(), cylinder_topology(), &[]),
+        MapInputs::new(vec![new_source("f-sph1/surface")], sphere_topology(), &[]),
+        split_end_cap_inputs(),
+        equal_centroid_inputs(),
+        equal_centroid_and_area_inputs(),
+        quantization_inputs(),
+        inherited_suffix_inputs(),
+        second_pass_inputs(),
+        merge_inputs(),
+        rejoin_inputs(),
+        merge_of_pieces_inputs(),
+        alias_carry_inputs(),
+        pruning_inputs(("f-c/z", &["f-b/y"]), &["f-a/x"]),
+        pruning_inputs(("f-c/z", &["f-b/y"]), &["f-b/y#2"]),
+    ]
 }
 
 /// Every map built by tests 33 to 46.
 fn maps_of_tests_33_to_46() -> Vec<NamingMap> {
-    vec![
-        box_map(),
-        cylinder_map(),
-        sphere_map(),
-        split_end_cap_map(),
-        equal_centroid_map(),
-        equal_centroid_and_area_map(),
-        quantization_map(),
-        inherited_suffix_map(),
-        second_pass_map(),
-        merge_map(),
-        rejoin_map(),
-        merge_of_pieces_map(),
-        alias_carry_map(),
-        pruning_map(("f-c/z", &["f-b/y"]), &["f-a/x"]),
-        pruning_map(("f-c/z", &["f-b/y"]), &["f-b/y#2"]),
-    ]
+    inputs_of_tests_33_to_46()
+        .iter()
+        .map(MapInputs::build)
+        .collect()
+}
+
+/// The inputs of every map built by tests 33 to 53, before copies and projections: those of tests
+/// 33 to 46, the further pruning cases of test 46, tests 48 to 50 and the order tests of test 51.
+fn inputs_of_tests_33_to_53() -> Vec<MapInputs> {
+    let order_maps = order_test_maps();
+    let mut inputs = inputs_of_tests_33_to_46();
+    inputs.extend([
+        pruning_inputs(("f-c/z#2", &["f-a/x"]), &["f-c/z#2"]),
+        pruning_inputs(("f-c/z#2", &["f-a/x"]), &["f-c/z#1", "f-a/x"]),
+        pruning_inputs(("f-c/z", &["f-a/x#2"]), &["f-a/x#2#1"]),
+        pruning_inputs(("f-c/z", &["f-a/x#2"]), &["f-a/x#1"]),
+        unnamed_elements_inputs(),
+        non_manifold_inputs(),
+        shared_face_pair_inputs(),
+        order_test_inputs(&order_maps, &[0, 1, 2, 3]),
+        order_test_inputs(&order_maps, &[2, 0, 3, 1]),
+    ]);
+    inputs
+}
+
+/// Asserts that a serialized map has no `direct` key (spec section 2.6).
+fn assert_no_direct_key(map: &NamingMap) {
+    let value = serde_json::to_value(map).expect("a naming map serializes");
+    assert!(
+        value.get("direct").is_none(),
+        "a map without direct-generator names has no direct key, got {value}"
+    );
 }
 
 /// Test 131: an extrude's faces with the succession of a replaced line.
@@ -282,10 +422,15 @@ fn order_test_sources(order: &[u32]) -> Vec<FaceSource> {
     ]
 }
 
+/// The inputs of the order test faces over `maps` taken in `order` (original indices).
+fn order_test_inputs(maps: &[NamingMap], order: &[u32]) -> MapInputs {
+    let inherited: Vec<&NamingMap> = order.iter().map(|map| &maps[*map as usize]).collect();
+    MapInputs::new(order_test_sources(order), face_row_topology(4), &inherited)
+}
+
 /// Builds the order test faces over `maps` taken in `order` (original indices).
 fn build_in_order(maps: &[NamingMap], order: &[u32]) -> NamingMap {
-    let inherited: Vec<&NamingMap> = order.iter().map(|map| &maps[*map as usize]).collect();
-    build_on(order_test_sources(order), &face_row_topology(4), &inherited)
+    order_test_inputs(maps, order).build()
 }
 
 /// The 12 numbers of a JSON motion, or a panic.
@@ -690,24 +835,7 @@ fn t048_vertex_without_faces_is_unnamed() {
 
 #[test]
 fn t049_non_manifold_edge_names_all_three_faces() {
-    let topology = TopologyInfo {
-        faces: vec![
-            face_info(&[1], "plane|n=0,0,1|c=0,0,0|a=1"),
-            face_info(&[1], "plane|n=0,1,0|c=0,0,0|a=1"),
-            face_info(&[1], "plane|n=1,0,0|c=0,0,0|a=1"),
-        ],
-        edges: vec![edge_info(&[1, 2, 3], &[], "line|n=1,0,0|c=0,0,0|l=1")],
-        vertices: Vec::new(),
-    };
-
-    let map = build(
-        vec![
-            new_source("f-c/z"),
-            new_source("f-a/x"),
-            new_source("f-b/y"),
-        ],
-        &topology,
-    );
+    let map = non_manifold_inputs().build();
 
     assert_eq!(
         names_of(&map, ElementKind::Edge),
@@ -717,19 +845,7 @@ fn t049_non_manifold_edge_names_all_three_faces() {
 
 #[test]
 fn t050_edges_sharing_face_pair_are_numbered_by_centroid() {
-    let topology = TopologyInfo {
-        faces: vec![
-            face_info(&[1, 2], "plane|n=0,0,1|c=2,0,0|a=1"),
-            face_info(&[1, 2], "plane|n=0,1,0|c=2,0,0|a=1"),
-        ],
-        edges: vec![
-            edge_info(&[1, 2], &[], "line|n=1,0,0|c=3,0,0|l=1"),
-            edge_info(&[1, 2], &[], "line|n=1,0,0|c=1,0,0|l=1"),
-        ],
-        vertices: Vec::new(),
-    };
-
-    let map = build(vec![new_source("f-a/x"), new_source("f-b/y")], &topology);
+    let map = shared_face_pair_inputs().build();
 
     assert_eq!(
         names_of(&map, ElementKind::Edge),
@@ -1011,6 +1127,60 @@ fn t055_deserializing_face_name_in_edges_fails() {
             .contains(r#""f-a/x" is not a valid element name"#),
         "the error must be InvalidName for \"f-a/x\", got: {error}"
     );
+}
+
+#[test]
+fn t168_build_with_direct_without_sources_gives_every_m1_map() {
+    for inputs in inputs_of_tests_33_to_53() {
+        let built = inputs.build();
+
+        let with_direct = inputs.build_with_direct(DirectSources::default());
+
+        assert_eq!(with_direct, built);
+        assert_no_direct_key(&with_direct);
+    }
+}
+
+#[test]
+fn t168_copies_moves_and_projections_of_m1_maps_have_no_direct_names() {
+    let box_inputs = MapInputs::new(box_sources(), box_topology(), &[]);
+    let built = box_inputs.build();
+    let with_direct = box_inputs.build_with_direct(DirectSources::default());
+    let transform = translation(40.0, 0.0, 0.0);
+
+    let copies = [
+        (
+            with_direct.with_instance(&id("f-pat1"), FIRST_INSTANCE, &transform),
+            built.with_instance(&id("f-pat1"), FIRST_INSTANCE, &transform),
+        ),
+        (
+            with_direct.project(&[6, 3], &[2], &[2]),
+            built.project(&[6, 3], &[2], &[2]),
+        ),
+    ];
+
+    for (from_direct, from_build) in copies {
+        let copy = from_direct.expect("the BOX map has this copy");
+        assert_eq!(Ok(&copy), from_build.as_ref());
+        assert_no_direct_key(&copy);
+    }
+    let moved = with_direct.moved(&transform);
+    assert_eq!(moved, built.moved(&transform));
+    assert_no_direct_key(&moved);
+}
+
+#[test]
+fn t168_m1_maps_hold_no_direct_generator_names() {
+    for map in maps_of_tests_33_to_46() {
+        for kind in [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex] {
+            for index in 1..=map.count(kind) {
+                assert!(
+                    map.direct(kind, index).is_empty(),
+                    "{kind:?} {index} of an M1 map holds no direct-generator name"
+                );
+            }
+        }
+    }
 }
 
 #[test]

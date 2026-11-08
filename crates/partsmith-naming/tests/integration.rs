@@ -6,6 +6,8 @@ mod common;
 mod oracle;
 
 mod aliases;
+mod direct_names;
+mod direct_resolving;
 mod element_infos;
 mod fingerprints;
 mod motions;

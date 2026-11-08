@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    Aliases, Anchors, Candidate, EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet,
-    FaceInfo, FaceSource, Fingerprint, Follow, GeometryKind, Lost, MatchMethod, Merged, MergedName,
-    Motion, NamingMap, Reference, Resolution, Successions, TopologyInfo, VertexInfo,
+    Aliases, Anchors, Candidate, DirectSource, DirectSources, EdgeInfo, ElementInfo, ElementKind,
+    ElementName, ElementSet, FaceInfo, FaceSource, Fingerprint, Follow, GeometryKind, Lost,
+    MatchMethod, Merged, MergedName, Motion, NamingError, NamingMap, Reference, Resolution,
+    Successions, TopologyInfo, VertexInfo,
 };
 use proptest::prelude::*;
 use serde_json::Value;
@@ -140,6 +141,23 @@ pub fn reference(query: &str, fingerprint_text: &str) -> Reference {
 /// A reference to `query` with the default fingerprint of its kind (spec section 6).
 pub fn query(text: &str) -> Reference {
     reference(text, default_fingerprint(name(text).kind()))
+}
+
+/// Asserts that `text` fails to deserialize as a reference with `InvalidReference` for `query`
+/// and this reason (spec section 4).
+pub fn assert_invalid_reference(text: &str, query: &str, reason: &str) {
+    let expected = NamingError::InvalidReference {
+        name: query.to_owned(),
+        reason: reason.to_owned(),
+    };
+
+    let error =
+        serde_json::from_str::<Reference>(text).expect_err("the reference must be rejected");
+
+    assert!(
+        error.to_string().contains(&expected.to_string()),
+        "{text} must fail with {expected}, got: {error}"
+    );
 }
 
 /// The same reference with these anchors: `(part, anchor names)` pairs.
@@ -547,6 +565,300 @@ pub fn sphere_map() -> NamingMap {
     build(vec![new_source("f-sph1/surface")], &sphere_topology())
 }
 
+/// Everything `NamingMap::build` takes, kept so that a test can build the same map again with
+/// `NamingMap::build_with_direct` (spec test 168).
+pub struct MapInputs {
+    /// One source per face.
+    pub faces: Vec<FaceSource>,
+    /// The topology of the shape.
+    pub topology: TopologyInfo,
+    /// The inherited maps, in order.
+    pub inherited: Vec<NamingMap>,
+    /// The added successions.
+    pub successions: Successions,
+    /// The motion of new faces.
+    pub motion: Motion,
+}
+
+impl MapInputs {
+    /// Inputs on inherited maps, without added successions and with the identity as the new motion
+    /// (spec section 6, "Sources in building tests").
+    pub fn new(faces: Vec<FaceSource>, topology: TopologyInfo, inherited: &[&NamingMap]) -> Self {
+        MapInputs {
+            faces,
+            topology,
+            inherited: inherited.iter().map(|map| (*map).clone()).collect(),
+            successions: Successions::default(),
+            motion: Motion::IDENTITY,
+        }
+    }
+
+    /// The same inputs with these added successions.
+    pub fn with_successions(self, successions: Successions) -> Self {
+        MapInputs {
+            successions,
+            ..self
+        }
+    }
+
+    /// The map `NamingMap::build` gives for these inputs.
+    pub fn build(&self) -> NamingMap {
+        build_with(
+            self.faces.clone(),
+            &self.topology,
+            &self.inherited.iter().collect::<Vec<_>>(),
+            &self.successions,
+            &self.motion,
+        )
+    }
+
+    /// The map `NamingMap::build_with_direct` gives for these inputs and `direct`.
+    pub fn build_with_direct(&self, direct: DirectSources) -> NamingMap {
+        NamingMap::build_with_direct(
+            self.faces.clone(),
+            direct,
+            &self.topology,
+            &self.inherited.iter().collect::<Vec<_>>(),
+            &self.successions,
+            &self.motion,
+        )
+        .unwrap_or_else(|error| panic!("the fixture builds with direct sources, got {error:?}"))
+    }
+}
+
+/// `DirectSource::New` of a direct-generator name (spec section 2.5).
+pub fn new_direct(text: &str) -> DirectSource {
+    DirectSource::New(name(text))
+}
+
+/// `DirectSource::From` of `(inherited map index, element index)` pairs (spec section 2.5).
+pub fn from_direct(sources: &[(u32, u32)]) -> DirectSource {
+    DirectSource::From(sources.to_vec())
+}
+
+/// Direct sources with these lists for the edges and the vertices.
+pub fn direct_sources(edges: Vec<DirectSource>, vertices: Vec<DirectSource>) -> DirectSources {
+    DirectSources { edges, vertices }
+}
+
+/// `NamingMap::build_with_direct` on inherited maps, without added successions and with the
+/// identity as the new motion.
+pub fn try_build_direct(
+    faces: Vec<FaceSource>,
+    direct: DirectSources,
+    topology: &TopologyInfo,
+    inherited: &[&NamingMap],
+) -> Result<NamingMap, NamingError> {
+    NamingMap::build_with_direct(
+        faces,
+        direct,
+        topology,
+        inherited,
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
+}
+
+/// `try_build_direct` of inputs the test knows to be valid.
+pub fn build_direct(
+    faces: Vec<FaceSource>,
+    direct: DirectSources,
+    topology: &TopologyInfo,
+    inherited: &[&NamingMap],
+) -> NamingMap {
+    try_build_direct(faces, direct, topology, inherited)
+        .unwrap_or_else(|error| panic!("the fixture builds with direct sources, got {error:?}"))
+}
+
+/// The direct-generator names element `index` of `kind` holds, as text.
+pub fn direct_of(map: &NamingMap, kind: ElementKind, index: u32) -> Vec<&str> {
+    map.direct(kind, index)
+        .iter()
+        .map(ElementName::as_str)
+        .collect()
+}
+
+/// WIRE topology: a wire 10 mm long on +X, one edge and its two vertices, no faces (spec section
+/// 6).
+pub fn wire_topology() -> TopologyInfo {
+    TopologyInfo {
+        faces: Vec::new(),
+        edges: vec![edge_info(&[], &[1, 2], "line|n=1,0,0|c=5,0,0|l=10")],
+        vertices: vec![
+            vertex_info(&[1], &[], "point|c=0,0,0"),
+            vertex_info(&[1], &[], "point|c=10,0,0"),
+        ],
+    }
+}
+
+/// The WIRE map: the edge `New(edge:f-hel1/helix)`, vertex 1 `New(vertex:f-hel1/start)` and
+/// vertex 2 `New(vertex:f-hel1/end)` (spec section 6).
+pub fn wire_map() -> NamingMap {
+    build_direct(
+        Vec::new(),
+        direct_sources(
+            vec![new_direct("edge:f-hel1/helix")],
+            vec![
+                new_direct("vertex:f-hel1/start"),
+                new_direct("vertex:f-hel1/end"),
+            ],
+        ),
+        &wire_topology(),
+        &[],
+    )
+}
+
+/// A map of WIRE topology whose edge holds `direct` alone and whose vertices are unnamed: an
+/// inherited map for the merge tests (spec tests 163 and 199).
+pub fn wire_map_holding(direct: &str) -> NamingMap {
+    build_direct(
+        Vec::new(),
+        direct_sources(vec![new_direct(direct)], Vec::new()),
+        &wire_topology(),
+        &[],
+    )
+}
+
+/// SPLIT WIRE topology: the wire split at x = 5 into two edges (spec section 6).
+pub fn split_wire_topology() -> TopologyInfo {
+    TopologyInfo {
+        faces: Vec::new(),
+        edges: vec![
+            edge_info(&[], &[1, 2], "line|n=1,0,0|c=2.5,0,0|l=5"),
+            edge_info(&[], &[2, 3], "line|n=1,0,0|c=7.5,0,0|l=5"),
+        ],
+        vertices: vec![
+            vertex_info(&[1], &[], "point|c=0,0,0"),
+            vertex_info(&[1, 2], &[], "point|c=5,0,0"),
+            vertex_info(&[2], &[], "point|c=10,0,0"),
+        ],
+    }
+}
+
+/// Test 161's map: SPLIT WIRE topology carried from the WIRE map, both edges from its edge,
+/// vertex 1 from its start, vertex 2 from nothing and vertex 3 from its end.
+pub fn split_wire_map() -> NamingMap {
+    build_direct(
+        Vec::new(),
+        direct_sources(
+            vec![from_direct(&[(0, 1)]), from_direct(&[(0, 1)])],
+            vec![
+                from_direct(&[(0, 1)]),
+                DirectSource::None,
+                from_direct(&[(0, 2)]),
+            ],
+        ),
+        &split_wire_topology(),
+        &[&wire_map()],
+    )
+}
+
+/// Test 163's map: the WIRE edge from the edges of two WIRE-shaped maps holding `first` (map 0)
+/// and `second` (map 1).
+pub fn merged_wire_map(first: &str, second: &str) -> NamingMap {
+    build_direct(
+        Vec::new(),
+        direct_sources(vec![from_direct(&[(0, 1), (1, 1)])], Vec::new()),
+        &wire_topology(),
+        &[&wire_map_holding(first), &wire_map_holding(second)],
+    )
+}
+
+/// PAIR topology: two faces that meet twice, along edge 1 at x = 3 and edge 2 at x = 1 (spec
+/// section 6).
+pub fn pair_topology() -> TopologyInfo {
+    TopologyInfo {
+        faces: vec![
+            face_info(&[1, 2], "plane|n=0,-1,0|c=2,0,5|a=20"),
+            face_info(&[1, 2], "cylinder|n=0,0,1|c=2,1,5|a=31.415927|r=1"),
+        ],
+        edges: vec![
+            edge_info(&[1, 2], &[1, 2], "line|n=0,0,1|c=3,0,5|l=10"),
+            edge_info(&[1, 2], &[3, 4], "line|n=0,0,1|c=1,0,5|l=10"),
+        ],
+        vertices: vec![
+            vertex_info(&[1], &[1, 2], "point|c=3,0,0"),
+            vertex_info(&[1], &[1, 2], "point|c=3,0,10"),
+            vertex_info(&[2], &[1, 2], "point|c=1,0,0"),
+            vertex_info(&[2], &[1, 2], "point|c=1,0,10"),
+        ],
+    }
+}
+
+/// PAIR sources: `New(f-a/x)` and `New(f-b/y)`.
+pub fn pair_sources() -> Vec<FaceSource> {
+    vec![new_source("f-a/x"), new_source("f-b/y")]
+}
+
+/// The PAIR map: edge 1 `New(edge:f-a/side/e-1.end)`, edge 2 `New(edge:f-a/side/e-1.start)`,
+/// vertices `None` (spec section 6).
+pub fn pair_map() -> NamingMap {
+    build_direct(
+        pair_sources(),
+        direct_sources(
+            vec![
+                new_direct("edge:f-a/side/e-1.end"),
+                new_direct("edge:f-a/side/e-1.start"),
+            ],
+            Vec::new(),
+        ),
+        &pair_topology(),
+        &[],
+    )
+}
+
+/// Test 160's topology: PAIR's two faces with edge 1 alone and its two vertices.
+pub fn single_pair_edge_topology() -> TopologyInfo {
+    TopologyInfo {
+        faces: vec![
+            face_info(&[1], "plane|n=0,-1,0|c=2,0,5|a=20"),
+            face_info(&[1], "cylinder|n=0,0,1|c=2,1,5|a=31.415927|r=1"),
+        ],
+        edges: vec![edge_info(&[1, 2], &[1, 2], "line|n=0,0,1|c=3,0,5|l=10")],
+        vertices: vec![
+            vertex_info(&[1], &[1, 2], "point|c=3,0,0"),
+            vertex_info(&[1], &[1, 2], "point|c=3,0,10"),
+        ],
+    }
+}
+
+/// Test 160's map: the faces and edge 1 of the PAIR map carried by history.
+pub fn single_pair_edge_map() -> NamingMap {
+    build_direct(
+        vec![from_sources(&["f-a/x"]), from_sources(&["f-b/y"])],
+        direct_sources(vec![from_direct(&[(0, 1)])], Vec::new()),
+        &single_pair_edge_topology(),
+        &[&pair_map()],
+    )
+}
+
+/// Test 188's map: PAIR topology with both edges `New(edge:f-a/side/e-1)`, so every
+/// direct-generator name it holds is order dependent too.
+pub fn numbered_pair_map() -> NamingMap {
+    build_direct(
+        pair_sources(),
+        direct_sources(
+            vec![
+                new_direct("edge:f-a/side/e-1"),
+                new_direct("edge:f-a/side/e-1"),
+            ],
+            Vec::new(),
+        ),
+        &pair_topology(),
+        &[],
+    )
+}
+
+/// The WIRE scope: the element set of the WIRE map's infos (spec section 6).
+pub fn wire_scope() -> ElementSet {
+    element_set_of_map(&wire_map(), &wire_topology())
+}
+
+/// The PAIR scope: the element set of the PAIR map's infos (spec section 6).
+pub fn pair_scope() -> ElementSet {
+    element_set_of_map(&pair_map(), &pair_topology())
+}
+
 /// One element info with every field given, without vertices.
 pub fn element_info(
     name_text: &str,
@@ -560,6 +872,7 @@ pub fn element_info(
         fingerprint: fingerprint(fingerprint_text),
         adjacency: names(adjacency),
         vertices: Vec::new(),
+        direct: Vec::new(),
     }
 }
 
@@ -575,6 +888,7 @@ pub fn scope_element(text: &str) -> ElementInfo {
         kind,
         fingerprint: fingerprint(default_fingerprint(kind)),
         vertices: Vec::new(),
+        direct: Vec::new(),
     }
 }
 
@@ -588,6 +902,8 @@ pub trait ScopeElement {
     fn with_sorted_adjacency<Face: AsRef<str>>(self, adjacency: &[Face]) -> Self;
     /// The same edge with these named vertices, as written.
     fn with_vertices(self, vertices: &[&str]) -> Self;
+    /// The same edge or vertex holding these direct-generator names, as written.
+    fn with_direct(self, direct: &[&str]) -> Self;
 }
 
 impl ScopeElement for ElementInfo {
@@ -614,6 +930,13 @@ impl ScopeElement for ElementInfo {
     fn with_vertices(self, vertices: &[&str]) -> Self {
         ElementInfo {
             vertices: names(vertices),
+            ..self
+        }
+    }
+
+    fn with_direct(self, direct: &[&str]) -> Self {
+        ElementInfo {
+            direct: names(direct),
             ..self
         }
     }

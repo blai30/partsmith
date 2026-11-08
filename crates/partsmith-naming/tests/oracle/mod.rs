@@ -762,6 +762,7 @@ impl Scenario {
                 )),
                 adjacency,
                 vertices: Vec::new(),
+                direct: Vec::new(),
             }
         });
         let edge_infos = self.touching.iter().map(|(first, second)| {
@@ -780,6 +781,7 @@ impl Scenario {
                 )),
                 adjacency,
                 vertices: Vec::new(),
+                direct: Vec::new(),
             }
         });
         face_infos.chain(edge_infos).collect()

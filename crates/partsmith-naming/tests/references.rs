@@ -5,7 +5,8 @@ use crate::common;
 
 use common::{
     ScopeElement, TOP_FINGERPRINT, TOP_FRONT_EDGE_FINGERPRINT, aliases, anchored_pieces_infos,
-    assert_follow, assert_resolved, box_scope, element_named, element_set, element_set_with,
+    assert_follow, assert_invalid_reference, assert_resolved, box_scope, element_named,
+    element_set, element_set_with,
     fingerprint, id, merged, merged_name, name, names, reference, resolved, scope_element,
     successions, with_anchors, with_merged,
 };
@@ -34,23 +35,6 @@ const MERGED_REFERENCE_COMPACT: &str = r#"{"q":"f-box1/top","fp":"plane|n=0,0,1|
 /// Deserializes a reference the test knows to be valid.
 fn parse_reference(text: &str) -> Reference {
     serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
-}
-
-/// Asserts that `text` fails to deserialize as a reference with `InvalidReference` for `query`
-/// and this reason (spec section 4).
-fn assert_invalid_reference(text: &str, query: &str, reason: &str) {
-    let expected = NamingError::InvalidReference {
-        name: query.to_owned(),
-        reason: reason.to_owned(),
-    };
-
-    let error =
-        serde_json::from_str::<Reference>(text).expect_err("the reference must be rejected");
-
-    assert!(
-        error.to_string().contains(&expected.to_string()),
-        "{text} must fail with {expected}, got: {error}"
-    );
 }
 
 /// The reason for an anchor list that breaks the list rules (spec section 4).
