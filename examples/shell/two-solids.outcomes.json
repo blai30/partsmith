@@ -1,0 +1,25 @@
+{
+  "scripts": [
+    {
+      "name": "farther-second-box",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/1",
+          "status": "resolved",
+          "elements": [
+            "f-box2/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

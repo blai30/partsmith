@@ -1,0 +1,54 @@
+{
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 25477.70126096071,
+      "area": 23556.45353016831,
+      "bounding_box": {
+        "min": [
+          -30.0,
+          -30.0,
+          -2.0
+        ],
+        "max": [
+          30.0,
+          30.0,
+          50.0
+        ]
+      },
+      "faces": 9
+    }
+  ]
+}

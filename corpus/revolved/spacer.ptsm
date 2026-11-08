@@ -1,0 +1,71 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-od", "name": "od", "expr": "12 mm"},
+    {"id": "p-length", "name": "length", "expr": "10 mm"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "od / 2", "height": "length", "op": "new"},
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-cyl1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=113.097336|adj=1,1"},
+        "fallback": {"origin": [0, 0, 10], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [0, 0], "radius": 3.2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=0,0|a=32.169909", "outline": "e-1"}
+        ]
+      },
+      "extent": {"kind": "through_all"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-cyl1/side|f-cyl1/top)", "fp": "circle|n=0,0,1|c=0,0,10|l=37.699112|r=6|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-cha2",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-cyl1/bottom|f-cyl1/side)", "fp": "circle|n=0,0,1|c=0,0,0|l=37.699112|r=6|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-cha3",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-cyl1/top|f-ext1/lateral/e-1)", "fp": "circle|n=0,0,1|c=0,0,10|l=20.106193|r=3.2|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.3"}
+    }
+  ]
+}

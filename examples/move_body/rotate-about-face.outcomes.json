@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-axis-cylinder",
+      "references": [
+        {
+          "feature": "f-mv1",
+          "field": "/rotation/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        }
+      ]
+    }
+  ]
+}

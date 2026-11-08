@@ -1,0 +1,22 @@
+{
+  "scripts": [
+    {
+      "name": "datum-after-import",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "ambiguous",
+          "elements": [
+            "f-imp1/face#1",
+            "f-imp1/face#2",
+            "f-imp1/face#3",
+            "f-imp1/face#4",
+            "f-imp1/face#5",
+            "f-imp1/face#6"
+          ]
+        }
+      ]
+    }
+  ]
+}

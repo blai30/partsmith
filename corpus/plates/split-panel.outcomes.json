@@ -1,0 +1,127 @@
+{
+  "scripts": [
+    {
+      "name": "block-further-left",
+      "references": [
+        {
+          "feature": "f-split1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box2/left"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back#1|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/right|f-box1/top#2)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top#2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "left-notch",
+      "references": [
+        {
+          "feature": "f-split1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box2/left"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/left#1)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back#1|f-box1/left#2)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/right|f-box1/top#2)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top#2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-piece",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "scripts": [
+    {
+      "name": "longer-rail",
+      "description": "The rail mount becomes 80 mm long instead of 60 mm.",
+      "edits": [
+        {
+          "type": "update_parameter",
+          "parameter": {
+            "id": "p-length",
+            "name": "length",
+            "expr": "80 mm"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-5"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+          "/edges/1": "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+          "/edges/1": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+        }
+      }
+    },
+    {
+      "name": "center-pocket",
+      "description": "A 2 mm deep pocket is cut into the middle of the top right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "10",
+              "20",
+              "2"
+            ],
+            "position": [
+              "0",
+              "0",
+              "6"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-5"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+          "/edges/1": "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+          "/edges/1": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+        }
+      }
+    },
+    {
+      "name": "no-fillets",
+      "description": "The inner fillets are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+                "fp": "line|n=0,1,0|c=12,0,3|l=60|adj=2,2"
+              },
+              {
+                "q": "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)",
+                "fp": "line|n=0,1,0|c=-12,0,3|l=60|adj=2,2"
+              }
+            ],
+            "radius": "1.5",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+          "/edges/1": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+        }
+      }
+    },
+    {
+      "name": "holes-last",
+      "description": "The counterbored holes move to the end of the timeline.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-hole1",
+          "index": 5
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)",
+          "/edges/1": "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
+          "/edges/1": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+        }
+      }
+    }
+  ]
+}

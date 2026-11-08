@@ -1,0 +1,115 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-flat",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#11"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "ambiguous",
+          "elements": [
+            "edge(f-imp1/face#3|f-imp1/face#4)",
+            "edge(f-imp1/face#4|f-imp1/face#5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "larger-rim-chamfer",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#11"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bore-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#11"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-flat",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#11"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "ambiguous",
+          "elements": [
+            "edge(f-imp1/face#3|f-imp1/face#4)",
+            "edge(f-imp1/face#3|f-imp1/face#6)",
+            "edge(f-imp1/face#4|f-imp1/face#5)"
+          ]
+        }
+      ]
+    }
+  ]
+}

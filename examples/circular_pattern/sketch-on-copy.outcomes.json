@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-peg",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top@f-cp1:2"
+          ]
+        }
+      ]
+    }
+  ]
+}

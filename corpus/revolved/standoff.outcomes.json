@@ -1,0 +1,134 @@
+{
+  "scripts": [
+    {
+      "name": "longer-standoff",
+      "references": [
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "longer-stud",
+      "references": [
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-stud",
+      "references": [
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    }
+  ]
+}

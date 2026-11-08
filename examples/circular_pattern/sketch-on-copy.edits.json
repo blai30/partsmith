@@ -1,0 +1,31 @@
+{
+  "scripts": [
+    {
+      "name": "taller-peg",
+      "description": "The patterned peg becomes 8 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "2",
+            "height": "8",
+            "position": [
+              "20",
+              "0",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-cyl1/top@f-cp1:2"
+        }
+      }
+    }
+  ]
+}

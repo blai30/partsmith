@@ -1,0 +1,165 @@
+{
+  "scripts": [
+    {
+      "name": "five-slots",
+      "description": "The cover gets five vent slots instead of seven.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-30,40|l=90|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "5",
+              "spacing": "10"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "taller-housing",
+      "description": "The cover becomes 50 mm tall instead of 40 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "90",
+              "60",
+              "50"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/bottom"
+        },
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "rounded-corners-first",
+      "description": "The four vertical corners are rounded right after the block.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-45,-30,20|l=40|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=45,-30,20|l=40|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-45,30,20|l=40|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=45,30,20|l=40|adj=2,2"
+              }
+            ],
+            "radius": "5"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/bottom"
+        },
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "one-slot",
+      "description": "The slot pattern is suppressed, leaving one slot.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-30,40|l=90|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "7",
+              "spacing": "10"
+            },
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-slot",
+      "references": [
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap#1",
+            "f-ext1/end-cap#2"
+          ]
+        }
+      ]
+    }
+  ]
+}

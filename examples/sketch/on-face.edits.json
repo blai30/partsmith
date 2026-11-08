@@ -1,0 +1,29 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "description": "The box becomes 20 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "10",
+              "10",
+              "20"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

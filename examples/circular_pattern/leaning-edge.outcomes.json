@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-wedge",
+      "references": [
+        {
+          "feature": "f-cp1",
+          "field": "/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext5/lateral/e-12|f-ext5/start-cap)"
+          ]
+        }
+      ]
+    }
+  ]
+}

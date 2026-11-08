@@ -1,0 +1,236 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-clip",
+      "description": "The clip and its tab become 8 mm thick instead of 6 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,~e-3,e-4",
+                  "fp": "c=-2.018994,0|a=164.933614",
+                  "outline": "e-1,e-2,~e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "8"
+            },
+            "op": "new"
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext2",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk2",
+              "regions": [
+                {
+                  "key": "e-5,e-6,e-7,e-8",
+                  "fp": "c=-13.5,0|a=30",
+                  "outline": "e-5,e-6,e-7,e-8"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "8"
+            },
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)"
+        }
+      }
+    },
+    {
+      "name": "wider-opening",
+      "description": "The clip's opening is redrawn at 40 degrees each side instead of 30.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sk1",
+            "type": "sketch",
+            "plane": {
+              "kind": "origin",
+              "plane": "XY"
+            },
+            "entities": [
+              {
+                "id": "e-1",
+                "type": "arc",
+                "center": [
+                  0,
+                  0
+                ],
+                "radius": 12,
+                "start_angle": 0.6981317007977318,
+                "end_angle": 5.585053606381854
+              },
+              {
+                "id": "e-2",
+                "type": "line",
+                "start": [
+                  9.192533317427737,
+                  -7.713451316238471
+                ],
+                "end": [
+                  6.894399988070802,
+                  -5.785088487178854
+                ]
+              },
+              {
+                "id": "e-3",
+                "type": "arc",
+                "center": [
+                  0,
+                  0
+                ],
+                "radius": 9,
+                "start_angle": 0.6981317007977318,
+                "end_angle": 5.585053606381854
+              },
+              {
+                "id": "e-4",
+                "type": "line",
+                "start": [
+                  6.894399988070802,
+                  5.785088487178854
+                ],
+                "end": [
+                  9.192533317427737,
+                  7.713451316238471
+                ]
+              }
+            ],
+            "constraints": [
+              {
+                "id": "c-1",
+                "type": "coincident",
+                "points": [
+                  "e-1.end",
+                  "e-2.start"
+                ]
+              },
+              {
+                "id": "c-2",
+                "type": "coincident",
+                "points": [
+                  "e-2.end",
+                  "e-3.end"
+                ]
+              },
+              {
+                "id": "c-3",
+                "type": "coincident",
+                "points": [
+                  "e-3.start",
+                  "e-4.start"
+                ]
+              },
+              {
+                "id": "c-4",
+                "type": "coincident",
+                "points": [
+                  "e-4.end",
+                  "e-1.start"
+                ]
+              },
+              {
+                "id": "c-5",
+                "type": "concentric",
+                "curves": [
+                  "e-1",
+                  "e-3"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)"
+        }
+      }
+    },
+    {
+      "name": "other-end-round-first",
+      "description": "The other end of the opening gets a 0.5 mm round right after the clip extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-4)",
+                "fp": "line|n=0.866025,0.5,0|c=9.093267,5.25,6|l=3|adj=2,2"
+              }
+            ],
+            "radius": "0.5"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)"
+        }
+      }
+    },
+    {
+      "name": "no-round",
+      "description": "The inner edge round is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-sk3": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)"
+        }
+      }
+    }
+  ]
+}

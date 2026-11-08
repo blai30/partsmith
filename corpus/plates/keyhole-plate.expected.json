@@ -1,0 +1,49 @@
+{
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 8959.164958752108,
+      "area": 5558.976677486855,
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -15.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          15.0,
+          4.000000000000002
+        ]
+      },
+      "faces": 26
+    }
+  ]
+}

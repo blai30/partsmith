@@ -1,0 +1,29 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cylinder",
+      "description": "The cylinder becomes 25 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "10",
+            "height": "25",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-fil2": {
+          "/edges/0": "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl1/top))"
+        }
+      }
+    }
+  ]
+}

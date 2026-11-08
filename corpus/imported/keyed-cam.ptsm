@@ -1,0 +1,79 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "9b4a2e2559a31ab9714ad0adc0ca4a91f3bfc420877e99ea98d9239f619489de.step",
+      "op": "new"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-imp1/face#6", "fp": "plane|n=0,0,1|c=0,0,14|a=126.449104|adj=2,2"},
+        "fallback": {"origin": [0, 0, 14], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [3, -1], "end": [5.5, -1]},
+        {"id": "e-2", "type": "line", "start": [5.5, -1], "end": [5.5, 1]},
+        {"id": "e-3", "type": "line", "start": [5.5, 1], "end": [3, 1]},
+        {"id": "e-4", "type": "line", "start": [3, 1], "end": [3, -1]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=4.25,0|a=5", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "through_all"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#1|f-imp1/face#7)", "fp": "circle|n=0,0,1|c=-6.20245,0,0|l=62.831853|r=15|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-2",
+      "radius": "2",
+      "height": "20",
+      "position": ["-9", "0", "-1"],
+      "op": "new"
+    },
+    {"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#4|f-imp1/face#8)", "fp": "circle|n=0,0,1|c=0.553083,0,8|l=46.993799|r=8|adj=2,2"}
+      ],
+      "radius": "0.5"
+    }
+  ]
+}

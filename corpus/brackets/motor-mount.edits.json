@@ -1,0 +1,143 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "description": "The face plate becomes 6 mm thick instead of 5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "60",
+              "6",
+              "60"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/back|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "top-corners-first",
+      "description": "The face plate's top corners are rounded right after the base.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/left|f-box1/top)",
+                "fp": "line|n=0,1,0|c=-30,0,60|l=5|adj=2,2",
+                "merged": {
+                  "f-box1/left": [
+                    "f-box2/left"
+                  ]
+                }
+              },
+              {
+                "q": "edge(f-box1/right|f-box1/top)",
+                "fp": "line|n=0,1,0|c=30,0,60|l=5|adj=2,2",
+                "merged": {
+                  "f-box1/right": [
+                    "f-box2/right"
+                  ]
+                }
+              }
+            ],
+            "radius": "8"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/back|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "no-counterbores",
+      "description": "The motor screw holes are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-hole1",
+            "type": "hole",
+            "body": "b-1",
+            "sketch": "f-sk1",
+            "points": [
+              "e-2",
+              "e-3",
+              "e-4",
+              "e-5"
+            ],
+            "diameter": "3.4",
+            "hole_type": {
+              "kind": "counterbore",
+              "diameter": "6.5",
+              "depth": "2"
+            },
+            "extent": {
+              "kind": "through_all"
+            },
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-box2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/back|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "fillet-first",
+      "description": "The inner fillet moves to right after the base.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-fil1",
+          "index": 2
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/back|f-box2/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box2/top"
+        }
+      }
+    }
+  ]
+}

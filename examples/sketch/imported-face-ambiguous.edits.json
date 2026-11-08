@@ -1,0 +1,28 @@
+{
+  "scripts": [
+    {
+      "name": "datum-after-import",
+      "description": "A datum plane 50 mm above the ground is added after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-dp90",
+            "type": "datum_plane",
+            "base": {
+              "kind": "origin",
+              "plane": "XY"
+            },
+            "offset": "50"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "lost"
+        }
+      }
+    }
+  ]
+}

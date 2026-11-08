@@ -1,0 +1,34 @@
+{
+  "scripts": [
+    {
+      "name": "taller-block",
+      "description": "The chamfered block becomes 15 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-2",
+            "size": [
+              "20",
+              "20",
+              "15"
+            ],
+            "position": [
+              "0",
+              "30",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box2/bottom|f-box2/front)"
+        }
+      }
+    }
+  ]
+}

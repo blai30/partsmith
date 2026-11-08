@@ -1,0 +1,99 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-walls",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/right"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mounting-ear",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/right"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "square-corners",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/right"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

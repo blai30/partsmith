@@ -1,0 +1,99 @@
+{
+  "scripts": [
+    {
+      "name": "wider-half",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-mir1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rounded-gusset",
+      "references": [
+        {
+          "feature": "f-mir1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-gusset",
+      "references": [
+        {
+          "feature": "f-mir1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/start-cap"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        }
+      ]
+    }
+  ]
+}

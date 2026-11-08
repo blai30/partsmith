@@ -1,0 +1,120 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-cover",
+      "description": "The cover becomes 4 mm thick instead of 3 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "100",
+              "60",
+              "4"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "description": "A 0.5 mm chamfer on the bottom front edge comes right after the plate.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha2",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/bottom|f-box1/front)",
+                "fp": "line|n=1,0,0|c=0,-30,0|l=100|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "no-openings",
+      "description": "The openings are removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-ext1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "chamfer-before-rounds",
+      "description": "The top chamfer moves before the corner rounds.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-cha1",
+          "index": 3
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    }
+  ]
+}

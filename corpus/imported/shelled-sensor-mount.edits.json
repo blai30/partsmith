@@ -1,0 +1,91 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-shell",
+      "description": "The walls become 1.6 mm thick instead of 1.2 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sh1",
+            "type": "shell",
+            "body": "b-1",
+            "thickness": "1.6",
+            "remove_faces": [
+              {
+                "q": "f-imp1/face#10",
+                "fp": "plane|n=0,0,-1|c=0,0,0|a=1192.274334|adj=8,8"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#11|f-imp1/face#7)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    },
+    {
+      "name": "base-notch-first",
+      "description": "A notch is cut into the bottom of the base's left end right after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "6",
+              "10",
+              "3"
+            ],
+            "position": [
+              "-20",
+              "0",
+              "-1"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-imp1/face#10"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#11|f-imp1/face#7)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    },
+    {
+      "name": "no-pad-hole",
+      "description": "The hole in the pad is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-hole1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    }
+  ]
+}

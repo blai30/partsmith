@@ -1,0 +1,58 @@
+{
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok"
+    },
+    {
+      "id": "f-box2",
+      "type": "box",
+      "status": "ok"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "status": "ok"
+    },
+    {
+      "id": "f-bool1",
+      "type": "boolean",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 16053.747779607693,
+      "area": 12385.965578993726,
+      "bounding_box": {
+        "min": [
+          -30.0,
+          -20.0,
+          -2.220446049250313e-16
+        ],
+        "max": [
+          30.0,
+          20.0,
+          19.0
+        ]
+      },
+      "faces": 40
+    },
+    {
+      "id": "b-2",
+      "empty": true
+    }
+  ]
+}

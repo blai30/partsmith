@@ -1,0 +1,154 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-lid",
+      "description": "The lid plate becomes 4 mm thick instead of 3 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "84",
+              "64",
+              "4"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "thumb-notch",
+      "description": "A 20 mm wide thumb notch is cut into the middle of the front edge right after the plate.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "4",
+              "3"
+            ],
+            "position": [
+              "0",
+              "-32",
+              "0"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front#1|f-box1/left)",
+          "/edges/1": "edge(f-box1/front#2|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-cha1": {
+          "/edges/0": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ]
+        }
+      }
+    },
+    {
+      "name": "square-corners",
+      "description": "The corner rounds are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-42,-32,1.5|l=3|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=42,-32,1.5|l=3|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-42,32,1.5|l=3|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=42,32,1.5|l=3|adj=2,2"
+              }
+            ],
+            "radius": "4",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "lip-last",
+      "description": "The lip moves after the top chamfer.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-ext1",
+          "index": 4
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

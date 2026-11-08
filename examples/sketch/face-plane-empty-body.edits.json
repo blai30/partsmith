@@ -1,0 +1,30 @@
+{
+  "scripts": [
+    {
+      "name": "cube-first",
+      "description": "A 10 mm cube named f-box2 is added to the empty body first.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 0,
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "10",
+              "10",
+              "10"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "lost"
+        }
+      }
+    }
+  ]
+}

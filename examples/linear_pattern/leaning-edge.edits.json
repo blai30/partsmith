@@ -1,0 +1,38 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-block",
+      "description": "The extruded block becomes 15 mm thick.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4",
+                  "fp": "c=20,10|a=800",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "15"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)"
+        }
+      }
+    }
+  ]
+}

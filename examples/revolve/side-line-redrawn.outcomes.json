@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "datum-first",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-9)"
+          ]
+        }
+      ]
+    }
+  ]
+}

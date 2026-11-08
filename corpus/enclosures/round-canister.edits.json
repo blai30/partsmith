@@ -1,0 +1,90 @@
+{
+  "scripts": [
+    {
+      "name": "taller-canister",
+      "description": "The canister becomes 60 mm tall instead of 50 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "30",
+            "height": "60",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/top"
+        },
+        "f-sk1": {
+          "/plane/face": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        }
+      }
+    },
+    {
+      "name": "side-window",
+      "description": "A 10 by 20 mm window is cut through the front wall right after the shell.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "10",
+              "6",
+              "20"
+            ],
+            "position": [
+              "0",
+              "-29",
+              "20"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        }
+      }
+    },
+    {
+      "name": "no-foot",
+      "description": "The foot is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-ext1"
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        }
+      }
+    }
+  ]
+}

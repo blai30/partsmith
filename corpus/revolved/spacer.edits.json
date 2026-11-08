@@ -1,0 +1,125 @@
+{
+  "scripts": [
+    {
+      "name": "longer-spacer",
+      "description": "The spacer becomes 15 mm long instead of 10 mm.",
+      "edits": [
+        {
+          "type": "update_parameter",
+          "parameter": {
+            "id": "p-length",
+            "name": "length",
+            "expr": "15 mm"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        },
+        "f-cha3": {
+          "/edges/0": "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "larger-spacer",
+      "description": "The outer diameter becomes 14 mm instead of 12 mm.",
+      "edits": [
+        {
+          "type": "update_parameter",
+          "parameter": {
+            "id": "p-od",
+            "name": "od",
+            "expr": "14 mm"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        },
+        "f-cha3": {
+          "/edges/0": "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "side-flat",
+      "description": "A flat is cut along one side right after the cylinder.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "4",
+              "20",
+              "20"
+            ],
+            "position": [
+              "7.5",
+              "0",
+              "0"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        },
+        "f-cha3": {
+          "/edges/0": "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "bore-chamfer-first",
+      "description": "The bore chamfer moves to right after the cylinder, before the bore exists.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-cha3",
+          "index": 1
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-cyl1/bottom|f-cyl1/side)"
+        },
+        "f-cha3": {
+          "/edges/0": "lost"
+        }
+      }
+    }
+  ]
+}

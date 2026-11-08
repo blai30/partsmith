@@ -1,0 +1,225 @@
+{
+  "scripts": [
+    {
+      "name": "larger-wheel",
+      "description": "The rim and tire grow from 25 mm to 28 mm radius, with longer spokes.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl2",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "28",
+            "height": "10",
+            "op": "new"
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sk1",
+            "type": "sketch",
+            "plane": {
+              "kind": "face",
+              "body": "b-2",
+              "face": {
+                "q": "f-cyl2/top",
+                "fp": "plane|n=0,0,1|c=0,0,10|a=1963.495408|adj=1,1"
+              },
+              "fallback": {
+                "origin": [
+                  0,
+                  0,
+                  10
+                ],
+                "x_axis": [
+                  1,
+                  0,
+                  0
+                ],
+                "normal": [
+                  0,
+                  0,
+                  1
+                ]
+              },
+              "fallback_frame": "body"
+            },
+            "entities": [
+              {
+                "id": "e-1",
+                "type": "circle",
+                "center": [
+                  0,
+                  0
+                ],
+                "radius": 25
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-3",
+            "size": [
+              "21",
+              "3",
+              "6"
+            ],
+            "position": [
+              "15.5",
+              "0",
+              "2"
+            ],
+            "op": "new"
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-tor1",
+            "type": "torus",
+            "body": "b-1",
+            "major_radius": "28",
+            "minor_radius": "3",
+            "plane": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-cyl2/top",
+                "fp": "plane|n=0,0,1|c=0,0,10|a=442.964564|adj=2,2"
+              }
+            },
+            "position": [
+              "0",
+              "0",
+              "-5"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl2/top"
+        },
+        "f-cp1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-tor1": {
+          "/plane/face": "f-cyl2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/top"
+        }
+      }
+    },
+    {
+      "name": "six-spokes",
+      "description": "The wheel gets six spokes instead of five.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cp1",
+            "type": "circular_pattern",
+            "body": "b-3",
+            "axis": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-cyl1/side",
+                "fp": "cylinder|n=0,0,1|c=0,0,5|a=376.991118|r=6|adj=2,3"
+              },
+              "direction": [
+                0,
+                0,
+                1
+              ]
+            },
+            "count": "6"
+          }
+        }
+      ],
+      "expect": {
+        "f-tor1": {
+          "/plane/face": "f-cyl2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/top"
+        }
+      }
+    },
+    {
+      "name": "hub-chamfer-first",
+      "description": "The hub's bottom edge gets a 0.5 mm chamfer right after the hub.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha1",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-cyl1/bottom|f-cyl1/side)",
+                "fp": "circle|n=0,0,1|c=0,0,0|l=37.699112|r=6|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl2/top"
+        },
+        "f-cp1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-tor1": {
+          "/plane/face": "f-cyl2/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/top"
+        }
+      }
+    },
+    {
+      "name": "no-tire",
+      "description": "The tire is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-tor1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-cyl1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/top"
+        }
+      }
+    }
+  ]
+}

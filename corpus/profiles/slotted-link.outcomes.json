@@ -1,0 +1,112 @@
+{
+  "scripts": [
+    {
+      "name": "longer-link",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thicker-link",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-round",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        }
+      ]
+    }
+  ]
+}

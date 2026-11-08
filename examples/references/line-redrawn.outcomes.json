@@ -1,0 +1,25 @@
+{
+  "scripts": [
+    {
+      "name": "taller-block",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-9)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-9"
+          ]
+        }
+      ]
+    }
+  ]
+}

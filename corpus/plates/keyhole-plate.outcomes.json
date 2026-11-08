@@ -1,0 +1,80 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wider-plate",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-round-first",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-keyholes",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    }
+  ]
+}

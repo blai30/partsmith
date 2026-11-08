@@ -1,0 +1,180 @@
+{
+  "scripts": [
+    {
+      "name": "wider-keyway",
+      "description": "The keyway is redrawn 2.5 mm wide instead of 2 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sk1",
+            "type": "sketch",
+            "plane": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-imp1/face#6",
+                "fp": "plane|n=0,0,1|c=0,0,14|a=126.449104|adj=2,2"
+              },
+              "fallback": {
+                "origin": [
+                  0,
+                  0,
+                  14
+                ],
+                "x_axis": [
+                  1,
+                  0,
+                  0
+                ],
+                "normal": [
+                  0,
+                  0,
+                  1
+                ]
+              },
+              "fallback_frame": "body"
+            },
+            "entities": [
+              {
+                "id": "e-1",
+                "type": "line",
+                "start": [
+                  3,
+                  -1.25
+                ],
+                "end": [
+                  5.5,
+                  -1.25
+                ]
+              },
+              {
+                "id": "e-2",
+                "type": "line",
+                "start": [
+                  5.5,
+                  -1.25
+                ],
+                "end": [
+                  5.5,
+                  1.25
+                ]
+              },
+              {
+                "id": "e-3",
+                "type": "line",
+                "start": [
+                  5.5,
+                  1.25
+                ],
+                "end": [
+                  3,
+                  1.25
+                ]
+              },
+              {
+                "id": "e-4",
+                "type": "line",
+                "start": [
+                  3,
+                  1.25
+                ],
+                "end": [
+                  3,
+                  -1.25
+                ]
+              }
+            ],
+            "constraints": []
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#7)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    },
+    {
+      "name": "bigger-lightening-hole",
+      "description": "The lightening hole grows from 4 mm to 6 mm in diameter.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "3",
+            "height": "20",
+            "position": [
+              "-9",
+              "0",
+              "-1"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    },
+    {
+      "name": "bore-chamfer-first",
+      "description": "The bore's bottom edge gets a 0.3 mm chamfer right after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#3|f-imp1/face#7)",
+                "fp": "circle|n=0,0,1|c=0,0,0|l=25.132741|r=4|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.3"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#6"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#7)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    },
+    {
+      "name": "no-lightening-hole",
+      "description": "The lightening hole cut is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-bool1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#8)"
+        }
+      }
+    }
+  ]
+}

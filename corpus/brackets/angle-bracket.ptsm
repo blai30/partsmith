@@ -1,0 +1,124 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [40, 0]},
+        {"id": "e-2", "type": "line", "start": [40, 0], "end": [40, 4]},
+        {"id": "e-3", "type": "line", "start": [40, 4], "end": [4, 4]},
+        {"id": "e-4", "type": "line", "start": [4, 4], "end": [4, 40]},
+        {"id": "e-5", "type": "line", "start": [4, 40], "end": [0, 40]},
+        {"id": "e-6", "type": "line", "start": [0, 40], "end": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4,e-5,e-6", "fp": "c=11.473684,11.473684|a=304", "outline": "e-1,e-2,e-3,e-4,e-5,e-6"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "15"},
+      "op": "new"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,-1,0|c=11.473684,-15,11.473684|a=304|adj=6,6"},
+        "fallback": {"origin": [0, -15, 0], "x_axis": [1, 0, 0], "normal": [0, -1, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-7", "type": "line", "start": [4, 4], "end": [24, 4]},
+        {"id": "e-8", "type": "line", "start": [24, 4], "end": [4, 24]},
+        {"id": "e-9", "type": "line", "start": [4, 24], "end": [4, 4]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-7,e-8,e-9", "fp": "c=10.666667,10.666667|a=200", "outline": "e-7,e-8,e-9"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "3"},
+      "reverse": true,
+      "op": "join"
+    },
+    {
+      "id": "f-mir1",
+      "type": "mirror",
+      "body": "b-1",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/start-cap", "fp": "plane|n=0,1,0|c=11.473684,0,11.473684|a=304|adj=6,6"}
+      }
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)",
+          "fp": "line|n=0,1,0|c=0,0,0|l=30|adj=2,2",
+          "merged": {
+            "f-ext1/lateral/e-1": ["f-ext1/lateral/e-1@f-mir1:*"],
+            "f-ext1/lateral/e-6": ["f-ext1/lateral/e-6@f-mir1:*"]
+          }
+        }
+      ],
+      "radius": "2"
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {
+          "q": "f-ext1/lateral/e-3",
+          "fp": "plane|n=0,0,1|c=23,0,4|a=960|adj=8,8",
+          "merged": {"f-ext1/lateral/e-3": ["f-ext1/lateral/e-3@f-mir1:*"]}
+        },
+        "fallback": {"origin": [0, 0, 4], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-10", "type": "point", "position": [30, -8]},
+        {"id": "e-11", "type": "point", "position": [30, 8]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk3",
+      "points": ["e-10", "e-11"],
+      "diameter": "5",
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

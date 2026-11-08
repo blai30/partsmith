@@ -1,0 +1,94 @@
+{
+  "scripts": [
+    {
+      "name": "more-teeth",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext2/lateral/e-5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thicker-gear",
+      "references": [
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext2/lateral/e-5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hub-below",
+      "references": [
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext2/lateral/e-5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-bore",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

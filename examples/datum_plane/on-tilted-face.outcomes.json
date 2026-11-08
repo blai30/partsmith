@@ -1,0 +1,25 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-cha1/chamfer/edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

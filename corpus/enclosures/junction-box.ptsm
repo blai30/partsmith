@@ -1,0 +1,102 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["100", "70", "35"], "op": "new"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-50,-35,17.5|l=35|adj=2,2"},
+        {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=50,-35,17.5|l=35|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-50,35,17.5|l=35|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=50,35,17.5|l=35|adj=2,2"}
+      ],
+      "radius": "8"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2.5",
+      "remove_faces": [
+        {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,35|a=6945.06193|adj=8,8"}
+      ]
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/left", "fp": "plane|n=-1,0,0|c=-50,0,17.5|a=1890|adj=4,4"},
+        "fallback": {"origin": [-50, 0, 0], "x_axis": [0, 1, 0], "normal": [-1, 0, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [-15, -15], "radius": 6},
+        {"id": "e-2", "type": "circle", "center": [15, -15], "radius": 6}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=-15,-15|a=113.097336", "outline": "e-1"},
+          {"key": "e-2", "fp": "c=15,-15|a=113.097336", "outline": "e-2"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/right", "fp": "plane|n=1,0,0|c=50,0,17.5|a=1890|adj=4,4"},
+        "fallback": {"origin": [50, 0, 0], "x_axis": [0, 1, 0], "normal": [1, 0, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3", "type": "circle", "center": [0, 15], "radius": 8}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-3", "fp": "c=0,15|a=201.06193", "outline": "e-3"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-sh1/rim/f-box1/top)", "fp": "line|n=1,0,0|c=0,-35,35|l=84|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    }
+  ]
+}

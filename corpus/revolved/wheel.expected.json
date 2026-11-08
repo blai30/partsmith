@@ -1,0 +1,87 @@
+{
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-cyl2",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok"
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "status": "ok"
+    },
+    {
+      "id": "f-bool1",
+      "type": "boolean",
+      "status": "ok"
+    },
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 9210.872476164379,
+      "area": 6454.307906870156,
+      "bounding_box": {
+        "min": [
+          -28.0,
+          -28.0,
+          0.0
+        ],
+        "max": [
+          28.0,
+          28.0,
+          10.0
+        ]
+      },
+      "faces": 32
+    },
+    {
+      "id": "b-2",
+      "empty": true
+    },
+    {
+      "id": "b-3",
+      "empty": true
+    }
+  ]
+}

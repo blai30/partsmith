@@ -1,0 +1,121 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-walls",
+      "description": "The walls become 3 mm thick instead of 2.5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sh1",
+            "type": "shell",
+            "body": "b-1",
+            "thickness": "3",
+            "remove_faces": [
+              {
+                "q": "f-box1/top",
+                "fp": "plane|n=0,0,1|c=0,0,35|a=6945.06193|adj=8,8"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/right"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "mounting-ear",
+      "description": "A mounting ear is added to the back of the box right after the shell.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 3,
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "10",
+              "5"
+            ],
+            "position": [
+              "0",
+              "40",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/right"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "square-corners",
+      "description": "The corner rounds are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-50,-35,17.5|l=35|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=50,-35,17.5|l=35|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-50,35,17.5|l=35|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=50,35,17.5|l=35|adj=2,2"
+              }
+            ],
+            "radius": "8",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/right"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        }
+      }
+    }
+  ]
+}

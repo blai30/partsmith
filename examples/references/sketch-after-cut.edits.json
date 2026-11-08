@@ -1,0 +1,29 @@
+{
+  "scripts": [
+    {
+      "name": "wider-block",
+      "description": "The block becomes 24 mm wide and deep, still inside the cut that removes its top.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "24",
+              "24",
+              "40"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "lost"
+        }
+      }
+    }
+  ]
+}

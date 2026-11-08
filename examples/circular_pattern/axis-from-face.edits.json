@@ -1,0 +1,26 @@
+{
+  "scripts": [
+    {
+      "name": "taller-axis-cylinder",
+      "description": "The cylinder whose side is the axis becomes 8 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl2",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "5",
+            "height": "8",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cp1": {
+          "/axis/face": "f-cyl2/side"
+        }
+      }
+    }
+  ]
+}

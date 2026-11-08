@@ -35,6 +35,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 partsmith-budgets.workspace = true
+# The corpus checks parse element names and stored references (corpus spec section 2.7).
+partsmith-naming.workspace = true
 pretty_assertions.workspace = true
 
 [lints]

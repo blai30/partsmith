@@ -1,0 +1,35 @@
+{
+  "scripts": [
+    {
+      "name": "farther-second-box",
+      "description": "The second box moves 10 mm farther away.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "20",
+              "20"
+            ],
+            "position": [
+              "60",
+              "0",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top",
+          "/remove_faces/1": "f-box2/top"
+        }
+      }
+    }
+  ]
+}

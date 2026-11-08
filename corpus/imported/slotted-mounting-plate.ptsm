@@ -1,0 +1,63 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "02a90c7f8063585ef7c15e143bdd9169b0ff1e70992cd8e351ae4ffbd8a6465a.step",
+      "op": "new"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-imp1/face#12", "fp": "plane|n=0,0,1|c=0,0,5|a=3815.369472|adj=12,12"},
+        "fallback": {"origin": [0, 0, 5], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "point", "position": [0, -10]},
+        {"id": "e-2", "type": "point", "position": [0, 10]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-1", "e-2"],
+      "diameter": "4",
+      "hole_type": {"kind": "counterbore", "diameter": "7.5", "depth": "2"},
+      "extent": {"kind": "through_all"}
+    },
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "6", "7"], "position": ["0", "0", "-1"], "op": "cut"},
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-imp1/face#12)", "fp": "line|n=1,0,0|c=0,-3,5|l=30|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#11|f-imp1/face#9)", "fp": "line|n=1,0,0|c=0,-25,0|l=74|adj=2,2"}
+      ],
+      "radius": "0.5"
+    }
+  ]
+}

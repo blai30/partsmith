@@ -1,0 +1,41 @@
+{
+  "scripts": [
+    {
+      "name": "taller-block",
+      "description": "The notched block becomes 40 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4",
+                  "fp": "c=40,25|a=4000",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "40"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-13)",
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-9)"
+          ]
+        }
+      }
+    }
+  ]
+}

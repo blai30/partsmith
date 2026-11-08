@@ -1,0 +1,370 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "description": "The plate becomes 5 mm thick instead of 4 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4,e-5,e-6,e-7,e-8",
+                  "fp": "c=0,0|a=2378.539816",
+                  "outline": "e-1,e-2,e-3,e-4,e-5,e-6,e-7,e-8"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "5"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "wider-plate",
+      "description": "The plate outline is redrawn 100 mm wide instead of 80 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sk1",
+            "type": "sketch",
+            "plane": {
+              "kind": "origin",
+              "plane": "XY"
+            },
+            "entities": [
+              {
+                "id": "e-1",
+                "type": "line",
+                "start": [
+                  -45,
+                  -15
+                ],
+                "end": [
+                  45,
+                  -15
+                ]
+              },
+              {
+                "id": "e-2",
+                "type": "arc",
+                "center": [
+                  45,
+                  -10
+                ],
+                "radius": 5,
+                "start_angle": -1.5707963267948966,
+                "end_angle": 0
+              },
+              {
+                "id": "e-3",
+                "type": "line",
+                "start": [
+                  50,
+                  -10
+                ],
+                "end": [
+                  50,
+                  10
+                ]
+              },
+              {
+                "id": "e-4",
+                "type": "arc",
+                "center": [
+                  45,
+                  10
+                ],
+                "radius": 5,
+                "start_angle": 0,
+                "end_angle": 1.5707963267948966
+              },
+              {
+                "id": "e-5",
+                "type": "line",
+                "start": [
+                  45,
+                  15
+                ],
+                "end": [
+                  -45,
+                  15
+                ]
+              },
+              {
+                "id": "e-6",
+                "type": "arc",
+                "center": [
+                  -45,
+                  10
+                ],
+                "radius": 5,
+                "start_angle": 1.5707963267948966,
+                "end_angle": 3.141592653589793
+              },
+              {
+                "id": "e-7",
+                "type": "line",
+                "start": [
+                  -50,
+                  10
+                ],
+                "end": [
+                  -50,
+                  -10
+                ]
+              },
+              {
+                "id": "e-8",
+                "type": "arc",
+                "center": [
+                  -45,
+                  -10
+                ],
+                "radius": 5,
+                "start_angle": 3.141592653589793,
+                "end_angle": 4.71238898038469
+              }
+            ],
+            "constraints": [
+              {
+                "id": "c-1",
+                "type": "coincident",
+                "points": [
+                  "e-1.end",
+                  "e-2.start"
+                ]
+              },
+              {
+                "id": "c-2",
+                "type": "coincident",
+                "points": [
+                  "e-2.end",
+                  "e-3.start"
+                ]
+              },
+              {
+                "id": "c-3",
+                "type": "coincident",
+                "points": [
+                  "e-3.end",
+                  "e-4.start"
+                ]
+              },
+              {
+                "id": "c-4",
+                "type": "coincident",
+                "points": [
+                  "e-4.end",
+                  "e-5.start"
+                ]
+              },
+              {
+                "id": "c-5",
+                "type": "coincident",
+                "points": [
+                  "e-5.end",
+                  "e-6.start"
+                ]
+              },
+              {
+                "id": "c-6",
+                "type": "coincident",
+                "points": [
+                  "e-6.end",
+                  "e-7.start"
+                ]
+              },
+              {
+                "id": "c-7",
+                "type": "coincident",
+                "points": [
+                  "e-7.end",
+                  "e-8.start"
+                ]
+              },
+              {
+                "id": "c-8",
+                "type": "coincident",
+                "points": [
+                  "e-8.end",
+                  "e-1.start"
+                ]
+              },
+              {
+                "id": "c-9",
+                "type": "tangent",
+                "curves": [
+                  "e-1",
+                  "e-2"
+                ]
+              },
+              {
+                "id": "c-10",
+                "type": "tangent",
+                "curves": [
+                  "e-2",
+                  "e-3"
+                ]
+              },
+              {
+                "id": "c-11",
+                "type": "tangent",
+                "curves": [
+                  "e-3",
+                  "e-4"
+                ]
+              },
+              {
+                "id": "c-12",
+                "type": "tangent",
+                "curves": [
+                  "e-4",
+                  "e-5"
+                ]
+              },
+              {
+                "id": "c-13",
+                "type": "tangent",
+                "curves": [
+                  "e-5",
+                  "e-6"
+                ]
+              },
+              {
+                "id": "c-14",
+                "type": "tangent",
+                "curves": [
+                  "e-6",
+                  "e-7"
+                ]
+              },
+              {
+                "id": "c-15",
+                "type": "tangent",
+                "curves": [
+                  "e-7",
+                  "e-8"
+                ]
+              },
+              {
+                "id": "c-16",
+                "type": "tangent",
+                "curves": [
+                  "e-8",
+                  "e-1"
+                ]
+              },
+              {
+                "id": "c-17",
+                "type": "horizontal",
+                "line": "e-1"
+              },
+              {
+                "id": "c-18",
+                "type": "vertical",
+                "line": "e-3"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "bottom-round-first",
+      "description": "The bottom edge of the outline is rounded right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+                "fp": "line|n=1,0,0|c=0,-15,0|l=70|adj=2,2"
+              }
+            ],
+            "radius": "1"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "no-keyholes",
+      "description": "The keyholes are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext2",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk2",
+              "regions": [
+                {
+                  "key": "e-10,e-11,e-12,e-9",
+                  "fp": "c=-25,-0.43163|a=66.087277",
+                  "outline": "e-10,e-11,e-12,e-9"
+                },
+                {
+                  "key": "e-13,e-14,e-15,e-16",
+                  "fp": "c=25,-0.43163|a=66.087277",
+                  "outline": "e-13,e-14,e-15,e-16"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "through_all"
+            },
+            "reverse": true,
+            "op": "cut",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    }
+  ]
+}

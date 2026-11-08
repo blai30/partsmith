@@ -1,0 +1,35 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-rod",
+      "description": "The rod whose side gives the direction becomes 3 mm in radius.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "3",
+            "height": "10",
+            "plane": {
+              "kind": "origin",
+              "plane": "YZ"
+            },
+            "position": [
+              "0",
+              "20",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/face": "f-cyl1/side"
+        }
+      }
+    }
+  ]
+}

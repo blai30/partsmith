@@ -1,0 +1,105 @@
+{
+  "scripts": [
+    {
+      "name": "taller-housing",
+      "description": "The housing becomes 25 mm tall instead of 20 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "40",
+              "30",
+              "25"
+            ],
+            "position": [
+              "20",
+              "0",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/right)",
+          "/edges/1": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-mir1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "end-chamfer-first",
+      "description": "The top edge of the half's end gets a 1 mm chamfer right after the block.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha1",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/right|f-box1/top)",
+                "fp": "line|n=0,1,0|c=40,0,20|l=30|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "1"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/right)",
+          "/edges/1": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-mir1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    },
+    {
+      "name": "square-ends",
+      "description": "The end rounds are removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-mir1": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

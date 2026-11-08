@@ -1,0 +1,35 @@
+{
+  "scripts": [
+    {
+      "name": "longer-rod",
+      "description": "The rod whose side gives the second direction becomes 12 mm long.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "2",
+            "height": "12",
+            "plane": {
+              "kind": "origin",
+              "plane": "XZ"
+            },
+            "position": [
+              "20",
+              "20",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/second_direction/axis/face": "f-cyl1/side"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "41031dff255cd66a7bd49b1311a1914ae6fd41edcb9524024682984b8a951d00.step",
+      "op": "new"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#1|f-imp1/face#5)", "fp": "line|n=0,1,0|c=0,0,40|l=30|adj=2,2"},
+        {"q": "edge(f-imp1/face#5|f-imp1/face#8)", "fp": "line|n=0,1,0|c=5,0,40|l=30|adj=2,2"}
+      ],
+      "radius": "1.5"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-imp1/face#8", "fp": "plane|n=1,0,0|c=5,0,23.078926|a=883.191374|adj=6,6"},
+        "fallback": {"origin": [5, 0, 0], "x_axis": [0, 1, 0], "normal": [1, 0, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "point", "position": [0, 32]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-1"],
+      "diameter": "6",
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#13|f-imp1/face#20)", "fp": "line|n=0,1,0|c=50,0,5|l=30|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "1"}
+    },
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["12", "8", "7"], "position": ["50", "0", "-1"], "op": "cut"}
+  ]
+}

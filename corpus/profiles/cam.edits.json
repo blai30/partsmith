@@ -1,0 +1,132 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-cam",
+      "description": "The cam becomes 10 mm thick instead of 8 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4;~e-5",
+                  "fp": "c=2.915905,0|a=786.03013",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "10"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext2/end-cap|f-ext2/lateral/e-6)"
+        }
+      }
+    },
+    {
+      "name": "taller-hub",
+      "description": "The hub becomes 8 mm tall instead of 6 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext2",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk2",
+              "regions": [
+                {
+                  "key": "e-6;~e-7",
+                  "fp": "c=0,0|a=150.796447",
+                  "outline": "e-6"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "8"
+            },
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext2/end-cap|f-ext2/lateral/e-6)"
+        }
+      }
+    },
+    {
+      "name": "bottom-round-first",
+      "description": "The cam's bottom outline edge is rounded right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-3|f-ext1/start-cap)",
+                "fp": "circle|n=0,0,1|c=22.96196,0,0|l=12.566371|r=6|adj=2,2"
+              }
+            ],
+            "radius": "1"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext2/end-cap|f-ext2/lateral/e-6)"
+        }
+      }
+    },
+    {
+      "name": "no-hub",
+      "description": "The hub is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-ext2"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)"
+        },
+        "f-cha1": {
+          "/edges/0": "lost"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [5.773502691896258, 0], "end": [2.8867513459481295, 5]},
+        {"id": "e-2", "type": "line", "start": [2.8867513459481295, 5], "end": [-2.8867513459481278, 5.000000000000001]},
+        {
+          "id": "e-3",
+          "type": "line",
+          "start": [-2.8867513459481278, 5.000000000000001],
+          "end": [-5.773502691896258, 7.07050159149938e-16]
+        },
+        {
+          "id": "e-4",
+          "type": "line",
+          "start": [-5.773502691896258, 7.07050159149938e-16],
+          "end": [-2.8867513459481318, -4.999999999999999]
+        },
+        {
+          "id": "e-5",
+          "type": "line",
+          "start": [-2.8867513459481318, -4.999999999999999],
+          "end": [2.8867513459481295, -5]
+        },
+        {"id": "e-6", "type": "line", "start": [2.8867513459481295, -5], "end": [5.773502691896258, 0]},
+        {"id": "e-7", "type": "circle", "center": [0, 0], "radius": 2.5}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+        {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-5.start"]},
+        {"id": "c-5", "type": "coincident", "points": ["e-5.end", "e-6.start"]},
+        {"id": "c-6", "type": "coincident", "points": ["e-6.end", "e-1.start"]},
+        {"id": "c-7", "type": "horizontal", "line": "e-2"},
+        {"id": "c-8", "type": "equal", "curves": ["e-1", "e-2"]},
+        {"id": "c-9", "type": "equal", "curves": ["e-1", "e-3"]},
+        {"id": "c-10", "type": "equal", "curves": ["e-1", "e-4"]},
+        {"id": "c-11", "type": "equal", "curves": ["e-1", "e-5"]},
+        {"id": "c-12", "type": "equal", "curves": ["e-1", "e-6"]},
+        {"id": "c-13", "type": "diameter", "curve": "e-7", "expr": "5"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4,e-5,e-6;~e-7", "fp": "c=0,0|a=66.967586", "outline": "e-1,e-2,e-3,e-4,e-5,e-6"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "op": "new"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {"id": "e-8", "type": "line", "start": [4.9, 5], "end": [6, 3.9]},
+        {"id": "e-9", "type": "line", "start": [6, 3.9], "end": [6, 5]},
+        {"id": "e-10", "type": "line", "start": [6, 5], "end": [4.9, 5]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-10,e-8,e-9", "fp": "c=5.633333,4.633333|a=0.605", "outline": "e-10,e-8,e-9"}
+        ]
+      },
+      "axis": {"kind": "origin", "axis": "Z"},
+      "extent": {"kind": "full"},
+      "op": "cut"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-7)", "fp": "circle|n=0,0,1|c=0,0,5|l=15.707963|r=2.5|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.4"}
+    },
+    {
+      "id": "f-cha2",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/lateral/e-7|f-ext1/start-cap)", "fp": "circle|n=0,0,1|c=0,0,0|l=15.707963|r=2.5|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.4"}
+    }
+  ]
+}

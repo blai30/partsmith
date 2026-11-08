@@ -1,0 +1,15 @@
+{
+  "scripts": [
+    {
+      "name": "wider-block",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

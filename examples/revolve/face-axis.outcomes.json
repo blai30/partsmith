@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-axis-cylinder",
+      "references": [
+        {
+          "feature": "f-rev1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        }
+      ]
+    }
+  ]
+}

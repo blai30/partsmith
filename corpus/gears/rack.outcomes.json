@@ -1,0 +1,104 @@
+{
+  "scripts": [
+    {
+      "name": "fewer-teeth",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "longer-rack",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "end-chamfers-first",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-tooth",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        }
+      ]
+    }
+  ]
+}

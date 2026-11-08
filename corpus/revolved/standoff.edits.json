@@ -1,0 +1,143 @@
+{
+  "scripts": [
+    {
+      "name": "longer-standoff",
+      "description": "The hex body becomes 20 mm long instead of 15 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4,e-5,e-6",
+                  "fp": "c=0,0|a=41.569219",
+                  "outline": "e-1,e-2,e-3,e-4,e-5,e-6"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "20"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cyl1": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cone1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "longer-stud",
+      "description": "The stud becomes 8 mm long instead of 6 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "1.5",
+            "height": "8",
+            "plane": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-ext1/end-cap",
+                "fp": "plane|n=0,0,1|c=0,0,15|a=41.569219|adj=6,6"
+              }
+            },
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-cone1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "description": "The hex body's bottom edge gets a 0.3 mm chamfer right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+                "fp": "line|n=0.5,-0.866025,0|c=3,1.732051,0|l=4|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.3"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-cyl1": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-cone1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        }
+      }
+    },
+    {
+      "name": "no-stud",
+      "description": "The stud is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-cyl1"
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        },
+        "f-cone1": {
+          "/plane/face": "lost"
+        }
+      }
+    }
+  ]
+}

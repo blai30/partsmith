@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-base",
+      "references": [
+        {
+          "feature": "f-box2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

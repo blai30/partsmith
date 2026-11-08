@@ -1,0 +1,201 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-lid",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thumb-notch",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#2|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "square-corners",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lip-last",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

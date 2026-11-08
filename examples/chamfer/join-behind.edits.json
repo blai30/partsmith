@@ -1,0 +1,59 @@
+{
+  "scripts": [
+    {
+      "name": "longer-back-block",
+      "description": "The block behind becomes 30 mm deep, and its top still lines up with the front block's.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-a1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "30",
+              "20"
+            ],
+            "position": [
+              "0",
+              "25",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-a1/top|f-box1/front)"
+        }
+      }
+    },
+    {
+      "name": "taller-front-block",
+      "description": "The front block becomes 30 mm tall and its top no longer lines up with the block behind.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "20",
+              "30"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    }
+  ]
+}

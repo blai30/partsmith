@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top@f-mir1:1"
+          ]
+        }
+      ]
+    }
+  ]
+}

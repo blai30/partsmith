@@ -4,12 +4,15 @@
 //! checked, what the corpus covers (every sketch record form, option value and plane or axis
 //! reference kind, a finding of every check on each printer technology, and every committed asset
 //! imported), and the own tests of the comparison rules, the export check and the coverage checks
-//! (delivery spec section 6, tests 20 to 25, 68 to 70, 74 to 78 and 107). The export check and its
-//! tests are in `examples/export.rs`, the coverage checks and theirs in `examples/coverage.rs`.
+//! (delivery spec section 6, tests 20 to 25, 68 to 70, 74 to 78, 107 and 155). The export check and
+//! its tests are in `examples/export.rs`, the coverage checks and theirs in `examples/coverage.rs`.
+//! The corpus checks of corpus spec section 2.7 (the model corpus under `corpus/`, the scripted
+//! edits of the examples and the corpus, and the naming metric) and their tests are in
+//! `examples/model_corpus.rs` and `examples/naming_metric.rs`.
 //!
-//! After an intended change, regenerate the expected results, run the module again without
-//! `PARTSMITH_BLESS` (the export check reads the expected results the bless rewrites), and review
-//! them in the pull request:
+//! After an intended change, regenerate the expected results and the stored outcomes, run the
+//! module again without `PARTSMITH_BLESS` (the export check reads the expected results the bless
+//! rewrites, and corpus check 9 the outcomes), and review them in the pull request:
 //!
 //! ```sh
 //! PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::
@@ -54,9 +57,18 @@ const REFERENCES_FOLDER: &str = "references";
 
 /// Runs the built `partsmith` binary with the repository root as working directory.
 fn partsmith<S: AsRef<OsStr>>(arguments: impl IntoIterator<Item = S>) -> io::Result<Output> {
+    partsmith_in(&repository_root(), arguments)
+}
+
+/// Runs the built `partsmith` binary with `root` as working directory: the repository root, or a
+/// root a test writes in a temporary directory.
+fn partsmith_in<S: AsRef<OsStr>>(
+    root: &Path,
+    arguments: impl IntoIterator<Item = S>,
+) -> io::Result<Output> {
     Command::new(env!("CARGO_BIN_EXE_partsmith"))
         .args(arguments)
-        .current_dir(repository_root())
+        .current_dir(root)
         .output()
 }
 
@@ -144,6 +156,10 @@ enum Role {
     Expected,
     /// `<stem>.py`, its Python twin.
     Twin,
+    /// `<stem>.edits.json`, its scripted edits (corpus spec section 2.4).
+    Edits,
+    /// `<stem>.outcomes.json`, the stored outcomes of those edits (corpus spec section 2.5).
+    Outcomes,
 }
 
 /// What a file under `examples/` is, by the rule of delivery spec section 2.8.
@@ -170,18 +186,20 @@ fn is_example_name(text: &str) -> bool {
 
 /// The stem and role of an example file name, or `None` for any other extension.
 fn split_file_name(file: &str) -> Option<(&str, Role)> {
-    if let Some(stem) = file.strip_suffix(".expected.json") {
-        return Some((stem, Role::Expected));
-    }
-    if let Some(stem) = file.strip_suffix(".ptsm") {
-        return Some((stem, Role::Model));
-    }
-    file.strip_suffix(".py").map(|stem| (stem, Role::Twin))
+    [
+        (".expected.json", Role::Expected),
+        (".edits.json", Role::Edits),
+        (".outcomes.json", Role::Outcomes),
+        (".ptsm", Role::Model),
+        (".py", Role::Twin),
+    ]
+    .into_iter()
+    .find_map(|(extension, role)| file.strip_suffix(extension).map(|stem| (stem, role)))
 }
 
 /// Classifies `relative`, a path under `examples/` with `/` separators. Allowed example folders are
 /// `<type>` for a registered feature type, `references` for scenarios of the reference stability
-/// corpus, and `bench/<name>`, whose only example is `model`.
+/// corpus, and `bench/<name>`, whose only example is `model`, with no scripted edits.
 fn placement(relative: &str, types: &BTreeSet<String>) -> Placement {
     let parts: Vec<&str> = relative.split('/').collect();
     let (folder, rest, benchmark) = match parts.as_slice() {
@@ -196,7 +214,11 @@ fn placement(relative: &str, types: &BTreeSet<String>) -> Placement {
     match rest {
         ["assets", _, ..] => Placement::Asset,
         [file] => match split_file_name(file) {
-            Some((stem, role)) if is_example_name(stem) && (!benchmark || stem == "model") => {
+            Some((stem, role))
+                if is_example_name(stem)
+                    && (!benchmark
+                        || (stem == "model" && !matches!(role, Role::Edits | Role::Outcomes))) =>
+            {
                 Placement::Example {
                     example: format!("{folder}/{stem}"),
                     role,
@@ -223,9 +245,12 @@ fn collect_files(directory: &Path, prefix: &str, files: &mut Vec<String>) {
         } else {
             format!("{prefix}/{name}")
         };
-        let file_type = entry
-            .file_type()
-            .unwrap_or_else(|error| panic!("cannot read the type of examples/{relative}: {error}"));
+        let file_type = entry.file_type().unwrap_or_else(|error| {
+            panic!(
+                "cannot read the type of {}: {error}",
+                entry.path().display()
+            )
+        });
         if file_type.is_dir() {
             collect_files(&entry.path(), &relative, files);
         } else {
@@ -238,6 +263,18 @@ fn collect_files(directory: &Path, prefix: &str, files: &mut Vec<String>) {
 fn example_files() -> Vec<String> {
     let mut files = Vec::new();
     collect_files(&repository_root().join("examples"), "", &mut files);
+    files.sort();
+    files
+}
+
+/// Every file under `root/<folder>`, as its path from `root` with `/` separators, sorted; none
+/// when the folder does not exist.
+fn files_under(root: &Path, folder: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    let directory = root.join(folder);
+    if directory.is_dir() {
+        collect_files(&directory, folder, &mut files);
+    }
     files.sort();
     files
 }
@@ -555,80 +592,97 @@ fn each_in_parallel<T: Sync, S, R: Send>(
     })
 }
 
-/// Runs `partsmith` once with each argument list of `runs`, in parallel, and returns the outputs in
-/// the order of `runs`. Each output then belongs to exactly one run, even when it spans several
-/// lines.
-fn run_each<S: AsRef<OsStr> + Sync>(runs: &[Vec<S>]) -> Vec<io::Result<Output>> {
-    each_in_parallel(runs, || (), |(), arguments| partsmith(arguments))
+/// Runs `partsmith` in `root` once with each argument list of `runs`, in parallel, and returns the
+/// outputs in the order of `runs`. Each output then belongs to exactly one run, even when it spans
+/// several lines.
+fn run_each<S: AsRef<OsStr> + Sync>(root: &Path, runs: &[Vec<S>]) -> Vec<io::Result<Output>> {
+    each_in_parallel(runs, || (), |(), arguments| partsmith_in(root, arguments))
 }
 
-/// The arguments of `partsmith <command> <model>` for each of `examples`, in their order.
-fn model_runs(examples: &[Example], command: &[&str]) -> Vec<Vec<String>> {
-    examples
+/// The arguments of `partsmith <command> <model>` for each of `models`, in their order.
+fn command_runs(models: &[String], command: &[&str]) -> Vec<Vec<String>> {
+    models
         .iter()
-        .map(|example| {
+        .map(|model| {
             command
                 .iter()
                 .map(|argument| (*argument).to_owned())
-                .chain([example.model()])
+                .chain([model.clone()])
                 .collect()
         })
         .collect()
 }
 
-/// What an example's expected results file holds compared with its report.
+/// The arguments of `partsmith <command> <model>` for each of `examples`, in their order.
+fn model_runs(examples: &[Example], command: &[&str]) -> Vec<Vec<String>> {
+    let models: Vec<String> = examples.iter().map(Example::model).collect();
+    command_runs(&models, command)
+}
+
+/// What a stored baseline file (expected results or outcomes) holds compared with what a run
+/// computed.
 enum Expectation {
     /// The file does not exist.
     Missing,
     /// The file is not JSON; the parse error.
     Invalid(String),
-    /// The mismatches of the report against the file; empty when they match.
+    /// The mismatches of the computed value against the file; empty when they match.
     Compared(Vec<String>),
 }
 
-/// Reads `<stem>.expected.json` of `example` and compares `report` with it.
-fn expectation(example: &Example, report: &Value) -> Result<Expectation, String> {
-    let path = repository_root().join(example.expected());
-    match fs::read_to_string(&path) {
+/// Reads the baseline file at `path` and compares `actual` with it by the comparison rules of
+/// delivery spec section 2.8.
+fn expectation(path: &Path, actual: &Value) -> io::Result<Expectation> {
+    match fs::read_to_string(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Expectation::Missing),
-        Err(error) => Err(format!("{}: cannot be read: {error}", example.expected())),
+        Err(error) => Err(error),
         Ok(text) => Ok(match serde_json::from_str::<Value>(&text) {
-            Ok(expected) => Expectation::Compared(compare(report, &expected)),
+            Ok(expected) => Expectation::Compared(compare(actual, &expected)),
             Err(error) => Expectation::Invalid(error.to_string()),
         }),
     }
 }
 
-/// Writes the expected results of `example` from `report` and announces it.
-fn bless_expected(example: &Example, report: &Value, problems: &mut Problems) {
-    let expected = example.expected();
-    match fs::write(repository_root().join(&expected), expected_text(report)) {
-        Ok(()) => announce(&format!("blessed {expected}")),
-        Err(error) => problems.add(&expected, format!("{expected}: cannot be written: {error}")),
-    }
+/// Writes `value` as the baseline file `relative` under `root`, in the layout of an expected
+/// results file, and returns the line that announces it, or the problem when it cannot be written.
+fn bless_file(root: &Path, relative: &str, value: &Value) -> Result<String, String> {
+    fs::write(root.join(relative), expected_text(value))
+        .map(|()| format!("blessed {relative}"))
+        .map_err(|error| format!("{relative}: cannot be written: {error}"))
 }
 
-/// Checks the projected `report` of `example` against its expected results, blessing them when
-/// asked.
-fn check_expected(example: &Example, report: &Value, bless: bool, problems: &mut Problems) {
-    let expected = example.expected();
-    let model = example.model();
-    match expectation(example, report) {
-        Err(message) => problems.add(&expected, message),
+/// The problem of a baseline file `relative` that is missing without a bless (delivery spec
+/// section 4, corpus spec section 4).
+fn missing_baseline(relative: &str) -> String {
+    format!(
+        "{relative} is missing. Run: PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::"
+    )
+}
+
+/// Checks `report`, a rebuild of `model` (relative to `root`), against its expected results file
+/// `expected`, blessing it when asked. A mismatch is a problem of the model.
+fn check_expected(
+    root: &Path,
+    model: &str,
+    expected: &str,
+    report: &Value,
+    bless: bool,
+    problems: &mut Problems,
+) {
+    match expectation(&root.join(expected), report) {
+        Err(error) => problems.add(expected, format!("{expected}: cannot be read: {error}")),
         Ok(Expectation::Compared(mismatches)) if mismatches.is_empty() => {}
-        Ok(_) if bless => bless_expected(example, report, problems),
-        Ok(Expectation::Missing) => problems.add(
-            &expected,
-            format!(
-                "{expected} is missing. Run: PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::"
-            ),
-        ),
+        Ok(_) if bless => match bless_file(root, expected, report) {
+            Ok(line) => announce(&line),
+            Err(problem) => problems.add(expected, problem),
+        },
+        Ok(Expectation::Missing) => problems.add(expected, missing_baseline(expected)),
         Ok(Expectation::Invalid(error)) => {
-            problems.add(&expected, format!("{expected}: not valid JSON: {error}"));
+            problems.add(expected, format!("{expected}: not valid JSON: {error}"));
         }
         Ok(Expectation::Compared(mismatches)) => {
             for mismatch in mismatches {
-                problems.add(&model, format!("{model}: {mismatch}"));
+                problems.add(model, format!("{model}: {mismatch}"));
             }
         }
     }
@@ -681,6 +735,27 @@ fn printed_json(run: io::Result<Output>, statuses: &[i32]) -> Result<Value, Stri
     serde_json::from_slice(&output.stdout).map_err(|error| format!("printed invalid JSON: {error}"))
 }
 
+/// The report of a `partsmith rebuild --json` run of `model`, or `None` after adding the problem
+/// of a run that failed (delivery spec section 4).
+fn rebuild_report(
+    model: &str,
+    rebuild: io::Result<Output>,
+    problems: &mut Problems,
+) -> Option<Value> {
+    // Exit 1 means a feature failed, which the expected results record.
+    let report = printed_json(rebuild, &[0, 1]).and_then(|report| {
+        // A file that could not be rebuilt is never compared with, or blessed as, expected results.
+        rebuild_failure(&report).map_or(Ok(report), |failure| Err(format!("failed: {failure}")))
+    });
+    match report {
+        Ok(report) => Some(report),
+        Err(failure) => {
+            problems.add(model, format!("{model}: partsmith rebuild {failure}"));
+            None
+        }
+    }
+}
+
 /// Checks one example's rebuild output against its expected results and its twin rule.
 fn check_example(
     example: &Example,
@@ -689,20 +764,18 @@ fn check_example(
     problems: &mut Problems,
 ) {
     let model = example.model();
-    // Exit 1 means a feature failed, which the expected results record.
-    let report = printed_json(rebuild, &[0, 1]).and_then(|report| {
-        // A file that could not be rebuilt is never compared with, or blessed as, expected results.
-        rebuild_failure(&report).map_or(Ok(report), |failure| Err(format!("failed: {failure}")))
-    });
-    let report = match report {
-        Ok(report) => project(report),
-        Err(failure) => {
-            problems.add(&model, format!("{model}: partsmith rebuild {failure}"));
-            return;
-        }
+    let Some(report) = rebuild_report(&model, rebuild, problems).map(project) else {
+        return;
     };
     check_twin(example, &report, bless, problems);
-    check_expected(example, &report, bless, problems);
+    check_expected(
+        &repository_root(),
+        &model,
+        &example.expected(),
+        &report,
+        bless,
+        problems,
+    );
 }
 
 /// The items of `value[key]` when it is an array; none otherwise.
@@ -759,17 +832,16 @@ fn box_default() -> Example {
     Example::at("box/default")
 }
 
-// Delivery spec section 2.8, runner test 1.
-#[test]
-fn examples_follow_the_layout() {
-    let types = registered_types();
-    let files = example_files();
+/// The problems of runner test 1 that the paths alone show: every file of `files` (relative to
+/// `examples/`) that is not an allowed path with the feature types `types`, and every companion
+/// without its `.ptsm`, each about that file's path.
+fn example_layout_problems(files: &[String], types: &BTreeSet<String>) -> Problems {
     let present: BTreeSet<&str> = files.iter().map(String::as_str).collect();
     let mut problems = Problems::default();
-    for file in &files {
+    for file in files {
         // Problems sort by the path relative to the repository root, as every message names it.
         let path = format!("examples/{file}");
-        match placement(file, &types) {
+        match placement(file, types) {
             Placement::NotAllowed => problems.add(
                 &path,
                 format!("{path}: not an allowed example path (docs/spec/delivery.md section 2.8)."),
@@ -782,6 +854,13 @@ fn examples_follow_the_layout() {
             Placement::Example { .. } | Placement::Asset => {}
         }
     }
+    problems
+}
+
+// Delivery spec section 2.8, runner test 1.
+#[test]
+fn examples_follow_the_layout() {
+    let mut problems = example_layout_problems(&example_files(), &registered_types());
     for example in examples() {
         let sets_rollback = example
             .document()
@@ -801,7 +880,10 @@ fn examples_follow_the_layout() {
 #[test]
 fn examples_are_canonical() {
     let examples = examples();
-    let checks = run_each(&model_runs(&examples, &["fmt", "--check"]));
+    let checks = run_each(
+        &repository_root(),
+        &model_runs(&examples, &["fmt", "--check"]),
+    );
     let mut problems = Problems::default();
     for (example, check) in examples.iter().zip(checks) {
         let model = example.model();
@@ -849,7 +931,10 @@ fn examples_rebuild_as_expected() {
     )
     .unwrap_or_else(|message| panic!("{message}"));
     let examples = examples();
-    let rebuilds = run_each(&model_runs(&examples, &["rebuild", "--checks", "--json"]));
+    let rebuilds = run_each(
+        &repository_root(),
+        &model_runs(&examples, &["rebuild", "--checks", "--json"]),
+    );
     let mut problems = Problems::default();
     for (example, rebuild) in examples.iter().zip(rebuilds) {
         check_example(example, rebuild, bless, &mut problems);

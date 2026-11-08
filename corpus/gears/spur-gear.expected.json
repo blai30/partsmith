@@ -1,0 +1,68 @@
+{
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "status": "ok"
+    },
+    {
+      "id": "f-bool1",
+      "type": "boolean",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 9516.820378277838,
+      "area": 4570.640896099203,
+      "bounding_box": {
+        "min": [
+          -22.0,
+          -22.0,
+          0.0
+        ],
+        "max": [
+          22.0,
+          22.0,
+          8.0
+        ]
+      },
+      "faces": 87
+    },
+    {
+      "id": "b-2",
+      "empty": true
+    }
+  ]
+}

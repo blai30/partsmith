@@ -1,0 +1,49 @@
+{
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 19678.318962328056,
+      "area": 9334.623865426433,
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          25.0,
+          5.000000000000002
+        ]
+      },
+      "faces": 22
+    }
+  ]
+}

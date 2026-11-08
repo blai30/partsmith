@@ -2476,6 +2476,7 @@ dependencies = [
  "partsmith-budgets",
  "partsmith-engine",
  "partsmith-model",
+ "partsmith-naming",
  "partsmith-protocol",
  "pretty_assertions",
  "serde",

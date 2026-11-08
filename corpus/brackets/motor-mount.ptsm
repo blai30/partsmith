@@ -1,0 +1,97 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["60", "5", "60"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-1",
+      "size": ["60", "40", "5"],
+      "position": ["0", "22.5", "0"],
+      "op": "join"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-2.5,30|a=3600|adj=4,4"},
+        "fallback": {"origin": [0, -2.5, 0], "x_axis": [1, 0, 0], "normal": [0, -1, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [0, 33], "radius": 11.5},
+        {"id": "e-2", "type": "point", "position": [15.5, 48.5]},
+        {"id": "e-3", "type": "point", "position": [-15.5, 48.5]},
+        {"id": "e-4", "type": "point", "position": [-15.5, 17.5]},
+        {"id": "e-5", "type": "point", "position": [15.5, 17.5]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=0,33|a=415.475628", "outline": "e-1"}
+        ]
+      },
+      "extent": {"kind": "through_all"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-2", "e-3", "e-4", "e-5"],
+      "diameter": "3.4",
+      "hole_type": {"kind": "counterbore", "diameter": "6.5", "depth": "2"},
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box2/top", "fp": "plane|n=0,0,1|c=0,22.5,5|a=2400|adj=4,4"},
+        "fallback": {"origin": [0, 0, 5], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-6", "type": "point", "position": [-20, 30]},
+        {"id": "e-7", "type": "point", "position": [20, 30]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole2",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-6", "e-7"],
+      "diameter": "5",
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/back|f-box2/top)", "fp": "line|n=1,0,0|c=0,2.5,5|l=60|adj=2,2"}
+      ],
+      "radius": "3"
+    }
+  ]
+}

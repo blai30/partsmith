@@ -1,0 +1,40 @@
+{
+  "scripts": [
+    {
+      "name": "resized-box",
+      "description": "The box becomes 30 mm long.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "30",
+              "20",
+              "20"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)",
+          "/edges/1": "edge(f-box1/back|f-box1/top)",
+          "/edges/2": "edge(f-box1/left|f-box1/top)",
+          "/edges/3": "edge(f-box1/right|f-box1/top)",
+          "/edges/4": "edge(f-box1/bottom|f-box1/front)",
+          "/edges/5": "edge(f-box1/back|f-box1/bottom)",
+          "/edges/6": "edge(f-box1/bottom|f-box1/left)",
+          "/edges/7": "edge(f-box1/bottom|f-box1/right)",
+          "/edges/8": "edge(f-box1/front|f-box1/left)",
+          "/edges/9": "edge(f-box1/front|f-box1/right)",
+          "/edges/10": "edge(f-box1/back|f-box1/left)",
+          "/edges/11": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    }
+  ]
+}

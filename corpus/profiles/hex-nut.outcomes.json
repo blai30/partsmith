@@ -1,0 +1,67 @@
+{
+  "scripts": [
+    {
+      "name": "taller-nut",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-crown",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+          ]
+        }
+      ]
+    }
+  ]
+}

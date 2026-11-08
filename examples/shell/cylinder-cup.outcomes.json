@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cup",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

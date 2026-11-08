@@ -1,0 +1,145 @@
+{
+  "scripts": [
+    {
+      "name": "taller-housing",
+      "description": "The housing becomes 30 mm tall instead of 25 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "70",
+              "50",
+              "30"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-cyl1": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-cyl2": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "thicker-shell",
+      "description": "The walls become 3 mm thick instead of 2 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sh1",
+            "type": "shell",
+            "body": "b-1",
+            "thickness": "3",
+            "remove_faces": [
+              {
+                "q": "f-box1/top",
+                "fp": "plane|n=0,0,1|c=0,0,25|a=3500|adj=4,4"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-cyl1": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-cyl2": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "rounded-corners-first",
+      "description": "The four vertical corners are rounded before the housing is shelled.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-35,-25,12.5|l=25|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=35,-25,12.5|l=25|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-35,25,12.5|l=25|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=35,25,12.5|l=25|adj=2,2"
+              }
+            ],
+            "radius": "4"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-cyl1": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-cyl2": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "one-boss",
+      "description": "The second boss is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-cyl2"
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-cyl1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+        }
+      }
+    }
+  ]
+}

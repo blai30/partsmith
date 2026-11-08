@@ -1,0 +1,42 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-second-slot",
+      "description": "The second slot becomes 8 mm deep.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext3",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk3",
+              "regions": [
+                {
+                  "key": "e-5,e-6,e-7,e-8",
+                  "fp": "c=55,25|a=520",
+                  "outline": "e-5,e-6,e-7,e-8"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "8"
+            },
+            "reverse": true,
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap#1|f-ext1/lateral/e-1)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap#2#2|f-ext1/lateral/e-3)"
+        }
+      }
+    }
+  ]
+}

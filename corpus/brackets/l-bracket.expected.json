@@ -1,0 +1,64 @@
+{
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-hole2",
+      "type": "hole",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 12196.98568425938,
+      "area": 6351.487890874301,
+      "bounding_box": {
+        "min": [
+          -3.3306690738754696e-16,
+          -15.0,
+          -3.3306690738754696e-16
+        ],
+        "max": [
+          50.0,
+          15.0,
+          40.0
+        ]
+      },
+      "faces": 20
+    }
+  ]
+}

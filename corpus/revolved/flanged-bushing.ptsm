@@ -1,0 +1,93 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [4, 0], "end": [6, 0]},
+        {"id": "e-2", "type": "line", "start": [6, 0], "end": [6, 12]},
+        {"id": "e-3", "type": "line", "start": [6, 12], "end": [9, 12]},
+        {"id": "e-4", "type": "line", "start": [9, 12], "end": [9, 14]},
+        {"id": "e-5", "type": "line", "start": [9, 14], "end": [4, 14]},
+        {"id": "e-6", "type": "line", "start": [4, 14], "end": [4, 0]},
+        {"id": "e-7", "type": "line", "start": [0, 0], "end": [0, 10], "construction": true}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4,e-5,e-6", "fp": "c=5.441176,8.058824|a=34", "outline": "e-1,e-2,e-3,e-4,e-5,e-6"}
+        ]
+      },
+      "axis": {"kind": "sketch_line", "sketch": "f-sk1", "line": "e-7"},
+      "extent": {"kind": "full"},
+      "op": "new"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)", "fp": "circle|n=0,0,1|c=0,0,0|l=37.699112|r=6|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-cha2",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-rev1/lateral/e-5|f-rev1/lateral/e-6)", "fp": "circle|n=0,0,1|c=0,0,14|l=25.132741|r=4|adj=2,1"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.3"}
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)", "fp": "circle|n=0,0,1|c=0,0,12|l=37.699112|r=6|adj=2,1"}
+      ],
+      "radius": "0.5"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-rev1/lateral/e-5", "fp": "plane|n=0,0,1|c=0,0,14|a=196.380957|adj=2,2"},
+        "fallback": {"origin": [0, 0, 14], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-8", "type": "point", "position": [7.5, 0]},
+        {"id": "e-9", "type": "point", "position": [-3.75, 6.495190528]},
+        {"id": "e-10", "type": "point", "position": [-3.75, -6.495190528]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-8", "e-9", "e-10"],
+      "diameter": "1.5",
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

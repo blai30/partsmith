@@ -1,0 +1,23 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

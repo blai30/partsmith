@@ -1,0 +1,15 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

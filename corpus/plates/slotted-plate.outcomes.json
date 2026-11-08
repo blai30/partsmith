@@ -1,0 +1,102 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groove-across",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top#1",
+            "f-box1/top#2"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top#1)",
+            "edge(f-box1/front|f-box1/top#2)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top#1)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top#1",
+            "f-box1/top#2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-chamfer",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-flange",
+      "references": [
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cone1/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/1",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "taller-cone",
+      "references": [
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cone1/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/1",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cone1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cone1/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/1",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-spout",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/1",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

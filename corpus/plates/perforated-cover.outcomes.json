@@ -1,0 +1,200 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-cover",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-openings",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chamfer-before-rounds",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        }
+      ]
+    }
+  ]
+}

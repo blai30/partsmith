@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-block",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/bottom|f-box2/front)"
+          ]
+        }
+      ]
+    }
+  ]
+}

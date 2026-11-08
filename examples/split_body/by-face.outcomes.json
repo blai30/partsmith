@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cutter",
+      "references": [
+        {
+          "feature": "f-split1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box2/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

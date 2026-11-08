@@ -1,0 +1,28 @@
+{
+  "scripts": [
+    {
+      "name": "shorter-move",
+      "description": "The rounded box moves 20 mm instead of 50 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-mv1",
+            "type": "move_body",
+            "body": "b-1",
+            "translation": [
+              "20",
+              "0",
+              "0"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

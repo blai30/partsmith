@@ -1,0 +1,73 @@
+{
+  "scripts": [
+    {
+      "name": "longer-slot",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-imp1/face#12)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "second-opening-first",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#12"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-imp1/face#12)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-slot",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#9)"
+          ]
+        }
+      ]
+    }
+  ]
+}

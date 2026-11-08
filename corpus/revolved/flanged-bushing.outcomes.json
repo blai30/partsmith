@@ -1,0 +1,107 @@
+{
+  "scripts": [
+    {
+      "name": "thinner-flange",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-5|f-rev1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-5"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flange-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-1|f-rev1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-5|f-rev1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-5"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-bottom-chamfer",
+      "references": [
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-5|f-rev1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-5"
+          ]
+        }
+      ]
+    }
+  ]
+}

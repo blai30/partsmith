@@ -1,0 +1,49 @@
+{
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-sph1",
+      "type": "sphere",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 2870.379952459016,
+      "area": 3953.8606142481317,
+      "bounding_box": {
+        "min": [
+          -15.0000001,
+          -15.0000001,
+          -1e-7
+        ],
+        "max": [
+          15.000000100030382,
+          15.0000001,
+          20.0
+        ]
+      },
+      "faces": 8
+    }
+  ]
+}

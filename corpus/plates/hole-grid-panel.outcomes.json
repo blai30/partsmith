@@ -1,0 +1,232 @@
+{
+  "scripts": [
+    {
+      "name": "larger-panel",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-lp1",
+          "field": "/second_direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "front-notch",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-lp1",
+          "field": "/second_direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#2|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-grid",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-lp1",
+          "field": "/second_direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/right)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/2",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/left)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/3",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/right)"
+          ]
+        }
+      ]
+    }
+  ]
+}

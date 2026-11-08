@@ -1,0 +1,117 @@
+{
+  "scripts": [
+    {
+      "name": "wider-bracket",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3#1"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3#2"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1#2|f-ext1/lateral/e-6#2)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "upright-chamfer-first",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/end-cap"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3#1"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3#2"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    },
+    {
+      "name": "one-piece",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

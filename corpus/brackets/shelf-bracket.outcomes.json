@@ -1,0 +1,99 @@
+{
+  "scripts": [
+    {
+      "name": "longer-shelf",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/right|f-box2/bottom)"
+          ]
+        },
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "outer-chamfer",
+      "references": [
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-fillet",
+      "references": [
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/front"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/left"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

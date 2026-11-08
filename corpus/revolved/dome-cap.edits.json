@@ -1,0 +1,131 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cap",
+      "description": "The cylinder becomes 25 mm tall instead of 20 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "15",
+            "height": "25",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sph1": {
+          "/plane/face": "f-cyl1/bottom"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sph1/surface)"
+        },
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "flatter-dome",
+      "description": "The dome's sphere radius becomes 18 mm instead of 20 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sph1",
+            "type": "sphere",
+            "body": "b-1",
+            "radius": "18",
+            "plane": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-cyl1/bottom",
+                "fp": "plane|n=0,0,-1|c=0,0,0|a=706.858347|adj=1,1"
+              }
+            },
+            "op": "intersect"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-cyl1/side|f-sph1/surface)"
+        },
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "vent-hole",
+      "description": "A 4 mm vent hole is cut through the top of the dome before the shell.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 3,
+          "feature": {
+            "id": "f-cyl2",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "2",
+            "height": "10",
+            "position": [
+              "0",
+              "0",
+              "15"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+        }
+      }
+    },
+    {
+      "name": "sharp-edge",
+      "description": "The round between the side and the dome is suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-cyl1/side|f-sph1/surface)",
+                "fp": "circle|n=0,0,1|c=0,0,13.228757|l=94.24778|r=15|adj=2,1"
+              }
+            ],
+            "radius": "2",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+        }
+      }
+    }
+  ]
+}

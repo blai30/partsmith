@@ -1,0 +1,142 @@
+{
+  "scripts": [
+    {
+      "name": "taller-nut",
+      "description": "The nut becomes 6 mm tall instead of 5 mm, with its crown cut moved up to match.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4,e-5,e-6;~e-7",
+                  "fp": "c=0,0|a=66.967586",
+                  "outline": "e-1,e-2,e-3,e-4,e-5,e-6"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "6"
+            },
+            "op": "new"
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-sk2",
+            "type": "sketch",
+            "plane": {
+              "kind": "origin",
+              "plane": "XZ"
+            },
+            "entities": [
+              {
+                "id": "e-8",
+                "type": "line",
+                "start": [
+                  4.9,
+                  6
+                ],
+                "end": [
+                  6,
+                  4.9
+                ]
+              },
+              {
+                "id": "e-9",
+                "type": "line",
+                "start": [
+                  6,
+                  4.9
+                ],
+                "end": [
+                  6,
+                  6
+                ]
+              },
+              {
+                "id": "e-10",
+                "type": "line",
+                "start": [
+                  6,
+                  6
+                ],
+                "end": [
+                  4.9,
+                  6
+                ]
+              }
+            ],
+            "constraints": []
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+        }
+      }
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "description": "The hexagon's bottom edges get a 0.3 mm chamfer right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+                "fp": "line|n=0.5,-0.866025,0|c=4.330127,2.5,0|l=5.773503|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.3"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+        }
+      }
+    },
+    {
+      "name": "no-crown",
+      "description": "The crown cut is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-rev1"
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-7)"
+        },
+        "f-cha2": {
+          "/edges/0": "edge(f-ext1/lateral/e-7|f-ext1/start-cap)"
+        }
+      }
+    }
+  ]
+}

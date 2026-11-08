@@ -1,0 +1,147 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-stem",
+      "description": "The stem radius grows from 4 mm to 5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "5",
+            "height": "20",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-rev1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-cp1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/bottom"
+        }
+      }
+    },
+    {
+      "name": "eight-grooves",
+      "description": "The knob gets eight grip grooves instead of twelve.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cp1",
+            "type": "circular_pattern",
+            "body": "b-2",
+            "axis": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-cyl1/side",
+                "fp": "cylinder|n=0,0,1|c=0,0,7.5|a=376.991118|r=4|adj=2,3"
+              },
+              "direction": [
+                0,
+                0,
+                1
+              ]
+            },
+            "count": "8"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/bottom"
+        }
+      }
+    },
+    {
+      "name": "stem-chamfer-first",
+      "description": "The stem's bottom edge gets a 0.5 mm chamfer right after the stem.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha1",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-cyl1/bottom|f-cyl1/side)",
+                "fp": "circle|n=0,0,1|c=0,0,0|l=25.132741|r=4|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-rev1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-cp1": {
+          "/axis/face": "f-cyl1/side"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/bottom"
+        }
+      }
+    },
+    {
+      "name": "one-groove",
+      "description": "The groove pattern is suppressed, leaving one groove.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cp1",
+            "type": "circular_pattern",
+            "body": "b-2",
+            "axis": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-cyl1/side",
+                "fp": "cylinder|n=0,0,1|c=0,0,7.5|a=376.991118|r=4|adj=2,3"
+              },
+              "direction": [
+                0,
+                0,
+                1
+              ]
+            },
+            "count": "12",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-cyl1/bottom"
+        }
+      }
+    }
+  ]
+}

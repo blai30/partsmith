@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-dp1",
+          "field": "/base/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/right"
+          ]
+        }
+      ]
+    }
+  ]
+}

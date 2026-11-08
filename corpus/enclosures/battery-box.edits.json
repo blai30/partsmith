@@ -1,0 +1,152 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-box",
+      "description": "The box becomes 20 mm deep instead of 18 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "36",
+              "60",
+              "20"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-box2": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box2/left|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "rounded-corners-first",
+      "description": "The four vertical corners are rounded before the box is shelled.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-18,-30,9|l=18|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=18,-30,9|l=18|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-18,30,9|l=18|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=18,30,9|l=18|adj=2,2"
+              }
+            ],
+            "radius": "3"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-box2": {
+          "/plane/face": "f-sh1/inner/f-box1/bottom"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box2/left|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "thicker-divider",
+      "description": "The divider becomes 2 mm thick instead of 1.6 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "2",
+              "56.8",
+              "14"
+            ],
+            "plane": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-sh1/inner/f-box1/bottom",
+                "fp": "plane|n=0,0,1|c=0,0,1.6|a=1863.04|adj=4,4"
+              }
+            },
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box2/left|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "no-divider",
+      "description": "The divider is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-box2"
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/bottom"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "lost"
+        }
+      }
+    }
+  ]
+}

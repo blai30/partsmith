@@ -1,0 +1,112 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cap",
+      "references": [
+        {
+          "feature": "f-sph1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sph1/surface)"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flatter-dome",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sph1/surface)"
+          ]
+        },
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "vent-hole",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sharp-edge",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/rim/f-cyl1/bottom)"
+          ]
+        }
+      ]
+    }
+  ]
+}

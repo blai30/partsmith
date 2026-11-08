@@ -1,0 +1,150 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-box",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-box2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/left|f-box2/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rounded-corners-first",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-box2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/left|f-box2/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thicker-divider",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/left|f-box2/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-divider",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-sh1/rim/f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "scripts": [
+    {
+      "name": "wider-keyway",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#1|f-imp1/face#7)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bigger-lightening-hole",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "ambiguous",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#5)",
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bore-chamfer-first",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#6"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#1|f-imp1/face#7)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-lightening-hole",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "ambiguous",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#5)",
+            "edge(f-imp1/face#4|f-imp1/face#8)",
+            "edge(f-imp1/face#5|f-imp1/face#6)"
+          ]
+        }
+      ]
+    }
+  ]
+}

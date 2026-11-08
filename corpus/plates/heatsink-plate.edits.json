@@ -1,0 +1,150 @@
+{
+  "scripts": [
+    {
+      "name": "taller-fins",
+      "description": "The fins grow from 15 mm to 20 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-2",
+            "size": [
+              "2",
+              "36",
+              "20"
+            ],
+            "position": [
+              "-25",
+              "0",
+              "4"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)",
+          "/edges/1": "edge(f-box1/back|f-box1/bottom)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box2/front|f-box2/top)",
+          "/edges/1": "edge(f-box2/front@f-lp1:5|f-box2/top@f-lp1:5)"
+        }
+      }
+    },
+    {
+      "name": "five-fins",
+      "description": "The plate gets five fins instead of six.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-20,4|l=60|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "5",
+              "spacing": "10"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)",
+          "/edges/1": "edge(f-box1/back|f-box1/bottom)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box2/front|f-box2/top)",
+          "/edges/1": "lost"
+        }
+      }
+    },
+    {
+      "name": "rounded-corners-first",
+      "description": "The base's four vertical corners are rounded right after the base.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-fil0",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-30,-20,2|l=4|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=30,-20,2|l=4|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-30,20,2|l=4|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=30,20,2|l=4|adj=2,2"
+              }
+            ],
+            "radius": "3"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)",
+          "/edges/1": "edge(f-box1/back|f-box1/bottom)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box2/front|f-box2/top)",
+          "/edges/1": "edge(f-box2/front@f-lp1:5|f-box2/top@f-lp1:5)"
+        }
+      }
+    },
+    {
+      "name": "one-fin",
+      "description": "The fin pattern is removed, leaving one fin.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-lp1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)",
+          "/edges/1": "edge(f-box1/back|f-box1/bottom)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box2/front|f-box2/top)",
+          "/edges/1": "lost"
+        }
+      }
+    }
+  ]
+}

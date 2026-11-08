@@ -1,0 +1,64 @@
+{
+  "scripts": [
+    {
+      "name": "wider-side-block",
+      "description": "The side block becomes 30 mm wide, and its top still lines up with the first block's.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-base1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "30",
+              "40",
+              "20"
+            ],
+            "position": [
+              "25",
+              "0",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-base1/top|f-box1/front)"
+        }
+      }
+    },
+    {
+      "name": "taller-side-block",
+      "description": "The side block becomes 25 mm tall and the first block keeps its own top.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-base1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "40",
+              "25"
+            ],
+            "position": [
+              "20",
+              "0",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    }
+  ]
+}

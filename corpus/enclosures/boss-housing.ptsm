@@ -1,0 +1,86 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["70", "50", "25"], "op": "new"},
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2",
+      "remove_faces": [
+        {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,25|a=3500|adj=4,4"}
+      ]
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "3.5",
+      "height": "10",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-sh1/inner/f-box1/bottom", "fp": "plane|n=0,0,1|c=0,0,2|a=3036|adj=4,4"}
+      },
+      "position": ["-27", "-17", "0"],
+      "op": "join"
+    },
+    {
+      "id": "f-cyl2",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "3.5",
+      "height": "10",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-sh1/inner/f-box1/bottom", "fp": "plane|n=0,0,1|c=0.346648,0.21826,2|a=2997.51549|adj=5,5"}
+      },
+      "position": ["27", "17", "0"],
+      "op": "join"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-cyl1/top", "fp": "plane|n=0,0,1|c=-27,-17,12|a=38.48451|adj=1,1"},
+        "fallback": {"origin": [0, 0, 12], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "point", "position": [-27, -17]},
+        {"id": "e-2", "type": "point", "position": [27, 17]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-1", "e-2"],
+      "diameter": "2.5",
+      "extent": {"kind": "distance", "expr": "8"}
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)",
+          "fp": "circle|n=0,0,1|c=-27,-17,2|l=21.991149|r=3.5|adj=2,1"
+        }
+      ],
+      "radius": "1"
+    }
+  ]
+}

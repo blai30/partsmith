@@ -1,0 +1,162 @@
+{
+  "scripts": [
+    {
+      "name": "higher-pad",
+      "description": "The pad sits 30 mm above the base instead of 20 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-dp1",
+            "type": "datum_plane",
+            "base": {
+              "kind": "face",
+              "body": "b-1",
+              "face": {
+                "q": "f-box1/top",
+                "fp": "plane|n=0,0,1|c=0,0,5|a=1200|adj=4,4"
+              }
+            },
+            "offset": "30"
+          }
+        },
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4",
+                  "fp": "c=0,0|a=320",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "30"
+            },
+            "reverse": true,
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    },
+    {
+      "name": "thicker-base",
+      "description": "The base becomes 8 mm thick instead of 5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "40",
+              "30",
+              "8"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-dp1": {
+          "/base/face": "f-box1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    },
+    {
+      "name": "cable-slot",
+      "description": "A 6 mm square slot is cut through the base beside the pad right after the base.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "6",
+              "6",
+              "5"
+            ],
+            "position": [
+              "15",
+              "0",
+              "0"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-dp1": {
+          "/base/face": "f-box1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    },
+    {
+      "name": "no-chamfer",
+      "description": "The pad chamfer is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-cha1"
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    }
+  ]
+}

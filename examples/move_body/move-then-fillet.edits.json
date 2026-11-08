@@ -1,0 +1,28 @@
+{
+  "scripts": [
+    {
+      "name": "shorter-move",
+      "description": "The box moves 30 mm instead of 50 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-mv1",
+            "type": "move_body",
+            "body": "b-1",
+            "translation": [
+              "30",
+              "0",
+              "0"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    }
+  ]
+}

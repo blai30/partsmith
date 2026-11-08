@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-block",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-4|f-ext1/start-cap)"
+          ]
+        }
+      ]
+    }
+  ]
+}

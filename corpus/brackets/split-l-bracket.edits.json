@@ -1,0 +1,113 @@
+{
+  "scripts": [
+    {
+      "name": "wider-bracket",
+      "description": "The bracket becomes 80 mm wide instead of 60 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4,e-5,e-6",
+                  "fp": "c=11.833333,11.833333|a=375",
+                  "outline": "e-1,e-2,e-3,e-4,e-5,e-6"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "symmetric",
+              "expr": "80"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+        },
+        "f-dp1": {
+          "/base/face": "f-ext1/end-cap"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3#1"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-3#2"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1#2|f-ext1/lateral/e-6#2)"
+        }
+      }
+    },
+    {
+      "name": "upright-chamfer-first",
+      "description": "The outer top edge of the upright gets a 1 mm chamfer right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-5|f-ext1/lateral/e-6)",
+                "fp": "line|n=0,1,0|c=0,0,40|l=60|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "1"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+        },
+        "f-dp1": {
+          "/base/face": "f-ext1/end-cap"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3#1"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-3#2"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1#2|f-ext1/lateral/e-6#2)"
+        }
+      }
+    },
+    {
+      "name": "one-piece",
+      "description": "The split is removed and the bracket stays in one piece.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-split1"
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        },
+        "f-sk3": {
+          "/plane/face": "lost"
+        },
+        "f-cha1": {
+          "/edges/0": "lost"
+        }
+      }
+    }
+  ]
+}

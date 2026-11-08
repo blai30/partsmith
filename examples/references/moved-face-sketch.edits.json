@@ -1,0 +1,28 @@
+{
+  "scripts": [
+    {
+      "name": "shorter-move",
+      "description": "The plate moves 60 mm instead of 100 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-mv1",
+            "type": "move_body",
+            "body": "b-1",
+            "translation": [
+              "60",
+              "0",
+              "0"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-box1/top"
+        }
+      }
+    }
+  ]
+}

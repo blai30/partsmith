@@ -1,0 +1,154 @@
+{
+  "scripts": [
+    {
+      "name": "fewer-teeth",
+      "description": "The rack gets 12 teeth instead of 16.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-5,8|l=100|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "12",
+              "spacing": "6"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)"
+        }
+      }
+    },
+    {
+      "name": "longer-rack",
+      "description": "The bar becomes 120 mm long instead of 100 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "120",
+              "10",
+              "8"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)"
+        }
+      }
+    },
+    {
+      "name": "end-chamfers-first",
+      "description": "The bar's top end edges get 1 mm chamfers right after the bar.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/left|f-box1/top)",
+                "fp": "line|n=0,1,0|c=-50,0,8|l=10|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/right|f-box1/top)",
+                "fp": "line|n=0,1,0|c=50,0,8|l=10|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "1"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)"
+        }
+      }
+    },
+    {
+      "name": "one-tooth",
+      "description": "The tooth pattern is suppressed, leaving one tooth.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-5,8|l=100|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "16",
+              "spacing": "6"
+            },
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-box1/front"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/bottom|f-box1/front)"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok"
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-cyl2",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 18368.170910218425,
+      "area": 18708.492822340035,
+      "bounding_box": {
+        "min": [
+          -35.0,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          35.0,
+          25.0,
+          25.0
+        ]
+      },
+      "faces": 20
+    }
+  ]
+}

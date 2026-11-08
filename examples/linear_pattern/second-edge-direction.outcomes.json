@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/second_direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/left|f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

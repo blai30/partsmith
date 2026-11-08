@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "longer-rod",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/second_direction/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "scripts": [
+    {
+      "name": "taller-housing",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thicker-shell",
+      "references": [
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rounded-corners-first",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-cyl2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-sh1/inner/f-box1/bottom"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-boss",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-sh1/inner/f-box1/bottom)"
+          ]
+        }
+      ]
+    }
+  ]
+}

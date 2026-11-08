@@ -1,0 +1,123 @@
+{
+  "scripts": [
+    {
+      "name": "longer-link",
+      "description": "The distance between the link's end centers becomes 80 mm instead of 60 mm.",
+      "edits": [
+        {
+          "type": "update_parameter",
+          "parameter": {
+            "id": "p-length",
+            "name": "length",
+            "expr": "80 mm"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        }
+      }
+    },
+    {
+      "name": "thicker-link",
+      "description": "The link becomes 6 mm thick instead of 5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4;~e-5,~e-6,~e-7,~e-8;~e-9",
+                  "fp": "c=0.861573,0|a=984.513262",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "6"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        }
+      }
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "description": "The bottom outline edge gets a 0.5 mm chamfer right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)",
+                "fp": "line|n=1,0,0|c=0,-8,0|l=60|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        }
+      }
+    },
+    {
+      "name": "no-round",
+      "description": "The outline round is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        }
+      }
+    }
+  ]
+}

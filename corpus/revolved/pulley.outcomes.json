@@ -1,0 +1,120 @@
+{
+  "scripts": [
+    {
+      "name": "taller-hub",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-rev1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "deeper-groove",
+      "references": [
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-6"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-rev1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rim-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cyl1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-6"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-rev1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "plain-hub",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-rev1/lateral/e-6)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-axis-block",
+      "references": [
+        {
+          "feature": "f-cp1",
+          "field": "/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/left)"
+          ]
+        }
+      ]
+    }
+  ]
+}

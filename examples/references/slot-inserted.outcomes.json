@@ -1,0 +1,26 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-second-slot",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap#1|f-ext1/lateral/e-1)",
+            "edge(f-ext1/end-cap#2#1|f-ext1/lateral/e-1)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/end-cap#2#2|f-ext1/lateral/e-3)"
+          ]
+        }
+      ]
+    }
+  ]
+}

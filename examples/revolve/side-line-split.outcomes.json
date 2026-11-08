@@ -1,0 +1,18 @@
+{
+  "scripts": [
+    {
+      "name": "datum-first",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-rev1/lateral/e-2",
+            "f-rev1/lateral/e-6"
+          ]
+        }
+      ]
+    }
+  ]
+}

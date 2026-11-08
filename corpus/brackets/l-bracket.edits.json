@@ -1,0 +1,176 @@
+{
+  "scripts": [
+    {
+      "name": "wider-bracket",
+      "description": "The bracket becomes 40 mm wide instead of 30 mm.",
+      "edits": [
+        {
+          "type": "update_parameter",
+          "parameter": {
+            "id": "p-width",
+            "name": "width",
+            "expr": "40 mm"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-6"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        }
+      }
+    },
+    {
+      "name": "center-gusset",
+      "description": "A 4 mm gusset in the middle of the inner corner is added right after the extrude.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 2,
+          "feature": {
+            "id": "f-sk4",
+            "type": "sketch",
+            "plane": {
+              "kind": "origin",
+              "plane": "XZ"
+            },
+            "entities": [
+              {
+                "id": "e-11",
+                "type": "line",
+                "start": [
+                  5,
+                  5
+                ],
+                "end": [
+                  30,
+                  5
+                ]
+              },
+              {
+                "id": "e-12",
+                "type": "line",
+                "start": [
+                  30,
+                  5
+                ],
+                "end": [
+                  5,
+                  30
+                ]
+              },
+              {
+                "id": "e-13",
+                "type": "line",
+                "start": [
+                  5,
+                  30
+                ],
+                "end": [
+                  5,
+                  5
+                ]
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "type": "add_feature",
+          "index": 3,
+          "feature": {
+            "id": "f-ext2",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk4",
+              "regions": [
+                {
+                  "key": "e-11,e-12,e-13",
+                  "fp": "c=13.333333,13.333333|a=312.5",
+                  "outline": "e-11,e-12,e-13"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "symmetric",
+              "expr": "4"
+            },
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-6"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        },
+        "f-fil1": {
+          "/edges/0": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)#1",
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)#2"
+          ]
+        }
+      }
+    },
+    {
+      "name": "no-fillet",
+      "description": "The inner fillet is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-6"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        }
+      }
+    },
+    {
+      "name": "chamfer-first",
+      "description": "The outer chamfer moves to right after the extrude.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-cha1",
+          "index": 2
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+        },
+        "f-sk2": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-6"
+        }
+      }
+    }
+  ]
+}

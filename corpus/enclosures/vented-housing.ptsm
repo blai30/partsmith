@@ -1,0 +1,84 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["90", "60", "40"], "op": "new"},
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2",
+      "remove_faces": [
+        {"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=5400|adj=4,4"}
+      ]
+    },
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-2",
+      "size": ["3", "10", "20"],
+      "position": ["-30", "-30", "10"],
+      "op": "new"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-2",
+      "direction": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-1",
+          "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-30,40|l=90|adj=2,2"},
+          "direction": [1, 0, 0]
+        },
+        "count": "7",
+        "spacing": "10"
+      }
+    },
+    {"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-30,40|l=90|adj=2,2"}
+      ],
+      "radius": "1.5"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0.75,40|a=5265|adj=4,4"},
+        "fallback": {"origin": [0, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [25, 0], "radius": 4}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=25,0|a=50.265482", "outline": "e-1"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "reverse": true,
+      "op": "cut"
+    }
+  ]
+}

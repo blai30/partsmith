@@ -1,0 +1,42 @@
+{
+  "scripts": [
+    {
+      "name": "smaller-turn",
+      "description": "The ring turns through 120 degrees instead of 180.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-rev1",
+            "type": "revolve",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4",
+                  "fp": "c=15,15|a=300",
+                  "outline": "e-1,e-2,e-3,e-4"
+                }
+              ]
+            },
+            "axis": {
+              "kind": "origin",
+              "axis": "Z"
+            },
+            "extent": {
+              "kind": "angle",
+              "expr": "120 deg"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-9)"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["60", "40", "4"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-2",
+      "size": ["2", "36", "15"],
+      "position": ["-25", "0", "4"],
+      "op": "new"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-2",
+      "direction": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-1",
+          "edge": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-20,4|l=60|adj=2,2"},
+          "direction": [1, 0, 0]
+        },
+        "count": "6",
+        "spacing": "10"
+      }
+    },
+    {"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "join"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/bottom|f-box1/front)", "fp": "line|n=1,0,0|c=0,-20,0|l=60|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/bottom)", "fp": "line|n=1,0,0|c=0,20,0|l=60|adj=2,2"}
+      ],
+      "radius": "1"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box2/front|f-box2/top)", "fp": "line|n=1,0,0|c=-25,-18,19|l=2|adj=2,2"},
+        {"q": "edge(f-box2/front@f-lp1:5|f-box2/top@f-lp1:5)", "fp": "line|n=1,0,0|c=25,-18,19|l=2|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    }
+  ]
+}

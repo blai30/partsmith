@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

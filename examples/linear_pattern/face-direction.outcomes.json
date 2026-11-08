@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-rod",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        }
+      ]
+    }
+  ]
+}

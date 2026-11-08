@@ -1,0 +1,164 @@
+{
+  "scripts": [
+    {
+      "name": "taller-fins",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/top)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front@f-lp1:5|f-box2/top@f-lp1:5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "five-fins",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/top)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    },
+    {
+      "name": "rounded-corners-first",
+      "references": [
+        {
+          "feature": "f-lp1",
+          "field": "/direction/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/top)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front@f-lp1:5|f-box2/top@f-lp1:5)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-fin",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/bottom|f-box1/front)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/top)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

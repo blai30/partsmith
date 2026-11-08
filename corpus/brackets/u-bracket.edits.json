@@ -1,0 +1,110 @@
+{
+  "scripts": [
+    {
+      "name": "taller-walls",
+      "description": "The walls become 40 mm tall instead of 30 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box2",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "4",
+              "30",
+              "40"
+            ],
+            "position": [
+              "-18",
+              "0",
+              "0"
+            ],
+            "op": "join"
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/top|f-box2/right)"
+        },
+        "f-dp1": {
+          "/base/face": "f-box1/left"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/left|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "wall-window",
+      "description": "A 10 mm square window is cut through the wall right after the inner fillet.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 3,
+          "feature": {
+            "id": "f-box3",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "6",
+              "10",
+              "10"
+            ],
+            "position": [
+              "-18",
+              "0",
+              "15"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-dp1": {
+          "/base/face": "f-box1/left"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/left|f-box2/top)"
+        }
+      }
+    },
+    {
+      "name": "no-fillet",
+      "description": "The inner fillet is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-dp1": {
+          "/base/face": "f-box1/left"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-sk2": {
+          "/plane/face": "f-box1/left"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/left|f-box2/top)"
+        }
+      }
+    }
+  ]
+}

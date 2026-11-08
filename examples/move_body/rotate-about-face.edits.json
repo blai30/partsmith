@@ -1,0 +1,31 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-axis-cylinder",
+      "description": "The cylinder whose side is the axis becomes 3 mm in radius.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "3",
+            "height": "5",
+            "position": [
+              "20",
+              "0",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-mv1": {
+          "/rotation/axis/face": "f-cyl1/side"
+        }
+      }
+    }
+  ]
+}

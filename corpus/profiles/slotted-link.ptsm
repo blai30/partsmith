@@ -1,0 +1,140 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-length", "name": "length", "expr": "60 mm"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [-30, -8], "end": [30, -8]},
+        {
+          "id": "e-2",
+          "type": "arc",
+          "center": [30, 0],
+          "radius": 8,
+          "start_angle": -1.5707963267948966,
+          "end_angle": 1.5707963267948966
+        },
+        {"id": "e-3", "type": "line", "start": [30, 8], "end": [-30, 8]},
+        {
+          "id": "e-4",
+          "type": "arc",
+          "center": [-30, 0],
+          "radius": 8,
+          "start_angle": 1.5707963267948966,
+          "end_angle": 4.71238898038469
+        },
+        {"id": "e-5", "type": "line", "start": [-10, -3], "end": [10, -3]},
+        {
+          "id": "e-6",
+          "type": "arc",
+          "center": [10, 0],
+          "radius": 3,
+          "start_angle": -1.5707963267948966,
+          "end_angle": 1.5707963267948966
+        },
+        {"id": "e-7", "type": "line", "start": [10, 3], "end": [-10, 3]},
+        {
+          "id": "e-8",
+          "type": "arc",
+          "center": [-10, 0],
+          "radius": 3,
+          "start_angle": 1.5707963267948966,
+          "end_angle": 4.71238898038469
+        },
+        {"id": "e-9", "type": "circle", "center": [-30, 0], "radius": 3}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+        {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
+        {"id": "c-5", "type": "coincident", "points": ["e-5.end", "e-6.start"]},
+        {"id": "c-6", "type": "coincident", "points": ["e-6.end", "e-7.start"]},
+        {"id": "c-7", "type": "coincident", "points": ["e-7.end", "e-8.start"]},
+        {"id": "c-8", "type": "coincident", "points": ["e-8.end", "e-5.start"]},
+        {"id": "c-9", "type": "tangent", "curves": ["e-1", "e-2"]},
+        {"id": "c-10", "type": "tangent", "curves": ["e-2", "e-3"]},
+        {"id": "c-11", "type": "tangent", "curves": ["e-3", "e-4"]},
+        {"id": "c-12", "type": "tangent", "curves": ["e-4", "e-1"]},
+        {"id": "c-13", "type": "tangent", "curves": ["e-5", "e-6"]},
+        {"id": "c-14", "type": "tangent", "curves": ["e-6", "e-7"]},
+        {"id": "c-15", "type": "tangent", "curves": ["e-7", "e-8"]},
+        {"id": "c-16", "type": "tangent", "curves": ["e-8", "e-5"]},
+        {"id": "c-17", "type": "horizontal", "line": "e-1"},
+        {"id": "c-18", "type": "horizontal", "line": "e-5"},
+        {"id": "c-19", "type": "concentric", "curves": ["e-9", "e-4"]},
+        {"id": "c-20", "type": "horizontal_distance", "points": ["e-4.center", "e-2.center"], "expr": "length"},
+        {"id": "c-21", "type": "radius", "curve": "e-2", "expr": "8"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {
+            "key": "e-1,e-2,e-3,e-4;~e-5,~e-6,~e-7,~e-8;~e-9",
+            "fp": "c=0.861573,0|a=984.513262",
+            "outline": "e-1,e-2,e-3,e-4"
+          }
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=0,-8,5|l=60|adj=2,2"}
+      ],
+      "radius": "1"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-5)", "fp": "line|n=1,0,0|c=0,-3,5|l=20|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=1.077556,0,5|a=787.179196|adj=9,9"},
+        "fallback": {"origin": [0, 0, 5], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-10", "type": "point", "position": [30, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-10"],
+      "diameter": "6",
+      "hole_type": {"kind": "countersink", "diameter": "10", "angle": "90 deg"},
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

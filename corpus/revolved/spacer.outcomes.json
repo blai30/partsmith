@@ -1,0 +1,150 @@
+{
+  "scripts": [
+    {
+      "name": "longer-spacer",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/bottom|f-cyl1/side)"
+          ]
+        },
+        {
+          "feature": "f-cha3",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "larger-spacer",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/bottom|f-cyl1/side)"
+          ]
+        },
+        {
+          "feature": "f-cha3",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "side-flat",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/bottom|f-cyl1/side)"
+          ]
+        },
+        {
+          "feature": "f-cha3",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/top|f-ext1/lateral/e-1)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bore-chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha3",
+          "field": "/edges/0",
+          "status": "missing",
+          "elements": []
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-cha2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/bottom|f-cyl1/side)"
+          ]
+        }
+      ]
+    }
+  ]
+}

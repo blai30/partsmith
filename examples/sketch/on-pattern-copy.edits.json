@@ -1,0 +1,29 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "description": "The patterned box becomes 15 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "20",
+              "15"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-box1/top@f-lp1:1"
+        }
+      }
+    }
+  ]
+}

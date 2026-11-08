@@ -1,0 +1,144 @@
+{
+  "scripts": [
+    {
+      "name": "larger-wheel",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-tor1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "six-spokes",
+      "references": [
+        {
+          "feature": "f-tor1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hub-chamfer-first",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-tor1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl2/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-tire",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

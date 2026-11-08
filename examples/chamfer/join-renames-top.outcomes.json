@@ -1,0 +1,30 @@
+{
+  "scripts": [
+    {
+      "name": "wider-side-block",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-base1/top|f-box1/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "taller-side-block",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

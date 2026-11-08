@@ -1,0 +1,32 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "description": "The box becomes 40 mm tall before it is shelled.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "80",
+              "50",
+              "40"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-box1/top"
+        },
+        "f-dp1": {
+          "/base/face": "f-sh1/rim/f-box1/top"
+        }
+      }
+    }
+  ]
+}

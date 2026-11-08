@@ -1,0 +1,18 @@
+{
+  "scripts": [
+    {
+      "name": "taller-block",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-2",
+            "f-ext1/lateral/e-6"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cylinder",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        }
+      ]
+    }
+  ]
+}

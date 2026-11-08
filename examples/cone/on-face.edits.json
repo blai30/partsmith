@@ -1,0 +1,29 @@
+{
+  "scripts": [
+    {
+      "name": "taller-base",
+      "description": "The base block becomes 30 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "20",
+              "30"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cone1": {
+          "/plane/face": "f-box1/front"
+        }
+      }
+    }
+  ]
+}

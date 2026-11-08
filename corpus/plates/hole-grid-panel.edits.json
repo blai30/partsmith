@@ -1,0 +1,172 @@
+{
+  "scripts": [
+    {
+      "name": "larger-panel",
+      "description": "The panel grows to 140 by 90 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "140",
+              "90",
+              "4"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": "edge(f-box1/front|f-box1/top)",
+          "/second_direction/axis/edge": "edge(f-box1/left|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "front-notch",
+      "description": "A 20 mm wide notch is cut into the middle of the front edge right after the panel.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-box3",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "20",
+              "6",
+              "4"
+            ],
+            "position": [
+              "0",
+              "-40",
+              "0"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-lp1": {
+          "/direction/axis/edge": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ],
+          "/second_direction/axis/edge": "edge(f-box1/left|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front#1|f-box1/left)",
+          "/edges/1": "edge(f-box1/front#2|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": [
+            "edge(f-box1/front#1|f-box1/top)",
+            "edge(f-box1/front#2|f-box1/top)"
+          ]
+        }
+      }
+    },
+    {
+      "name": "no-grid",
+      "description": "The pin pattern is suppressed and only the first hole is cut.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-lp1",
+            "type": "linear_pattern",
+            "body": "b-2",
+            "direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/front|f-box1/top)",
+                  "fp": "line|n=1,0,0|c=0,-40,4|l=120|adj=2,2"
+                },
+                "direction": [
+                  1,
+                  0,
+                  0
+                ]
+              },
+              "count": "4",
+              "spacing": "30"
+            },
+            "second_direction": {
+              "axis": {
+                "kind": "edge",
+                "body": "b-1",
+                "edge": {
+                  "q": "edge(f-box1/left|f-box1/top)",
+                  "fp": "line|n=0,1,0|c=-60,0,4|l=80|adj=2,2"
+                },
+                "direction": [
+                  0,
+                  1,
+                  0
+                ]
+              },
+              "count": "3",
+              "spacing": "25"
+            },
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "chamfer-first",
+      "description": "The front chamfer moves to right after the panel.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-cha1",
+          "index": 1
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-lp1": {
+          "/direction/axis/edge": "lost",
+          "/second_direction/axis/edge": "edge(f-box1/left|f-box1/top)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    }
+  ]
+}

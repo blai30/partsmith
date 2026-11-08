@@ -1,0 +1,107 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-base",
+      "references": [
+        {
+          "feature": "f-mv1",
+          "field": "/rotation/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/top|f-box2/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box2/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lean-back",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/top|f-box2/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box2/front|f-box2/top)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "front-chamfer-first",
+      "references": [
+        {
+          "feature": "f-mv1",
+          "field": "/rotation/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box1/bottom)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/top|f-box2/bottom)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/back|f-box2/front)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "shorter-move",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-box1/top"
+          ]
+        }
+      ]
+    }
+  ]
+}

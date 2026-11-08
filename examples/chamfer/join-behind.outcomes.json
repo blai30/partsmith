@@ -1,0 +1,30 @@
+{
+  "scripts": [
+    {
+      "name": "longer-back-block",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-a1/top|f-box1/front)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "taller-front-block",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/front|f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cup",
+      "description": "The cup becomes 50 mm tall.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-1",
+            "radius": "20",
+            "height": "50",
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": "f-cyl1/top"
+        }
+      }
+    }
+  ]
+}

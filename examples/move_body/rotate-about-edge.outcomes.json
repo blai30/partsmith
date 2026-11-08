@@ -1,0 +1,17 @@
+{
+  "scripts": [
+    {
+      "name": "taller-box",
+      "references": [
+        {
+          "feature": "f-mv1",
+          "field": "/rotation/axis/edge",
+          "status": "resolved",
+          "elements": [
+            "edge(f-box1/right|f-box1/top)"
+          ]
+        }
+      ]
+    }
+  ]
+}

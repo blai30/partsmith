@@ -1,0 +1,129 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-flat",
+      "description": "The side flat is cut 0.3 mm deeper.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "3",
+              "20",
+              "12"
+            ],
+            "position": [
+              "6.2",
+              "0",
+              "-1"
+            ],
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#11|f-imp1/face#9)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#11"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#5)"
+        }
+      }
+    },
+    {
+      "name": "larger-rim-chamfer",
+      "description": "The flange rim chamfer becomes 0.5 mm instead of 0.3 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cha1",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#11|f-imp1/face#9)",
+                "fp": "circle|n=0,0,1|c=0,0,14|l=56.548668|r=9|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#11"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#5)"
+        }
+      }
+    },
+    {
+      "name": "bore-chamfer-first",
+      "description": "The bore's bottom edge gets a 0.3 mm chamfer right after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#3|f-imp1/face#6)",
+                "fp": "circle|n=0,0,1|c=0,0,0|l=25.132741|r=4|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.3"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#11|f-imp1/face#9)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#11"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#5)"
+        }
+      }
+    },
+    {
+      "name": "no-flat",
+      "description": "The side flat is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-box1"
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#11|f-imp1/face#9)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#11"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#4|f-imp1/face#5)"
+        }
+      }
+    }
+  ]
+}

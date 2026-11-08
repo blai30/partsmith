@@ -1,0 +1,120 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-stem",
+      "references": [
+        {
+          "feature": "f-rev1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "eight-grooves",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stem-chamfer-first",
+      "references": [
+        {
+          "feature": "f-rev1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-cp1",
+          "field": "/axis/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/side"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-groove",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-rev1/lateral/e-3|f-rev1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-cyl1/bottom"
+          ]
+        }
+      ]
+    }
+  ]
+}

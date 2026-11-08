@@ -1,0 +1,83 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-shell",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#7)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#8"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "base-notch-first",
+      "references": [
+        {
+          "feature": "f-sh1",
+          "field": "/remove_faces/0",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#10"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#11|f-imp1/face#7)"
+          ]
+        },
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-imp1/face#8"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-pad-hole",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-imp1/face#4|f-imp1/face#8)"
+          ]
+        }
+      ]
+    }
+  ]
+}

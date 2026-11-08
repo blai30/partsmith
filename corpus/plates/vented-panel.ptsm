@@ -1,0 +1,113 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["120", "60", "3"], "op": "new"},
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,3|a=7200|adj=4,4"},
+        "fallback": {"origin": [0, 0, 3], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [-42, -15], "end": [-38, -15]},
+        {"id": "e-2", "type": "line", "start": [-38, -15], "end": [-38, 15]},
+        {"id": "e-3", "type": "line", "start": [-38, 15], "end": [-42, 15]},
+        {"id": "e-4", "type": "line", "start": [-42, 15], "end": [-42, -15]},
+        {"id": "e-5", "type": "line", "start": [-22, -15], "end": [-18, -15]},
+        {"id": "e-6", "type": "line", "start": [-18, -15], "end": [-18, 15]},
+        {"id": "e-7", "type": "line", "start": [-18, 15], "end": [-22, 15]},
+        {"id": "e-8", "type": "line", "start": [-22, 15], "end": [-22, -15]},
+        {"id": "e-9", "type": "line", "start": [-2, -15], "end": [2, -15]},
+        {"id": "e-10", "type": "line", "start": [2, -15], "end": [2, 15]},
+        {"id": "e-11", "type": "line", "start": [2, 15], "end": [-2, 15]},
+        {"id": "e-12", "type": "line", "start": [-2, 15], "end": [-2, -15]},
+        {"id": "e-13", "type": "line", "start": [18, -15], "end": [22, -15]},
+        {"id": "e-14", "type": "line", "start": [22, -15], "end": [22, 15]},
+        {"id": "e-15", "type": "line", "start": [22, 15], "end": [18, 15]},
+        {"id": "e-16", "type": "line", "start": [18, 15], "end": [18, -15]},
+        {"id": "e-17", "type": "line", "start": [38, -15], "end": [42, -15]},
+        {"id": "e-18", "type": "line", "start": [42, -15], "end": [42, 15]},
+        {"id": "e-19", "type": "line", "start": [42, 15], "end": [38, 15]},
+        {"id": "e-20", "type": "line", "start": [38, 15], "end": [38, -15]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=-40,0|a=120", "outline": "e-1,e-2,e-3,e-4"},
+          {"key": "e-5,e-6,e-7,e-8", "fp": "c=-20,0|a=120", "outline": "e-5,e-6,e-7,e-8"},
+          {"key": "e-10,e-11,e-12,e-9", "fp": "c=0,0|a=120", "outline": "e-10,e-11,e-12,e-9"},
+          {"key": "e-13,e-14,e-15,e-16", "fp": "c=20,0|a=120", "outline": "e-13,e-14,e-15,e-16"},
+          {"key": "e-17,e-18,e-19,e-20", "fp": "c=40,0|a=120", "outline": "e-17,e-18,e-19,e-20"}
+        ]
+      },
+      "extent": {"kind": "through_all"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-60,-30,1.5|l=3|adj=2,2"},
+        {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=60,-30,1.5|l=3|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-60,30,1.5|l=3|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=60,30,1.5|l=3|adj=2,2"}
+      ],
+      "radius": "4"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,30,3|l=112|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,3|a=6410.48451|adj=28,28"},
+        "fallback": {"origin": [0, 0, 3], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-21", "type": "point", "position": [-52, -22]},
+        {"id": "e-22", "type": "point", "position": [52, -22]},
+        {"id": "e-23", "type": "point", "position": [52, 22]},
+        {"id": "e-24", "type": "point", "position": [-52, 22]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-21", "e-22", "e-23", "e-24"],
+      "diameter": "3.5",
+      "hole_type": {"kind": "countersink", "diameter": "7", "angle": "90 deg"},
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "scripts": [
+    {
+      "name": "datum-first",
+      "description": "A datum plane 50 mm above the ground is added first.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 0,
+          "feature": {
+            "id": "f-dp90",
+            "type": "datum_plane",
+            "base": {
+              "kind": "origin",
+              "plane": "XY"
+            },
+            "offset": "50"
+          }
+        }
+      ],
+      "expect": {
+        "f-sh1": {
+          "/remove_faces/0": [
+            "f-rev1/lateral/e-2",
+            "f-rev1/lateral/e-6"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-plate",
+      "description": "The plate becomes 8 mm thick instead of 5 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-box1",
+            "type": "box",
+            "body": "b-1",
+            "size": [
+              "80",
+              "50",
+              "8"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "bottom-chamfer-first",
+      "description": "A 0.5 mm chamfer on the bottom front edge comes right after the plate.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha2",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/bottom|f-box1/front)",
+                "fp": "line|n=1,0,0|c=0,-25,0|l=80|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.5"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "no-corner-rounds",
+      "description": "The corner rounds are suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-box1/front|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-40,-25,2.5|l=5|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/front|f-box1/right)",
+                "fp": "line|n=0,0,1|c=40,-25,2.5|l=5|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/left)",
+                "fp": "line|n=0,0,1|c=-40,25,2.5|l=5|adj=2,2"
+              },
+              {
+                "q": "edge(f-box1/back|f-box1/right)",
+                "fp": "line|n=0,0,1|c=40,25,2.5|l=5|adj=2,2"
+              }
+            ],
+            "radius": "3",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        }
+      }
+    },
+    {
+      "name": "chamfer-first",
+      "description": "The front chamfer moves to right after the plate.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-cha1",
+          "index": 1
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-box1/front|f-box1/top)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-box1/top"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-box1/front|f-box1/left)",
+          "/edges/1": "edge(f-box1/front|f-box1/right)",
+          "/edges/2": "edge(f-box1/back|f-box1/left)",
+          "/edges/3": "edge(f-box1/back|f-box1/right)"
+        }
+      }
+    }
+  ]
+}

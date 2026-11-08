@@ -1,0 +1,37 @@
+{
+  "scripts": [
+    {
+      "name": "thicker-wedge",
+      "description": "The leaning block becomes 15 mm thick.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext5",
+            "type": "extrude",
+            "body": "b-2",
+            "profile": {
+              "sketch": "f-sk5",
+              "regions": [
+                {
+                  "key": "e-11,e-12,e-13,e-14",
+                  "fp": "c=-5,15|a=60"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "15"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cp1": {
+          "/axis/edge": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)"
+        }
+      }
+    }
+  ]
+}

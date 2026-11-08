@@ -1,0 +1,15 @@
+{
+  "scripts": [
+    {
+      "name": "cube-first",
+      "references": [
+        {
+          "feature": "f-sk1",
+          "field": "/plane/face",
+          "status": "missing",
+          "elements": []
+        }
+      ]
+    }
+  ]
+}

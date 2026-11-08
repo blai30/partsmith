@@ -1,0 +1,59 @@
+{
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok"
+    },
+    {
+      "id": "f-cone1",
+      "type": "cone",
+      "status": "ok"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok"
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "volume": 628.981781410055,
+      "area": 563.3602288498789,
+      "bounding_box": {
+        "min": [
+          -4.0,
+          -3.4641016151377544,
+          0.0
+        ],
+        "max": [
+          4.0,
+          3.464101615137755,
+          21.5
+        ]
+      },
+      "faces": 14
+    }
+  ]
+}

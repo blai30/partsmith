@@ -1,0 +1,69 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "0a50681588c8c97096ee1b6e0c2f09b935d80f4d9698100443045e3654d8f84f.step",
+      "op": "new"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "1.2",
+      "remove_faces": [
+        {"q": "f-imp1/face#10", "fp": "plane|n=0,0,-1|c=0,0,0|a=1192.274334|adj=8,8"}
+      ]
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#11|f-imp1/face#7)", "fp": "line|n=1,0,0|c=0,-15,5|l=34|adj=2,2"}
+      ],
+      "distance": {"kind": "equal", "expr": "0.5"}
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-imp1/face#8", "fp": "plane|n=0,-1,0|c=0,-8,14.5|a=380|adj=4,4"},
+        "fallback": {"origin": [0, -8, 0], "x_axis": [1, 0, 0], "normal": [0, -1, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1", "type": "point", "position": [0, 15]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk1",
+      "points": ["e-1"],
+      "diameter": "3",
+      "extent": {"kind": "distance", "expr": "3"}
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-imp1/face#4|f-imp1/face#8)", "fp": "line|n=0,0,1|c=-10,-8,14.5|l=19|adj=2,2"}
+      ],
+      "radius": "1"
+    }
+  ]
+}

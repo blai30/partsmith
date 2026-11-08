@@ -1,0 +1,25 @@
+{
+  "scripts": [
+    {
+      "name": "taller-cylinder",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-cyl1/top)"
+          ]
+        },
+        {
+          "feature": "f-fil2",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-cyl1/side|f-fil1/fillet/edge(f-cyl1/side|f-cyl1/top))"
+          ]
+        }
+      ]
+    }
+  ]
+}

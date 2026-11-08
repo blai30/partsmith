@@ -1,0 +1,152 @@
+{
+  "scripts": [
+    {
+      "name": "longer-rail",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-5"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "center-pocket",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-5"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-fillets",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "holes-last",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-6|f-ext1/lateral/e-7)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/1",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-8)"
+          ]
+        }
+      ]
+    }
+  ]
+}

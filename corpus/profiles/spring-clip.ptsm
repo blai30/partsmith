@@ -1,0 +1,145 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {
+          "id": "e-1",
+          "type": "arc",
+          "center": [0, 0],
+          "radius": 12,
+          "start_angle": 0.5235987755982988,
+          "end_angle": 5.759586531581287
+        },
+        {
+          "id": "e-2",
+          "type": "line",
+          "start": [10.392304845413264, -5.999999999999999],
+          "end": [7.794228634059948, -4.499999999999999]
+        },
+        {
+          "id": "e-3",
+          "type": "arc",
+          "center": [0, 0],
+          "radius": 9,
+          "start_angle": 0.5235987755982988,
+          "end_angle": 5.759586531581287
+        },
+        {
+          "id": "e-4",
+          "type": "line",
+          "start": [7.794228634059948, 4.499999999999999],
+          "end": [10.392304845413264, 5.999999999999999]
+        }
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.end"]},
+        {"id": "c-3", "type": "coincident", "points": ["e-3.start", "e-4.start"]},
+        {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
+        {"id": "c-5", "type": "concentric", "curves": ["e-1", "e-3"]}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,~e-3,e-4", "fp": "c=-2.018994,0|a=164.933614", "outline": "e-1,e-2,~e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "6"},
+      "op": "new"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5", "type": "line", "start": [-16, -3], "end": [-11, -3]},
+        {"id": "e-6", "type": "line", "start": [-11, -3], "end": [-11, 3]},
+        {"id": "e-7", "type": "line", "start": [-11, 3], "end": [-16, 3]},
+        {"id": "e-8", "type": "line", "start": [-16, 3], "end": [-16, -3]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-5,e-6,e-7,e-8", "fp": "c=-13.5,0|a=30", "outline": "e-5,e-6,e-7,e-8"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "6"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
+          "fp": "circle|n=0,0,1|c=-1.718873,0,6|l=47.12389|r=9|adj=2,2",
+          "merged": {"f-ext1/end-cap": ["f-ext2/end-cap"]}
+        }
+      ],
+      "radius": "0.5"
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {
+          "q": "f-ext1/end-cap",
+          "fp": "plane|n=0,0,1|c=-3.838711,0,6|a=165.474364|adj=8,8",
+          "merged": {"f-ext1/end-cap": ["f-ext2/end-cap"]}
+        },
+        "fallback": {"origin": [0, 0, 6], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-9", "type": "point", "position": [-14, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk3",
+      "points": ["e-9"],
+      "diameter": "2",
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-1",
+      "edges": [
+        {
+          "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+          "fp": "line|n=0.866025,-0.5,0|c=9.309773,-5.375,6|l=2.5|adj=2,2",
+          "merged": {"f-ext1/end-cap": ["f-ext2/end-cap"]}
+        }
+      ],
+      "distance": {"kind": "equal", "expr": "0.3"}
+    }
+  ]
+}

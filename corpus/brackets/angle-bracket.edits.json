@@ -1,0 +1,101 @@
+{
+  "scripts": [
+    {
+      "name": "wider-half",
+      "description": "Each half of the bracket becomes 20 mm wide instead of 15 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext1",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk1",
+              "regions": [
+                {
+                  "key": "e-1,e-2,e-3,e-4,e-5,e-6",
+                  "fp": "c=11.473684,11.473684|a=304",
+                  "outline": "e-1,e-2,e-3,e-4,e-5,e-6"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "20"
+            },
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": "f-ext1/end-cap"
+        },
+        "f-mir1": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        }
+      }
+    },
+    {
+      "name": "rounded-gusset",
+      "description": "The gusset's inner sloped edge is rounded before the mirror.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 4,
+          "feature": {
+            "id": "f-fil2",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-ext2/end-cap|f-ext2/lateral/e-8)",
+                "fp": "line|n=0.707107,0,-0.707107|c=14,-12,14|l=28.284271|adj=2,2"
+              }
+            ],
+            "radius": "1"
+          }
+        }
+      ],
+      "expect": {
+        "f-mir1": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        }
+      }
+    },
+    {
+      "name": "no-gusset",
+      "description": "The gusset is removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-ext2"
+        }
+      ],
+      "expect": {
+        "f-mir1": {
+          "/plane/face": "f-ext1/start-cap"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+        },
+        "f-sk3": {
+          "/plane/face": "f-ext1/lateral/e-3"
+        }
+      }
+    }
+  ]
+}

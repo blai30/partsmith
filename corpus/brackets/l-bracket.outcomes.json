@@ -1,0 +1,145 @@
+{
+  "scripts": [
+    {
+      "name": "wider-bracket",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-6"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "center-gusset",
+      "references": [
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)#1",
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)#2"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-6"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-fillet",
+      "references": [
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-6"
+          ]
+        },
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chamfer-first",
+      "references": [
+        {
+          "feature": "f-cha1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-6)"
+          ]
+        },
+        {
+          "feature": "f-fil1",
+          "field": "/edges/0",
+          "status": "resolved",
+          "elements": [
+            "edge(f-ext1/lateral/e-3|f-ext1/lateral/e-4)"
+          ]
+        },
+        {
+          "feature": "f-sk2",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-3"
+          ]
+        },
+        {
+          "feature": "f-sk3",
+          "field": "/plane/face",
+          "status": "resolved",
+          "elements": [
+            "f-ext1/lateral/e-6"
+          ]
+        }
+      ]
+    }
+  ]
+}

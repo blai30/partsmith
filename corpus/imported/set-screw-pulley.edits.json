@@ -1,0 +1,129 @@
+{
+  "scripts": [
+    {
+      "name": "larger-set-screw",
+      "description": "The set screw hole grows from 3 mm to 4 mm in diameter.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-cyl1",
+            "type": "cylinder",
+            "body": "b-2",
+            "radius": "2",
+            "height": "12",
+            "plane": {
+              "kind": "origin",
+              "plane": "YZ"
+            },
+            "position": [
+              "0",
+              "16",
+              "0"
+            ],
+            "op": "new"
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#6|f-imp1/face#7)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#2)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#1"
+        }
+      }
+    },
+    {
+      "name": "round-first",
+      "description": "The bottom edge round moves to right after the import.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-fil1",
+          "index": 1
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#2)"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#6|f-imp1/face#7)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#1"
+        }
+      }
+    },
+    {
+      "name": "groove-chamfer-first",
+      "description": "The edge where the groove starts gets a 0.3 mm chamfer right after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#2|f-imp1/face#3)",
+                "fp": "circle|n=0,0,1|c=0,0,2|l=125.663706|r=20|adj=2,1"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "0.3"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#6|f-imp1/face#7)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#2)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#1"
+        }
+      }
+    },
+    {
+      "name": "no-set-screw",
+      "description": "The set screw cut is suppressed.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-bool1",
+            "type": "boolean",
+            "target": "b-1",
+            "tools": [
+              "b-2"
+            ],
+            "op": "cut",
+            "suppressed": true
+          }
+        }
+      ],
+      "expect": {
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#6|f-imp1/face#7)"
+        },
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#2)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#1"
+        }
+      }
+    }
+  ]
+}

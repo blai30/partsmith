@@ -1,0 +1,118 @@
+{
+  "scripts": [
+    {
+      "name": "larger-rounds",
+      "description": "The upright's top rounds grow from 1.5 mm to 2 mm.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-fil1",
+            "type": "fillet",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#1|f-imp1/face#5)",
+                "fp": "line|n=0,1,0|c=0,0,40|l=30|adj=2,2"
+              },
+              {
+                "q": "edge(f-imp1/face#5|f-imp1/face#8)",
+                "fp": "line|n=0,1,0|c=5,0,40|l=30|adj=2,2"
+              }
+            ],
+            "radius": "2"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#13|f-imp1/face#20)"
+        }
+      }
+    },
+    {
+      "name": "notch-first",
+      "description": "The foot notch moves to right after the import, before the chamfer.",
+      "edits": [
+        {
+          "type": "move_feature",
+          "id": "f-box1",
+          "index": 1
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#5)",
+          "/edges/1": "edge(f-imp1/face#5|f-imp1/face#8)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-cha1": {
+          "/edges/0": [
+            "edge(f-imp1/face#13|f-imp1/face#20#1)",
+            "edge(f-imp1/face#13|f-imp1/face#20#2)"
+          ]
+        }
+      }
+    },
+    {
+      "name": "foot-chamfer-first",
+      "description": "The foot's bottom end edge gets a 1 mm chamfer right after the import.",
+      "edits": [
+        {
+          "type": "add_feature",
+          "index": 1,
+          "feature": {
+            "id": "f-cha0",
+            "type": "chamfer",
+            "body": "b-1",
+            "edges": [
+              {
+                "q": "edge(f-imp1/face#12|f-imp1/face#20)",
+                "fp": "line|n=0,1,0|c=50,0,0|l=30|adj=2,2"
+              }
+            ],
+            "distance": {
+              "kind": "equal",
+              "expr": "1"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "f-fil1": {
+          "/edges/0": "edge(f-imp1/face#1|f-imp1/face#5)",
+          "/edges/1": "edge(f-imp1/face#5|f-imp1/face#8)"
+        },
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#13|f-imp1/face#20)"
+        }
+      }
+    },
+    {
+      "name": "no-rounds",
+      "description": "The upright's top rounds are removed.",
+      "edits": [
+        {
+          "type": "remove_feature",
+          "id": "f-fil1"
+        }
+      ],
+      "expect": {
+        "f-sk1": {
+          "/plane/face": "f-imp1/face#8"
+        },
+        "f-cha1": {
+          "/edges/0": "edge(f-imp1/face#13|f-imp1/face#20)"
+        }
+      }
+    }
+  ]
+}

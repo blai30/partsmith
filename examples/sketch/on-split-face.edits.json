@@ -1,0 +1,41 @@
+{
+  "scripts": [
+    {
+      "name": "deeper-slot",
+      "description": "The slot across the top becomes 8 mm deep.",
+      "edits": [
+        {
+          "type": "update_feature",
+          "feature": {
+            "id": "f-ext3",
+            "type": "extrude",
+            "body": "b-1",
+            "profile": {
+              "sketch": "f-sk3",
+              "regions": [
+                {
+                  "key": "e-11,e-12,e-13,e-14",
+                  "fp": "c=40,25|a=1040"
+                }
+              ]
+            },
+            "extent": {
+              "kind": "distance",
+              "expr": "8"
+            },
+            "reverse": true,
+            "op": "cut"
+          }
+        }
+      ],
+      "expect": {
+        "f-sk2": {
+          "/plane/face": [
+            "f-ext1/end-cap#1",
+            "f-ext1/end-cap#2"
+          ]
+        }
+      }
+    }
+  ]
+}
