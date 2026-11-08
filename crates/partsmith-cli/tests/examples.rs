@@ -18,6 +18,8 @@
 
 mod coverage;
 mod export;
+mod model_corpus;
+mod naming_metric;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -1522,5 +1524,41 @@ fn expected_text_is_pretty_json_with_one_trailing_newline() {
     assert_eq!(
         text,
         "{\n  \"printer\": \"generic-fdm\",\n  \"bodies\": [\n    {\n      \"faces\": 6\n    }\n  ]\n}\n"
+    );
+}
+
+#[test]
+fn t155_the_companions_of_an_example_are_allowed_next_to_it() {
+    let types: BTreeSet<String> = ["fillet"].into_iter().map(str::to_owned).collect();
+
+    assert_eq!(
+        placement("fillet/front.edits.json", &types),
+        example_file("fillet/front", Role::Edits)
+    );
+    assert_eq!(
+        placement("fillet/front.outcomes.json", &types),
+        example_file("fillet/front", Role::Outcomes)
+    );
+}
+
+#[test]
+fn t155_companions_without_their_model_and_under_the_benchmark_are_problems() {
+    let types: BTreeSet<String> = ["fillet"].into_iter().map(str::to_owned).collect();
+    let files = [
+        "bench/fifty-features/model.edits.json",
+        "fillet/stray.edits.json",
+        "fillet/stray.outcomes.json",
+    ]
+    .map(str::to_owned);
+
+    let problems = example_layout_problems(&files, &types).messages();
+
+    assert_eq!(
+        problems,
+        [
+            "examples/bench/fifty-features/model.edits.json: not an allowed example path (docs/spec/delivery.md section 2.8).",
+            "examples/fillet/stray.edits.json: has no .ptsm next to it.",
+            "examples/fillet/stray.outcomes.json: has no .ptsm next to it.",
+        ]
     );
 }

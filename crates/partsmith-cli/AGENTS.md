@@ -2,7 +2,7 @@
 
 The `partsmith` binary: `validate`, `fmt`, `rebuild`, `export`, `schema`. A thin host over `partsmith_engine::Session` (one headless session per invocation): it parses arguments, reads and writes files and formats reports, with no modeling logic.
 
-Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs`, with its export check in `tests/examples/export.rs` and its coverage checks in `tests/examples/coverage.rs`, follows `docs/spec/delivery.md` section 2.8, and `tests/print_examples.rs` holds `docs/spec/print.md` section 6.18 (tests 117 to 123 and 125 to 127), which rebuild the print check examples. `benches/budgets.rs` measures the budgets of cli.md section 5 on `partsmith-budgets` (ADR 0027): it runs the binary Cargo builds for benchmarks (the release profile) through `std::process::Command` in a temporary directory, once untimed and then 11 times per row, and a row whose run does not exit 0 is reported not measured.
+Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs`, with its export check in `tests/examples/export.rs` and its coverage checks in `tests/examples/coverage.rs`, follows `docs/spec/delivery.md` section 2.8, its corpus checks in `tests/examples/model_corpus.rs` and `tests/examples/naming_metric.rs` follow `docs/spec/corpus.md` (the model corpus under `corpus/`, the scripted edits of the examples and the corpus, and the naming metric), and `tests/print_examples.rs` holds `docs/spec/print.md` section 6.18 (tests 117 to 123 and 125 to 127), which rebuild the print check examples. `benches/budgets.rs` measures the budgets of cli.md section 5 on `partsmith-budgets` (ADR 0027): it runs the binary Cargo builds for benchmarks (the release profile) through `std::process::Command` in a temporary directory, once untimed and then 11 times per row, and a row whose run does not exit 0 is reported not measured.
 
 ## Public interface
 
@@ -44,7 +44,7 @@ cargo test -p partsmith-cli
 cargo test -p partsmith-cli --bins                 # unit tests only
 cargo test -p partsmith-cli --test integration validate::   # one acceptance test file, a module of tests/integration.rs
 cargo bench -p partsmith-cli --bench budgets       # the budgets of cli.md section 5; words after -- select rows (-- validate fmt)
-PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate examples' expected results, then run again without it
+PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate the examples' and the corpus's expected results and the stored outcomes of scripted edits, then run again without it
 cargo clippy -p partsmith-cli --all-targets -- -D warnings
 cargo fmt -p partsmith-cli
 cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.schema.json
