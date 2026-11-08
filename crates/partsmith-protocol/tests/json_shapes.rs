@@ -1,4 +1,8 @@
-//! Acceptance tests for the JSON shapes of messages and shared types (protocol.md section 6, "JSON shapes", tests 28 to 40 and 42, and "Added shapes", tests 67, 68, 70 and 71).
+//! Acceptance tests for the JSON shapes of messages and shared types (protocol.md section 6, "JSON shapes", tests 28 to 40 and 42, "Added shapes", tests 67, 68, 70 and 71, and the shape of test 110 of "Manifests").
+//!
+//! Tests 110 and 111 go through `Session::call`, which partsmith-protocol cannot reach. They are in
+//! `crates/partsmith-engine/tests/validation_and_catalog.rs`, named `protocol_t110` and `protocol_t111`. Here test
+//! 110's manifest text round-trips through the protocol's types.
 
 use crate::common;
 
@@ -6,7 +10,7 @@ use std::collections::BTreeSet;
 
 use common::examples::{
     BOX_MESH, COMMAND_TYPES, DRAG_SOLUTION, ELEMENT_REPAIR, ERROR_CODES, EVENT_TYPES, EXAMPLE_C,
-    FILLET_DIAGNOSTIC, MESSAGE_EXAMPLES, REGION_REPAIR, all_commands, all_results,
+    FILLET_DIAGNOSTIC, FILLET_MANIFEST, MESSAGE_EXAMPLES, REGION_REPAIR, all_commands, all_results,
 };
 use common::{
     compact, header_json, id, message, object_keys, parse, parse_json, schema_json, string_set,
@@ -555,5 +559,20 @@ fn t071_sketch_solution_uses_sketch_values_always_writes_failed_and_has_three_di
     assert_eq!(
         display_keys,
         ["region_positions", "region_indices", "region_ids"]
+    );
+}
+
+#[test]
+fn t110_the_fillet_manifest_of_the_catalog_round_trips_exactly() {
+    let entry: partsmith_protocol::CatalogEntry = serde_json::from_value(json!({
+        "type": "fillet",
+        "manifest": parse_json(FILLET_MANIFEST),
+        "params_schema": {"type": "object"}
+    }))
+    .expect("a catalog entry with the fillet manifest deserializes");
+
+    assert_eq!(
+        serde_json::to_string(&entry.manifest).expect("a manifest serializes"),
+        FILLET_MANIFEST
     );
 }

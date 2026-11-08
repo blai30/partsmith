@@ -64,6 +64,9 @@ pub fn hint(path: &str, label: &str) -> FieldHint {
         unit: None,
         selection: None,
         options: Vec::new(),
+        help: None,
+        start: None,
+        creates_body: None,
     }
 }
 
@@ -99,10 +102,12 @@ pub fn options_hint(path: &str, label: &str, options: &[(&str, &str)]) -> FieldH
     }
 }
 
-/// A version 1 manifest in the `create` category with the given label and fields.
+/// A version 1 manifest in the `create` category with the given label and fields, and a description
+/// that says it is a test feature.
 pub fn manifest(label: &str, fields: Vec<FieldHint>) -> FeatureManifest {
     FeatureManifest {
         label: label.to_string(),
+        description: "A feature that only the tests register.".to_string(),
         category: Category::Create,
         icon: "test".to_string(),
         version: 1,

@@ -1,16 +1,16 @@
-//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27), for the edits that requests carry ("Edits in requests", test 85), and for the closed profiles in results ("Closed types in results and events", test 87 (b)).
+//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27), for the edits that requests carry ("Edits in requests", test 85), for the closed profiles in results ("Closed types in results and events", test 87 (b)), and for manifests that stay open to new members ("Manifests", test 113).
 
 use crate::common;
 
-use common::examples::LIST_PRINTER_PROFILES_RESULT;
+use common::examples::{FILLET_MANIFEST, LIST_PRINTER_PROFILES_RESULT};
 use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,
     frame_with_messages, header_bytes, parse_json, request_frame, with_member, without_member,
 };
-use partsmith_model::Edit;
+use partsmith_model::{Edit, FeatureManifest};
 use partsmith_protocol::{
-    Command, ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response, ResponseFrame,
-    decode_frame, decode_request_frame, decode_response_frame, error_response_frame,
+    Command, CommandResult, ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response,
+    ResponseFrame, decode_frame, decode_request_frame, decode_response_frame, error_response_frame,
 };
 use serde_json::{Value, json};
 
@@ -414,4 +414,33 @@ fn t087_a_listed_profile_with_an_unknown_member_fails_to_decode() {
         matches!(decoded, Err(FrameError::InvalidMessage { .. })),
         "got {decoded:?}"
     );
+}
+
+/// A `feature_catalog` result whose one entry, of type `fillet`, has `manifest`.
+fn fillet_catalog(manifest: Value) -> Value {
+    json!({
+        "type": "feature_catalog",
+        "features": [{"type": "fillet", "manifest": manifest, "params_schema": {"type": "object"}}]
+    })
+}
+
+#[test]
+fn t113_a_manifest_with_unknown_members_decodes_as_without_them() {
+    let mut manifest = with_member(&parse_json(FILLET_MANIFEST), "extra", json!(1));
+    manifest["fields"][1]["extra"] = json!(1);
+    assert_eq!(manifest["fields"][1]["path"], "radius");
+
+    let decoded = decode_response_frame(&result_frame(&fillet_catalog(manifest)))
+        .expect("a manifest with unknown members decodes");
+
+    let Outcome::Ok(CommandResult::FeatureCatalog { features }) = decoded.response.result else {
+        panic!(
+            "the result is the feature catalog, got {:?}",
+            decoded.response.result
+        );
+    };
+    let expected: FeatureManifest =
+        serde_json::from_str(FILLET_MANIFEST).expect("test 110's manifest deserializes");
+    assert_eq!(features.len(), 1);
+    assert_eq!(features[0].manifest, expected);
 }

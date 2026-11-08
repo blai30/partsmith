@@ -1,4 +1,4 @@
-//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, test 81, and test 87 (a) of "Closed types in results and events").
+//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, test 81, test 87 (a) of "Closed types in results and events", and test 112 of "Manifests").
 
 use crate::common;
 
@@ -12,8 +12,9 @@ use common::examples::{
 };
 use common::json_schema::validate;
 use common::{
-    assert_accepts_but_rejects, assert_requires_all_but, definition, parse_json, property,
-    schema_json, string_set, string_values, variant, variant_tags, with_member, without_member,
+    assert_accepts_but_rejects, assert_requires_all_but, dangling_references, definition,
+    parse_json, property, schema_json, string_set, string_values, variant, variant_tags,
+    with_member, without_member,
 };
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
@@ -635,4 +636,83 @@ fn t087_results_and_events_reach_exactly_the_closed_types_of_section_3_6() {
         .collect();
 
     assert_eq!(closed, CLOSED_IN_RESULTS_AND_EVENTS);
+}
+
+#[test]
+fn t112_a_manifest_requires_its_description() {
+    let schema = schema_json();
+
+    assert!(
+        required_names(definition(&schema, "FeatureManifest")).contains(&"description"),
+        "{}",
+        definition(&schema, "FeatureManifest")
+    );
+}
+
+#[test]
+fn t112_a_hint_has_help_start_and_new_body_and_requires_none_of_them() {
+    let schema = schema_json();
+    let hint = definition(&schema, "FieldHint");
+
+    for member in ["help", "start", "creates_body"] {
+        assert!(
+            hint["properties"].get(member).is_some(),
+            "FieldHint has {member}: {hint}"
+        );
+        assert!(
+            !required_names(hint).contains(&member),
+            "FieldHint does not require {member}: {hint}"
+        );
+    }
+}
+
+#[test]
+fn t112_start_values_validate_in_their_three_forms() {
+    let schema = schema_json();
+
+    for start in [
+        json!({"kind": "expr", "expr": "1 mm"}),
+        json!({"kind": "choice", "value": "full"}),
+        json!({"kind": "multiple", "field": "diameter", "factor": 2}),
+    ] {
+        assert_eq!(
+            validate(&schema, "/$defs/StartValue", &start),
+            Ok(()),
+            "{start}"
+        );
+    }
+}
+
+#[test]
+fn t112_start_values_of_another_form_do_not_validate() {
+    let schema = schema_json();
+
+    for start in [
+        json!({"kind": "text", "value": "x"}),
+        json!({"kind": "multiple", "field": "diameter"}),
+    ] {
+        assert!(
+            validate(&schema, "/$defs/StartValue", &start).is_err(),
+            "{start}"
+        );
+    }
+}
+
+#[test]
+fn t112_body_creations_validate_by_name() {
+    let schema = schema_json();
+
+    for creation in ["while_new", "at_start"] {
+        assert_eq!(
+            validate(&schema, "/$defs/BodyCreation", &json!(creation)),
+            Ok(()),
+            "{creation}"
+        );
+    }
+    assert!(validate(&schema, "/$defs/BodyCreation", &json!("always")).is_err());
+}
+
+#[test]
+fn t112_every_reference_names_a_definition() {
+    assert_eq!(dangling_references(&schema_json()), Vec::<String>::new());
 }

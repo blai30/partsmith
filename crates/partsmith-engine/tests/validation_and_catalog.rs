@@ -1,12 +1,19 @@
-//! Acceptance tests 97, 103, 104, 110 and 114 of `docs/spec/engine.md` section 6: the feature catalog, validation, formatting and load errors.
+//! Acceptance tests 97, 103, 104, 110, 114 and 225 of `docs/spec/engine.md` section 6: the feature catalog, validation, formatting and load errors.
+//!
+//! The tests of protocol.md section 6 that read the catalog through `Session::call` (110 and 111) are here too, named
+//! `protocol_tNNN`: partsmith-protocol cannot reach a session.
 
 use crate::common;
 
-use common::{code_text, fixture, reindent, replace_once, send, session};
+use common::{
+    Sent, code_text, fixture, headless_session, reindent, replace_once, request_frame, send,
+    session,
+};
 use partsmith_engine::{EngineError, ValidateOptions, ValidationReport};
+use partsmith_features::Registry;
 use partsmith_print::Severity;
 use pretty_assertions::assert_eq;
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// Validation with every optional check on.
 fn all_checks() -> ValidateOptions {
@@ -249,4 +256,115 @@ fn t114_load_errors_carry_the_position_validate_reports() {
     assert_eq!(line, Some(1));
     assert!(column.is_some());
     assert_eq!(path, None);
+}
+
+/// The manifest of the `fillet` entry of the feature catalog, compact, as protocol.md test 110 gives it.
+const FILLET_MANIFEST: &str = r#"{"label":"Fillet","description":"Rounds the selected edges.","category":"modify","icon":"fillet","version":1,"fields":[{"path":"edges","label":"Edges","essential":true,"selection":"edge","help":"The edges to round. Click a face to add all of its edges."},{"path":"radius","label":"Radius","essential":true,"unit":"length","start":{"kind":"expr","expr":"1 mm"}},{"path":"body","label":"Body","selection":"body"}]}"#;
+
+/// The `features` of the `feature_catalog` result that `Session::call` of a headless session answers, decoded from
+/// its response frame with `decode_response_frame`.
+fn called_catalog() -> Vec<Value> {
+    let mut session = headless_session();
+    let frame = session.call(&request_frame(1, json!({"type": "feature_catalog"}), &[]));
+    Sent::from_frame(&frame).ok()["features"]
+        .as_array()
+        .expect("the catalog lists features")
+        .clone()
+}
+
+/// The hint at `path` of the manifest of `kind` in a called catalog.
+fn called_hint<'a>(catalog: &'a [Value], kind: &str, path: &str) -> &'a Value {
+    catalog
+        .iter()
+        .find(|entry| entry["type"] == kind)
+        .unwrap_or_else(|| panic!("the catalog has {kind}"))["manifest"]["fields"]
+        .as_array()
+        .expect("a manifest has fields")
+        .iter()
+        .find(|hint| hint["path"] == path)
+        .unwrap_or_else(|| panic!("{kind} has a hint {path}"))
+}
+
+/// The compact JSON text of a hint, whose last member the protocol tests read.
+fn hint_text(hint: &Value) -> String {
+    serde_json::to_string(hint).expect("a hint serializes")
+}
+
+#[test]
+fn t225_the_catalog_passes_the_manifests_on_unchanged() {
+    let session = headless_session();
+    let registry = Registry::with_builtins();
+
+    let catalog = session.feature_catalog();
+
+    let mut expected: Vec<&str> = CATALOG.iter().map(|(name, _, _)| *name).collect();
+    expected.sort_unstable();
+    assert_eq!(
+        catalog
+            .iter()
+            .map(|entry| entry.kind.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    for entry in &catalog {
+        let registered = registry
+            .get(&entry.kind)
+            .unwrap_or_else(|| panic!("{} is registered", entry.kind))
+            .manifest();
+        assert_eq!(
+            serde_json::to_value(&entry.manifest).expect("a manifest serializes"),
+            serde_json::to_value(registered).expect("a manifest serializes"),
+            "manifest of {}",
+            entry.kind
+        );
+    }
+}
+
+#[test]
+fn t225_the_called_catalog_carries_the_same_entries() {
+    let session = headless_session();
+    let entries = serde_json::to_value(session.feature_catalog()).expect("the catalog serializes");
+
+    assert_eq!(Value::Array(called_catalog()), entries);
+}
+
+#[test]
+fn protocol_t110_the_fillet_manifest_on_the_wire() {
+    let catalog = called_catalog();
+
+    let fillet = catalog
+        .iter()
+        .find(|entry| entry["type"] == "fillet")
+        .expect("the catalog has fillet");
+
+    assert_eq!(
+        serde_json::to_string(&fillet["manifest"]).expect("a manifest serializes"),
+        FILLET_MANIFEST
+    );
+}
+
+#[test]
+fn protocol_t111_the_other_forms_on_the_wire() {
+    let catalog = called_catalog();
+
+    for (kind, path, ending) in [
+        (
+            "hole",
+            "hole_type.diameter",
+            r#""start":{"kind":"multiple","field":"diameter","factor":2.0}}"#,
+        ),
+        (
+            "revolve",
+            "extent.kind",
+            r#""start":{"kind":"choice","value":"full"}}"#,
+        ),
+        ("mirror", "target", r#""creates_body":"while_new"}"#),
+        ("split_body", "target", r#""creates_body":"at_start"}"#),
+    ] {
+        let text = hint_text(called_hint(&catalog, kind, path));
+        assert!(
+            text.ends_with(ending),
+            "the {kind} hint {path} ends with {ending}: {text}"
+        );
+    }
 }

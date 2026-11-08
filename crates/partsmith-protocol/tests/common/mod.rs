@@ -235,6 +235,39 @@ pub fn assert_accepts_but_rejects(schema: &Value, name: &str, accepted: &Value, 
     );
 }
 
+/// Every `$ref` in `value`, at any depth.
+fn references(value: &Value, found: &mut Vec<String>) {
+    match value {
+        Value::Object(members) => {
+            for (key, member) in members {
+                if key == "$ref"
+                    && let Some(reference) = member.as_str()
+                {
+                    found.push(reference.to_owned());
+                }
+                references(member, found);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| references(item, found)),
+        _ => {}
+    }
+}
+
+/// The `$ref`s of `schema` that name no entry of its `$defs`.
+pub fn dangling_references(schema: &Value) -> Vec<String> {
+    let definitions = schema["$defs"].as_object().expect("$defs is an object");
+    let mut found = Vec::new();
+    references(schema, &mut found);
+    found
+        .into_iter()
+        .filter(|reference| {
+            reference
+                .strip_prefix("#/$defs/")
+                .is_none_or(|name| !definitions.contains_key(name))
+        })
+        .collect()
+}
+
 /// The `$defs` entry `name` of the protocol schema.
 pub fn definition<'a>(schema: &'a Value, name: &str) -> &'a Value {
     schema

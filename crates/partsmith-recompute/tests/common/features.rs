@@ -95,10 +95,12 @@ pub fn register_runner_features(registry: &mut Registry) {
         .expect("test_history registers");
 }
 
-/// A test manifest with `label`, category create, version 1 and these field hints.
+/// A test manifest with `label`, a description that says it is a test feature, category create,
+/// version 1 and these field hints.
 fn manifest(label: &str, icon: &str, fields: Vec<FieldHint>) -> FeatureManifest {
     FeatureManifest {
         label: label.to_string(),
+        description: "A feature that only the tests register.".to_string(),
         category: Category::Create,
         icon: icon.to_string(),
         version: 1,
@@ -120,6 +122,9 @@ fn hint(
         unit,
         selection,
         options: Vec::new(),
+        help: None,
+        start: None,
+        creates_body: None,
     }
 }
 

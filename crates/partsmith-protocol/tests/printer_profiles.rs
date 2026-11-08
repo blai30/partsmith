@@ -6,8 +6,8 @@ use crate::common;
 use common::examples::{LIST_PRINTER_PROFILES_RESULT, PUT_PRINTER_PROFILE_REQUEST};
 use common::json_schema::validate;
 use common::{
-    assert_accepts_but_rejects, assert_requires_all_but, definition, parse_json, property,
-    schema_json, variant, with_member,
+    assert_accepts_but_rejects, assert_requires_all_but, dangling_references, definition,
+    parse_json, property, schema_json, variant, with_member,
 };
 use partsmith_print::{PrinterProfile, ProfileInput, generic_fdm, generic_resin};
 use partsmith_protocol::{CommandResult, Message, Outcome, Response};
@@ -219,24 +219,6 @@ fn is_optional_profile(value: &Value) -> bool {
         && branches.contains(&json!({"type": "null"}))
 }
 
-/// Every `$ref` in `value`, at any depth.
-fn references(value: &Value, found: &mut Vec<String>) {
-    match value {
-        Value::Object(members) => {
-            for (key, member) in members {
-                if key == "$ref"
-                    && let Some(reference) = member.as_str()
-                {
-                    found.push(reference.to_owned());
-                }
-                references(member, found);
-            }
-        }
-        Value::Array(items) => items.iter().for_each(|item| references(item, found)),
-        _ => {}
-    }
-}
-
 #[test]
 fn t089_a_profile_as_text_deserializes_with_text_and_no_profile() {
     let command: partsmith_protocol::Command = serde_json::from_str(
@@ -281,9 +263,6 @@ fn t093_the_schema_of_the_stored_profile() {
     let schema = schema_json();
     let set_printer = variant(&schema, "Edit", "type", "set_printer");
     let put_result = variant(&schema, "CommandResult", "type", "put_printer_profile");
-    let mut found = Vec::new();
-
-    references(&schema, &mut found);
 
     assert!(
         is_optional_profile(
@@ -306,16 +285,7 @@ fn t093_the_schema_of_the_stored_profile() {
         put_result.pointer("/properties/profile"),
         Some(&json!({"$ref": "#/$defs/PrinterProfile"}))
     );
-    let definitions = schema["$defs"].as_object().expect("$defs is an object");
-    let dangling: Vec<&String> = found
-        .iter()
-        .filter(|reference| {
-            reference
-                .strip_prefix("#/$defs/")
-                .is_none_or(|name| !definitions.contains_key(name))
-        })
-        .collect();
-    assert_eq!(dangling, Vec::<&String>::new());
+    assert_eq!(dangling_references(&schema), Vec::<String>::new());
 }
 
 #[test]

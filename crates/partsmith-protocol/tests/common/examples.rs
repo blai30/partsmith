@@ -369,7 +369,7 @@ pub const COMMAND_EXAMPLES: [&str; 38] = [
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
 pub const RESULT_EXAMPLES: [&str; 31] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 3, "kernel": "OCCT 7.9.3"}"#,
-    r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
+    r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "description": "Adds a box of the given length, width and height.", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     LIST_PRINTER_PROFILES_RESULT,
     PUT_PRINTER_PROFILE_RESULT,
     r#"{"type": "new_document", "doc": 1}"#,
@@ -511,3 +511,6 @@ pub const ENGINE_EXAMPLES: [(&str, &str); 6] = [
     ("Repair", LOST_FACE_REPAIR),
     ("Diagnostic", REGION_AMBIGUOUS_MESSAGE),
 ];
+
+/// The manifest of the `fillet` entry of the feature catalog, compact, as test 110 gives it (ADR 0065).
+pub const FILLET_MANIFEST: &str = r#"{"label":"Fillet","description":"Rounds the selected edges.","category":"modify","icon":"fillet","version":1,"fields":[{"path":"edges","label":"Edges","essential":true,"selection":"edge","help":"The edges to round. Click a face to add all of its edges."},{"path":"radius","label":"Radius","essential":true,"unit":"length","start":{"kind":"expr","expr":"1 mm"}},{"path":"body","label":"Body","selection":"body"}]}"#;
