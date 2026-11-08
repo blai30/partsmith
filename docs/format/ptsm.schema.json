@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Partsmith document",
-  "description": "A Partsmith .ptsm document, format version 2.",
+  "description": "A Partsmith .ptsm document, format version 3.",
   "type": "object",
   "properties": {
     "format": {"const": "partsmith"},
-    "format_version": {"const": 2},
+    "format_version": {"const": 3},
     "units": {"$ref": "#/$defs/Units"},
     "printer": {"type": "string"},
+    "printer_profile": {"$ref": "#/$defs/PrinterProfile"},
     "parameters": {"type": "array", "items": {"$ref": "#/$defs/Parameter"}},
     "bodies": {"type": "array", "items": {"$ref": "#/$defs/Body"}},
     "features": {"type": "array", "items": {"$ref": "#/$defs/FeatureRecord"}},
@@ -83,6 +84,34 @@
         }
       ],
       "description": "An axis given by an origin axis, a sketch line, a straight edge, or a round face."
+    },
+    "Bed": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {"type": "number", "format": "double", "description": "Extent along x in mm."},
+            "depth": {"type": "number", "format": "double", "description": "Extent along y in mm."},
+            "height": {"type": "number", "format": "double", "description": "Maximum build height in mm."},
+            "kind": {"type": "string", "const": "rectangle"}
+          },
+          "required": ["kind", "width", "depth", "height"],
+          "description": "Rectangular plate."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "diameter": {"type": "number", "format": "double", "description": "Plate diameter in mm."},
+            "height": {"type": "number", "format": "double", "description": "Maximum build height in mm."},
+            "kind": {"type": "string", "const": "circle"}
+          },
+          "required": ["kind", "diameter", "height"],
+          "description": "Round plate (delta printers)."
+        }
+      ],
+      "description": "Build plate shape and build volume height. Bed coordinates: a rectangle spans\n`[0, width] × [0, depth]`; a circle is centered on the origin."
     },
     "Body": {
       "type": "object",
@@ -305,6 +334,26 @@
       "type": "string",
       "pattern": "^(plane|cylinder|cone|sphere|torus|revolution|extrusion|bspline_surface|bezier_surface|offset_surface|other_surface|line|circle|ellipse|hyperbola|parabola|bspline_curve|bezier_curve|offset_curve|other_curve|point)(\\|[a-z]+=[-0-9.,]+)*$"
     },
+    "FitClasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "press": {
+          "type": "number",
+          "format": "double",
+          "description": "Clearance of parts pushed together that hold by friction."
+        },
+        "snug": {
+          "type": "number",
+          "format": "double",
+          "description": "Clearance of a tight fit that assembles by hand."
+        },
+        "slip": {"type": "number", "format": "double", "description": "Clearance of parts that slide or rotate freely."},
+        "loose": {"type": "number", "format": "double", "description": "Clearance with generous play."}
+      },
+      "required": ["press", "snug", "slip", "loose"],
+      "description": "Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of\ndiameter `d` is `d + 2 × clearance`."
+    },
     "HintFrame": {
       "oneOf": [
         {
@@ -511,6 +560,38 @@
       "description": "A plane given by an origin plane, a datum plane, or a flat face of a body."
     },
     "PointRef": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}(\\.(start|end|center))?$"},
+    "PrinterProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`."
+        },
+        "name": {"type": "string", "description": "Display name, 1 to 100 characters."},
+        "technology": {"$ref": "#/$defs/Technology", "description": "FDM or resin."},
+        "bed": {"$ref": "#/$defs/Bed", "description": "Plate shape and build height."},
+        "nozzle_diameter": {
+          "type": ["number", "null"],
+          "format": "double",
+          "description": "Nozzle diameter in mm; required for FDM, absent for resin (omitted when `None`)."
+        },
+        "layer_height": {"type": "number", "format": "double", "description": "Layer height in mm."},
+        "max_overhang_angle": {
+          "type": "number",
+          "format": "double",
+          "description": "Steepest printable overhang, measured from vertical, in radians."
+        },
+        "max_bridge_length": {
+          "type": "number",
+          "format": "double",
+          "description": "Longest unsupported horizontal span in mm (used by the bridges check, later)."
+        },
+        "fit": {"$ref": "#/$defs/FitClasses", "description": "Fit class clearances."}
+      },
+      "required": ["id", "name", "technology", "bed", "layer_height", "max_overhang_angle", "max_bridge_length", "fit"],
+      "description": "A printer the model will be printed on. Deserialization fills omitted fields from the\ntechnology's generic profile and validates (section 3.1), so a deserialized profile is always\nvalid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields\nas serde reads it (section 3.1); `ProfileInput`'s is the input form."
+    },
     "ProfileRef": {
       "type": "object",
       "additionalProperties": false,
@@ -1021,6 +1102,13 @@
         }
       ],
       "description": "Where a sketch lies."
+    },
+    "Technology": {
+      "oneOf": [
+        {"type": "string", "const": "fdm", "description": "Filament extrusion."},
+        {"type": "string", "const": "resin", "description": "Masked or laser stereolithography (MSLA, SLA)."}
+      ],
+      "description": "Printing technology."
     },
     "Units": {"type": "string", "enum": ["mm", "cm", "m", "in"]},
     "feature.boolean": {

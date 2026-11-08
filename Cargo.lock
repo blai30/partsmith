@@ -2517,6 +2517,7 @@ dependencies = [
  "partsmith-recompute",
  "partsmith-sketch",
  "pretty_assertions",
+ "schemars 1.2.2",
  "serde_json",
  "thiserror 2.0.21",
  "zip",

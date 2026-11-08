@@ -1,5 +1,5 @@
 import { fuzzyScore } from '../commands/fuzzy'
-import { resolvedPrinter } from '../print/printer'
+import { documentPrinter } from '../print/printer'
 import type { AppState } from '../state/store'
 import { formatParameterValue } from './evaluate'
 
@@ -70,7 +70,7 @@ export function completionNames(state: AppState): readonly CompletionName[] {
       display: shown === null ? parameter.name : `${parameter.name} = ${shown}`,
     }
   })
-  const printer = resolvedPrinter(state.printers, document.recipe.printer)
+  const printer = documentPrinter(document.recipe, state.printers)
   const printerNames = [
     ...PRINTER_NAMES,
     ...(printer?.technology === 'fdm' ? ['printer.nozzle'] : []),

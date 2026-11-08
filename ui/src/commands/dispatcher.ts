@@ -33,6 +33,10 @@ export function installShortcutDispatcher(app: App, target: Window): () => void 
       return
     }
     const state = app.store.getState()
+    // The printer dialog takes every key while it is open (3.17).
+    if (state.printerDialog !== null) {
+      return
+    }
     if ((state.panels.paletteOpen || hasOpenPopover(target.document)) && name !== PALETTE_CHORD) {
       return
     }

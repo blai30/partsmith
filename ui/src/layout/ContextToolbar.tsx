@@ -10,16 +10,15 @@ import {
   type Ref,
   type RefObject,
 } from 'react'
-import { setCheckHidden, setPrinter } from '../app/actions/print'
+import { setCheckHidden } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
-import { reportFailure } from '../app/report'
 import { runCommand } from '../commands/registry'
 import { PRIMARY_COMMANDS, TOOLBARS, type ToolbarEntry } from '../commands/toolbars'
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { ChecksPopover } from '../print/ChecksPopover'
-import { PrinterMenu } from '../print/PrinterMenu'
+import { DocumentPrinterMenu } from '../print/PrinterMenu'
 import { printerButtonText } from '../print/printer'
 import { selectHealthBadge } from '../state/selectors'
 import type { AppContext, AppState } from '../state/store'
@@ -242,7 +241,7 @@ function GroupButton({
 }
 
 function selectPrinterText(state: AppState): string {
-  return printerButtonText(state.printers, state.document?.recipe.printer)
+  return printerButtonText(state.document?.recipe ?? null, state.printers)
 }
 
 /**
@@ -260,8 +259,6 @@ function PrinterButton({
 }) {
   const app = useApp()
   const text = useAppState(selectPrinterText)
-  const printers = useAppState((state) => state.printers)
-  const current = useAppState((state) => state.document?.recipe.printer ?? null)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const reason = disabledReasonOf(view)
@@ -291,16 +288,7 @@ function PrinterButton({
           }}
         />
       ) : null}
-      <PrinterMenu
-        open={open}
-        anchor={collapsedTo ?? anchor}
-        onOpenChange={setOpen}
-        printers={printers}
-        current={current}
-        onChoose={(profileId) => {
-          setPrinter(app, profileId).catch(reportFailure('Changing the printer'))
-        }}
-      />
+      <DocumentPrinterMenu open={open} anchor={collapsedTo ?? anchor} onOpenChange={setOpen} />
     </>
   )
 }

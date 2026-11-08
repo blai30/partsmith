@@ -14,7 +14,7 @@ import {
   type RecoveryStore,
 } from './recovery'
 
-// The recovery store of ui.md 2.15: one entry per document session in IndexedDB version 2, the
+// The recovery store of ui.md 2.15: one entry per document session in IndexedDB version 3, the
 // migration of the version 1 slot, the Web Locks of running sessions and persistent storage.
 
 const ENTRY: RecoveryEntry = {
@@ -120,11 +120,11 @@ describe('createIndexedDbRecovery', () => {
     expect(warn.mock.calls.flat().map(String).join(' ')).toMatch(/recovery/i)
   })
 
-  it('U-155 a new database has version 2 and the stores recent and recovery, both keyed by id', async () => {
+  it('U-155 a new database has version 3 and the stores recent, recovery and printers, each keyed by id', async () => {
     const fake = createFakeIndexedDb()
     await expect(createIndexedDbRecovery(fake.factory, BARE).list()).resolves.toEqual([])
-    expect(fake.version('partsmith')).toBe(2)
-    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
+    expect(fake.version('partsmith')).toBe(3)
+    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id', printers: 'id' })
   })
 
   it('U-155 keeps one record per entry: writing an entry again replaces only it, and remove deletes only it', async () => {
@@ -236,8 +236,8 @@ describe('the upgrade from version 1 (2.15)', () => {
     const fake = versionOneDatabase({ slot: 'current', ...KEPT })
     const recent = fake.records('partsmith', 'recent')
     const listed = await createIndexedDbRecovery(fake.factory, BARE).list()
-    expect(fake.version('partsmith')).toBe(2)
-    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
+    expect(fake.version('partsmith')).toBe(3)
+    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id', printers: 'id' })
     const records = fake.records('partsmith', 'recovery')
     expect(records).toEqual([{ ...KEPT, id: expect.stringMatching(UUID) }])
     // A record written before `folder` and `digest` existed reads them as null (2.15).
@@ -256,8 +256,8 @@ describe('the upgrade from version 1 (2.15)', () => {
       reason: 'replaced',
     })
     await expect(createIndexedDbRecovery(fake.factory, BARE).list()).resolves.toEqual([])
-    expect(fake.version('partsmith')).toBe(2)
-    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
+    expect(fake.version('partsmith')).toBe(3)
+    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id', printers: 'id' })
     expect(fake.records('partsmith', 'recovery')).toEqual([])
   })
 
@@ -265,7 +265,7 @@ describe('the upgrade from version 1 (2.15)', () => {
     const fake = versionOneDatabase({ slot: 'current', ...KEPT })
     // The upgrade belongs to the database: the recent files store's first use runs it too.
     await createIndexedDbRecentFiles(fake.factory).list()
-    expect(fake.version('partsmith')).toBe(2)
+    expect(fake.version('partsmith')).toBe(3)
     await expect(createIndexedDbRecovery(fake.factory, BARE).list()).resolves.toMatchObject([
       { name: 'bracket', text: '{}', savedAt: 1000, reason: 'replaced' },
     ])

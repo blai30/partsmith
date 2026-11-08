@@ -28,10 +28,20 @@ pub enum Command {
     /// Built-in printer profiles, then session profiles, each group sorted by id.
     #[serde(deserialize_with = "no_fields")]
     ListPrinterProfiles,
-    /// Adds or replaces a session (user) printer profile.
+    /// Adds or replaces a session (user) printer profile, given as `profile` or as `text`.
     PutPrinterProfile {
         /// The profile; omitted fields come from its technology's generic profile.
-        profile: ProfileInput,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "ProfileInput")]
+        profile: Option<ProfileInput>,
+        /// The profile in the same input form, as JSON text the engine reads.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+    /// Removes the session printer profile with this id; any other id changes nothing.
+    RemovePrinterProfile {
+        /// The profile id.
+        id: String,
     },
     /// Creates an empty document.
     NewDocument {
@@ -304,6 +314,7 @@ impl Command {
             Command::FeatureCatalog => "feature_catalog",
             Command::ListPrinterProfiles => "list_printer_profiles",
             Command::PutPrinterProfile { .. } => "put_printer_profile",
+            Command::RemovePrinterProfile { .. } => "remove_printer_profile",
             Command::NewDocument { .. } => "new_document",
             Command::OpenDocument { .. } => "open_document",
             Command::SaveDocument { .. } => "save_document",
@@ -364,8 +375,15 @@ pub enum CommandResult {
         /// Built-in profiles, then session profiles, each group sorted by id.
         profiles: Vec<PrinterProfile>,
     },
-    /// Result of `put_printer_profile`.
-    PutPrinterProfile,
+    /// Result of `put_printer_profile`: `profile` is the session profile in the written form.
+    PutPrinterProfile {
+        // The variant's doc comment describes this field: schemars would write a field doc comment
+        // beside the `$ref` (protocol.md test 93).
+        #[allow(missing_docs)]
+        profile: PrinterProfile,
+    },
+    /// Result of `remove_printer_profile`.
+    RemovePrinterProfile,
     /// Result of `new_document`.
     NewDocument {
         /// The new document.

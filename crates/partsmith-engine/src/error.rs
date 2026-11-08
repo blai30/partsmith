@@ -222,17 +222,21 @@ pub enum EngineError {
         /// The profile id.
         id: String,
     },
-    /// `put_printer_profile` uses a built-in id.
+    /// `put_printer_profile`, or the profile of a `set_printer` edit, uses a built-in id.
     #[error("\"{id}\" is a built-in profile. Save your changes under a new name.")]
     ProfileIdReserved {
         /// The profile id.
         id: String,
+        /// The `set_printer` edit whose profile has the id (section 3.3), else `None`.
+        index: Option<u32>,
     },
     /// The print crate rejected a profile.
     #[error("{message}")]
     InvalidProfile {
         /// The print crate's message.
         message: String,
+        /// The `set_printer` edit whose profile it rejected (section 3.3), else `None`.
+        index: Option<u32>,
     },
     /// The orientation is not a rotation, or lays a curved face on the bed.
     #[error("{message}")]
@@ -369,10 +373,13 @@ impl EngineError {
         }
     }
 
-    /// The offending edit index for `EditRejected` (when it has one) and `InvalidParams`.
+    /// The offending edit index for `EditRejected`, `ProfileIdReserved` and `InvalidProfile` (when
+    /// they have one) and `InvalidParams`.
     pub fn edit_index(&self) -> Option<u32> {
         match self {
-            EngineError::EditRejected { index, .. } => *index,
+            EngineError::EditRejected { index, .. }
+            | EngineError::ProfileIdReserved { index, .. }
+            | EngineError::InvalidProfile { index, .. } => *index,
             EngineError::InvalidParams { index, .. } => Some(*index),
             _ => None,
         }

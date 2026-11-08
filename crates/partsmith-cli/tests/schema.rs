@@ -110,7 +110,10 @@ fn at<'a>(schema: &'a serde_json::Value, pointer: &str) -> &'a serde_json::Value
 }
 
 /// The definition a schema refers to with `$ref`, or the schema itself.
-fn resolve<'a>(schema: &'a serde_json::Value, value: &'a serde_json::Value) -> &'a serde_json::Value {
+fn resolve<'a>(
+    schema: &'a serde_json::Value,
+    value: &'a serde_json::Value,
+) -> &'a serde_json::Value {
     match value.get("$ref").and_then(serde_json::Value::as_str) {
         Some(reference) => at(
             schema,
@@ -124,7 +127,11 @@ fn resolve<'a>(schema: &'a serde_json::Value, value: &'a serde_json::Value) -> &
 /// writes an enum with documented variants.
 fn enum_values(value: &serde_json::Value) -> Vec<&str> {
     let values = match value.get("enum") {
-        Some(values) => values.as_array().expect("an enum is an array").iter().collect(),
+        Some(values) => values
+            .as_array()
+            .expect("an enum is an array")
+            .iter()
+            .collect(),
         None => at(value, "/oneOf")
             .as_array()
             .expect("oneOf is an array")
@@ -139,11 +146,7 @@ fn enum_values(value: &serde_json::Value) -> Vec<&str> {
 }
 
 /// The branch of the `oneOf` at `pointer` whose `kind` property is the constant `kind`.
-fn branch<'a>(
-    schema: &'a serde_json::Value,
-    pointer: &str,
-    kind: &str,
-) -> &'a serde_json::Value {
+fn branch<'a>(schema: &'a serde_json::Value, pointer: &str, kind: &str) -> &'a serde_json::Value {
     at(schema, pointer)
         .as_array()
         .unwrap_or_else(|| panic!("{pointer} is an array"))
@@ -166,33 +169,68 @@ fn visit_property_keys(value: &serde_json::Value, visit: &mut dyn FnMut(&str)) {
             }
         }
         serde_json::Value::Array(items) => {
-            items.iter().for_each(|item| visit_property_keys(item, visit));
+            items
+                .iter()
+                .for_each(|item| visit_property_keys(item, visit));
         }
         _ => {}
     }
 }
 
-/// The JSON pointers of every schema of type `integer` that is the value of a property, at any depth.
-fn integer_properties(value: &serde_json::Value, pointer: &str, found: &mut Vec<String>) {
+/// The JSON pointers of every schema whose `type` is `integer` or a list that holds it (such as
+/// `["integer", "null"]`), at any depth and whatever holds it: a property, the `items` of an array, a
+/// branch or a definition.
+fn integer_schemas(value: &serde_json::Value, pointer: &str, found: &mut Vec<String>) {
+    let integer = serde_json::json!("integer");
     match value {
         serde_json::Value::Object(members) => {
+            let is_integer = match members.get("type") {
+                Some(serde_json::Value::Array(types)) => types.contains(&integer),
+                Some(single) => single == &integer,
+                None => false,
+            };
+            if is_integer {
+                found.push(pointer.to_owned());
+            }
             for (key, member) in members {
-                let child = format!("{pointer}/{key}");
-                if pointer.ends_with("/properties")
-                    && member.get("type") == Some(&serde_json::json!("integer"))
-                {
-                    found.push(child.clone());
-                }
-                integer_properties(member, &child, found);
+                let token = key.replace('~', "~0").replace('/', "~1");
+                integer_schemas(member, &format!("{pointer}/{token}"), found);
             }
         }
         serde_json::Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
-                integer_properties(item, &format!("{pointer}/{index}"), found);
+                integer_schemas(item, &format!("{pointer}/{index}"), found);
             }
         }
         _ => {}
     }
+}
+
+#[test]
+fn integer_schemas_finds_items_type_lists_and_definitions() {
+    let schema = serde_json::json!({
+        "properties": {
+            "edges": {"type": "array", "items": {"type": "integer"}},
+            "count": {"type": ["integer", "null"]},
+            "width": {"type": "number"},
+            "type": {"type": "string"}
+        },
+        "$defs": {"Index": {"type": "integer"}, "a/b": {"oneOf": [{"type": "integer"}]}}
+    });
+    let mut found = Vec::new();
+
+    integer_schemas(&schema, "", &mut found);
+
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "/$defs/Index",
+            "/$defs/a~1b/oneOf/0",
+            "/properties/count",
+            "/properties/edges/items"
+        ]
+    );
 }
 
 #[test]
@@ -209,7 +247,11 @@ fn t058_the_schema_describes_the_version_2_fields() {
         at(&schema, "/$defs/Reference/required"),
         &serde_json::json!(["q", "fp"])
     );
-    assert!(at(&schema, "/$defs/RegionRef/properties").get("outline").is_some());
+    assert!(
+        at(&schema, "/$defs/RegionRef/properties")
+            .get("outline")
+            .is_some()
+    );
     assert_eq!(
         at(&schema, "/$defs/RegionRef/required"),
         &serde_json::json!(["key", "fp"])
@@ -232,11 +274,21 @@ fn t058_the_schema_describes_the_version_2_fields() {
         let types = direction.get("type").expect("the direction has a type");
         assert!(
             types == &serde_json::json!("array")
-                || types.as_array().is_some_and(|types| types.contains(&serde_json::json!("array"))),
+                || types
+                    .as_array()
+                    .is_some_and(|types| types.contains(&serde_json::json!("array"))),
             "{kind}: {types}"
         );
-        assert_eq!(direction.get("minItems"), Some(&serde_json::json!(3)), "{kind}");
-        assert_eq!(direction.get("maxItems"), Some(&serde_json::json!(3)), "{kind}");
+        assert_eq!(
+            direction.get("minItems"),
+            Some(&serde_json::json!(3)),
+            "{kind}"
+        );
+        assert_eq!(
+            direction.get("maxItems"),
+            Some(&serde_json::json!(3)),
+            "{kind}"
+        );
         assert_eq!(
             direction.pointer("/items/type"),
             Some(&serde_json::json!("number")),
@@ -292,7 +344,9 @@ fn t071_the_generated_schema_leaves_occurrence_free() {
     let schema = committed_ptsm_schema();
     let mut found = 0;
 
-    visit_property_keys(&schema, &mut |key| found += usize::from(key == "occurrence"));
+    visit_property_keys(&schema, &mut |key| {
+        found += usize::from(key == "occurrence")
+    });
 
     assert_eq!(found, 0, "a properties object has the key occurrence");
 }
@@ -325,7 +379,7 @@ fn t073_no_params_field_indexes_elements_glyphs_or_characters() {
             keys.push(key.to_owned());
         }
     });
-    integer_properties(&schema, "", &mut integers);
+    integer_schemas(&schema, "", &mut integers);
 
     assert_eq!(keys, Vec::<String>::new());
     // None at a3f4573. From M2 item 14 on, the `degree` of the `bspline` and `fixed_spline` entity records

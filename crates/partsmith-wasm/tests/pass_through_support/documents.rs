@@ -1,6 +1,6 @@
 //! The documents the pass-through tests open, the records they are built from, and the edits the tests apply.
 
-use partsmith_model::{load, save};
+use partsmith_model::{FORMAT_VERSION, load, save};
 use serde_json::{Value, json};
 
 // Records, recipes and model edits.
@@ -136,17 +136,21 @@ pub fn remove_feature(feature: &str) -> Value {
 pub const E10_TEXT: &str =
     include_str!("../../../partsmith-model/tests/fixtures/e10_version_2.ptsm");
 
-/// The line of canonical text at format version 2, E10 among them, that holds its format version.
-const VERSION_2_LINE: &str = "  \"format_version\": 2,";
+/// The line of canonical text that holds its format version `version`.
+fn version_line(version: u32) -> String {
+    format!("  \"format_version\": {version},")
+}
 
-/// The canonical text `text`, at format version 2, with its format version line set to `version`.
+/// The canonical text `text`, at the current format version (E10 among them), with its format
+/// version line set to `version`.
 fn at_version(text: &str, version: u32) -> String {
+    let current = version_line(FORMAT_VERSION);
     assert_eq!(
-        text.matches(VERSION_2_LINE).count(),
+        text.matches(&current).count(),
         1,
         "the text states its format version once"
     );
-    text.replace(VERSION_2_LINE, &format!("  \"format_version\": {version},"))
+    text.replace(&current, &version_line(version))
 }
 
 /// The canonical text `save` writes for the document `text`.

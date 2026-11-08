@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::document::ProfileMismatch;
 use crate::names::{LabelError, LabelField, NameError, validate_label, validate_parameter_name};
 use crate::{Document, FORMAT, FORMAT_VERSION, Id, is_valid_feature_type};
 
@@ -22,6 +23,19 @@ pub enum StructureError {
     WrongFormatVersion {
         /// The version found.
         found: u32,
+    },
+    /// `printer_profile` is present but `printer` is not (rule 9).
+    #[error(
+        "The document stores a printer profile but names no printer. Set \"printer\" to the profile's id, or remove \"printer_profile\"."
+    )]
+    PrinterProfileWithoutPrinter,
+    /// The `id` member of `printer_profile` is not a string equal to `printer` (rule 10).
+    #[error("{}", profile_id_message(.printer, .found.as_deref()))]
+    PrinterProfileIdMismatch {
+        /// The printer the document names.
+        printer: String,
+        /// The profile's `id` member, when it is a string.
+        found: Option<String>,
     },
     /// An id appears on more than one parameter, body or feature; reported at each repeat.
     #[error("The id {id} is used by more than one record. Give the later record a new id.")]
@@ -96,6 +110,18 @@ fn check_repeat<'a>(
     }
 }
 
+/// The message of `PrinterProfileIdMismatch`.
+fn profile_id_message(printer: &str, found: Option<&str>) -> String {
+    match found {
+        Some(found) => format!(
+            "The stored printer profile has the id \"{found}\", but the document names the printer \"{printer}\". Make them the same."
+        ),
+        None => format!(
+            "The stored printer profile needs the id \"{printer}\", the printer the document names. Set its \"id\" to \"{printer}\"."
+        ),
+    }
+}
+
 /// `{id}: {error}`, or `{error}` alone for the printer.
 fn label_message(id: Option<&Id>, error: &LabelError) -> String {
     match id {
@@ -122,6 +148,16 @@ impl Document {
             && let Err(error) = validate_label(LabelField::Printer, printer)
         {
             problems.push(StructureError::InvalidLabel { id: None, error });
+        }
+        if let Some(profile) = &self.printer_profile
+            && let Some(mismatch) = ProfileMismatch::find(self.printer.as_deref(), profile)
+        {
+            problems.push(match mismatch {
+                ProfileMismatch::WithoutPrinter => StructureError::PrinterProfileWithoutPrinter,
+                ProfileMismatch::Id { printer, found } => {
+                    StructureError::PrinterProfileIdMismatch { printer, found }
+                }
+            });
         }
 
         let mut seen_ids: BTreeSet<&Id> = BTreeSet::new();

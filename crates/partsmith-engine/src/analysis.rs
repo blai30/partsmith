@@ -42,7 +42,7 @@ impl Session {
         let profile = match &request.profile {
             Some(id) => self
                 .profiles
-                .find(id)
+                .find_for(&open.document, id)
                 .ok_or_else(|| EngineError::UnknownPrinterProfile { id: id.clone() })?,
             None => open.computed.profile.profile.clone(),
         };

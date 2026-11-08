@@ -6,6 +6,7 @@ import { createMemoryRecentFiles } from '../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../files/recovery'
 import type { Command, DocHandle, Document, Edit } from '../generated/protocol'
 import { StatusBar } from '../layout/StatusBar'
+import { createMemoryPrinterLibrary } from '../print/library'
 import {
   renderModelApp,
   renderWithApp,
@@ -627,6 +628,7 @@ async function startOnFakeWorkers(options: WorkerAppOptions = {}): Promise<Worke
     files,
     recent: createMemoryRecentFiles(),
     recovery,
+    printerLibrary: createMemoryPrinterLibrary(),
     platform: LINUX_WEB,
   })
   await startCore(app)

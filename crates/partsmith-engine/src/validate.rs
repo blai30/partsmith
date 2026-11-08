@@ -7,9 +7,7 @@ use partsmith_features::builtin::hole::HoleParams;
 use partsmith_features::{
     CancelToken, Dependencies, ExprUse, FeatureError, FieldRef, Noun, Registry, Values,
 };
-use partsmith_model::{
-    Document, ExprErrorKind, FeatureManifest, FeatureRecord, Id, LoadError, Scope, load,
-};
+use partsmith_model::{Document, ExprErrorKind, FeatureManifest, FeatureRecord, Id, Scope};
 use partsmith_print::{PrinterValues, Severity};
 use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Input;
@@ -19,7 +17,7 @@ use serde_json::Value;
 use crate::assets::asset_matches;
 use crate::counts::saturating_u32;
 use crate::diagnostics::render_feature_error;
-use crate::document::{canonical_text, canonicalize_params};
+use crate::document::canonical_text;
 use crate::error::EngineError;
 use crate::run::RunView;
 use crate::session::Session;
@@ -47,15 +45,13 @@ impl Session {
         options: ValidateOptions,
     ) -> ValidationReport {
         let mut report = ValidationReport::default();
-        let loaded = match load(text) {
-            Ok(loaded) => loaded,
+        let document = match self.load_text(text) {
+            Ok(loaded) => loaded.document,
             Err(error) => {
                 report.diagnostics.push(load_diagnostic(error));
                 return report;
             }
         };
-        let mut document = loaded.document;
-        canonicalize_params(&self.registry, &mut document);
         let registry = Arc::clone(&self.registry);
         let mut checks = Checks {
             registry: &registry,
@@ -63,7 +59,7 @@ impl Session {
             diagnostics: &mut report.diagnostics,
         };
         let checked = checks.params();
-        let profile = self.profiles.resolve(document.printer.as_deref());
+        let profile = self.profiles.resolve(&document);
         let context = PrinterValues::new(&profile.profile);
         let parameters = document.evaluate_parameters(&context);
         let scope = Scope {
@@ -117,9 +113,7 @@ impl Session {
     /// Loads a .ptsm text and returns its canonical text (params canonicalized by the registry),
     /// without recompute.
     pub fn format(&self, text: &str) -> Result<String, EngineError> {
-        let mut document = load(text).map_err(EngineError::from_load)?.document;
-        canonicalize_params(&self.registry, &mut document);
-        canonical_text(&document)
+        canonical_text(&self.load_text(text)?.document)
     }
 }
 
@@ -590,10 +584,9 @@ fn feature_path(position: usize, field: Option<&FieldRef>) -> String {
     message_location(position, field.map(FieldRef::pointer).as_deref())
 }
 
-/// The diagnostic of a document that does not load (step 1): the load error's code, message and
+/// The diagnostic of a document that does not load (step 1): the error's code, message and
 /// position.
-fn load_diagnostic(error: LoadError) -> ValidationDiagnostic {
-    let engine_error = EngineError::from_load(error);
+fn load_diagnostic(engine_error: EngineError) -> ValidationDiagnostic {
     let (line, column, path) = match &engine_error {
         EngineError::Parse {
             line, column, path, ..
@@ -645,6 +638,7 @@ fn expression_code(kind: &ExprErrorKind) -> &'static str {
         ExprErrorKind::ArgumentCount { .. } => "argument_count",
         ExprErrorKind::UnknownName { .. } => "unknown_name",
         ExprErrorKind::UnknownValue { .. } => "unknown_value",
+        ExprErrorKind::UnavailableValue { .. } => "unavailable_value",
         ExprErrorKind::DependsOnFailed { .. } => "depends_on_failed",
         ExprErrorKind::Cycle { .. } => "cycle",
         ExprErrorKind::DimensionMismatch { .. } => "dimension_mismatch",
@@ -663,6 +657,8 @@ fn expression_code(kind: &ExprErrorKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::LoadError;
+
     use super::*;
     use crate::test_support::id;
 
@@ -675,11 +671,11 @@ mod tests {
 
     #[test]
     fn json_errors_keep_their_position() {
-        let diagnostic = load_diagnostic(LoadError::Syntax {
+        let diagnostic = load_diagnostic(EngineError::from_load(LoadError::Syntax {
             line: 1,
             column: 23,
             message: "EOF while parsing an object".to_string(),
-        });
+        }));
 
         assert_eq!(diagnostic.code, "parse_error");
         assert_eq!((diagnostic.line, diagnostic.column), (Some(1), Some(23)));
@@ -688,20 +684,20 @@ mod tests {
 
     #[test]
     fn invalid_fields_point_into_the_document() {
-        let diagnostic = load_diagnostic(LoadError::Invalid {
+        let diagnostic = load_diagnostic(EngineError::from_load(LoadError::Invalid {
             path: "features[2].radius".to_string(),
             message: "must be a string".to_string(),
-        });
+        }));
 
         assert_eq!(diagnostic.path.as_deref(), Some("/features/2/radius"));
     }
 
     #[test]
     fn newer_versions_have_their_own_code() {
-        let diagnostic = load_diagnostic(LoadError::NewerFormatVersion {
+        let diagnostic = load_diagnostic(EngineError::from_load(LoadError::NewerFormatVersion {
             found: 2,
             supported: 1,
-        });
+        }));
 
         assert_eq!(diagnostic.code, "unsupported_format_version");
     }

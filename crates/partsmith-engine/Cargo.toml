@@ -23,6 +23,7 @@ partsmith-print.workspace = true
 partsmith-protocol.workspace = true
 partsmith-recompute.workspace = true
 partsmith-sketch.workspace = true
+schemars.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 

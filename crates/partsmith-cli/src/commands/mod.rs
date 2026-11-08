@@ -6,6 +6,7 @@ mod rebuild;
 mod schema;
 mod validate;
 
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -42,42 +43,89 @@ fn usage_error(output: &mut Output<'_>, error: UsageError) -> Status {
 struct OpenedDocument {
     /// The session handle.
     doc: DocHandle,
-    /// The id of the printer profile in effect, which the engine resolves: `--printer`, else the
-    /// document's printer when it is installed, else the default profile.
+    /// The id of the printer profile in effect, which the engine resolves: `--printer` or the
+    /// profile of `--printer-file`, else the document's printer when it stores or names an
+    /// installed profile, else the default profile.
     printer: String,
 }
 
-/// Opens the document at `path` with its assets, then applies `printer` (the `--printer` value) as
-/// an in-memory `set_printer` edit (cli.md section 3.3, step 1). So an unreadable file is an input
-/// error and a document that does not load is reported as such, whatever the printer.
+/// The printer options of `rebuild` and `export`; clap lets at most one be given.
+#[derive(Clone, Copy, Debug)]
+struct PrinterOptions<'a> {
+    /// The `--printer` id.
+    id: Option<&'a str>,
+    /// The `--printer-file` path.
+    file: Option<&'a Path>,
+}
+
+/// Puts the profile of a `--printer-file` into the session before the document opens, then opens
+/// the document at `path` with its assets and applies the printer as an in-memory `set_printer`
+/// edit (cli.md section 3.3, step 1). A profile file the engine refuses stops the command before
+/// the document is read. The `--printer` id is checked after the document loads: an unreadable
+/// document is an input error and a document that does not load is reported as such, whatever the
+/// id.
 fn open(
     session: &mut Session,
     path: &Path,
-    printer: Option<&str>,
+    printer: PrinterOptions<'_>,
 ) -> Result<OpenedDocument, CliError> {
+    let file_profile = printer
+        .file
+        .map(|file| put_printer_file(session, file))
+        .transpose()?;
     let text = files::read_text(path)?;
     let assets = files::read_assets(path)?;
     let doc = session
         .open_document(&text, assets)
         .map_err(|error| CliError::load(path.display().to_string(), &error))?
         .doc;
-    if let Some(id) = printer {
-        let installed = session
-            .printer_profiles()
-            .iter()
-            .any(|profile| profile.id.as_str() == id);
+    if let Some(id) = file_profile {
+        // The file's profile replaces a profile the document stores under the same id.
+        set_printer(session, doc, id)?;
+    } else if let Some(id) = printer.id {
+        let document = session.document(doc)?;
+        let own_printer = document.printer.as_deref() == Some(id);
+        let installed = (own_printer && document.printer_profile.is_some())
+            || session
+                .printer_profiles()
+                .iter()
+                .any(|profile| profile.id.as_str() == id);
         if !installed {
             return Err(EngineError::UnknownPrinterProfile { id: id.to_owned() }.into());
         }
-        if session.document(doc)?.printer.as_deref() != Some(id) {
-            let edit = Edit::SetPrinter {
-                printer: Some(id.to_owned()),
-            };
-            session.apply_edits(doc, Some("Set printer"), vec![edit])?;
+        if !own_printer {
+            set_printer(session, doc, id.to_owned())?;
         }
     }
     let printer = session.printer_profile(doc)?;
     Ok(OpenedDocument { doc, printer })
+}
+
+/// Reads a `--printer-file` as text and puts it into the session; returns the profile's id.
+fn put_printer_file(session: &mut Session, file: &Path) -> Result<String, CliError> {
+    let path = file.display().to_string();
+    let text = fs::read_to_string(file).map_err(|source| CliError::Read {
+        path: path.clone(),
+        source,
+    })?;
+    let profile =
+        session
+            .put_printer_profile_text(&text)
+            .map_err(|source| CliError::PrinterFile {
+                path,
+                source: Box::new(source),
+            })?;
+    Ok(profile.id.to_string())
+}
+
+/// Applies `set_printer` with `id` in memory; the engine stores the session profile `id` names.
+fn set_printer(session: &mut Session, doc: DocHandle, id: String) -> Result<(), CliError> {
+    let edit = Edit::SetPrinter {
+        printer: Some(id),
+        profile: None,
+    };
+    session.apply_edits(doc, Some("Set printer"), vec![edit])?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -151,19 +199,55 @@ mod tests {
     fn an_unknown_printer_is_refused_after_the_file_is_read() {
         let mut session = session();
 
-        let missing = open(&mut session, Path::new("no/such/model.ptsm"), Some("nope"))
-            .err()
-            .expect("the file is missing");
+        let missing = open(
+            &mut session,
+            Path::new("no/such/model.ptsm"),
+            naming("nope"),
+        )
+        .err()
+        .expect("the file is missing");
 
         assert_eq!(missing.status(), Status::Io);
     }
 
-    /// Writes `text` as `model.ptsm` in a new temporary directory and opens it with `printer`.
+    #[test]
+    fn a_refused_printer_file_stops_before_the_document_is_read() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let file = directory.path().join("bad.json");
+        let text = r#"{"id": "x", "name": "X", "technology": "fdm", "layer_height": 0.5}"#;
+        std::fs::write(&file, text).expect("written");
+        let options = PrinterOptions {
+            id: None,
+            file: Some(&file),
+        };
+
+        let refused = open(&mut session(), Path::new("no/such/model.ptsm"), options)
+            .err()
+            .expect("the profile is refused");
+
+        assert_eq!(refused.status(), Status::Problems);
+        assert_eq!(refused.code(), "invalid_profile");
+    }
+
+    /// The printer options of `--printer <id>`.
+    fn naming(id: &str) -> PrinterOptions<'_> {
+        PrinterOptions {
+            id: Some(id),
+            file: None,
+        }
+    }
+
+    /// Writes `text` as `model.ptsm` in a new temporary directory and opens it with `--printer`
+    /// set to `printer`.
     fn open_text(text: &str, printer: Option<&str>) -> Result<OpenedDocument, CliError> {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let path = directory.path().join("model.ptsm");
         std::fs::write(&path, text).expect("written");
-        open(&mut session(), &path, printer)
+        let options = PrinterOptions {
+            id: printer,
+            file: None,
+        };
+        open(&mut session(), &path, options)
     }
 
     #[test]

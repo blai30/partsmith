@@ -210,7 +210,12 @@ impl Session {
         let mut steps = Vec::with_capacity(edits.len());
         for (position, edit) in edits.into_iter().enumerate() {
             let index = saturating_u32(position);
-            let edit = canonical_edit(&self.registry, &document, edit, index)?;
+            let edit = match edit {
+                Edit::SetPrinter { printer, profile } => {
+                    self.profiles.complete(printer, profile, index)?
+                }
+                edit => canonical_edit(&self.registry, &document, edit, index)?,
+            };
             let step = document
                 .apply_all(vec![edit])
                 .map_err(|error| EngineError::EditRejected {

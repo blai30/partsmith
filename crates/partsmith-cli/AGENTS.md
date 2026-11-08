@@ -12,9 +12,9 @@ The command line is the public interface:
 partsmith [--version] [--help] <COMMAND>
 partsmith validate [--rebuild] [--canonical] [--deny-warnings] [--json] <FILE>...
 partsmith fmt [--check] <FILE>...
-partsmith rebuild [--checks] [--printer <ID>] [--rotate <AXIS:DEGREES>]... [--deny-warnings] [--json] <FILE>
+partsmith rebuild [--checks] [--printer <ID> | --printer-file <PATH>] [--rotate <AXIS:DEGREES>]... [--deny-warnings] [--json] <FILE>
 partsmith export <FILE> -o <PATH> [--format stl|3mf|obj|step|py] [--body <BODY>]... [--per-body] [--ascii]
-                 [--chord <MM>] [--angle <DEGREES>] [--printer <ID>] [--rotate <AXIS:DEGREES>]... [--allow-errors] [--json]
+                 [--chord <MM>] [--angle <DEGREES>] [--printer <ID> | --printer-file <PATH>] [--rotate <AXIS:DEGREES>]... [--allow-errors] [--json]
 partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 ```
 
@@ -29,7 +29,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 ## Internals
 
 - `main.rs`: panic containment (with `RUST_BACKTRACE` set, the standard panic report with its location comes before `internal error:`) and exit status; a broken standard output pipe ends the run with exit 3 and no message. `arguments.rs`: the clap grammar, `Format`, `SchemaAction` and the version text from `engine_info`.
-- `commands/`: one module per command; `commands/mod.rs` opens a document with its assets (file and assets first, then `open_document`, then the `--printer` check, as cli.md 3.3 orders them), applies `--printer` for `rebuild` and `export`, and reports the profile in effect from `Session::printer_profile`. A document that does not load is reported with the line, column and JSON Pointer its `EngineError::Parse` carries (`CliError::load`), the diagnostic `validate` reports for the same text, so `fmt`, `rebuild` and `export` name the same position `validate` does.
+- `commands/`: one module per command; `commands/mod.rs` opens a document with its assets (the `--printer-file` profile put with `put_printer_profile_text` first, then file and assets, then `open_document`, then the `--printer` check, as cli.md 3.3 orders them), applies `--printer` or the file's profile for `rebuild` and `export` (a document's own stored printer needs no edit), and reports the profile in effect from `Session::printer_profile`. A document that does not load is reported with the line, column and JSON Pointer its `EngineError::Parse` carries (`CliError::load`), the diagnostic `validate` reports for the same text, so `fmt`, `rebuild` and `export` name the same position `validate` does.
 - `error.rs`: `CliError` and `UsageError` with exit status, code and report line; `status.rs`: `Status`, ordered so the largest wins.
 - `files.rs`: inputs (`-` is standard input) read as bytes, where bytes that are not UTF-8 are a `parse_error` load error with the file format's `NotUtf8` message; asset discovery in `assets/`; `write`, the one write of cli.md 3.7 (atomic, through a symbolic link after a look through it with `fs::metadata`, refusing a link that leads to no file and a read-only file, keeping an existing file's permissions), and `create_directory`, whose failures are `CliError::Write` naming the path as given.
 - `output.rs`: standard output and error, human numbers, diagnostic lines and JSON diagnostics (with a feature message's `feature` and members); `rotation.rs`: `--rotate` values to an `Orientation::Matrix`.

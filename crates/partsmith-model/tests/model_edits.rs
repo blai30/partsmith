@@ -327,9 +327,9 @@ fn t064_set_units_and_printer() {
             profile: None,
         }),
         Ok(Edit::SetPrinter {
-                printer: None,
-                profile: None,
-            })
+            printer: None,
+            profile: None,
+        })
     );
     // Spec conflict: "\t" is whitespace only, which section 3.4 reports as Empty before it looks for control characters.
     assert_eq!(

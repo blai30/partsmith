@@ -126,12 +126,19 @@
           "additionalProperties": false
         },
         {
-          "description": "Adds or replaces a session (user) printer profile.",
+          "description": "Adds or replaces a session (user) printer profile, given as `profile` or as `text`.",
           "type": "object",
           "properties": {
             "profile": {
               "description": "The profile; omitted fields come from its technology's generic profile.",
               "$ref": "#/$defs/ProfileInput"
+            },
+            "text": {
+              "description": "The profile in the same input form, as JSON text the engine reads.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "type": {
               "type": "string",
@@ -140,8 +147,26 @@
           },
           "additionalProperties": false,
           "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Removes the session printer profile with this id; any other id changes nothing.",
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "The profile id.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "remove_printer_profile"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
             "type",
-            "profile"
+            "id"
           ]
         },
         {
@@ -1582,7 +1607,7 @@
           ]
         },
         {
-          "description": "Sets or clears the printer profile id.",
+          "description": "Sets or clears the printer profile id, and with it the stored profile.",
           "type": "object",
           "properties": {
             "printer": {
@@ -1590,6 +1615,17 @@
               "type": [
                 "string",
                 "null"
+              ]
+            },
+            "profile": {
+              "description": "The profile to store, in print.md's written form; absent stores none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PrinterProfile"
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "type": {
@@ -3635,6 +3671,17 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "printer_profile": {
+          "description": "The printer profile `printer` names, in print.md's written form, stored when that profile is not built in\n(format version 3). The model checks only its `id` (model.md section 3.6, rules 9 and 10).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrinterProfile"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "parameters": {
@@ -5864,12 +5911,29 @@
           ]
         },
         {
-          "description": "Result of `put_printer_profile`.",
+          "description": "Result of `put_printer_profile`: `profile` is the session profile in the written form.",
+          "type": "object",
+          "properties": {
+            "profile": {
+              "$ref": "#/$defs/PrinterProfile"
+            },
+            "type": {
+              "type": "string",
+              "const": "put_printer_profile"
+            }
+          },
+          "required": [
+            "type",
+            "profile"
+          ]
+        },
+        {
+          "description": "Result of `remove_printer_profile`.",
           "type": "object",
           "properties": {
             "type": {
               "type": "string",
-              "const": "put_printer_profile"
+              "const": "remove_printer_profile"
             }
           },
           "required": [

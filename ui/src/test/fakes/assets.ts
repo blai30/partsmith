@@ -21,7 +21,7 @@ export const ASSET_C_NAME = assetName('c')
 /** `block.ptsm`: body `b-1` "Body 1" and `f-imp1`, an import of `A` into it, op new. */
 export const BLOCK_DOCUMENT: Document = {
   format: 'partsmith',
-  format_version: 2,
+  format_version: 3,
   units: 'mm',
   parameters: [],
   bodies: [{ id: 'b-1', name: 'Body 1' }],

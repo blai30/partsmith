@@ -392,7 +392,7 @@ test.describe('E-160 documents the UI writes', () => {
 
 /** A literal saved document for the comparison's own tests: one body and one fillet. */
 const literalDocument: JsonObject = {
-  format_version: 2,
+  format_version: 3,
   bodies: [{ id: 'b-0123456789ab', name: 'Body 1' }],
   features: [
     {

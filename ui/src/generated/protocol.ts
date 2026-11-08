@@ -29,8 +29,18 @@ type: "list_printer_profiles"
 /**
  * The profile; omitted fields come from its technology's generic profile.
  */
-profile: ProfileInput
+profile?: ProfileInput
+/**
+ * The profile in the same input form, as JSON text the engine reads.
+ */
+text?: (string | null)
 type: "put_printer_profile"
+} | {
+/**
+ * The profile id.
+ */
+id: string
+type: "remove_printer_profile"
 } | {
 /**
  * Document units; `mm` when absent.
@@ -548,6 +558,10 @@ type: "set_units"
  * The printer profile id.
  */
 printer?: (string | null)
+/**
+ * The profile to store, in print.md's written form; absent stores none.
+ */
+profile?: (PrinterProfile | null)
 type: "set_printer"
 })
 /**
@@ -1062,7 +1076,10 @@ type: "feature_catalog"
 profiles: PrinterProfile[]
 type: "list_printer_profiles"
 } | {
+profile: PrinterProfile
 type: "put_printer_profile"
+} | {
+type: "remove_printer_profile"
 } | {
 /**
  * The new document.
@@ -2278,6 +2295,78 @@ suppressed?: boolean
 [k: string]: unknown | undefined
 }
 /**
+ * A printer the model will be printed on. Deserialization fills omitted fields from the
+ * technology's generic profile and validates (section 3.1), so a deserialized profile is always
+ * valid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields
+ * as serde reads it (section 3.1); `ProfileInput`'s is the input form.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "PrinterProfile".
+ */
+export interface PrinterProfile {
+/**
+ * Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.
+ */
+id: Id
+/**
+ * Display name, 1 to 100 characters.
+ */
+name: string
+/**
+ * FDM or resin.
+ */
+technology: Technology
+/**
+ * Plate shape and build height.
+ */
+bed: Bed
+/**
+ * Nozzle diameter in mm; required for FDM, absent for resin (omitted when `None`).
+ */
+nozzle_diameter?: (number | null)
+/**
+ * Layer height in mm.
+ */
+layer_height: number
+/**
+ * Steepest printable overhang, measured from vertical, in radians.
+ */
+max_overhang_angle: number
+/**
+ * Longest unsupported horizontal span in mm (used by the bridges check, later).
+ */
+max_bridge_length: number
+/**
+ * Fit class clearances.
+ */
+fit: FitClasses
+}
+/**
+ * Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of
+ * diameter `d` is `d + 2 × clearance`.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "FitClasses".
+ */
+export interface FitClasses {
+/**
+ * Clearance of parts pushed together that hold by friction.
+ */
+press: number
+/**
+ * Clearance of a tight fit that assembles by hand.
+ */
+snug: number
+/**
+ * Clearance of parts that slide or rotate freely.
+ */
+slip: number
+/**
+ * Clearance with generous play.
+ */
+loose: number
+}
+/**
  * Names one fix of one message at one revision; the engine builds the edits when it is applied (engine.md section 3.22).
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -2584,78 +2673,6 @@ value: string
 label: string
 }
 /**
- * A printer the model will be printed on. Deserialization fills omitted fields from the
- * technology's generic profile and validates (section 3.1), so a deserialized profile is always
- * valid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields
- * as serde reads it (section 3.1); `ProfileInput`'s is the input form.
- * 
- * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
- * via the `definition` "PrinterProfile".
- */
-export interface PrinterProfile {
-/**
- * Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.
- */
-id: Id
-/**
- * Display name, 1 to 100 characters.
- */
-name: string
-/**
- * FDM or resin.
- */
-technology: Technology
-/**
- * Plate shape and build height.
- */
-bed: Bed
-/**
- * Nozzle diameter in mm; required for FDM, absent for resin (omitted when `None`).
- */
-nozzle_diameter?: (number | null)
-/**
- * Layer height in mm.
- */
-layer_height: number
-/**
- * Steepest printable overhang, measured from vertical, in radians.
- */
-max_overhang_angle: number
-/**
- * Longest unsupported horizontal span in mm (used by the bridges check, later).
- */
-max_bridge_length: number
-/**
- * Fit class clearances.
- */
-fit: FitClasses
-}
-/**
- * Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of
- * diameter `d` is `d + 2 × clearance`.
- * 
- * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
- * via the `definition` "FitClasses".
- */
-export interface FitClasses {
-/**
- * Clearance of parts pushed together that hold by friction.
- */
-press: number
-/**
- * Clearance of a tight fit that assembles by hand.
- */
-snug: number
-/**
- * Clearance of parts that slide or rotate freely.
- */
-slip: number
-/**
- * Clearance with generous play.
- */
-loose: number
-}
-/**
  * The document recipe. Geometry is never stored; it is regenerated from this.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -2678,6 +2695,11 @@ units: Units
  * Printer profile id whose values `printer.*` names resolve to; `None` when no printer is chosen.
  */
 printer?: (string | null)
+/**
+ * The printer profile `printer` names, in print.md's written form, stored when that profile is not built in
+ * (format version 3). The model checks only its `id` (model.md section 3.6, rules 9 and 10).
+ */
+printer_profile?: (PrinterProfile | null)
 /**
  * Parameters in the order the user sees them.
  */

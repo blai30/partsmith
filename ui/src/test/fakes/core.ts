@@ -15,6 +15,7 @@ import {
   type FeatureStatus,
   type ParameterValue,
   type PrinterProfile,
+  type ProfileInput,
   type Repair,
   type Resolution,
   type SketchSolution,
@@ -30,7 +31,7 @@ import {
   parametersOf,
   type FeatureRecord,
 } from './documents'
-import { TEST_PRINTERS } from './printers'
+import { TEST_PRINTERS, unknownPrinterMessage, writtenProfile } from './printers'
 import { meshParts, responseFrame, type ErrorReply } from './protocol'
 
 // An in-memory engine that answers protocol commands the way engine.md describes, closely enough for
@@ -228,15 +229,22 @@ export function evaluateExpression(
 
 function documentWith(
   recipe: Document,
-  changes: { readonly rollback?: string | null; readonly printer?: string | null },
+  changes: {
+    readonly rollback?: string | null
+    readonly printer?: string | null
+    readonly printerProfile?: PrinterProfile | null
+  },
 ): Document {
   const rollback = changes.rollback === undefined ? (recipe.rollback ?? null) : changes.rollback
   const printer = changes.printer === undefined ? (recipe.printer ?? null) : changes.printer
+  const printerProfile =
+    changes.printerProfile === undefined ? (recipe.printer_profile ?? null) : changes.printerProfile
   return {
     format: recipe.format,
     format_version: recipe.format_version,
     units: recipe.units,
     ...(printer === null ? {} : { printer }),
+    ...(printerProfile === null ? {} : { printer_profile: printerProfile }),
     parameters: parametersOf(recipe),
     bodies: bodiesOf(recipe),
     features: featuresOf(recipe),
@@ -356,7 +364,11 @@ function applyEdit(recipe: Document, edit: Edit): Document {
     case 'set_units':
       return { ...recipe, units: edit.units }
     case 'set_printer':
-      return documentWith(recipe, { printer: edit.printer ?? null })
+      // The stored profile goes with every printer change: the edit's, or none (engine.md 3.3).
+      return documentWith(recipe, {
+        printer: edit.printer ?? null,
+        printerProfile: edit.profile ?? null,
+      })
   }
 }
 
@@ -623,8 +635,75 @@ function inCurrentMeshes(
 /** Creates a fake core with its own documents; `options` apply to every answer. */
 export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   const documents = new Map<number, DocumentEntry>()
+  /** The session profiles `put_printer_profile` added, by id (engine.md 3.3). */
+  const sessionProfiles = new Map<string, PrinterProfile>()
   let nextHandle = 1
   let nextMeshId = 1
+
+  /** The `list_printer_profiles` answer: the listed built-in profiles, then the session profiles by id. */
+  function listedProfiles(): PrinterProfile[] {
+    const sessions = [...sessionProfiles.values()].toSorted((first, second) =>
+      first.id.localeCompare(second.id),
+    )
+    return [...(options.printers ?? TEST_PRINTERS), ...sessions]
+  }
+
+  /**
+   * A `set_printer` edit as the engine completes it: without a `profile`, a printer that names a
+   * session profile stores that profile (engine.md 3.3).
+   */
+  function completed(edit: Edit): Edit {
+    if (edit.type !== 'set_printer' || (edit.profile ?? null) !== null) {
+      return edit
+    }
+    // An edit without a printer names no session profile.
+    const profile = sessionProfiles.get(edit.printer ?? '')
+    return profile === undefined ? edit : { ...edit, profile }
+  }
+
+  /** The document's `unknown_printer_profile` warning, when it names a profile it does not store and the session lacks (engine.md 3.4). */
+  function printerDiagnostics(recipe: Document): Diagnostic[] {
+    const printer = recipe.printer ?? null
+    if (
+      printer === null ||
+      (recipe.printer_profile ?? null) !== null ||
+      listedProfiles().some((profile) => profile.id === printer)
+    ) {
+      return []
+    }
+    return [
+      {
+        severity: 'warning',
+        code: 'unknown_printer_profile',
+        message: unknownPrinterMessage(printer),
+      },
+    ]
+  }
+
+  /**
+   * Adds or replaces a session profile in the written form (protocol.md command 4); a built-in id
+   * is refused. The fake does not recompute the documents that name the profile.
+   */
+  function putPrinterProfile(command: CommandOfType<'put_printer_profile'>): FakeReply {
+    const text = command.text ?? null
+    const input: ProfileInput | null =
+      command.profile ?? (text === null ? null : (JSON.parse(text) as ProfileInput))
+    if (input === null) {
+      return reject(
+        'malformed_request',
+        'The request is not valid: put_printer_profile takes exactly one of profile and text.',
+      )
+    }
+    if (TEST_PRINTERS.some((profile) => profile.id === input.id)) {
+      return reject(
+        'profile_id_reserved',
+        `"${input.id}" is a built-in profile. Save your changes under a new name.`,
+      )
+    }
+    const profile = writtenProfile(input)
+    sessionProfiles.set(profile.id, profile)
+    return { result: { type: 'put_printer_profile', profile } }
+  }
 
   function entryFor(handle: number): DocumentEntry {
     const entry = documents.get(handle)
@@ -702,7 +781,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       revision: entry.revision,
       features: featureStatuses(entry.recipe, meshIds, entry.assets),
       parameters: parameterValues(entry.recipe),
-      diagnostics: [],
+      diagnostics: printerDiagnostics(entry.recipe),
     })
     for (const feature of featuresOf(entry.recipe)) {
       if (feature.type === 'sketch') {
@@ -795,7 +874,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         `Edits inside the transaction "${entry.transaction.label}" take the transaction's label.`,
       )
     }
-    commitChange(entry, label, applyAll(entry.recipe, command.edits ?? []))
+    commitChange(entry, label, applyAll(entry.recipe, (command.edits ?? []).map(completed)))
     return changed(entry, { type: 'apply_edits', revision: entry.revision })
   }
 
@@ -955,9 +1034,15 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return {
           result: {
             type: 'list_printer_profiles',
-            profiles: [...(options.printers ?? TEST_PRINTERS)],
+            profiles: listedProfiles(),
           },
         }
+      case 'put_printer_profile':
+        return putPrinterProfile(command)
+      case 'remove_printer_profile':
+        // An id that names no session profile changes nothing (protocol.md command 36).
+        sessionProfiles.delete(command.id)
+        return { result: { type: 'remove_printer_profile' } }
       case 'new_document': {
         const entry = open(emptyDocument(command.units ?? 'mm'))
         const recomputed = recomputeEvents(entry)

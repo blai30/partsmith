@@ -5,8 +5,9 @@ use std::mem;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
-use crate::document::RecordProblem;
+use crate::document::{PrinterProfileReference, ProfileMismatch, RecordProblem, normalize_members};
 use crate::names::{LabelError, LabelField, NameError, validate_label, validate_parameter_name};
 use crate::{Body, Document, FeatureRecord, Id, Parameter, Units};
 
@@ -99,19 +100,31 @@ pub enum Edit {
         /// The new units.
         units: Units,
     },
-    /// Sets or clears the printer profile id.
+    /// Sets or clears the printer profile id, and with it the stored profile.
     SetPrinter {
         /// The printer profile id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         printer: Option<String>,
+        /// The profile to store, in print.md's written form; absent stores none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<PrinterProfileReference>")]
+        profile: Option<Map<String, Value>>,
     },
 }
 
 impl Edit {
-    /// The edit with every number in its feature params normalized (file-format.md section 3.3).
+    /// The edit with every number in its feature params and stored printer profile normalized (file-format.md
+    /// section 3.3).
     fn normalized(mut self) -> Edit {
-        if let Edit::AddFeature { feature, .. } | Edit::UpdateFeature { feature } = &mut self {
-            feature.normalize();
+        match &mut self {
+            Edit::AddFeature { feature, .. } | Edit::UpdateFeature { feature } => {
+                feature.normalize();
+            }
+            Edit::SetPrinter {
+                profile: Some(profile),
+                ..
+            } => normalize_members(profile),
+            _ => {}
         }
         self
     }
@@ -220,6 +233,29 @@ pub enum EditError {
         /// The id given.
         id: Id,
     },
+    /// A `SetPrinter` edit stores a profile but names no printer.
+    #[error(
+        "A printer profile can be stored only with the printer it belongs to. Name its id as the printer."
+    )]
+    ProfileWithoutPrinter,
+    /// A `SetPrinter` edit stores a profile whose `id` member is not a string equal to its printer.
+    #[error("{}", profile_id_message(.printer, .found.as_deref()))]
+    ProfileIdMismatch {
+        /// The printer the edit names.
+        printer: String,
+        /// The profile's `id` member, when it is a string.
+        found: Option<String>,
+    },
+}
+
+/// The message of `EditError::ProfileIdMismatch`.
+fn profile_id_message(printer: &str, found: Option<&str>) -> String {
+    match found {
+        Some(found) => format!(
+            "The printer profile has the id \"{found}\", but the printer is \"{printer}\". Store the profile of the printer you name."
+        ),
+        None => format!("The printer profile needs the id \"{printer}\", the printer you name."),
+    }
 }
 
 /// A failed transaction: the edit at `index` failed and every earlier edit was undone.
@@ -398,13 +434,26 @@ impl Document {
                 let previous = mem::replace(&mut self.units, units);
                 Ok((Edit::SetUnits { units: previous }, 0))
             }
-            Edit::SetPrinter { printer } => {
+            Edit::SetPrinter { printer, profile } => {
                 if let Some(printer) = &printer {
                     validate_label(LabelField::Printer, printer)
                         .map_err(EditError::InvalidLabel)?;
                 }
-                let previous = mem::replace(&mut self.printer, printer);
-                Ok((Edit::SetPrinter { printer: previous }, 0))
+                if let Some(profile) = &profile
+                    && let Some(mismatch) = ProfileMismatch::find(printer.as_deref(), profile)
+                {
+                    return Err(match mismatch {
+                        ProfileMismatch::WithoutPrinter => EditError::ProfileWithoutPrinter,
+                        ProfileMismatch::Id { printer, found } => {
+                            EditError::ProfileIdMismatch { printer, found }
+                        }
+                    });
+                }
+                let previous = Edit::SetPrinter {
+                    printer: mem::replace(&mut self.printer, printer),
+                    profile: mem::replace(&mut self.printer_profile, profile),
+                };
+                Ok((previous, 0))
             }
         }
     }
@@ -434,7 +483,10 @@ impl Document {
             Edit::MoveFeature { index, .. } => move_back(&mut self.features, position, index),
             Edit::SetRollback { rollback } => self.rollback = rollback,
             Edit::SetUnits { units } => self.units = units,
-            Edit::SetPrinter { printer } => self.printer = printer,
+            Edit::SetPrinter { printer, profile } => {
+                self.printer = printer;
+                self.printer_profile = profile;
+            }
         }
     }
 
@@ -770,6 +822,7 @@ mod tests {
             &mut document,
             Edit::SetPrinter {
                 printer: Some("Printer".to_string()),
+                profile: None,
             },
         );
         assert_restored(
@@ -857,6 +910,7 @@ mod tests {
             Edit::SetUnits { units: Units::In },
             Edit::SetPrinter {
                 printer: Some("Printer".to_string()),
+                profile: None,
             },
             Edit::RemoveBody {
                 id: id("b-missing"),

@@ -15,6 +15,7 @@ import { chooseFileService } from './files/choose-file-service'
 import { tauriGlobalOf } from './files/desktop-file-service'
 import { createIndexedDbRecentFiles } from './files/recent'
 import { createIndexedDbRecovery } from './files/recovery'
+import { createIndexedDbPrinterLibrary } from './print/library'
 import { systemPrefersDark } from './layout/color-scheme'
 import { MESSAGES } from './messages'
 import { createAppStore } from './state/store'
@@ -73,15 +74,17 @@ if (missing !== null) {
 } else {
   const environment = tauriEnvironment()
   const platform = detectPlatform(navigator, environment)
+  // Both are missing outside secure contexts, and Web Locks in older browsers.
+  const storageEnvironment = {
+    locks: navigator.locks ?? null,
+    storage: navigator.storage ?? null,
+  }
   const app = createApp({
     transport: chooseTransport(environment),
     files: chooseFileService(window),
     recent: createIndexedDbRecentFiles(indexedDB),
-    // Both are missing outside secure contexts, and Web Locks in older browsers.
-    recovery: createIndexedDbRecovery(indexedDB, {
-      locks: navigator.locks ?? null,
-      storage: navigator.storage ?? null,
-    }),
+    recovery: createIndexedDbRecovery(indexedDB, storageEnvironment),
+    printerLibrary: createIndexedDbPrinterLibrary(indexedDB, storageEnvironment),
     platform,
     store,
   })

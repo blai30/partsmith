@@ -17,11 +17,18 @@ pub struct MigrationStep {
     pub migrate: fn(Value) -> Result<Value, String>,
 }
 
-/// The built-in chain: one step from version 1 that returns the document unchanged (section 3.9).
-pub const MIGRATIONS: &[MigrationStep] = &[MigrationStep {
-    from: 1,
-    migrate: migrate_from_1,
-}];
+/// The built-in chain: one step from version 1 and one from version 2, each returning the document unchanged
+/// (section 3.9).
+pub const MIGRATIONS: &[MigrationStep] = &[
+    MigrationStep {
+        from: 1,
+        migrate: migrate_from_1,
+    },
+    MigrationStep {
+        from: 2,
+        migrate: migrate_from_2,
+    },
+];
 
 /// Brings raw document JSON to FORMAT_VERSION with the built-in chain; returns the original version if it changed.
 pub fn migrate(document: Value) -> Result<(Value, Option<u32>), LoadError> {
@@ -75,6 +82,12 @@ pub fn migrate_with(
 /// The step from version 1 to 2 (ADR 0025): every field version 2 adds is optional and keeps the
 /// version 1 meaning when absent, so the document is returned as it is.
 fn migrate_from_1(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// The step from version 2 to 3 (ADR 0061), which returns the document as it is. Version 3 adds only keys, records
+/// and values that a version 2 document cannot hold, each with the version 2 meaning when absent.
+fn migrate_from_2(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

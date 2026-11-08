@@ -107,7 +107,7 @@ function createSessionLocks(locks: LockManager | null): SessionLocks {
  * Asks the browser to keep the site's storage under storage pressure. The answer changes
  * nothing, so a refusal is ignored.
  */
-function askForPersistence(storage: StorageManager): void {
+export function askForPersistence(storage: StorageManager): void {
   void storage
     .persisted()
     .then((persisted) => persisted || storage.persist())

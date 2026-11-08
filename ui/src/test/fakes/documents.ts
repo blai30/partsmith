@@ -395,7 +395,7 @@ export const CUBE_TOP_FRONT_EDGE: ElementDescriptor = {
  */
 export const NC09_DOCUMENT: Document = {
   format: 'partsmith',
-  format_version: 2,
+  format_version: 3,
   units: 'mm',
   parameters: [],
   bodies: [{ id: 'b-1', name: 'Body 1' }],

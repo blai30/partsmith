@@ -673,7 +673,7 @@ fn stored_profile() -> serde_json::Map<String, Value> {
         "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
         "nozzle_diameter": 0.4,
         "layer_height": 0.15,
-        "max_overhang_angle": 0.7853981633974483,
+        "max_overhang_angle": std::f64::consts::FRAC_PI_4,
         "max_bridge_length": 10,
         "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
     }) {

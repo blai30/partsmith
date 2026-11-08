@@ -8,11 +8,12 @@ module-level mutable state.
 
 from __future__ import annotations
 
+import copy
 import os
 import re
 import sys
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -74,8 +75,10 @@ _created_documents: ContextVar[list[Document] | None] = ContextVar("partsmith_cr
 class Document:
     """A Partsmith document. Creating one makes it the current document of this context."""
 
-    def __init__(self, *, units: str = "mm", printer: str | None = None) -> None:
-        self._start("new_document", units=units, printer=printer)
+    def __init__(self, *, units: str = "mm", printer: str | Mapping[str, object] | None = None) -> None:
+        printer = checked_printer("Document()", printer)
+        client = Client()
+        self._start(client, "new_document", units=units, printer=printer_id(client, printer))
 
     @classmethod
     def open(cls, path: str | os.PathLike[str]) -> Document:
@@ -91,12 +94,11 @@ class Document:
         buffers = [(folder / name).read_bytes() for name in names]
         assets = [{"name": name, "data": index} for index, name in enumerate(names)]
         document = cls.__new__(cls)
-        document._start("open_document", buffers, text=text, assets=assets)
+        document._start(Client(), "open_document", buffers, text=text, assets=assets)
         return document
 
-    def _start(self, command_type: str, buffers: Sequence[bytes] = (), **fields: object) -> None:
-        """Creates or opens the document in a new session and makes it current."""
-        client = Client()
+    def _start(self, client: Client, command_type: str, buffers: Sequence[bytes] = (), **fields: object) -> None:
+        """Creates or opens the document in the new session of `client` and makes it current."""
         reply = client.command(command_type, buffers, **fields)
         client.handle = reply.result["doc"]
         self._client = client
@@ -145,14 +147,23 @@ class Document:
 
     @property
     def printer(self) -> str | None:
-        """The printer profile id, or None for the default profile."""
+        """The printer profile id, or None for the default profile. Set it to an id, or to a profile
+        mapping in print.md's input form, which the document then stores (section 3.13)."""
         return self._recipe.get("printer")
 
     @printer.setter
-    def printer(self, profile: str | None) -> None:
+    def printer(self, profile: str | Mapping[str, object] | None) -> None:
+        printer = printer_id(self._client, checked_printer("Document.printer", profile))
         self._command_and_warn(
-            "Document.printer", "apply_edits", label="printer", edits=[{"type": "set_printer", "printer": profile}]
+            "Document.printer", "apply_edits", label="printer", edits=[{"type": "set_printer", "printer": printer}]
         )
+
+    @property
+    def printer_profile(self) -> dict | None:
+        """A new dict of the printer profile the document stores, in the written form and its key
+        order, or None when it stores none (section 3.13)."""
+        profile = self._recipe.get("printer_profile")
+        return None if profile is None else copy.deepcopy(profile)
 
     @property
     def parameters(self) -> list[Param]:
@@ -207,17 +218,33 @@ class Document:
     def check(
         self,
         *,
-        printer: str | None = None,
+        printer: str | Mapping[str, object] | None = None,
         rotate: Sequence[tuple[Axis, float]] = (),
         face_down: Element | Selection | None = None,
         parts: Sequence[Part] | None = None,
     ) -> PrintReport:
-        """Runs the printability checks on the parts (default: the visible parts with geometry)."""
+        """Runs the printability checks on the parts (default: the visible parts with geometry).
+        `printer` is an id or a profile mapping, used for this check only (section 3.13)."""
+        printer = checked_printer("Document.check()", printer)
+        if isinstance(printer, Mapping):
+            printer = self._check_profile(printer)
         orientation = self._orientation(rotate, face_down)
         bodies = None if parts is None else [self._own_part(part, "check()").id for part in parts]
         reply = self._client.command("analyze_print", profile=printer, orientation=orientation, bodies=bodies)
         report = next(event for event in reply.events if event["type"] == "print_health")["report"]
         return print_report(report, self._part)
+
+    def _check_profile(self, profile: Mapping[str, object]) -> str:
+        """Puts the profile of `check(printer=...)` and returns its id; ValueError when the document
+        stores its own printer with that id and a different profile (section 3.13)."""
+        written = self._client.put_printer_profile(profile)
+        stored = self._recipe.get("printer_profile")
+        if written["id"] == self.printer and stored is not None and written != stored:
+            raise ValueError(
+                f"Document.check(): this document stores its own printer '{written['id']}', which differs from the "
+                "profile given. Give the profile another id, or set Document.printer to it first."
+            )
+        return written["id"]
 
     def close(self) -> None:
         """Discards the document; later use of it or its parts raises PartsmithError."""
@@ -616,6 +643,21 @@ class Param(Expr):
         self.document._apply("set", [{"type": "update_parameter", "parameter": parameter}])
         self.document._check_parameter(self.id)
         self.document._warn_new_problems("Param.set()", before)
+
+
+def checked_printer(call: str, printer: object) -> str | Mapping[str, object] | None:
+    """`printer` when it is a printer id, a profile mapping or None (section 3.13); TypeError otherwise."""
+    if printer is None or isinstance(printer, (str, Mapping)):
+        return printer
+    raise TypeError(f"{call}: printer must be a printer id (str), a printer profile (a mapping) or None.")
+
+
+def printer_id(client: Client, printer: str | Mapping[str, object] | None) -> str | None:
+    """The id that names `printer`: the id itself, or the id of a profile mapping that is put into the
+    session of `client` first (section 3.13)."""
+    if isinstance(printer, Mapping):
+        return client.put_printer_profile(printer)["id"]
+    return printer
 
 
 def current_document() -> Document:

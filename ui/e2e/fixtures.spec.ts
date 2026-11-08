@@ -16,7 +16,8 @@ import { chooseContext, expectCurrentReport, healthItems, openPrintCheck } from 
 
 // Fixture checks (ui.md 6.2, 6.5 E-108): each fixture with a stated result opens in the real core
 // with that result, so a test that uses a fixture fails for its own reason, never for the
-// fixture's. `notes.txt` is E-5; the perf fixtures are the inputs of 6.7 and state no result.
+// fixture's. `notes.txt` is E-5; the perf fixtures are the inputs of 6.7 and state no result;
+// `custom-printer.ptsm` and `printer-v2.ptsm` are E-169 and E-170 (printers.spec.ts).
 
 /** One fixture of ui.md 6.2 and the check of its Result row. */
 type FixtureCheck = {

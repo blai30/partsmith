@@ -22,6 +22,7 @@ import { explainMissingAssets, folderOfFile, readDocumentAssets } from './docume
 import { documentOf, showCoreError, type StoppedNotice } from './edits'
 import { showFileError, showOpenFailed } from './files'
 import { notify } from './notifications'
+import { offerStoredPrinter } from './printers'
 import { leaveSketchHistory } from './sketch'
 
 // Starting the core and opening documents (ui.md 3.1, 3.19).
@@ -211,6 +212,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
   offerReopen()
   const shown = documentOf(app)
   if (shown !== null) {
+    offerStoredPrinter(app, source.fileName, shown.recipe)
     explainMissingAssets(app, shown, reading, result.refusal, () => {
       void openWithPicker(app)
     })

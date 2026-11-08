@@ -11,7 +11,7 @@ use partsmith_protocol::{
 };
 use serde::Serialize;
 
-use super::{open, usage_error};
+use super::{PrinterOptions, open, usage_error};
 use crate::arguments::RebuildArguments;
 use crate::error::CliError;
 use crate::messages::{MessageMembers, write_suggested};
@@ -183,7 +183,11 @@ fn rebuild(
     orientation: Orientation,
     path: String,
 ) -> Result<Report, CliError> {
-    let opened = open(session, &arguments.file, arguments.printer.as_deref())?;
+    let printer = PrinterOptions {
+        id: arguments.printer.as_deref(),
+        file: arguments.printer_file.as_deref(),
+    };
+    let opened = open(session, &arguments.file, printer)?;
     let doc = opened.doc;
     let document = session.document(doc)?;
     let features = feature_reports(document, session.feature_statuses(doc)?)?;

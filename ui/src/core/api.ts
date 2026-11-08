@@ -56,6 +56,10 @@ export type CoreApi = {
   }>
   featureCatalog(): Promise<readonly CatalogEntry[]>
   listPrinterProfiles(): Promise<readonly PrinterProfile[]>
+  /** `put_printer_profile` with the profile as `profile` (3.17); resolves with the session profile in the written form. */
+  putPrinterProfile(profile: PrinterProfile): Promise<PrinterProfile>
+  /** `remove_printer_profile` (3.17): removes the session profile with this id. */
+  removePrinterProfile(id: string): Promise<void>
   newDocument(units?: Units): Promise<DocHandle>
   /** `open_document` with the asset files of the document's `assets/` folder (3.19); none unless given. */
   openDocument(
@@ -247,6 +251,13 @@ export function createCoreApi(client: CoreClient): CoreApi {
     },
     async listPrinterProfiles() {
       return (await call({ type: 'list_printer_profiles' })).result.profiles
+    },
+    async putPrinterProfile(profile) {
+      // A written form is a valid input form (2.6).
+      return (await call({ type: 'put_printer_profile', profile })).result.profile
+    },
+    async removePrinterProfile(id) {
+      await call({ type: 'remove_printer_profile', id })
     },
     async newDocument(units) {
       const command: CommandOfType<'new_document'> = {

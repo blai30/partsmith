@@ -196,8 +196,9 @@ fn t136_printer_nozzle_on_resin_has_a_reason() {
 
 #[test]
 fn t137_the_reason_names_the_profile() {
-    let mars = PrinterProfile::from_json(r#"{"id": "my-mars", "name": "My Mars", "technology": "resin"}"#)
-        .expect("the profile is valid");
+    let mars =
+        PrinterProfile::from_json(r#"{"id": "my-mars", "name": "My Mars", "technology": "resin"}"#)
+            .expect("the profile is valid");
 
     assert_eq!(
         PrinterValues::new(&mars).reason("printer.nozzle"),
@@ -210,7 +211,12 @@ fn t138_no_other_name_has_a_reason() {
     let resin_values = PrinterValues::new(&resin());
     let fdm_values = PrinterValues::new(&fdm());
 
-    for name in ["printer.fit.slip", "printer.speed", "printer", "printer.nozzle "] {
+    for name in [
+        "printer.fit.slip",
+        "printer.speed",
+        "printer",
+        "printer.nozzle ",
+    ] {
         assert_eq!(resin_values.reason(name), None, "{name:?}");
     }
     assert_eq!(fdm_values.reason("printer.nozzle"), None);

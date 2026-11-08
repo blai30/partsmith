@@ -58,7 +58,7 @@ from partsmith import (
 
 FACE_SKETCH_DOCUMENT = {
     "format": "partsmith",
-    "format_version": 2,
+    "format_version": 3,
     "units": "mm",
     "parameters": [],
     "bodies": [{"id": "b-1", "name": "Body 1"}],

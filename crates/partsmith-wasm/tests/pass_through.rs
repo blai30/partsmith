@@ -194,7 +194,7 @@ fn a_version_2_document_with_every_new_field_passes_through_byte_for_byte() {
 }
 
 #[test]
-fn a_version_1_document_passes_through_saved_at_version_2() {
+fn a_version_1_document_passes_through_saved_at_version_3() {
     let mut sides = SideBySide::new();
     sides.open(1, &e10_at_version(1));
 
@@ -204,7 +204,7 @@ fn a_version_1_document_passes_through_saved_at_version_2() {
 }
 
 #[test]
-fn a_document_newer_than_version_2_passes_through_as_unsupported() {
+fn a_document_newer_than_version_3_passes_through_as_unsupported() {
     let mut sides = SideBySide::new();
     let newer = FORMAT_VERSION + 1;
 
@@ -523,16 +523,16 @@ fn file_format_t057_a_version_1_face_sketch_after_a_move_passes_through_in_world
 }
 
 #[test]
-fn file_format_t057_a_version_1_face_sketch_after_a_move_passes_through_saved_at_version_2() {
-    let version_2 = moved_box_with_a_face_sketch(None);
+fn file_format_t057_a_version_1_face_sketch_after_a_move_passes_through_saved_at_version_3() {
+    let current = moved_box_with_a_face_sketch(None);
     let mut sides = SideBySide::new();
-    sides.open(1, &at_version_1(&version_2));
+    sides.open(1, &at_version_1(&current));
 
     let saved = sides.send(2, save_document);
 
     assert_eq!(
         ok_result(&saved, "save_document")["text"],
-        canonical(&version_2)
+        canonical(&current)
     );
 }
 

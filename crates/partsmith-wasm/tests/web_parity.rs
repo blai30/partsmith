@@ -535,6 +535,7 @@ fn documents_start_with_the_engine_fixtures_in_file_name_order() {
             "box.ptsm",
             "circle.ptsm",
             "conflict.ptsm",
+            "custom-printer.ptsm",
             "datum.ptsm",
             "drag.ptsm",
             "fillet.ptsm",

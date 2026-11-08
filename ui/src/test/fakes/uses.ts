@@ -86,11 +86,11 @@ export function datumOnFace(id: string, face: Reference): FeatureRecord {
   return { id, type: 'datum_plane', base: { kind: 'face', body: 'b-1', face }, offset: '0 mm' }
 }
 
-/** A document of body `b-1` "Body 1" with these features, at format version 2. */
+/** A document of body `b-1` "Body 1" with these features, at format version 3. */
 export function usesDocument(features: readonly FeatureRecord[]): Document {
   return {
     format: 'partsmith',
-    format_version: 2,
+    format_version: 3,
     units: 'mm',
     parameters: [],
     bodies: [{ id: 'b-1', name: 'Body 1' }],

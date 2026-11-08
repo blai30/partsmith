@@ -26,41 +26,56 @@ function failingOnce(fake: FakeIndexedDb): IDBFactory {
   }
 }
 
-describe('upgradeDatabase (2.15)', () => {
-  it('U-170 keeps the recovery entries of a version 2 database when a later version upgrades it', async () => {
-    const fake = createFakeIndexedDb()
-    fake.createDatabase(DATABASE_NAME, 2, { recent: 'id', recovery: 'id' })
-    const entry = {
-      id: 'a',
-      name: 'bracket',
-      text: '{}',
-      savedAt: 1000,
-      handle: null,
-      reason: 'autosave',
+/** A recovery entry as a version 2 build stored it. */
+const VERSION_2_ENTRY = {
+  id: 'a',
+  name: 'bracket',
+  text: '{}',
+  savedAt: 1000,
+  handle: null,
+  reason: 'autosave',
+}
+
+/** A version 2 database whose `recovery` store holds `VERSION_2_ENTRY`, opened at version 3 with `upgradeDatabase`. */
+async function upgradedVersion2Database(): Promise<FakeIndexedDb> {
+  const fake = createFakeIndexedDb()
+  fake.createDatabase(DATABASE_NAME, 2, { recent: 'id', recovery: 'id' })
+  fake.putRecord(DATABASE_NAME, RECOVERY_STORE, VERSION_2_ENTRY)
+  const request = fake.factory.open(DATABASE_NAME, 3)
+  request.addEventListener('upgradeneeded', (event) => {
+    if (request.transaction !== null) {
+      upgradeDatabase(request.result, request.transaction, event.oldVersion)
     }
-    fake.putRecord(DATABASE_NAME, RECOVERY_STORE, entry)
-    // Version 3 stands in for a later build whose upgrade runs this one's steps first.
-    const request = fake.factory.open(DATABASE_NAME, 3)
-    request.addEventListener('upgradeneeded', (event) => {
-      if (request.transaction !== null) {
-        upgradeDatabase(request.result, request.transaction, event.oldVersion)
-      }
-    })
-    const database = await requestResult(request)
-    database.close()
+  })
+  const database = await requestResult(request)
+  database.close()
+  return fake
+}
+
+describe('upgradeDatabase (2.15)', () => {
+  it('U-170 keeps the recovery entries of a version 2 database when version 3 upgrades it', async () => {
+    const fake = await upgradedVersion2Database()
     expect(fake.version(DATABASE_NAME)).toBe(3)
-    expect(fake.keyPaths(DATABASE_NAME)).toEqual({ recent: 'id', recovery: 'id' })
-    expect(fake.records(DATABASE_NAME, RECOVERY_STORE)).toEqual([entry])
+    expect(fake.keyPaths(DATABASE_NAME)).toMatchObject({ recent: 'id', recovery: 'id' })
+    expect(fake.records(DATABASE_NAME, RECOVERY_STORE)).toEqual([VERSION_2_ENTRY])
+  })
+
+  it('U-253 adds an empty printer store to a version 2 database and keeps its recovery entry', async () => {
+    const fake = await upgradedVersion2Database()
+    expect(fake.version(DATABASE_NAME)).toBe(3)
+    expect(fake.keyPaths(DATABASE_NAME)).toEqual({ recent: 'id', recovery: 'id', printers: 'id' })
+    expect(fake.records(DATABASE_NAME, RECOVERY_STORE)).toEqual([VERSION_2_ENTRY])
+    expect(fake.records(DATABASE_NAME, 'printers')).toEqual([])
   })
 })
 
 describe('createConnection', () => {
-  it('U-155 opens the database partsmith at version 2 with the stores recent and recovery, both keyed by id', async () => {
+  it('U-252 opens a new database partsmith at version 3 with the stores recent, recovery and printers, each keyed by id', async () => {
     const fake = createFakeIndexedDb()
     await createConnection(fake.factory).transaction(RECENT_STORE, 'readonly')
     expect(DATABASE_NAME).toBe('partsmith')
-    expect(fake.version('partsmith')).toBe(2)
-    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
+    expect(fake.version('partsmith')).toBe(3)
+    expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id', printers: 'id' })
   })
 
   it('opens an existing database without touching its records', async () => {
@@ -118,8 +133,8 @@ describe('createConnection', () => {
     const connection = createConnection(fake.factory)
     await connection.transaction(RECENT_STORE, 'readonly')
     await fake.upgradeFromAnotherTab('partsmith')
-    expect(fake.version('partsmith')).toBe(3)
-    // This tab's version 2 can no longer open the upgraded database.
+    expect(fake.version('partsmith')).toBe(4)
+    // This tab's version 3 can no longer open the upgraded database.
     await expect(connection.transaction(RECENT_STORE, 'readonly')).rejects.toMatchObject({
       name: 'VersionError',
     })

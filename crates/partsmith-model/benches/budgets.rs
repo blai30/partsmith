@@ -667,11 +667,13 @@ fn main() -> ExitCode {
     let schemas: Vec<FeatureParamsSchema> = (0..SCHEMA_COUNT)
         .map(|i| params_schema(&format!("feature_{i:02}")))
         .collect();
-    ptsm_schema_text(&schemas).expect("the benchmark schemas compose");
+    // A stand-in for the printer profile's schema, which the engine passes in the product.
+    let profile = schemars::Schema::try_from(json!({"type": "object"})).expect("a schema");
+    ptsm_schema_text(&schemas, &profile).expect("the benchmark schemas compose");
     report.measure(
         "ptsm_schema_text with 30 feature schemas",
         milliseconds(20),
-        || median_time_of(RUNS, || ptsm_schema_text(&schemas)),
+        || median_time_of(RUNS, || ptsm_schema_text(&schemas, &profile)),
     );
 
     report.finish()

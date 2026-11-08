@@ -171,11 +171,28 @@ impl Session {
             Command::ListPrinterProfiles => CommandResult::ListPrinterProfiles {
                 profiles: self.printer_profiles(),
             },
-            Command::PutPrinterProfile { profile } => {
-                for doc in self.put_profile(profile)? {
+            Command::PutPrinterProfile { profile, text } => {
+                let (profile, affected) = match (profile, text) {
+                    (Some(profile), None) => self.put_profile(profile)?,
+                    (None, Some(text)) => self.put_profile_text(&text)?,
+                    _ => {
+                        return Err(EngineError::MalformedRequest {
+                            detail: "put_printer_profile takes exactly one of profile and text."
+                                .to_string(),
+                        }
+                        .into());
+                    }
+                };
+                for doc in affected {
                     self.events(doc, &mut output)?;
                 }
-                CommandResult::PutPrinterProfile
+                CommandResult::PutPrinterProfile { profile }
+            }
+            Command::RemovePrinterProfile { id } => {
+                for doc in self.remove_profile(&id)? {
+                    self.events(doc, &mut output)?;
+                }
+                CommandResult::RemovePrinterProfile
             }
             Command::NewDocument { units, printer } => {
                 let doc = self.new_document(units.unwrap_or(Units::Mm), printer)?;
@@ -492,6 +509,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::FeatureCatalog
         | Command::ListPrinterProfiles
         | Command::PutPrinterProfile { .. }
+        | Command::RemovePrinterProfile { .. }
         | Command::NewDocument { .. }
         | Command::OpenDocument { .. } => None,
         Command::SaveDocument { doc }

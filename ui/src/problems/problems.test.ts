@@ -17,7 +17,7 @@ import {
 /** A sketch, its extrude, a fillet, a datum plane, a second sketch on it, its extrude and a box. */
 const DOCUMENT: Document = {
   format: 'partsmith',
-  format_version: 2,
+  format_version: 3,
   units: 'mm',
   parameters: [],
   bodies: [

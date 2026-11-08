@@ -90,7 +90,12 @@ fn assert_close(actual: f64, expected: f64, relative: f64) {
 
 /// `box.ptsm` at format version 2 naming the printer `my-printer` (newcomer error corpus NC13).
 fn old_document() -> String {
-    fixture_with(BOX, r#"  "format_version": 3,"#, r#"  "format_version": 2,"#).replacen(
+    fixture_with(
+        BOX,
+        r#"  "format_version": 3,"#,
+        r#"  "format_version": 2,"#,
+    )
+    .replacen(
         "  \"units\": \"mm\",\n",
         "  \"units\": \"mm\",\n  \"printer\": \"my-printer\",\n",
         1,
@@ -179,7 +184,10 @@ fn t077_a_profile_file_the_print_crate_refuses() {
     let run = workspace.run(&["rebuild", "--printer-file", "bad.json", BOX]);
 
     run.assert_code(1);
-    assert_eq!(run.stderr, format!("error: bad.json: {TALL_LAYER_MESSAGE}\n"));
+    assert_eq!(
+        run.stderr,
+        format!("error: bad.json: {TALL_LAYER_MESSAGE}\n")
+    );
 }
 
 #[test]
@@ -258,7 +266,13 @@ fn t082_the_profile_that_the_warning_asks_for() {
     );
     let before = workspace.read("old.ptsm");
 
-    let run = workspace.run(&["rebuild", "--json", "--printer-file", "mine.json", "old.ptsm"]);
+    let run = workspace.run(&[
+        "rebuild",
+        "--json",
+        "--printer-file",
+        "mine.json",
+        "old.ptsm",
+    ]);
 
     run.assert_code(0);
     assert_eq!(run.json()["printer"], "my-printer");
@@ -276,9 +290,8 @@ fn t083_a_stored_profile_the_engine_refuses() {
             r#"    "layer_height": 0.5,"#,
         ),
     );
-    let line = format!(
-        "bad-store.ptsm: error[parse_error] at /printer_profile: {TALL_LAYER_MESSAGE}"
-    );
+    let line =
+        format!("bad-store.ptsm: error[parse_error] at /printer_profile: {TALL_LAYER_MESSAGE}");
 
     let validated = workspace.run(&["validate", "bad-store.ptsm"]);
     let checked = workspace.run(&["fmt", "--check", "bad-store.ptsm"]);
@@ -323,14 +336,7 @@ fn export_takes_printer_file_too() {
     workspace.write("mk4.json", MK4_JSON);
     let before = workspace.read(BOX);
 
-    let run = workspace.run(&[
-        "export",
-        "--printer-file",
-        "mk4.json",
-        BOX,
-        "--output",
-        "box.stl",
-    ]);
+    let run = workspace.run(&["export", BOX, "-o", "box.stl", "--printer-file", "mk4.json"]);
 
     run.assert_code(0);
     assert!(workspace.exists("box.stl"));

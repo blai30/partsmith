@@ -24,7 +24,7 @@ describe('markerPosition', () => {
 function recipe(features: FeatureRecord[] | undefined, rollback?: string): Document {
   return {
     format: 'partsmith',
-    format_version: 2,
+    format_version: 3,
     units: 'mm',
     ...(features === undefined ? {} : { features }),
     ...(rollback === undefined ? {} : { rollback }),

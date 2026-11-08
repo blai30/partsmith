@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useId, useRef, useState, type FocusEvent } from 'react'
 import { editFeature } from '../app/actions/command'
 import { blurRepair, focusRepair, runFixAction } from '../app/actions/fixes'
+import { setPrinterDialog, setPrinterMenuOpen } from '../app/actions/printers'
 import { select } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
@@ -161,6 +162,35 @@ function FeatureRow({ row, featureId }: { readonly row: ProblemRow; readonly fea
   )
 }
 
+/** The code of the core's warning for a printer the document names and the session lacks (engine.md 3.4). */
+const UNKNOWN_PRINTER_CODE = 'unknown_printer_profile'
+
+/** "Choose printer" and "Add printer '{id}'" of the unknown printer row (3.17). */
+function UnknownPrinterActions() {
+  const app = useApp()
+  const id = useAppState((state) => state.document?.recipe.printer ?? null)
+  return (
+    <>
+      <Button
+        onClick={() => {
+          setPrinterMenuOpen(app, true)
+        }}
+      >
+        Choose printer
+      </Button>
+      {id === null ? null : (
+        <Button
+          onClick={() => {
+            setPrinterDialog(app, { kind: 'new', id })
+          }}
+        >
+          {`Add printer '${id}'`}
+        </Button>
+      )}
+    </>
+  )
+}
+
 /** The info notices under a disclosure that starts closed (3.9). */
 function Notes({ notes }: { readonly notes: readonly ProblemNote[] }) {
   const [open, setOpen] = useState(false)
@@ -247,7 +277,13 @@ export function ProblemsPanel() {
                       <StatusIcon severity={message.severity} />
                       <div className="flex min-w-0 flex-1 flex-col gap-2 text-sm">
                         <p>{message.message}</p>
-                        <MessageActions message={message} place="panel" />
+                        <MessageActions
+                          message={message}
+                          place="panel"
+                          own={
+                            message.code === UNKNOWN_PRINTER_CODE ? <UnknownPrinterActions /> : null
+                          }
+                        />
                       </div>
                     </div>
                   ))}

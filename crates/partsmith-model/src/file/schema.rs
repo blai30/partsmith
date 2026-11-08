@@ -68,8 +68,12 @@ pub enum SchemaError {
     },
 }
 
-/// Builds the `.ptsm` JSON Schema (file-format.md section 3.10).
-pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaError> {
+/// Builds the `.ptsm` JSON Schema (file-format.md section 3.10). `printer_profile` is the schema of print.md's
+/// written form (`PrinterProfile`), which partsmith-model cannot name itself: the engine passes it.
+pub fn ptsm_schema(
+    features: &[FeatureParamsSchema],
+    printer_profile: &Schema,
+) -> Result<Schema, SchemaError> {
     let mut kinds = BTreeSet::new();
     for feature in features {
         if !is_valid_feature_type(&feature.kind) {
@@ -91,21 +95,18 @@ pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaErr
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut definitions = model_definitions(&sorted);
-    for (kind, mut params) in params_schemas {
-        // `shift_remove` keeps the order of the remaining keys; `remove` would move the last key
-        // into the removed slot.
-        params.shift_remove("$schema");
-        if let Some(Value::Object(nested)) = params.shift_remove("$defs") {
-            for (name, definition) in nested {
-                add_definition(&mut definitions, name, definition)?;
-            }
-        }
-        add_definition(
+    for (kind, params) in params_schemas {
+        add_hoisted(
             &mut definitions,
             format!("feature.{kind}"),
             Value::Object(params),
         )?;
     }
+    let mut profile = printer_profile.as_value().clone();
+    if let Value::Object(root) = &mut profile {
+        root.shift_remove("title");
+    }
+    add_hoisted(&mut definitions, "PrinterProfile".to_string(), profile)?;
 
     let mut root = Map::new();
     root.insert(
@@ -127,6 +128,7 @@ pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaErr
             "format_version": {"const": FORMAT_VERSION},
             "units": {"$ref": "#/$defs/Units"},
             "printer": {"type": "string"},
+            "printer_profile": {"$ref": "#/$defs/PrinterProfile"},
             "parameters": {"type": "array", "items": {"$ref": "#/$defs/Parameter"}},
             "bodies": {"type": "array", "items": {"$ref": "#/$defs/Body"}},
             "features": {"type": "array", "items": {"$ref": "#/$defs/FeatureRecord"}},
@@ -146,8 +148,11 @@ pub fn ptsm_schema(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaErr
 }
 
 /// The same schema as canonical text, ready to write to docs/format/ptsm.schema.json.
-pub fn ptsm_schema_text(features: &[FeatureParamsSchema]) -> Result<String, SchemaError> {
-    let schema = ptsm_schema(features)?;
+pub fn ptsm_schema_text(
+    features: &[FeatureParamsSchema],
+    printer_profile: &Schema,
+) -> Result<String, SchemaError> {
+    let schema = ptsm_schema(features, printer_profile)?;
     Ok(canonical::to_string(schema.as_value()))
 }
 
@@ -174,6 +179,26 @@ fn checked_params(feature: &FeatureParamsSchema) -> Result<Map<String, Value>, S
         });
     }
     Ok(root.clone())
+}
+
+/// Adds a schema as the definition `name` without its root `$schema` and `$defs` keys, and hoists its `$defs` entries
+/// into the root definitions so its `#/$defs/...` references keep working.
+fn add_hoisted(
+    definitions: &mut BTreeMap<String, Value>,
+    name: String,
+    mut schema: Value,
+) -> Result<(), SchemaError> {
+    if let Value::Object(root) = &mut schema {
+        // `shift_remove` keeps the order of the remaining keys; `remove` would move the last key
+        // into the removed slot.
+        root.shift_remove("$schema");
+        if let Some(Value::Object(nested)) = root.shift_remove("$defs") {
+            for (nested_name, definition) in nested {
+                add_definition(definitions, nested_name, definition)?;
+            }
+        }
+    }
+    add_definition(definitions, name, schema)
 }
 
 /// Adds a definition, sharing an identical one of the same name and rejecting a different one.
@@ -279,6 +304,12 @@ fn model_definitions(features: &[&FeatureParamsSchema]) -> BTreeMap<String, Valu
 mod tests {
     use super::*;
 
+    /// `ptsm_schema` with the stand-in printer profile schema `{"type": "object"}`.
+    fn build(features: &[FeatureParamsSchema]) -> Result<Schema, SchemaError> {
+        let profile = Schema::try_from(json!({"type": "object"})).expect("a schema");
+        ptsm_schema(features, &profile)
+    }
+
     fn params(kind: &str, schema: Value) -> FeatureParamsSchema {
         FeatureParamsSchema {
             kind: kind.to_string(),
@@ -289,7 +320,7 @@ mod tests {
     #[test]
     fn boolean_schemas_are_not_objects() {
         assert_eq!(
-            ptsm_schema(&[params("box", json!(true))]),
+            build(&[params("box", json!(true))]),
             Err(SchemaError::NotAnObject {
                 kind: "box".to_string()
             })
@@ -299,7 +330,7 @@ mod tests {
     #[test]
     fn closed_unevaluated_properties_are_rejected() {
         assert_eq!(
-            ptsm_schema(&[params(
+            build(&[params(
                 "box",
                 json!({"type": "object", "unevaluatedProperties": false})
             )]),
@@ -312,7 +343,7 @@ mod tests {
     #[test]
     fn open_additional_properties_are_fine() {
         assert!(
-            ptsm_schema(&[params(
+            build(&[params(
                 "box",
                 json!({"type": "object", "additionalProperties": true})
             )])
@@ -323,7 +354,7 @@ mod tests {
     #[test]
     fn input_checks_come_before_schema_checks() {
         assert_eq!(
-            ptsm_schema(&[params("box", json!(true)), params("Box", json!(true))]),
+            build(&[params("box", json!(true)), params("Box", json!(true))]),
             Err(SchemaError::InvalidKind {
                 kind: "Box".to_string()
             })
@@ -333,7 +364,7 @@ mod tests {
     #[test]
     fn schema_checks_run_in_kind_order() {
         assert_eq!(
-            ptsm_schema(&[params("zeta", json!(true)), params("alpha", json!(true))]),
+            build(&[params("zeta", json!(true)), params("alpha", json!(true))]),
             Err(SchemaError::NotAnObject {
                 kind: "alpha".to_string()
             })
@@ -342,7 +373,7 @@ mod tests {
 
     #[test]
     fn model_definition_key_order() {
-        let schema = ptsm_schema(&[params("box", json!({"type": "object"}))]).expect("builds");
+        let schema = build(&[params("box", json!({"type": "object"}))]).expect("builds");
         let record = &schema.as_value()["$defs"]["FeatureRecord"];
 
         assert_eq!(
@@ -391,7 +422,7 @@ mod tests {
 
     #[test]
     fn model_definitions_match_the_derived_schemas() {
-        let schema = ptsm_schema(&[]).expect("builds");
+        let schema = build(&[]).expect("builds");
         let root = schema.as_value();
         let derived = [
             ("Parameter", schemars::schema_for!(crate::Parameter)),
@@ -419,7 +450,7 @@ mod tests {
 
     #[test]
     fn value_definitions_list_every_serialized_value() {
-        let schema = ptsm_schema(&[]).expect("builds");
+        let schema = build(&[]).expect("builds");
         let definitions = &schema.as_value()["$defs"];
 
         assert_eq!(
@@ -436,7 +467,7 @@ mod tests {
 
     #[test]
     fn every_body_role_serializes_to_a_listed_role() {
-        let schema = ptsm_schema(&[]).expect("builds");
+        let schema = build(&[]).expect("builds");
         let listed = &schema.as_value()["$defs"]["BodyRole"]["enum"];
         let listed = listed.as_array().expect("an enum list");
 
@@ -449,7 +480,7 @@ mod tests {
 
     #[test]
     fn feature_params_keep_their_key_order() {
-        let schema = ptsm_schema(&[params(
+        let schema = build(&[params(
             "extrude",
             json!({
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -474,11 +505,11 @@ mod tests {
 
     #[test]
     fn the_description_names_the_format_version() {
-        let schema = ptsm_schema(&[]).expect("builds");
+        let schema = build(&[]).expect("builds");
 
         assert_eq!(
             schema.as_value()["description"],
-            json!("A Partsmith .ptsm document, format version 2.")
+            json!("A Partsmith .ptsm document, format version 3.")
         );
     }
 }

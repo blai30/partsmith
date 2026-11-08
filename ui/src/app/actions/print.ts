@@ -1,10 +1,20 @@
 import { CoreError } from '../../core/client'
 import { createLatestOnly, skipRepeats, type LatestOnly } from '../../core/queue'
-import type { BoundingBox, DocHandle, Finding, Health, Orientation } from '../../generated/protocol'
+import type {
+  BoundingBox,
+  DocHandle,
+  Document,
+  Finding,
+  Health,
+  Orientation,
+  PrinterProfile,
+} from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { ALWAYS_SHOWN_CHECK, findingAt, isCheckHidden } from '../../print/checks'
 import { findingPoint } from '../../print/health'
+import { sameProfile } from '../../print/library'
 import { orientationToSend, sameOrientation } from '../../print/orientation'
+import { findPrinter } from '../../print/printer'
 import type { AppState, AppStore, FindingKey, SelectionItem } from '../../state/store'
 import type { App } from '../createApp'
 import { commitEdits, refusedDuringCommand, showCoreError } from './edits'
@@ -121,25 +131,46 @@ export function showOrientationError(
   return true
 }
 
-/**
- * Chooses the document's printer profile, or none, labeled "Change printer". During a feature
- * command it is refused with `finish_command_first` (3.7); nothing happens while another
- * transaction is open, or when the choice is the document's printer already, which would only add
- * an undo entry.
- */
-export async function setPrinter(app: App, profileId: string | null): Promise<void> {
+/** Commits `set_printer` with `profileId`, or none, labeled "Change printer", unless a feature command or a transaction is open. */
+export async function commitPrinter(app: App, profileId: string | null): Promise<void> {
   const document = app.store.getState().document
-  if (
-    document === null ||
-    refusedDuringCommand(app) ||
-    document.transactionOpen ||
-    (document.recipe.printer ?? null) === profileId
-  ) {
+  if (document === null || refusedDuringCommand(app) || document.transactionOpen) {
     return
   }
   await commitEdits(app, 'Change printer', [
     profileId === null ? { type: 'set_printer' } : { type: 'set_printer', printer: profileId },
   ])
+}
+
+/**
+ * Whether choosing `profileId` in the printer menu changes the document: another printer, or the
+ * same one when the document stores a copy that differs from the listed profile, which the core
+ * then stores in its place (3.17). Choosing what the document has would only add an undo entry.
+ */
+function changesPrinter(
+  recipe: Document,
+  printers: readonly PrinterProfile[],
+  profileId: string | null,
+): boolean {
+  if ((recipe.printer ?? null) !== profileId) {
+    return true
+  }
+  const stored = recipe.printer_profile ?? null
+  const listed = findPrinter(printers, profileId)
+  return stored !== null && listed !== undefined && !sameProfile(stored, listed)
+}
+
+/**
+ * Chooses the document's printer profile, or none, labeled "Change printer" (3.17). During a
+ * feature command it is refused with `finish_command_first` (3.7); nothing happens while another
+ * transaction is open, or when the choice changes nothing.
+ */
+export async function setPrinter(app: App, profileId: string | null): Promise<void> {
+  const { document, printers } = app.store.getState()
+  if (document !== null && !changesPrinter(document.recipe, printers, profileId)) {
+    return
+  }
+  await commitPrinter(app, profileId)
 }
 
 /**

@@ -48,7 +48,7 @@ The Playwright tests in this folder run against the production build of the app 
 
 ## Fixtures
 
-`fixtures/` holds the documents of ui.md 6.2, and `fixtures.spec.ts` (E-108) checks that each opens with its stated result. Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. Check a changed fixture with the CLI:
+`fixtures/` holds the documents of ui.md 6.2, and `fixtures.spec.ts` (E-108) checks that each opens with its stated result. Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. `printer-v2.ptsm` is the one exception. It is at format version 2 on purpose (ui.md 6.2, ADR 0061 decision 6): `partsmith fmt --check` reports it, `partsmith validate` gives its `unknown_printer_profile` warning, and a save writes the current version. `custom-printer.ptsm` and `printer-v2.ptsm` are the documents of E-169 and E-170 in `printers.spec.ts`. Check a changed fixture with the CLI:
 
 ```sh
 cargo run -p partsmith-cli -- fmt --check ui/e2e/fixtures/*.ptsm

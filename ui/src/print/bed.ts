@@ -2,7 +2,7 @@ import type { Bed, BodyPrint } from '../generated/protocol'
 import { memoized } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { cross, dot, scale, subtract, type Vector3 } from '../viewport/math'
-import { findPrinter } from './printer'
+import { findPrinter, reportPrinters } from './printer'
 
 // The print bed outline drawn in Print context after a report (ui.md 3.12 pass 8, 3.17).
 
@@ -78,16 +78,22 @@ export function bedOutlineSegments(bed: Bed, body: BodyPrint): Float32Array | nu
  * The bed outline the viewport draws in Print context after a report: the bed of the report's
  * profile, mapped into model coordinates by the first analyzed body's transform. Null outside
  * Print, without a report or an analyzed body, and when the profile is unknown. The same array
- * comes back until the context, the report or the printers change.
+ * comes back until the context, the report, the printers or the stored profile change.
  */
 export const bedOutline: (state: AppState) => Float32Array | null = memoized(
-  (state) => [state.context, state.print.report, state.printers] as const,
-  (context, report, printers): Float32Array | null => {
+  (state) =>
+    [
+      state.context,
+      state.print.report,
+      state.printers,
+      state.document?.recipe.printer_profile ?? null,
+    ] as const,
+  (context, report, printers, stored): Float32Array | null => {
     const [body] = report?.bodies ?? []
     if (context !== 'print' || report === null || body === undefined) {
       return null
     }
-    const printer = findPrinter(printers, report.profile)
+    const printer = findPrinter(reportPrinters(stored, printers), report.profile)
     return printer === undefined ? null : bedOutlineSegments(printer.bed, body)
   },
 )

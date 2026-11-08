@@ -231,10 +231,7 @@ fn assert_migrates_from(version: u32) {
         .filter(|(before, after)| before != after)
         .collect();
     let before = format!(r#"  "format_version": {version},"#);
-    assert_eq!(
-        differing,
-        [(before.as_str(), r#"  "format_version": 3,"#)]
-    );
+    assert_eq!(differing, [(before.as_str(), r#"  "format_version": 3,"#)]);
 }
 
 #[test]

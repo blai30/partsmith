@@ -119,7 +119,7 @@ const FEATURES: readonly FeatureRecord[] = [
 /** U-251's document: datum-base-lifted.ptsm with 'Datum plane 3' on XY after 'Extrude 1'. */
 const LIFTED: Document = {
   ...CUBE_DOCUMENT,
-  format_version: 2,
+  format_version: 3,
   bodies: [{ id: 'b-1', name: 'Body 1' }],
   features: [...FEATURES],
 }

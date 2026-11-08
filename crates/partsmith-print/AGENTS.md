@@ -7,12 +7,12 @@ Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/
 ## Public interface (crate root)
 
 - Constants: `DEFAULT_PROFILE_ID`, `BED_CONTACT_TOLERANCE`, `PLATEAU_TOLERANCE`, `ANGLE_TOLERANCE`, `THICKNESS_RAY_START`, `WALL_FACING_ANGLE`, `MIN_REPORTED_AREA`, `MAX_FINDINGS_PER_CHECK`, `OVERLAY_NO_VALUE`.
-- Profiles: `Technology`, `Bed` (`height`, `center`), `FitClass`, `FitClasses` (`defaults`, `clearance`), `PrinterProfile` (`from_json`, `to_json`, `validate`, `tessellation_tolerance`, `thresholds`; deserializes through `ProfileInput`, so it is always valid, while its JSON Schema is the written form, closed like `FitClasses`: `#[schemars(!try_from, deny_unknown_fields)]`, spec 3.1), `ProfileInput`, `FitInput`, `builtin_profiles`, `builtin_profile`, `generic_fdm`, `generic_resin`.
-- `PrinterValues` (`new`): the `EvaluationContext` for `printer.fit.*`, `printer.nozzle` and `printer.layer_height`.
+- Profiles: `Technology`, `Bed` (`height`, `center`), `FitClass`, `FitClasses` (`defaults`, `clearance`), `PrinterProfile` (`from_json`, `to_json`, `validate`, `from_written` for a profile a document stores, with every field and no default, `tessellation_tolerance`, `thresholds`; deserializes through `ProfileInput`, so it is always valid, while its JSON Schema is the written form, closed like `FitClasses`: `#[schemars(!try_from, deny_unknown_fields)]`, spec 3.1), `ProfileInput`, `FitInput`, `builtin_profiles`, `builtin_profile`, `generic_fdm`, `generic_resin`.
+- `PrinterValues` (`new`): the `EvaluationContext` for `printer.fit.*`, `printer.nozzle` and `printer.layer_height`; its `reason` explains `printer.nozzle` on a resin profile (spec 3.5).
 - `CheckThresholds`, derived by `PrinterProfile::thresholds`.
 - Analysis: `Rotation` (`identity`, `new`, `about_axis`, `face_down`, `rows`, `to_transform`), `CheckKind` (`ALL`), `AnalysisOptions` (default: identity, every check), `analyze` returning `Analysis { report, overlays }`.
 - Results: `BodyReport`, `CheckResult`, `CheckStatus`, `Health`, `Finding`, `FindingCode`, `Severity`, `Location`, `TriangleRange`, `Plane`, `Suggestion` (`text`, the words of spec 3.12 in millimeters, which the CLI prints); `Overlay` (`per_vertex`), `OverlayInfo`, `OverlayQuantity`, `Worse`; `HealthSummary` and `summarize`.
-- Errors: `ProfileError` with `ProfileField`, and `AnalysisError`.
+- Errors: `ProfileError` (`MissingField` names the first field a stored profile lacks) with `ProfileField`, and `AnalysisError`.
 
 ## Internals
 

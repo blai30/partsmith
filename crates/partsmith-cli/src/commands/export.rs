@@ -11,7 +11,7 @@ use partsmith_protocol::{
 };
 use serde::Serialize;
 
-use super::{open, usage_error};
+use super::{PrinterOptions, open, usage_error};
 use crate::arguments::{ExportArguments, Format};
 use crate::error::{CliError, UsageError};
 use crate::files;
@@ -149,7 +149,11 @@ fn export(
     report: &mut Report,
 ) -> Result<(), CliError> {
     let path = arguments.file.display().to_string();
-    let doc = open(session, &arguments.file, arguments.printer.as_deref())?.doc;
+    let printer = PrinterOptions {
+        id: arguments.printer.as_deref(),
+        file: arguments.printer_file.as_deref(),
+    };
+    let doc = open(session, &arguments.file, printer)?.doc;
     if !arguments.allow_errors {
         refuse_failed_features(session, doc, path)?;
     }
@@ -322,6 +326,7 @@ mod tests {
             chord: None,
             angle: None,
             printer: None,
+            printer_file: None,
             rotate: Vec::new(),
             allow_errors: false,
             json: false,

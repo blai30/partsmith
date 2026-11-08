@@ -13,6 +13,7 @@ mod fmt;
 mod general;
 mod print_examples;
 mod print_suggestions;
+mod printer_profiles;
 mod rebuild;
 mod regressions;
 mod schema;

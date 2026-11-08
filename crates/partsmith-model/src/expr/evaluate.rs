@@ -24,6 +24,13 @@ pub trait EvaluationContext: Send + Sync {
     fn names(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// Why `name` has no value, for a name this context knows but cannot give a value here: a complete message of at
+    /// most two sentences that follows the error guidelines (expressions.md section 3.12). `None` for a name it does
+    /// not know, and for every name it resolves. Defaults to `None` for every name.
+    fn reason(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 /// A context that resolves nothing.
@@ -117,10 +124,13 @@ fn evaluate_node(node: &ExprNode, scope: &Scope<'_>) -> Result<Quantity, ExprErr
                 }));
             }
         },
-        ExprNodeKind::Value(name) => scope
-            .context
-            .resolve(name)
-            .ok_or_else(|| error(ExprErrorKind::UnknownValue { name: name.clone() }))?,
+        ExprNodeKind::Value(name) => scope.context.resolve(name).ok_or_else(|| {
+            let name = name.clone();
+            error(match scope.context.reason(&name) {
+                Some(reason) => ExprErrorKind::UnavailableValue { name, reason },
+                None => ExprErrorKind::UnknownValue { name },
+            })
+        })?,
         ExprNodeKind::Negate(operand) => {
             let operand = evaluate_node(operand, scope)?;
             Quantity::new(-operand.value, operand.dimension)

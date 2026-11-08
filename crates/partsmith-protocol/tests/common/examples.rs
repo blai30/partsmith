@@ -205,7 +205,8 @@ pub const PUT_PRINTER_PROFILE_TEXT_REQUEST: &str = r#"{"type": "put_printer_prof
 pub const PUT_PRINTER_PROFILE_RESULT: &str = r#"{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.15, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}}"#;
 
 /// The `remove_printer_profile` request example of section 2.5 (command 36).
-pub const REMOVE_PRINTER_PROFILE_REQUEST: &str = r#"{"type": "remove_printer_profile", "id": "my-mk4"}"#;
+pub const REMOVE_PRINTER_PROFILE_REQUEST: &str =
+    r#"{"type": "remove_printer_profile", "id": "my-mk4"}"#;
 
 /// The `remove_printer_profile` result example of section 2.5.
 pub const REMOVE_PRINTER_PROFILE_RESULT: &str = r#"{"type": "remove_printer_profile"}"#;

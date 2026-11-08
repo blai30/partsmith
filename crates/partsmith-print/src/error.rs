@@ -74,6 +74,14 @@ pub enum ProfileError {
         /// That class's clearance in mm.
         next_value: f64,
     },
+    /// A stored profile lacks a field of the written form (`from_written`).
+    #[error(
+        "The printer profile has no {field}. Add {field}: a profile stored in a document lists every value."
+    )]
+    MissingField {
+        /// The field's name as written, such as `layer_height` or `fit.slip`.
+        field: &'static str,
+    },
 }
 
 /// The numeric profile fields, for `OutOfRange`.

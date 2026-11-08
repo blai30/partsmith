@@ -41,6 +41,13 @@ export const MESSAGES = {
   open_failed: (file: string, coreMessage: string) => `Could not open ${file}. ${coreMessage}`,
   migrated: (file: string, formatVersion: number) =>
     `${file} was updated from format version ${String(formatVersion)}. Saving writes the current format.`,
+  printer_offer_add: (file: string, name: string) =>
+    `${file} uses the printer '${name}', which is not among your printers.`,
+  printer_offer_differs: (file: string, name: string) =>
+    `${file} keeps its own copy of the printer '${name}', which differs from yours.`,
+  printer_added: (name: string) => `Added '${name}' to your printers.`,
+  printer_not_kept: (name: string) =>
+    `'${name}' could not be kept among your printers. This document stores it, and new documents can use it until Partsmith reloads.`,
   save_permission: (file: string) =>
     `Could not save ${file} because Partsmith no longer has permission to write it.`,
   save_not_found: (file: string) =>

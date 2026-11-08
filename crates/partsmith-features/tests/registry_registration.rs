@@ -233,6 +233,13 @@ const CATALOG: [(&str, &str, Category, &str); 20] = [
     ),
 ];
 
+/// `ptsm_schema` of the registry's params schemas, with the stand-in printer profile schema
+/// `{"type": "object"}` (file-format.md section 3.10).
+fn ptsm_schema(registry: &Registry) -> Result<schemars::Schema, partsmith_model::SchemaError> {
+    let profile = schemars::Schema::try_from(json!({"type": "object"})).expect("a schema");
+    partsmith_model::ptsm_schema(&registry.params_schemas(), &profile)
+}
+
 /// A registry holding the probe and slab test features.
 fn test_registry() -> Registry {
     let mut registry = Registry::new();
@@ -533,8 +540,7 @@ fn t015_builtin_params_schemas_are_open_objects_titled_by_label() {
 fn t015_builtin_params_schemas_compose_into_the_ptsm_schema() {
     let registry = Registry::with_builtins();
 
-    let schema = partsmith_model::ptsm_schema(&registry.params_schemas())
-        .expect("the built-in params schemas compose");
+    let schema = ptsm_schema(&registry).expect("the built-in params schemas compose");
 
     let properties = schema
         .as_value()
@@ -615,8 +621,7 @@ fn t015_params_schema_requires_the_fields_without_defaults() {
 fn t015_params_schemas_compose_into_the_ptsm_schema() {
     let registry = test_registry();
 
-    let schema = partsmith_model::ptsm_schema(&registry.params_schemas())
-        .expect("the test params schemas compose");
+    let schema = ptsm_schema(&registry).expect("the test params schemas compose");
 
     let properties = schema
         .as_value()
@@ -759,8 +764,7 @@ fn t015_zero_triples_stay_omitted_from_canonical_records() {
 fn t015_zero_triple_defaults_compose_into_the_ptsm_schema() {
     let registry = Registry::with_builtins();
 
-    let schema = partsmith_model::ptsm_schema(&registry.params_schemas())
-        .expect("the built-in params schemas compose");
+    let schema = ptsm_schema(&registry).expect("the built-in params schemas compose");
 
     for (kind, property, _) in zero_triples() {
         let pointer = format!("/$defs/feature.{kind}/properties/{property}/default");

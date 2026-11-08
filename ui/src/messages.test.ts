@@ -86,6 +86,22 @@ const CASES: readonly Case[] = [
     'bracket.ptsm was updated from format version 1. Saving writes the current format.',
   ],
   [
+    'printer_offer_add',
+    () => MESSAGES.printer_offer_add('bracket.ptsm', 'My MK4'),
+    "bracket.ptsm uses the printer 'My MK4', which is not among your printers.",
+  ],
+  [
+    'printer_offer_differs',
+    () => MESSAGES.printer_offer_differs('bracket.ptsm', 'My MK4'),
+    "bracket.ptsm keeps its own copy of the printer 'My MK4', which differs from yours.",
+  ],
+  ['printer_added', () => MESSAGES.printer_added('My MK4'), "Added 'My MK4' to your printers."],
+  [
+    'printer_not_kept',
+    () => MESSAGES.printer_not_kept('My MK4'),
+    "'My MK4' could not be kept among your printers. This document stores it, and new documents can use it until Partsmith reloads.",
+  ],
+  [
     'save_permission',
     () => MESSAGES.save_permission('bracket.ptsm'),
     'Could not save bracket.ptsm because Partsmith no longer has permission to write it.',
@@ -489,7 +505,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(119)
+    expect(CASES).toHaveLength(123)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {

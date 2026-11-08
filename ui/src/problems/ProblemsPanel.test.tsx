@@ -136,7 +136,7 @@ describe('the Problems panel (3.9)', () => {
             severity: 'warning',
             code: 'unknown_printer_profile',
             message:
-              'Printer profile "my-printer" is not installed, so the default FDM profile is used.',
+              'Printer profile "my-printer" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one.',
           },
         ],
       ),
@@ -237,7 +237,7 @@ describe('the Problems panel (3.9)', () => {
 /** A datum plane, a sketch on it and its extrude, a shell and a chamfer, for grouping by root (U-129). */
 const GROUPED_DOCUMENT: Document = {
   format: 'partsmith',
-  format_version: 2,
+  format_version: 3,
   units: 'mm',
   parameters: [],
   bodies: [{ id: 'b-1', name: 'Body 1' }],

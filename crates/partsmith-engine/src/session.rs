@@ -7,10 +7,10 @@ use std::sync::Arc;
 use partsmith_features::Registry;
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{
-    Document, Edit, Expr, FORMAT_VERSION, IdGenerator, Quantity, Scope, Units, load,
+    Document, Expr, FORMAT_VERSION, IdGenerator, Loaded, Quantity, Scope, Units, load,
 };
 use partsmith_occt_sys::OCCT_VERSION;
-use partsmith_print::{PrinterProfile, PrinterValues, ProfileInput};
+use partsmith_print::{PrinterProfile, PrinterValues, ProfileError, ProfileInput};
 use partsmith_protocol::{
     CatalogEntry, DocHandle, FeatureStatus, PROTOCOL_VERSION, ParameterValue, TessellationQuality,
 };
@@ -23,7 +23,7 @@ use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_para
 use crate::error::EngineError;
 use crate::inspections::Inspections;
 use crate::options::SessionOptions;
-use crate::profiles::{Profiles, tolerance};
+use crate::profiles::{Profiles, check_stored, invalid_profile, tolerance};
 use crate::state::{self, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
@@ -156,16 +156,62 @@ impl Session {
         self.put_profile(profile).map(|_| ())
     }
 
-    /// `put_printer_profile`, returning the documents it recomputed in handle order.
+    /// `put_printer_profile`, returning the profile and the documents it recomputed in handle
+    /// order.
     pub(crate) fn put_profile(
         &mut self,
         profile: ProfileInput,
-    ) -> Result<Vec<DocHandle>, EngineError> {
+    ) -> Result<(PrinterProfile, Vec<DocHandle>), EngineError> {
         let profile = self.profiles.put(profile)?;
+        let affected = self.rerun_naming(profile.id.as_str())?;
+        Ok((profile, affected))
+    }
+
+    /// Reads JSON text in print.md's input form as a `ProfileInput`, then puts it as
+    /// `put_printer_profile` does; returns the session profile in the written form (section 3.3).
+    pub fn put_printer_profile_text(&mut self, text: &str) -> Result<PrinterProfile, EngineError> {
+        self.put_profile_text(text).map(|(profile, _)| profile)
+    }
+
+    /// `put_printer_profile_text`, returning the profile and the documents it recomputed in handle
+    /// order.
+    pub(crate) fn put_profile_text(
+        &mut self,
+        text: &str,
+    ) -> Result<(PrinterProfile, Vec<DocHandle>), EngineError> {
+        let input: ProfileInput = serde_json::from_str(text).map_err(|error| {
+            invalid_profile(ProfileError::Json {
+                detail: error.to_string(),
+            })
+        })?;
+        self.put_profile(input)
+    }
+
+    /// Removes the session profile with this id and recomputes documents that use it; any other id
+    /// changes nothing (section 3.3).
+    pub fn remove_printer_profile(&mut self, id: &str) -> Result<(), EngineError> {
+        self.remove_profile(id).map(|_| ())
+    }
+
+    /// `remove_printer_profile`, returning the documents it recomputed in handle order.
+    pub(crate) fn remove_profile(&mut self, id: &str) -> Result<Vec<DocHandle>, EngineError> {
+        if self.profiles.remove(id) {
+            self.rerun_naming(id)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Recomputes the documents whose `printer` is `id` and that store no profile: they resolve it
+    /// again (section 3.3). Returns them in handle order.
+    fn rerun_naming(&mut self, id: &str) -> Result<Vec<DocHandle>, EngineError> {
         let affected: Vec<DocHandle> = self
             .documents
             .iter()
-            .filter(|(_, open)| open.document.printer.as_deref() == Some(profile.id.as_str()))
+            .filter(|(_, open)| {
+                open.document.printer.as_deref() == Some(id)
+                    && open.document.printer_profile.is_none()
+            })
             .map(|(&handle, _)| handle)
             .collect();
         for &handle in &affected {
@@ -182,8 +228,9 @@ impl Session {
     ) -> Result<DocHandle, EngineError> {
         let mut document = Document::new(units);
         if printer.is_some() {
+            let edit = self.profiles.complete(printer, None, 0)?;
             document
-                .apply(Edit::SetPrinter { printer })
+                .apply(edit)
                 .map_err(|source| EngineError::EditRejected {
                     index: None,
                     source,
@@ -194,15 +241,22 @@ impl Session {
 
     /// Parses, migrates and recomputes a `.ptsm` text.
     pub fn open_document(&mut self, text: &str, assets: Vec<Asset>) -> Result<Opened, EngineError> {
-        let loaded = load(text).map_err(EngineError::from_load)?;
-        let mut document = loaded.document;
-        canonicalize_params(&self.registry, &mut document);
-        let stored = referenced_assets(&self.registry, &document, assets)?;
-        let doc = self.insert(document, stored)?;
+        let loaded = self.load_text(text)?;
+        let stored = referenced_assets(&self.registry, &loaded.document, assets)?;
+        let doc = self.insert(loaded.document, stored)?;
         Ok(Opened {
             doc,
             migrated_from: loaded.migrated_from,
         })
+    }
+
+    /// Loads a .ptsm text without recompute: partsmith-model's load, the registry's canonical
+    /// params, then the check and member order of the stored printer profile (section 3.2).
+    pub(crate) fn load_text(&self, text: &str) -> Result<Loaded, EngineError> {
+        let mut loaded = load(text).map_err(EngineError::from_load)?;
+        canonicalize_params(&self.registry, &mut loaded.document);
+        check_stored(&mut loaded.document)?;
+        Ok(loaded)
     }
 
     /// Adds a document with its assets under the next handle and recomputes it.
@@ -211,7 +265,7 @@ impl Session {
         document: Document,
         assets: BTreeMap<String, Arc<[u8]>>,
     ) -> Result<DocHandle, EngineError> {
-        let profile = self.profiles.resolve(document.printer.as_deref());
+        let profile = self.profiles.resolve(&document);
         let computed = state::run(&mut self.recompute, &document, &assets, profile, None, 0);
         let mut open =
             OpenDocument::new(document, assets, self.undo_limit, self.quality, computed)?;
@@ -323,8 +377,8 @@ impl Session {
         ))
     }
 
-    /// The id of the document's resolved printer profile (section 3.7): the installed profile its
-    /// `printer` names, else the default FDM profile. No side effects.
+    /// The id of the document's resolved printer profile (section 3.7): the profile it stores, else
+    /// the installed profile its `printer` names, else the default FDM profile. No side effects.
     pub fn printer_profile(&self, doc: DocHandle) -> Result<String, EngineError> {
         let profile = &self.open(doc)?.computed.profile.profile;
         Ok(profile.id.as_str().to_owned())
@@ -350,7 +404,7 @@ impl Session {
             .documents
             .get_mut(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
-        let profile = self.profiles.resolve(open.document.printer.as_deref());
+        let profile = self.profiles.resolve(&open.document);
         let focus = open.focus().cloned();
         open.computed = state::run(
             &mut self.recompute,
@@ -382,7 +436,7 @@ pub(crate) fn evaluate_in<T>(
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Parameter;
+    use partsmith_model::{Edit, Parameter};
 
     use super::*;
     use crate::test_support::opened_with;

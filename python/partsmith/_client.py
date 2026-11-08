@@ -5,7 +5,8 @@ sends commands, raises the error of an error response, and keeps what the events
 response reported, so the document's properties read the latest state without extra requests.
 """
 
-from collections.abc import Sequence
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from . import _core
@@ -82,12 +83,23 @@ class Client:
         response, EngineError for any other error response, and PartsmithError once the document
         is closed.
         """
-        if self.closed:
-            raise PartsmithError(CLOSED_MESSAGE)
         command: dict[str, object] = {"type": command_type}
         if self.handle is not None:
             command["doc"] = self.handle
         command.update((name, value) for name, value in fields.items() if value is not None)
+        return self._send(command, buffers)
+
+    def put_printer_profile(self, profile: Mapping[str, object]) -> dict:
+        """Puts a profile in print.md's input form into the session as JSON text and returns the
+        session profile in the written form (section 3.13). `json.dumps` raises for a mapping it
+        cannot write; a profile the engine refuses raises EngineError."""
+        reply = self._send({"type": "put_printer_profile", "text": json.dumps(profile)}, ())
+        return reply.result["profile"]
+
+    def _send(self, command: dict[str, object], buffers: Sequence[bytes]) -> Reply:
+        """Sends one command, records its events and returns its result, or raises its error."""
+        if self.closed:
+            raise PartsmithError(CLOSED_MESSAGE)
         request_id = self._next_request_id
         self._next_request_id += 1
         frame = decode_response(self._session.call(encode_request(request_id, command, buffers)))

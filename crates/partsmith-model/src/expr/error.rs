@@ -126,6 +126,13 @@ pub enum ExprErrorKind {
         /// The dotted name.
         name: String,
     },
+    /// A dotted name the evaluation context knows but cannot give a value, with the context's reason.
+    UnavailableValue {
+        /// The dotted name.
+        name: String,
+        /// Why it has no value: the context's message, unchanged.
+        reason: String,
+    },
     /// A reference to a parameter whose evaluation failed.
     DependsOnFailed {
         /// The parameter name.
@@ -258,6 +265,7 @@ impl fmt::Display for ExprErrorKind {
                 formatter,
                 "Unknown value '{name}'. Check the spelling; printer values look like printer.fit.slip."
             ),
+            ExprErrorKind::UnavailableValue { reason, .. } => formatter.write_str(reason),
             ExprErrorKind::DependsOnFailed { name } => write!(
                 formatter,
                 "This uses {name}, which has an error. Fix {name} first."

@@ -2,7 +2,8 @@ import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { setKeepSizes, setUnits } from '../app/actions/document'
-import { openPrintHealth, setPrinter } from '../app/actions/print'
+import { openPrintHealth } from '../app/actions/print'
+import { setPrinterMenuOpen } from '../app/actions/printers'
 import { useApp, useAppState } from '../app/AppProvider'
 import { reportFailure } from '../app/report'
 import { explainDisabled, type DisabledAvailability } from '../commands/registry'
@@ -11,7 +12,7 @@ import { Tooltip } from '../components/Tooltip'
 import { DOCUMENT_UNITS, formatQuantity } from '../expression/format'
 import { MESSAGES } from '../messages'
 import { HealthBadge } from '../print/HealthBadge'
-import { PrinterMenu } from '../print/PrinterMenu'
+import { DocumentPrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
 import { selectDocumentUnits, selectHealthBadge, selectSketchDof } from '../state/selectors'
 import type { AppState, CoreState } from '../state/store'
@@ -261,19 +262,18 @@ function UnitsButton() {
 }
 
 function selectPrinterLabel(state: AppState): string {
-  return printerLabel(state.printers, state.document?.recipe.printer)
+  return printerLabel(state.document?.recipe ?? null, state.printers)
 }
 
 /** The printer button (3.21): the profile in use, opening the printer menu (3.17). */
 function PrinterButton() {
   const app = useApp()
   const label = useAppState(selectPrinterLabel)
-  const printers = useAppState((state) => state.printers)
-  const current = useAppState((state) => state.document?.recipe.printer ?? null)
   const disabled = useDisabled('print.printer')
   const reason = disabled?.reason ?? null
   const anchor = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
+  // In the store: the unknown printer row's "Choose printer" opens it too (3.17).
+  const open = useAppState((state) => state.printerMenuOpen)
   return (
     <>
       <Tooltip label={reason === null ? 'Choose printer' : `Choose printer: ${reason}`}>
@@ -285,21 +285,18 @@ function PrinterButton() {
           disabled={reason !== null}
           onClick={() => {
             if (disabled === null) {
-              setOpen((value) => !value)
+              setPrinterMenuOpen(app, !open)
             } else {
               explainDisabled(app, disabled)
             }
           }}
         />
       </Tooltip>
-      <PrinterMenu
+      <DocumentPrinterMenu
         open={open}
         anchor={anchor}
-        onOpenChange={setOpen}
-        printers={printers}
-        current={current}
-        onChoose={(profileId) => {
-          setPrinter(app, profileId).catch(reportFailure('Changing the printer'))
+        onOpenChange={(next) => {
+          setPrinterMenuOpen(app, next)
         }}
       />
     </>

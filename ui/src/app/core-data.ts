@@ -1,5 +1,6 @@
 import { featureCommands } from '../commands/features'
-import type { CatalogEntry } from '../generated/protocol'
+import { CoreError } from '../core/client'
+import type { CatalogEntry, PrinterProfile } from '../generated/protocol'
 import { adoptDocument } from '../state/core-events'
 import type { AppStore, Catalog, CatalogFeature } from '../state/store'
 import type { App } from './createApp'
@@ -37,10 +38,7 @@ export function catalogFromEntries(entries: readonly CatalogEntry[]): Catalog {
 
 /** Loads the catalog and printers into the store and registers a command per new feature type. */
 export async function loadCoreData(app: App): Promise<void> {
-  const [entries, printers] = await Promise.all([
-    app.core.featureCatalog(),
-    app.core.listPrinterProfiles(),
-  ])
+  const [entries, printers] = await Promise.all([app.core.featureCatalog(), loadPrinters(app)])
   const catalog = catalogFromEntries(entries)
   app.store.setState({ catalog, printers })
   for (const command of featureCommands(catalog)) {
@@ -48,6 +46,29 @@ export async function loadCoreData(app: App): Promise<void> {
       app.commands.register(command)
     }
   }
+}
+
+/**
+ * The printer step of startup and restart (3.1 step 4): puts every library profile into the
+ * session in id order, then lists the session's profiles. A profile the core refuses is skipped
+ * with a warning and stays in the library.
+ */
+async function loadPrinters(app: App): Promise<readonly PrinterProfile[]> {
+  const profiles = await app.printerLibrary.list()
+  // The core takes requests in the order they are sent: the puts arrive in id order.
+  await Promise.all(
+    profiles.map((profile) =>
+      app.core.putPrinterProfile(profile).catch((error: unknown) => {
+        if (!(error instanceof CoreError)) {
+          throw error
+        }
+        console.warn(
+          `Partsmith skipped the printer "${profile.id}" of your library: ${error.message}`,
+        )
+      }),
+    ),
+  )
+  return app.core.listPrinterProfiles()
 }
 
 /** Marks the core ready with the engine version it reported. */

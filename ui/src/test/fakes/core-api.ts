@@ -62,6 +62,8 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     }),
     featureCatalog: async () => TEST_CATALOG_ENTRIES,
     listPrinterProfiles: async () => TEST_PRINTERS,
+    putPrinterProfile: async (profile) => profile,
+    removePrinterProfile: async () => undefined,
     newDocument: async () => nextHandle++,
     openDocument: async () => ({ documentHandle: nextHandle++, migratedFrom: null }),
     saveDocument: async () => ({ text: '', assets: [], revision }),
@@ -130,6 +132,14 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     listPrinterProfiles: (...args: Parameters<CoreApi['listPrinterProfiles']>) => {
       record('listPrinterProfiles', args)
       return implementation.listPrinterProfiles(...args)
+    },
+    putPrinterProfile: (...args: Parameters<CoreApi['putPrinterProfile']>) => {
+      record('putPrinterProfile', args)
+      return implementation.putPrinterProfile(...args)
+    },
+    removePrinterProfile: (...args: Parameters<CoreApi['removePrinterProfile']>) => {
+      record('removePrinterProfile', args)
+      return implementation.removePrinterProfile(...args)
     },
     newDocument: (...args: Parameters<CoreApi['newDocument']>) => {
       record('newDocument', args)

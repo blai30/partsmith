@@ -6,6 +6,7 @@ import { createMutationQueue } from '../../core/queue'
 import type { FileService } from '../../files/file-service'
 import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
+import { createMemoryPrinterLibrary, type PrinterLibrary } from '../../print/library'
 import {
   createAppStore,
   type ActiveCommand,
@@ -32,6 +33,7 @@ export type TestAppOptions = {
   readonly files?: FileService
   readonly recent?: RecentFilesStore
   readonly recovery?: RecoveryStore
+  readonly printerLibrary?: PrinterLibrary
   readonly platform?: Platform
   readonly viewport?: ViewportHandle | null
 }
@@ -47,6 +49,7 @@ export function createTestApp(options: TestAppOptions = {}): App {
     files: options.files ?? createFakeFileService(),
     recent: options.recent ?? createMemoryRecentFiles(),
     recovery: options.recovery ?? createMemoryRecovery(),
+    printerLibrary: options.printerLibrary ?? createMemoryPrinterLibrary(),
     platform: options.platform ?? LINUX_WEB,
     viewport: () => viewport,
     attachViewport: (handle) => {

@@ -18,6 +18,7 @@ import { useResolvedTheme } from './layout/use-resolved-theme'
 import { OverhangLegend } from './print/OverhangLegend'
 import { overhangLegendLimit } from './print/overhang'
 import { PrintHint } from './print/PrintHint'
+import { PrinterDialog } from './print/PrinterDialog'
 import { loadedSketchOverlay, loadSketchOverlay } from './sketch/overlay-chunk'
 import type { AppState } from './state/store'
 import { COLOR_CLASSES, ROOT_CLASSES } from './theme/roles'
@@ -141,6 +142,7 @@ export function App() {
       </RegionBoundary>
       <Notifications />
       <CommandPalette />
+      <PrinterDialog />
       <LiveRegions />
       {drop.over ? <DropOverlay /> : null}
     </div>

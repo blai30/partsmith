@@ -10,8 +10,8 @@ use common::{
 };
 use partsmith_model::canonical::{parse, to_string};
 use partsmith_model::{
-    LoadError, MIGRATIONS, MigrationStep, SchemaError, StructureError, load, migrate,
-    migrate_with, ptsm_schema,
+    LoadError, MIGRATIONS, MigrationStep, SchemaError, StructureError, load, migrate, migrate_with,
+    ptsm_schema,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Map, Value, json};
@@ -267,7 +267,10 @@ fn t068_the_printer_profile_schema_is_hoisted() {
         .clone();
     let clash = ptsm_schema(&[clashing_box], &profile_schema);
 
-    assert_eq!(schema.pointer("/$defs/Bed"), Some(&json!({"type": "object"})));
+    assert_eq!(
+        schema.pointer("/$defs/Bed"),
+        Some(&json!({"type": "object"}))
+    );
     assert_eq!(
         schema.pointer("/$defs/PrinterProfile"),
         Some(&json!({"type": "object", "properties": {"bed": {"$ref": "#/$defs/Bed"}}}))
@@ -289,8 +292,11 @@ fn a_document_with_a_stored_profile_round_trips_through_load_and_save() {
 
 #[test]
 fn the_loader_keeps_a_stored_profile_it_would_not_accept_in_print() {
-    let text = e11_with("    \"layer_height\": 0.15,", "    \"layer_height\": 0.5,")
-        .replacen("    \"name\": \"My MK4\",", "    \"name\": \"My MK4\",\n    \"speed\": 100,", 1);
+    let text = e11_with("    \"layer_height\": 0.15,", "    \"layer_height\": 0.5,").replacen(
+        "    \"name\": \"My MK4\",",
+        "    \"name\": \"My MK4\",\n    \"speed\": 100,",
+        1,
+    );
 
     let document = load_document(&text);
 

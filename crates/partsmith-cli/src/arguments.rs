@@ -73,8 +73,11 @@ pub struct RebuildArguments {
     #[arg(long)]
     pub checks: bool,
     /// Use this printer profile instead of the document's (not saved).
-    #[arg(long, value_name = "ID")]
+    #[arg(long, value_name = "ID", conflicts_with = "printer_file")]
     pub printer: Option<String>,
+    /// Use the printer profile in this JSON file instead of the document's (not saved).
+    #[arg(long, value_name = "PATH")]
+    pub printer_file: Option<PathBuf>,
     /// Rotate about the model axis x, y or z by a number of degrees, for example x:90. Repeatable.
     #[arg(long, value_name = "AXIS:DEGREES")]
     pub rotate: Vec<String>,
@@ -118,8 +121,11 @@ pub struct ExportArguments {
     #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
     pub angle: Option<f64>,
     /// Use this printer profile instead of the document's (not saved).
-    #[arg(long, value_name = "ID")]
+    #[arg(long, value_name = "ID", conflicts_with = "printer_file")]
     pub printer: Option<String>,
+    /// Use the printer profile in this JSON file instead of the document's (not saved).
+    #[arg(long, value_name = "PATH")]
+    pub printer_file: Option<PathBuf>,
     /// Rotate about the model axis x, y or z by a number of degrees, for example x:90. Repeatable.
     #[arg(long, value_name = "AXIS:DEGREES")]
     pub rotate: Vec<String>,

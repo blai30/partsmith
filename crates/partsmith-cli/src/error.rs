@@ -74,6 +74,15 @@ pub enum CliError {
     /// The engine refused a command.
     #[error(transparent)]
     Engine(#[from] EngineError),
+    /// The engine refused the printer profile of a `--printer-file`.
+    #[error("{path}: {source}")]
+    PrinterFile {
+        /// The `--printer-file` path as given.
+        path: String,
+        /// Why the engine refused the profile (`invalid_profile` or `profile_id_reserved`). Boxed,
+        /// so that every `Result` with a `CliError` stays small.
+        source: Box<EngineError>,
+    },
     /// No body has this id or name.
     #[error("There is no body named or with id \"{value}\".")]
     UnknownBody {
@@ -141,6 +150,7 @@ impl CliError {
             CliError::Internal { .. } => Status::Internal,
             CliError::Load { .. }
             | CliError::Engine(_)
+            | CliError::PrinterFile { .. }
             | CliError::UnknownBody { .. }
             | CliError::AmbiguousBody { .. }
             | CliError::FeaturesFailed { .. } => Status::Problems,
@@ -154,6 +164,7 @@ impl CliError {
             CliError::Read { .. } | CliError::Write { .. } => "io_error".to_owned(),
             CliError::Load { diagnostic, .. } => diagnostic.code.clone(),
             CliError::Engine(error) => wire_name(&error.code()),
+            CliError::PrinterFile { source, .. } => wire_name(&source.code()),
             CliError::UnknownBody { .. } => "unknown_body".to_owned(),
             CliError::AmbiguousBody { .. } => "ambiguous_body".to_owned(),
             CliError::FeaturesFailed { .. } => "features_failed".to_owned(),

@@ -5,11 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { installPopoverPolyfill, isPopoverOpen } from '../components/popover-polyfill.testing'
-import type { Dimension } from '../generated/protocol'
+import type { Dimension, PrinterProfile } from '../generated/protocol'
 import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp } from '../layout/test-app.testing'
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
 import { deferred, type Deferred } from '../test/fakes/deferred'
+import { MK4, MY_MARS } from '../test/fakes/printers'
 import { settle } from '../test/fakes/settle'
 import { hasTabularFigures, isCode, NO_CONTEXTUAL_LIGATURES } from '../test/type-roles'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -472,6 +473,15 @@ function withParameters() {
   }
 }
 
+/** The document of `setUpNames` naming `profile` and storing it. */
+function storing(profile: PrinterProfile) {
+  const document = withParameters()
+  return {
+    ...document,
+    recipe: { ...document.recipe, printer: profile.id, printer_profile: profile },
+  }
+}
+
 /** The texts of the open suggestion list's options. */
 function options(): string[] {
   return within(screen.getByTestId('expression-suggestions'))
@@ -480,8 +490,8 @@ function options(): string[] {
 }
 
 /** An ExpressionInput in a document with `size` and `slot`, whose evaluate answers in mm. */
-function setUpNames(props: Partial<HarnessProps> = {}) {
-  const test = createModelApp({ state: readyState(withParameters()) })
+function setUpNames(props: Partial<HarnessProps> = {}, document = withParameters()) {
+  const test = createModelApp({ state: readyState(document) })
   test.core.stub('evaluate', (_handle, expression) =>
     Promise.resolve({ value: expression === 'size' ? 20 : 10, dimension: LENGTH }),
   )
@@ -583,6 +593,20 @@ describe('parameter name completion (2.13, U-118)', () => {
     await user.click(within(screen.getByTestId('expression-suggestions')).getByText('slot = 3 mm'))
     expect(input).toHaveValue('2 * slot')
     expect(input).toHaveFocus()
+  })
+})
+
+describe('completion follows the printer in effect (2.13, 3.17)', () => {
+  it('U-296 lists no printer.nozzle when the document stores a resin profile the printers lack', async () => {
+    const { input, user } = setUpNames({}, storing(MY_MARS))
+    await user.type(input, 'printer.n')
+    expect(screen.queryByText('printer.nozzle')).toBeNull()
+  })
+
+  it('U-296 lists printer.nozzle when the document stores an FDM profile', async () => {
+    const { input, user } = setUpNames({}, storing(MK4))
+    await user.type(input, 'printer.n')
+    expect(options()).toContain('printer.nozzle')
   })
 })
 

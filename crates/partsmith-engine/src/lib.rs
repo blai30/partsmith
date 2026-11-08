@@ -63,12 +63,13 @@ pub use validate::{message_candidates, message_location};
 /// The engine version, equal to the crate version.
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The `.ptsm` JSON Schema composed from the model types and every built-in feature's params
-/// schema.
+/// The `.ptsm` JSON Schema composed from the model types, every built-in feature's params schema
+/// and the schema of print.md's `PrinterProfile` (file-format.md section 3.10).
 pub fn ptsm_schema() -> String {
     let registry = partsmith_features::Registry::with_builtins();
-    partsmith_model::ptsm_schema_text(&registry.params_schemas()).expect(
-        "the built-in params schemas are open object schemas with valid type names, which the registry checks when it registers them",
+    let printer_profile = schemars::schema_for!(partsmith_print::PrinterProfile);
+    partsmith_model::ptsm_schema_text(&registry.params_schemas(), &printer_profile).expect(
+        "the built-in params schemas are open object schemas with valid type names, which the registry checks when it registers them, and share no definition name with the printer profile's",
     )
 }
 

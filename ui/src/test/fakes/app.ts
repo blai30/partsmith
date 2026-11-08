@@ -5,7 +5,8 @@ import { createApp, type App, type Platform } from '../../app/createApp'
 import type { FileHandle } from '../../files/file-service'
 import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
-import type { Document, Edit } from '../../generated/protocol'
+import type { Document, Edit, PrinterProfile } from '../../generated/protocol'
+import { createMemoryPrinterLibrary, type PrinterLibrary } from '../../print/library'
 import type { AppStore, DocumentState, Notification } from '../../state/store'
 import { currentDocument, LINUX_WEB, runAction } from './test-app'
 import { CUBE_DOCUMENT, documentFile, documentText, featuresOf } from './documents'
@@ -28,6 +29,7 @@ export type FakeApp = {
   readonly files: FakeFileService
   readonly recent: RecentFilesStore
   readonly recovery: RecoveryStore
+  readonly printerLibrary: PrinterLibrary
   /** "command:<type>" per request, "files.<method>" per file service call and "recovery.<method>" per recovery store call, in order. */
   readonly journal: string[]
 }
@@ -38,6 +40,8 @@ export type FakeAppOptions = {
   readonly platform?: Platform
   readonly store?: AppStore
   readonly recovery?: RecoveryStore
+  /** The printer library; a new memory library unless given. */
+  readonly printerLibrary?: PrinterLibrary
   readonly now?: () => number
 }
 
@@ -61,6 +65,15 @@ function journaledRecovery(recovery: RecoveryStore, journal: string[]): Recovery
   }
 }
 
+/** A memory printer library that holds these profiles (ui.md 2.15). */
+export async function printerLibraryHolding(
+  profiles: readonly PrinterProfile[],
+): Promise<PrinterLibrary> {
+  const library = createMemoryPrinterLibrary()
+  await Promise.all(profiles.map((profile) => library.put(profile)))
+  return library
+}
+
 /** createApp over a FakeTransport and a FakeFileService; the core is not started. */
 export function createFakeApp(options: FakeAppOptions = {}): FakeApp {
   const journal: string[] = []
@@ -71,16 +84,18 @@ export function createFakeApp(options: FakeAppOptions = {}): FakeApp {
   })
   const recent = createMemoryRecentFiles()
   const recovery = journaledRecovery(options.recovery ?? createMemoryRecovery(), journal)
+  const printerLibrary = options.printerLibrary ?? createMemoryPrinterLibrary()
   const app = createApp({
     transport,
     files,
     recent,
     recovery,
+    printerLibrary,
     platform: options.platform ?? LINUX_WEB,
     ...(options.store === undefined ? {} : { store: options.store }),
     ...(options.now === undefined ? {} : { now: options.now }),
   })
-  return { app, transport, files, recent, recovery, journal }
+  return { app, transport, files, recent, recovery, printerLibrary, journal }
 }
 
 /** createFakeApp, then startCore, which ends with the new "Untitled" document open (ui.md 3.1). */

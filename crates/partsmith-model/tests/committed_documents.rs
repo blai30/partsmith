@@ -100,11 +100,7 @@ fn ui_fixtures_are_canonical_at_the_current_format_version() {
 
     let stale: Vec<String> = documents
         .iter()
-        .filter(|path| {
-            !VERSION_2_FIXTURES
-                .iter()
-                .any(|name| path.ends_with(name))
-        })
+        .filter(|path| !VERSION_2_FIXTURES.iter().any(|name| path.ends_with(name)))
         .filter_map(|path| {
             let text = fs::read_to_string(path)
                 .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));

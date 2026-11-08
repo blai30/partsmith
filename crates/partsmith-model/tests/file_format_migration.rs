@@ -101,7 +101,11 @@ fn the_built_in_steps_keep_params_they_do_not_know() {
             ]
         });
 
-        assert_eq!((step.migrate)(document.clone()), Ok(document), "step from {from}");
+        assert_eq!(
+            (step.migrate)(document.clone()),
+            Ok(document),
+            "step from {from}"
+        );
     }
 }
 

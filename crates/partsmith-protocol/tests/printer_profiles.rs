@@ -203,7 +203,7 @@ fn e11p() -> Value {
         "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
         "nozzle_diameter": 0.4,
         "layer_height": 0.15,
-        "max_overhang_angle": 0.7853981633974483,
+        "max_overhang_angle": std::f64::consts::FRAC_PI_4,
         "max_bridge_length": 10,
         "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
     })
@@ -259,8 +259,8 @@ fn t092_remove_printer_profile_round_trips_and_requires_its_id() {
     let text = r#"{"type":"remove_printer_profile","id":"my-mk4"}"#;
     let command: partsmith_protocol::Command =
         serde_json::from_str(text).expect("the request deserializes");
-    let result = serde_json::to_string(&CommandResult::RemovePrinterProfile)
-        .expect("the result serializes");
+    let result =
+        serde_json::to_string(&CommandResult::RemovePrinterProfile).expect("the result serializes");
     let schema = schema_json();
 
     assert_eq!(
@@ -347,7 +347,10 @@ fn t122_the_protocol_schema_leaves_occurrence_free() {
     )
     .expect("the committed schema is JSON");
 
-    for (name, schema) in [("protocol_schema()", &generated), ("protocol.schema.json", &committed)] {
+    for (name, schema) in [
+        ("protocol_schema()", &generated),
+        ("protocol.schema.json", &committed),
+    ] {
         let mut keys = Vec::new();
         property_keys(schema, &mut keys);
         assert!(

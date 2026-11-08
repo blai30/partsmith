@@ -17,6 +17,8 @@ const NAMES: [&str; 6] = [
 /// The `printer.*` values of one profile, as an expression evaluation context.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrinterValues {
+    /// The profile's display name, for the reason of `printer.nozzle` on resin.
+    profile_name: String,
     /// Fit class clearances in mm.
     fit: FitClasses,
     /// Layer height in mm.
@@ -29,6 +31,7 @@ impl PrinterValues {
     /// Captures the values of a profile.
     pub fn new(profile: &PrinterProfile) -> PrinterValues {
         PrinterValues {
+            profile_name: profile.name.clone(),
             fit: profile.fit,
             layer_height: profile.layer_height,
             nozzle_diameter: profile.nozzle_diameter,
@@ -62,6 +65,16 @@ impl EvaluationContext for PrinterValues {
             .filter(|name| self.millimeters(name).is_some())
             .map(String::from)
             .collect()
+    }
+
+    /// Why `printer.nozzle` has no value on a resin profile (section 3.5); `None` for every other name.
+    fn reason(&self, name: &str) -> Option<String> {
+        (name == "printer.nozzle" && self.nozzle_diameter.is_none()).then(|| {
+            format!(
+                "printer.nozzle has no value with '{}', a resin printer with no nozzle. Pick an FDM printer, or write a length instead.",
+                self.profile_name
+            )
+        })
     }
 }
 

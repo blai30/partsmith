@@ -38,6 +38,10 @@ export type AppState = {
   readonly core: CoreState
   readonly catalog: Catalog | null
   readonly printers: readonly PrinterProfile[]
+  /** Whether the status bar's printer menu is open; the unknown printer row's "Choose printer" opens it (3.17). */
+  readonly printerMenuOpen: boolean
+  /** The open printer dialog's request, or null while it is closed (3.17). */
+  readonly printerDialog: PrinterDialogRequest | null
   readonly document: DocumentState | null
   readonly context: AppContext
   readonly selection: readonly SelectionItem[]
@@ -316,6 +320,14 @@ export type SectionState = {
   readonly flipped: boolean
 }
 
+/**
+ * What the printer dialog edits (3.17): a new printer, whose id comes from its name unless `id`
+ * fixes it (the unknown printer row's "Add printer '{id}'"), or a library profile under its id.
+ */
+export type PrinterDialogRequest =
+  | { readonly kind: 'new'; readonly id: string | null }
+  | { readonly kind: 'edit'; readonly profile: PrinterProfile }
+
 export type PanelsState = {
   readonly browserOpen: boolean
   readonly timelineCollapsed: boolean
@@ -379,6 +391,8 @@ export const INITIAL_STATE: AppState = {
   },
   catalog: null,
   printers: [],
+  printerMenuOpen: false,
+  printerDialog: null,
   document: null,
   context: 'model',
   selection: [],

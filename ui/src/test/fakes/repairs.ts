@@ -100,7 +100,7 @@ export const R16_FILLET: FeatureRecord = {
 /** Corpus R16 after its edit: 'Box 1', the rabbet ('Sketch 1', 'Extrude 1') and 'Fillet 1'. */
 export const R16_DOCUMENT: Document = {
   format: 'partsmith',
-  format_version: 2,
+  format_version: 3,
   units: 'mm',
   parameters: [],
   bodies: [{ id: R16_BODY, name: 'Body 1' }],

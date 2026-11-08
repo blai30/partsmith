@@ -9,6 +9,7 @@ import type { FileService } from '../files/file-service'
 import type { RecentFilesStore } from '../files/recent'
 import type { AssetFile } from '../files/assets'
 import type { RecoveryStore } from '../files/recovery'
+import type { PrinterLibrary } from '../print/library'
 import type { Command, DocHandle, Document } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { TIMING_NAMES } from '../performance/marks'
@@ -51,6 +52,8 @@ export type App = {
   readonly files: FileService
   readonly recent: RecentFilesStore
   readonly recovery: RecoveryStore
+  /** Since M2: the printer library of 3.17 (2.15). */
+  readonly printerLibrary: PrinterLibrary
   readonly platform: Platform
   /** The mounted viewport, or null before the viewport mounts. */
   viewport(): ViewportHandle | null
@@ -69,6 +72,8 @@ export type CreateAppOptions = {
   readonly files: FileService
   readonly recent: RecentFilesStore
   readonly recovery: RecoveryStore
+  /** Since M2 (3.17): `main.tsx` passes `createIndexedDbPrinterLibrary` over the recovery store's environment. */
+  readonly printerLibrary: PrinterLibrary
   readonly platform: Platform
   readonly store?: AppStore
   readonly now?: () => number
@@ -355,6 +360,7 @@ export function createApp(options: CreateAppOptions): App {
     files: options.files,
     recent: options.recent,
     recovery: options.recovery,
+    printerLibrary: options.printerLibrary,
     platform: options.platform,
     viewport: () => viewport,
     attachViewport(handle) {

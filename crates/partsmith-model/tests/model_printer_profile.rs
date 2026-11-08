@@ -146,7 +146,10 @@ fn t103_apply_normalizes_the_numbers_of_a_stored_profile() {
     let mut document = d1();
 
     document
-        .apply(set_printer(Some("my-mk4"), Some(profile_with_float_bridge())))
+        .apply(set_printer(
+            Some("my-mk4"),
+            Some(profile_with_float_bridge()),
+        ))
         .expect("the edit applies");
 
     let profile = document
@@ -194,7 +197,8 @@ fn a_stored_profile_of_the_printer_it_names_is_structurally_valid() {
 
 #[test]
 fn t105_set_printer_in_json() {
-    let with_profile = json!({"type": "set_printer", "printer": "my-mk4", "profile": e11_profile()});
+    let with_profile =
+        json!({"type": "set_printer", "printer": "my-mk4", "profile": e11_profile()});
     let with_null = json!({"type": "set_printer", "printer": "my-mk4", "profile": null});
     let with_number = json!({"type": "set_printer", "printer": "my-mk4", "profile": 5});
 

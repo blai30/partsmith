@@ -1,17 +1,18 @@
-// The IndexedDB database behind recent files and recovery (ui.md 2.15).
+// The IndexedDB database behind recent files, recovery and the printer library (ui.md 2.15).
 
 import { isDomError } from './file-service'
 import { recoveryEntryFrom } from './recovery-entry'
 
 export const DATABASE_NAME = 'partsmith'
-export const DATABASE_VERSION = 2
+export const DATABASE_VERSION = 3
 export const RECENT_STORE = 'recent'
 export const RECOVERY_STORE = 'recovery'
+export const PRINTERS_STORE = 'printers'
 
 /** The key of the one recovery record of version 1, whose `recovery` store had the key path `slot`. */
 const VERSION_1_SLOT = 'current'
 
-export type StoreName = typeof RECENT_STORE | typeof RECOVERY_STORE
+export type StoreName = typeof RECENT_STORE | typeof RECOVERY_STORE | typeof PRINTERS_STORE
 
 /** The result of a request, or its error. */
 export function requestResult<Result>(request: IDBRequest<Result>): Promise<Result> {
@@ -75,10 +76,14 @@ export function upgradeDatabase(
   if (oldVersion < 1) {
     database.createObjectStore(RECENT_STORE, { keyPath: 'id' })
     database.createObjectStore(RECOVERY_STORE, { keyPath: 'id' })
+    database.createObjectStore(PRINTERS_STORE, { keyPath: 'id' })
     return
   }
   if (oldVersion < 2) {
     upgradeRecoveryFromVersion1(database, upgrade)
+  }
+  if (oldVersion < 3) {
+    database.createObjectStore(PRINTERS_STORE, { keyPath: 'id' })
   }
 }
 

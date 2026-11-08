@@ -9,6 +9,7 @@ import {
   RECT_SKETCH_SOLUTION,
 } from '../test/fakes/documents'
 import { ASSET_A, ASSET_B, assetValues } from '../test/fakes/assets'
+import { MK4 } from '../test/fakes/printers'
 import { readRequestFrame, responseFrame, withoutNulls } from '../test/fakes/protocol'
 import { createFakeTransport, type FakeTransport } from '../test/fakes/transport'
 import { createCoreApi, rebuildsDocument, rebuiltDocument, type CoreApi } from './api'
@@ -200,6 +201,35 @@ describe('createCoreApi', () => {
     })
     transport.handle('attach_plane', () => ({ result: { type: 'attach_plane' } }))
     await expect(api.attachPlane(documentHandle, 'f-sk1', picked)).resolves.toBeNull()
+  })
+
+  it('U-295 putPrinterProfile sends the profile and resolves with the profile the result holds', async () => {
+    const { api, transport } = await setUp()
+    const returned = { ...MK4, max_bridge_length: 12 }
+    transport.handle('put_printer_profile', () => ({
+      result: { type: 'put_printer_profile', profile: returned },
+    }))
+    await expect(api.putPrinterProfile(MK4)).resolves.toEqual(returned)
+    expect(lastCommand(transport)).toEqual({ type: 'put_printer_profile', profile: MK4 })
+  })
+
+  it('U-295 removePrinterProfile sends remove_printer_profile with the id and resolves with undefined', async () => {
+    const { api, transport } = await setUp()
+    await expect(api.removePrinterProfile('my-mk4')).resolves.toBeUndefined()
+    expect(lastCommand(transport)).toEqual({ type: 'remove_printer_profile', id: 'my-mk4' })
+  })
+
+  it('putPrinterProfile rejects a refusal with its CoreError', async () => {
+    const { api, transport } = await setUp()
+    transport.handle('put_printer_profile', () => ({
+      error: {
+        code: 'profile_id_reserved',
+        message: '"generic-fdm" is a built-in profile. Save your changes under a new name.',
+      },
+    }))
+    await expect(api.putPrinterProfile({ ...MK4, id: 'generic-fdm' })).rejects.toMatchObject({
+      code: 'profile_id_reserved',
+    })
   })
 
   it('attachPlane rejects a refusal with its CoreError', async () => {

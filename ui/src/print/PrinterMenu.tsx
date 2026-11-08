@@ -1,6 +1,10 @@
 import { clsx } from 'clsx/lite'
 import { Check } from 'lucide-react'
 import { Fragment, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { setPrinter } from '../app/actions/print'
+import { setPrinterDialog } from '../app/actions/printers'
+import { useApp, useAppState } from '../app/AppProvider'
+import { reportFailure } from '../app/report'
 import {
   focusOnPointerMove,
   nextIndex,
@@ -9,7 +13,8 @@ import {
 } from '../components/menu-navigation'
 import type { PrinterProfile, Technology } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
-import { defaultPrinterName, printerDetail, printerGroups } from './printer'
+import { sameProfile } from './library'
+import { defaultPrinterName, editablePrinter, printerDetail, printerGroups } from './printer'
 
 export type PrinterMenuProps = {
   readonly open: boolean
@@ -23,15 +28,66 @@ export type PrinterMenuProps = {
   readonly current: string | null
   /** Chooses a profile by id, or null for the default item, which clears the printer (`setPrinter`). */
   readonly onChoose: (profileId: string | null) => void
+  /**
+   * The profile the document stores (M2, 3.17). Unless a listed profile has an equal written form,
+   * it is listed first under its technology as "{name} (this document)", checked.
+   */
+  readonly stored?: PrinterProfile | null
+  /** Opens the printer dialog for a new printer; the item "Add printer…" shows when given. */
+  readonly onAdd?: () => void
+  /** The library profile in effect, which the item "Edit '{name}'…" opens the dialog on; none when null. */
+  readonly editable?: PrinterProfile | null
+  /** Opens the printer dialog on `editable`. */
+  readonly onEdit?: (profile: PrinterProfile) => void
 }
 
-/** One radio item of the menu: a profile under its technology, or the default item with the id null. */
+/**
+ * One item of the menu: a radio item for a profile under its technology, the stored profile, or
+ * the default item with the id null; or an action item that opens the printer dialog.
+ */
 type Choice = {
   readonly id: string | null
   readonly label: string
-  /** The profile's key numbers (`printerDetail`); null for the default item. */
+  /** The profile's key numbers (`printerDetail`); null for the default item and the action items. */
   readonly detail: string | null
   readonly technology: Technology | null
+  /** True for the item of the profile the document stores, which choosing leaves as it is. */
+  readonly stored?: boolean
+  /** Runs an action item; absent for the radio items. */
+  readonly run?: () => void
+  readonly testId?: string
+}
+
+type DocumentPrinterMenuProps = Pick<PrinterMenuProps, 'open' | 'anchor' | 'onOpenChange'>
+
+/**
+ * The printer menu of the shown document (3.17): its printer, the profile it stores and the
+ * printer library's items, wired to the app's printer actions.
+ */
+export function DocumentPrinterMenu({ open, anchor, onOpenChange }: DocumentPrinterMenuProps) {
+  const app = useApp()
+  const printers = useAppState((state) => state.printers)
+  const recipe = useAppState((state) => state.document?.recipe ?? null)
+  return (
+    <PrinterMenu
+      open={open}
+      anchor={anchor}
+      onOpenChange={onOpenChange}
+      printers={printers}
+      current={recipe?.printer ?? null}
+      stored={recipe?.printer_profile ?? null}
+      editable={editablePrinter(recipe, printers)}
+      onChoose={(profileId) => {
+        setPrinter(app, profileId).catch(reportFailure('Changing the printer'))
+      }}
+      onAdd={() => {
+        setPrinterDialog(app, { kind: 'new', id: null })
+      }}
+      onEdit={(profile) => {
+        setPrinterDialog(app, { kind: 'edit', profile })
+      }}
+    />
+  )
 }
 
 /**
@@ -45,21 +101,63 @@ export function PrinterMenu(props: PrinterMenuProps) {
   return props.open ? <PrinterMenuList {...props} /> : null
 }
 
-function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: PrinterMenuProps) {
+function PrinterMenuList({
+  anchor,
+  onOpenChange,
+  printers,
+  current,
+  onChoose,
+  stored = null,
+  onAdd,
+  editable = null,
+  onEdit,
+}: PrinterMenuProps) {
   const element = useRef<HTMLDivElement>(null)
   const items = useRef<(HTMLButtonElement | null)[]>([])
   const [active, setActive] = useState<number | null>(null)
   const idPrefix = useId()
 
-  const groups = printerGroups(printers)
+  // The stored profile has an item of its own unless a listed profile is the same.
+  const ownItem =
+    stored !== null && !printers.some((printer) => sameProfile(printer, stored)) ? stored : null
+  const groups = printerGroups(ownItem === null ? printers : [ownItem, ...printers])
+  const actions: readonly Choice[] = [
+    ...(onAdd === undefined
+      ? []
+      : [
+          {
+            id: null,
+            label: 'Add printer…',
+            detail: null,
+            technology: null,
+            run: onAdd,
+            testId: 'printer-add',
+          },
+        ]),
+    ...(editable === null || onEdit === undefined
+      ? []
+      : [
+          {
+            id: null,
+            label: `Edit '${editable.name}'…`,
+            detail: null,
+            technology: null,
+            run: () => {
+              onEdit(editable)
+            },
+            testId: 'printer-edit',
+          },
+        ]),
+  ]
   // Every item in display order, so an item's index is its position for the arrow keys.
   const choices: readonly Choice[] = [
     ...groups.flatMap((group) =>
       group.printers.map((printer) => ({
         id: printer.id,
-        label: printer.name,
+        label: printer === ownItem ? `${printer.name} (this document)` : printer.name,
         detail: printerDetail(printer),
         technology: group.technology,
+        stored: printer === ownItem,
       })),
     ),
     {
@@ -68,6 +166,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
       detail: null,
       technology: null,
     },
+    ...actions,
   ]
 
   function headingId(technology: Technology): string {
@@ -103,7 +202,16 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
     // Focus returns first, so whatever the choice opens can take it.
     anchor.current?.focus()
     onOpenChange(false)
-    onChoose(choice.id)
+    activate(choice)
+  }
+
+  // Choosing the stored profile's item leaves the document as it is.
+  function activate(choice: Choice): void {
+    if (choice.run !== undefined) {
+      choice.run()
+    } else if (choice.stored !== true) {
+      onChoose(choice.id)
+    }
   }
 
   function typeahead(character: string, from: number): void {
@@ -146,10 +254,13 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         return
       case ' ': {
         handled()
-        // Space checks a radio item without closing the menu (WAI-ARIA menu pattern).
+        // Space checks a radio item without closing the menu (WAI-ARIA menu pattern), and
+        // activates an action item as Enter does.
         const choice = choices[position]
-        if (choice !== undefined) {
-          onChoose(choice.id)
+        if (choice?.run !== undefined) {
+          choose(choice)
+        } else if (choice !== undefined) {
+          activate(choice)
         }
         return
       }
@@ -171,18 +282,21 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
   }
 
   function item(choice: Choice, index: number) {
-    const checked = choice.id === current
+    const radio = choice.run === undefined
+    // The stored profile's own item is the checked one while it shows.
+    const checked = radio && (ownItem === null ? choice.id === current : choice.stored === true)
     const technology = choice.technology
     return (
       <button
-        key={choice.id ?? 'default'}
+        key={choice.testId ?? `${choice.stored === true ? 'stored ' : ''}${choice.id ?? 'default'}`}
         ref={(button) => {
           items.current[index] = button
         }}
         type="button"
-        role="menuitemradio"
+        role={radio ? 'menuitemradio' : 'menuitem'}
+        data-testid={choice.testId}
         tabIndex={-1}
-        aria-checked={checked}
+        aria-checked={radio ? checked : undefined}
         aria-describedby={
           technology === null ? undefined : `${headingId(technology)} ${detailId(index)}`
         }
@@ -272,7 +386,13 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
         // Presentational: a separator would end the set of radio items.
         <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.divider.border)} />
       )}
-      {choices.map((choice, index) => (choice.technology === null ? item(choice, index) : null))}
+      {choices.map((choice, index) =>
+        choice.technology === null && choice.run === undefined ? item(choice, index) : null,
+      )}
+      {actions.length === 0 ? null : (
+        <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.divider.border)} />
+      )}
+      {choices.map((choice, index) => (choice.run === undefined ? null : item(choice, index)))}
     </div>
   )
 }

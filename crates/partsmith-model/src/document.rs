@@ -1,7 +1,10 @@
 //! The document recipe and its records (model.md section 2.5).
 
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::canonical::normalize_numbers;
 use crate::expr::evaluate_parameters;
@@ -23,6 +26,11 @@ pub struct Document {
     /// Printer profile id whose values `printer.*` names resolve to; `None` when no printer is chosen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub printer: Option<String>,
+    /// The printer profile `printer` names, in print.md's written form, stored when that profile is not built in
+    /// (format version 3). The model checks only its `id` (model.md section 3.6, rules 9 and 10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<PrinterProfileReference>")]
+    pub printer_profile: Option<Map<String, Value>>,
     /// Parameters in the order the user sees them.
     #[serde(default)]
     pub parameters: Vec<Parameter>,
@@ -45,6 +53,7 @@ impl Document {
             format_version: FORMAT_VERSION,
             units,
             printer: None,
+            printer_profile: None,
             parameters: Vec::new(),
             bodies: Vec::new(),
             features: Vec::new(),
@@ -99,12 +108,69 @@ impl Document {
         evaluate_parameters(&self.parameters, self.units, context)
     }
 
-    /// Rewrites every number inside feature params to its normalized form (file-format.md section 3.3).
+    /// Rewrites every number inside feature params and inside `printer_profile` to its normalized form
+    /// (file-format.md section 3.3).
     pub fn normalize(&mut self) {
         for feature in &mut self.features {
             feature.normalize();
         }
+        if let Some(profile) = &mut self.printer_profile {
+            normalize_members(profile);
+        }
     }
+}
+
+/// How a stored printer profile fails to match the printer that names it (model.md section 3.6, rules 9 and 10).
+pub(crate) enum ProfileMismatch {
+    /// There is no printer.
+    WithoutPrinter,
+    /// The profile's `id` member is not a string equal to `printer`; `found` is that member when it is a string.
+    Id {
+        /// The printer.
+        printer: String,
+        /// The profile's `id` member, when it is a string.
+        found: Option<String>,
+    },
+}
+
+impl ProfileMismatch {
+    /// How `profile` fails to belong to `printer`, or `None` when its `id` is `printer`.
+    pub(crate) fn find(
+        printer: Option<&str>,
+        profile: &Map<String, Value>,
+    ) -> Option<ProfileMismatch> {
+        let Some(printer) = printer else {
+            return Some(ProfileMismatch::WithoutPrinter);
+        };
+        let found = profile.get("id").and_then(Value::as_str);
+        (found != Some(printer)).then(|| ProfileMismatch::Id {
+            printer: printer.to_string(),
+            found: found.map(str::to_string),
+        })
+    }
+}
+
+/// The JSON Schema of a stored printer profile: a reference to the `PrinterProfile` definition that the protocol and
+/// `.ptsm` schemas hold. partsmith-model cannot name print.md's `PrinterProfile` (model.md open issue 10).
+pub(crate) struct PrinterProfileReference;
+
+impl JsonSchema for PrinterProfileReference {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "PrinterProfileReference".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({"$ref": "#/$defs/PrinterProfile"})
+    }
+}
+
+/// Rewrites every number in the members of `map` to its normalized form.
+pub(crate) fn normalize_members(map: &mut Map<String, Value>) {
+    map.values_mut().for_each(normalize_numbers);
 }
 
 impl Default for Document {
@@ -259,9 +325,7 @@ impl FeatureRecord {
 
     /// Rewrites every number in the params to its normalized form.
     pub(crate) fn normalize(&mut self) {
-        for value in self.params.values_mut() {
-            normalize_numbers(value);
-        }
+        normalize_members(&mut self.params);
     }
 }
 

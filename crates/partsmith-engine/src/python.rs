@@ -576,16 +576,21 @@ fn entity_type(entity: &SketchEntity) -> &'static str {
     }
 }
 
-/// `doc = Document(units="<units>"[, printer="<id>"])` (rule 2).
+/// `doc = Document(units="<units>"[, printer=<id or stored profile>])` (rule 2): the stored
+/// profile as a dict when the document stores one, else the `printer` id.
 fn document_line(document: &Document) -> String {
     let mut call = PythonCall::new("Document");
     call.keywords.push((
         "units".to_string(),
         PythonValue::Str(document.units.symbol().to_string()),
     ));
-    if let Some(printer) = &document.printer {
-        call.keywords
-            .push(("printer".to_string(), PythonValue::Str(printer.clone())));
+    let printer = match (&document.printer_profile, &document.printer) {
+        (Some(profile), _) => Some(PythonValue::from_json(&Value::Object(profile.clone()))),
+        (None, Some(printer)) => Some(PythonValue::Str(printer.clone())),
+        (None, None) => None,
+    };
+    if let Some(printer) = printer {
+        call.keywords.push(("printer".to_string(), printer));
     }
     statement(0, "doc = ", &call, "")
 }

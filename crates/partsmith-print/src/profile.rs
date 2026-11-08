@@ -7,6 +7,7 @@ use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{Id, canonical};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::error::{ProfileError, ProfileField};
 use crate::thresholds::CheckThresholds;
@@ -261,6 +262,30 @@ pub struct FitInput {
     pub loose: Option<f64>,
 }
 
+impl ProfileInput {
+    /// The first field of the written form this input lacks, in the order of section 3.1 (stored profiles).
+    fn first_missing_field(&self) -> Option<&'static str> {
+        let fit = self.fit.unwrap_or_default();
+        [
+            ("bed", self.bed.is_none()),
+            (
+                "nozzle_diameter",
+                self.technology == Technology::Fdm && self.nozzle_diameter.is_none(),
+            ),
+            ("layer_height", self.layer_height.is_none()),
+            ("max_overhang_angle", self.max_overhang_angle.is_none()),
+            ("max_bridge_length", self.max_bridge_length.is_none()),
+            ("fit", self.fit.is_none()),
+            ("fit.press", fit.press.is_none()),
+            ("fit.snug", fit.snug.is_none()),
+            ("fit.slip", fit.slip.is_none()),
+            ("fit.loose", fit.loose.is_none()),
+        ]
+        .into_iter()
+        .find_map(|(field, missing)| missing.then_some(field))
+    }
+}
+
 impl TryFrom<ProfileInput> for PrinterProfile {
     type Error = ProfileError;
 
@@ -301,6 +326,21 @@ impl PrinterProfile {
             serde_json::from_str(text).map_err(|error| ProfileError::Json {
                 detail: error.to_string(),
             })?;
+        PrinterProfile::try_from(input)
+    }
+
+    /// Reads a profile stored in a document: the written form with every field present, then the rules of section
+    /// 3.1. Members may come in any order, and no field takes a default.
+    pub fn from_written(value: &Map<String, Value>) -> Result<PrinterProfile, ProfileError> {
+        let input: ProfileInput =
+            serde_json::from_value(Value::Object(value.clone())).map_err(|error| {
+                ProfileError::Json {
+                    detail: error.to_string(),
+                }
+            })?;
+        if let Some(field) = input.first_missing_field() {
+            return Err(ProfileError::MissingField { field });
+        }
         PrinterProfile::try_from(input)
     }
 

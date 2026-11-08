@@ -28,7 +28,7 @@ pub fn e11p() -> Value {
         "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
         "nozzle_diameter": 0.4,
         "layer_height": 0.15,
-        "max_overhang_angle": 0.7853981633974483,
+        "max_overhang_angle": std::f64::consts::FRAC_PI_4,
         "max_bridge_length": 10,
         "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
     })
@@ -114,10 +114,7 @@ pub fn put_profile(session: &mut partsmith_engine::Session, profile: Value) -> c
 
 /// Sends `remove_printer_profile` of `id`.
 fn remove_profile(session: &mut partsmith_engine::Session, id: &str) -> common::Sent {
-    send(
-        session,
-        json!({"type": "remove_printer_profile", "id": id}),
-    )
+    send(session, json!({"type": "remove_printer_profile", "id": id}))
 }
 
 /// The `set_printer` edit of `printer`, with `profile` when given.
@@ -372,7 +369,10 @@ fn t179_picking_again_replaces_the_stored_profile() {
 
     let stored = document(&mut session, doc)["printer_profile"].clone();
     assert_eq!(stored["fit"]["slip"], json!(0.3));
-    assert_eq!(stored["bed"], json!({"kind": "rectangle", "width": 256, "depth": 256, "height": 256}));
+    assert_eq!(
+        stored["bed"],
+        json!({"kind": "rectangle", "width": 256, "depth": 256, "height": 256})
+    );
     assert_relative(clearance(&session, doc), 0.3, 1e-12, "clearance");
     send(&mut session, json!({"type": "undo", "doc": doc})).ok();
     assert_same_members_in_order(&document(&mut session, doc)["printer_profile"], &e11p());
@@ -525,7 +525,10 @@ fn the_typed_errors_carry_the_edit_index() {
 #[test]
 fn t185_a_stored_profile_the_engine_rejects_stops_the_open() {
     let mut session = session();
-    let text = custom_printer_with(r#"    "layer_height": 0.15,"#, r#"    "layer_height": 0.5,"#);
+    let text = custom_printer_with(
+        r#"    "layer_height": 0.15,"#,
+        r#"    "layer_height": 0.5,"#,
+    );
 
     let sent = open_text(&mut session, &text);
     let typed = session
@@ -595,7 +598,10 @@ fn t186_a_stored_profile_of_the_wrong_form_stops_the_open() {
 fn t187_a_stored_copy_of_a_built_in_profile_stops_the_open() {
     let mut session = session();
     let text = replace_once(
-        &custom_printer_with(r#"  "printer": "my-mk4","#, r#"  "printer": "generic-fdm","#),
+        &custom_printer_with(
+            r#"  "printer": "my-mk4","#,
+            r#"  "printer": "generic-fdm","#,
+        ),
         r#"    "id": "my-mk4","#,
         r#"    "id": "generic-fdm","#,
     );
@@ -630,7 +636,7 @@ fn t189_put_printer_profile_text() {
         .expect("MK4 is a valid profile");
 
     assert_same_members_in_order(
-        &serde_json::to_value(&stored).expect("profiles serialize"),
+        &partsmith_model::canonical::to_value(&stored).expect("profiles serialize"),
         &e11p(),
     );
     let ids: Vec<String> = session
@@ -679,7 +685,10 @@ fn t190_remove_printer_profile() {
         .expect("recomputed lists diagnostics");
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0]["code"], "unknown_printer_profile");
-    assert_eq!(warnings[0]["message"], unknown_printer_message("my-printer"));
+    assert_eq!(
+        warnings[0]["message"],
+        unknown_printer_message("my-printer")
+    );
     let ids: Vec<String> = session
         .printer_profiles()
         .iter()
@@ -691,7 +700,11 @@ fn t190_remove_printer_profile() {
         let sent = remove_profile(&mut session, id);
         sent.ok();
         assert_eq!(sent.events, Vec::<Value>::new(), "{id}");
-        assert_eq!(get_document(&mut session, doc)["revision"], revision, "{id}");
+        assert_eq!(
+            get_document(&mut session, doc)["revision"],
+            revision,
+            "{id}"
+        );
         assert_eq!(session.printer_profiles().len(), 2, "{id}");
     }
 }
@@ -781,15 +794,15 @@ fn t193_the_reason_for_printer_nozzle_on_resin() {
     assert_eq!(evaluated.error_code(), "expression_error");
     assert_eq!(evaluated.error_message(), RESIN_NOZZLE_REASON);
     let typed = session
-        .evaluate(typed_handle(doc), &partsmith_model::Expr::new("printer.nozzle"))
+        .evaluate(
+            typed_handle(doc),
+            &partsmith_model::Expr::new("printer.nozzle"),
+        )
         .expect_err("printer.nozzle has no value on resin");
     let EngineError::Expression { span, .. } = typed else {
         panic!("an expression error, got {typed:?}");
     };
-    assert_eq!(
-        span.map(|span| (span.start, span.end)),
-        Some((0, 14))
-    );
+    assert_eq!(span.map(|span| (span.start, span.end)), Some((0, 14)));
     let unavailable: Vec<_> = report
         .diagnostics
         .iter()
@@ -957,5 +970,10 @@ fn a_typed_set_printer_with_a_profile_is_completed_in_the_written_form() {
     .ok();
 
     assert_same_members_in_order(&document(&mut session, doc)["printer_profile"], &e11p());
-    assert_eq!(saved_text(&mut session, doc).matches("\"printer_profile\"").count(), 1);
+    assert_eq!(
+        saved_text(&mut session, doc)
+            .matches("\"printer_profile\"")
+            .count(),
+        1
+    );
 }

@@ -2,7 +2,7 @@ import type { PrinterProfile, PrintReport } from '../generated/protocol'
 import type { AppState } from '../state/store'
 import { encodedFromHex, VIEWPORT_COLORS, type ThemeName } from '../theme/roles'
 import type { RenderFrame } from '../viewport/backend'
-import { findPrinter } from './printer'
+import { findPrinter, reportPrinters } from './printer'
 
 // The overhang color map (ui.md 3.12 pass 3, 3.17): which bodies show it, its ramp and its legend.
 
@@ -83,5 +83,7 @@ export function overhangAnalysis(state: AppState, theme: ThemeName): RenderFrame
 /** The limit the legend shows, or null when there is no legend: the map is off or no report has a limit. */
 export function overhangLegendLimit(state: AppState): number | null {
   const report = state.print.report
-  return report === null || !overhangMapShown(state) ? null : overhangLimit(report, state.printers)
+  return report === null || !overhangMapShown(state)
+    ? null
+    : overhangLimit(report, reportPrinters(state.document?.recipe.printer_profile, state.printers))
 }

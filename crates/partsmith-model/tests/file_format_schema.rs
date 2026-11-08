@@ -44,9 +44,7 @@ fn stand_in_profile() -> schemars::Schema {
 }
 
 /// `ptsm_schema(features, &P)`.
-fn schema_with_stand_in(
-    features: &[FeatureParamsSchema],
-) -> Result<schemars::Schema, SchemaError> {
+fn schema_with_stand_in(features: &[FeatureParamsSchema]) -> Result<schemars::Schema, SchemaError> {
     ptsm_schema(features, &stand_in_profile())
 }
 

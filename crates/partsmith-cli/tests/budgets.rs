@@ -132,7 +132,11 @@ fn t064_the_document_has_the_members_of_plate_and_no_parameters() {
         assert_eq!(document[member], plate[member], "{member} is plate's");
     }
     assert_eq!(
-        [&document["format"], &document["format_version"], &document["units"]],
+        [
+            &document["format"],
+            &document["format_version"],
+            &document["units"]
+        ],
         [&json!("partsmith"), &json!(3), &json!("mm")]
     );
     assert_eq!(document["parameters"], json!([]));

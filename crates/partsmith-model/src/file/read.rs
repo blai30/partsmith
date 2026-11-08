@@ -19,6 +19,7 @@ const DOCUMENT_FIELDS: &[&str] = &[
     "format_version",
     "units",
     "printer",
+    "printer_profile",
     "parameters",
     "bodies",
     "features",
@@ -37,6 +38,7 @@ pub(super) fn document(value: Value) -> Result<Document, LoadError> {
     let mut format_version = None;
     let mut units = None;
     let mut printer = None;
+    let mut printer_profile = None;
     let mut parameters = Vec::new();
     let mut bodies = Vec::new();
     let mut features = Vec::new();
@@ -48,6 +50,7 @@ pub(super) fn document(value: Value) -> Result<Document, LoadError> {
             "format_version" => format_version = Some(field::<u32>(value, &path)?),
             "units" => units = Some(field::<Units>(value, &path)?),
             "printer" => printer = field::<Option<String>>(value, &path)?,
+            "printer_profile" => printer_profile = field(value, &path)?,
             "parameters" => parameters = list(value, &path, parameter)?,
             "bodies" => bodies = list(value, &path, body)?,
             "features" => features = list(value, &path, feature)?,
@@ -60,6 +63,7 @@ pub(super) fn document(value: Value) -> Result<Document, LoadError> {
         format_version: required(format_version, "format_version", &root)?,
         units: required(units, "units", &root)?,
         printer,
+        printer_profile,
         parameters,
         bodies,
         features,
