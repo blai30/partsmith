@@ -82,7 +82,7 @@ mod tests {
     /// `c-000000000001`, the first ids `SequentialIds` makes of their kinds.
     fn document_using_the_first_ids() -> Document {
         serde_json::from_value(json!({
-            "format": "partsmith", "format_version": 2, "units": "mm",
+            "format": "partsmith", "format_version": 3, "units": "mm",
             "bodies": [{"id": "b-000000000001", "name": "Body 1"}],
             "features": [{
                 "id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"},

@@ -447,3 +447,122 @@ fn t067_expected_dimension_promotion() {
         Quantity::length(0.5),
     );
 }
+
+// Reasons for values (expressions.md section 6, tests 99 to 103).
+
+/// Context R: `printer.fit.slip` is 0.2 mm; `printer.nozzle` has no value and the reason "No nozzle here.".
+struct ReasonContext;
+
+impl partsmith_model::EvaluationContext for ReasonContext {
+    fn resolve(&self, name: &str) -> Option<Quantity> {
+        (name == "printer.fit.slip").then(|| Quantity::length(0.2))
+    }
+
+    fn reason(&self, name: &str) -> Option<String> {
+        (name == "printer.nozzle").then(|| "No nozzle here.".to_string())
+    }
+}
+
+/// A context that resolves `printer.fit.slip` and gives the reason "never" for every name.
+struct AlwaysReasonContext;
+
+impl partsmith_model::EvaluationContext for AlwaysReasonContext {
+    fn resolve(&self, name: &str) -> Option<Quantity> {
+        (name == "printer.fit.slip").then(|| Quantity::length(0.2))
+    }
+
+    fn reason(&self, _name: &str) -> Option<String> {
+        Some("never".to_string())
+    }
+}
+
+/// Evaluates `source` in scope S(Mm) with `context` in place of the printer context.
+fn eval_with_context(
+    source: &str,
+    context: &dyn partsmith_model::EvaluationContext,
+) -> Result<Quantity, partsmith_model::ExprError> {
+    let parameters = common::scope_document(Units::Mm).evaluate_parameters(context);
+    let scope = partsmith_model::Scope {
+        units: Units::Mm,
+        parameters: &parameters,
+        context,
+    };
+    partsmith_model::Expr::new(source).evaluate(&scope, None)
+}
+
+#[test]
+fn t099_a_name_with_a_reason_is_unavailable() {
+    let result = eval_with_context("printer.nozzle * 2", &ReasonContext);
+
+    let error = result.clone().expect_err("printer.nozzle has no value");
+    assert_expr_error(
+        result,
+        ExprErrorKind::UnavailableValue {
+            name: "printer.nozzle".to_string(),
+            reason: "No nozzle here.".to_string(),
+        },
+        0,
+        14,
+    );
+    assert_eq!(error.to_string(), "No nozzle here.");
+}
+
+#[test]
+fn t100_a_name_without_a_reason_stays_unknown() {
+    assert_expr_error(
+        eval_with_context("printer.nozzel", &ReasonContext),
+        ExprErrorKind::UnknownValue {
+            name: "printer.nozzel".to_string(),
+        },
+        0,
+        14,
+    );
+}
+
+#[test]
+fn t101_the_reason_is_asked_only_after_resolve_fails() {
+    assert_quantity(
+        eval_with_context("printer.fit.slip", &AlwaysReasonContext),
+        Quantity::length(0.2),
+    );
+}
+
+#[test]
+fn t102_the_provided_contexts_give_no_reason() {
+    use partsmith_model::{EmptyContext, EvaluationContext};
+
+    assert_eq!(EmptyContext.reason("printer.nozzle"), None);
+    assert_eq!(common::printer_context().reason("printer.nozzle"), None);
+    assert_expr_error(
+        eval_with_context("printer.nozzle", &EmptyContext),
+        ExprErrorKind::UnknownValue {
+            name: "printer.nozzle".to_string(),
+        },
+        0,
+        14,
+    );
+}
+
+#[test]
+fn t103_a_parameter_that_uses_an_unavailable_value_fails_and_so_do_its_users() {
+    let values = common::evaluate_with(
+        &[("w", "printer.nozzle * 2"), ("v", "w + 1 mm")],
+        &ReasonContext,
+    );
+
+    let w = common::result_of(&values, "w").expect_err("w uses printer.nozzle");
+    let v = common::result_of(&values, "v").expect_err("v uses w");
+    assert_eq!(
+        w.kind,
+        ExprErrorKind::UnavailableValue {
+            name: "printer.nozzle".to_string(),
+            reason: "No nozzle here.".to_string(),
+        }
+    );
+    assert_eq!(
+        v.kind,
+        ExprErrorKind::DependsOnFailed {
+            name: "w".to_string()
+        }
+    );
+}

@@ -1,4 +1,4 @@
-//! Documents committed for the UI's end-to-end tests, the documents the UI writes in `gui/` among them, are canonical at the current format version (ui.md section 6.2), so a `FORMAT_VERSION` bump that leaves one behind fails here. The CLI checks `examples/` the same way.
+//! Documents committed for the UI's end-to-end tests, the documents the UI writes in `gui/` among them, are canonical at the current format version (ui.md section 6.2), so a `FORMAT_VERSION` bump that leaves one behind fails here. The CLI checks `examples/` the same way. The one exception is `printer-v2.ptsm`, written at format version 2 on purpose to test the migration (ui.md section 6.2, ADR 0061 decision 6): it is canonical apart from its version line.
 
 use crate::common;
 
@@ -25,6 +25,9 @@ const EXAMPLE_COPIES: [(&str, &str); 2] = [
     ("part-50.ptsm", "examples/bench/fifty-features/model.ptsm"),
     ("step-block.ptsm", "examples/import/step-block.ptsm"),
 ];
+
+/// The fixtures written at format version 2 on purpose, to test the migration (ui.md section 6.2).
+const VERSION_2_FIXTURES: [&str; 1] = ["printer-v2.ptsm"];
 
 /// The bytes of the file at `path`.
 fn file_bytes(path: &Path) -> Vec<u8> {
@@ -97,6 +100,11 @@ fn ui_fixtures_are_canonical_at_the_current_format_version() {
 
     let stale: Vec<String> = documents
         .iter()
+        .filter(|path| {
+            !VERSION_2_FIXTURES
+                .iter()
+                .any(|name| path.ends_with(name))
+        })
         .filter_map(|path| {
             let text = fs::read_to_string(path)
                 .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
@@ -119,5 +127,20 @@ fn ui_copies_of_examples_are_byte_identical() {
             copy == original,
             "ui/e2e/fixtures/{name} differs from {example}. Copy the example over it (ui.md 6.2)."
         );
+    }
+}
+
+#[test]
+fn ui_fixtures_at_version_2_change_only_their_version_line() {
+    for name in VERSION_2_FIXTURES {
+        let path = ui_fixtures_directory().join(name);
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
+
+        let loaded = load(&text).unwrap_or_else(|error| panic!("{name} does not load: {error}"));
+        let saved = save(&loaded.document).unwrap_or_else(|error| panic!("{name}: {error}"));
+
+        assert_eq!(loaded.migrated_from, Some(2), "{name}");
+        assert_eq!(with_format_version(&saved, Some("2")), text, "{name}");
     }
 }

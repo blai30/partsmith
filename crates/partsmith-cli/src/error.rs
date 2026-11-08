@@ -248,15 +248,15 @@ mod tests {
         let error = CliError::load(
             "new.ptsm".to_owned(),
             &EngineError::UnsupportedFormatVersion {
-                found: 3,
-                message: "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
+                found: 4,
+                message: "This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it."
                     .to_owned(),
             },
         );
 
         assert_eq!(
             error.report_line(),
-            "new.ptsm: error[unsupported_format_version]: This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
+            "new.ptsm: error[unsupported_format_version]: This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it."
         );
     }
 

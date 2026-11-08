@@ -1,4 +1,6 @@
 //! Acceptance tests for the `.ptsm` JSON Schema (file-format.md section 6, "JSON Schema", tests 46 to 53).
+//!
+//! As the spec says before test 46, every call passes `P`, the stand-in printer profile schema `{"type": "object"}`.
 
 use crate::common;
 
@@ -36,9 +38,26 @@ fn extent_schema(kind: &str, extent: Value) -> FeatureParamsSchema {
     )
 }
 
+/// `P` of the spec: the stand-in printer profile schema `{"type": "object"}`.
+fn stand_in_profile() -> schemars::Schema {
+    schemars::Schema::try_from(json!({"type": "object"})).expect("the schema is a JSON object")
+}
+
+/// `ptsm_schema(features, &P)`.
+fn schema_with_stand_in(
+    features: &[FeatureParamsSchema],
+) -> Result<schemars::Schema, SchemaError> {
+    ptsm_schema(features, &stand_in_profile())
+}
+
+/// `ptsm_schema_text(features, &P)`.
+fn schema_text_with_stand_in(features: &[FeatureParamsSchema]) -> Result<String, SchemaError> {
+    ptsm_schema_text(features, &stand_in_profile())
+}
+
 /// The generated schema as JSON.
 fn schema_json(features: &[FeatureParamsSchema]) -> Value {
-    ptsm_schema(features)
+    schema_with_stand_in(features)
         .unwrap_or_else(|error| panic!("the schema builds: {error}"))
         .as_value()
         .clone()
@@ -62,7 +81,7 @@ fn t046_root_of_the_schema() {
     assert_eq!(at(&schema, "/title"), &json!("Partsmith document"));
     assert_eq!(at(&schema, "/type"), &json!("object"));
     assert_eq!(at(&schema, "/properties/format/const"), &json!("partsmith"));
-    assert_eq!(at(&schema, "/properties/format_version/const"), &json!(2));
+    assert_eq!(at(&schema, "/properties/format_version/const"), &json!(3));
     assert_eq!(
         at(&schema, "/required"),
         &json!(["format", "format_version", "units"])
@@ -71,6 +90,10 @@ fn t046_root_of_the_schema() {
     assert_eq!(
         at(&schema, "/properties/rollback/$ref"),
         &json!("#/$defs/Id")
+    );
+    assert_eq!(
+        at(&schema, "/properties/printer_profile/$ref"),
+        &json!("#/$defs/PrinterProfile")
     );
 }
 
@@ -126,8 +149,13 @@ fn t048_definition_and_root_key_order() {
             "FeatureRecord",
             "Id",
             "Parameter",
+            "PrinterProfile",
             "Units"
         ]
+    );
+    assert_eq!(
+        at(&schema, "/$defs/PrinterProfile"),
+        &json!({"type": "object"})
     );
     assert_eq!(
         keys_at(&schema, ""),
@@ -191,11 +219,11 @@ fn t051_hoisted_definitions_are_shared_or_conflict() {
         extent_schema("extrude", json!({"type": "object"})),
         extent_schema("revolve", json!({"type": "object"})),
     ]);
-    let conflicting = ptsm_schema(&[
+    let conflicting = schema_with_stand_in(&[
         extent_schema("extrude", json!({"type": "object"})),
         extent_schema("revolve", json!({"type": "string"})),
     ]);
-    let model_clash = ptsm_schema(&[params_schema(
+    let model_clash = schema_with_stand_in(&[params_schema(
         "box",
         json!({"type": "object", "$defs": {"Id": {"type": "integer"}}}),
     )]);
@@ -218,7 +246,7 @@ fn t051_hoisted_definitions_are_shared_or_conflict() {
 #[test]
 fn t052_invalid_params_schemas() {
     let error_of = |features: Vec<FeatureParamsSchema>| {
-        ptsm_schema(&features)
+        schema_with_stand_in(&features)
             .map(|schema| schema.as_value().clone())
             .expect_err("the inputs are invalid")
     };
@@ -266,11 +294,11 @@ fn t052_invalid_params_schemas() {
 
 #[test]
 fn t053_schema_text_is_canonical_and_order_independent() {
-    let forward = ptsm_schema_text(&[depth_schema("extrude"), depth_schema("box")])
+    let forward = schema_text_with_stand_in(&[depth_schema("extrude"), depth_schema("box")])
         .expect("the schema builds");
-    let again = ptsm_schema_text(&[depth_schema("extrude"), depth_schema("box")])
+    let again = schema_text_with_stand_in(&[depth_schema("extrude"), depth_schema("box")])
         .expect("the schema builds");
-    let reversed = ptsm_schema_text(&[depth_schema("box"), depth_schema("extrude")])
+    let reversed = schema_text_with_stand_in(&[depth_schema("box"), depth_schema("extrude")])
         .expect("the schema builds");
 
     assert_eq!(forward, again);

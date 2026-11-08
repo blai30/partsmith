@@ -190,3 +190,187 @@ fn t086_a_list_result_of_those_profiles_validates_in_a_frame_header() {
 
     assert_eq!(validate(&schema, "", &header), Ok(()), "{header}");
 }
+
+// The profile routes of ADR 0062 (section 2.5 commands 4 and 36, section 2.9; tests 89, 92, 93, 95 and 122). The parts
+// of tests 89 to 91, 94 and 95 that go through `Session::call` are in partsmith-engine's `tests/stored_profiles.rs`.
+
+/// `E11P`: the `printer_profile` object of file-format.md's E11.
+fn e11p() -> Value {
+    json!({
+        "id": "my-mk4",
+        "name": "My MK4",
+        "technology": "fdm",
+        "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
+        "nozzle_diameter": 0.4,
+        "layer_height": 0.15,
+        "max_overhang_angle": 0.7853981633974483,
+        "max_bridge_length": 10,
+        "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
+    })
+}
+
+/// Whether `value` is the schema `anyOf` of `{"$ref": "#/$defs/PrinterProfile"}` and `{"type": "null"}`.
+fn is_optional_profile(value: &Value) -> bool {
+    let Some(branches) = value.get("anyOf").and_then(Value::as_array) else {
+        return false;
+    };
+    branches.len() == 2
+        && branches.contains(&json!({"$ref": "#/$defs/PrinterProfile"}))
+        && branches.contains(&json!({"type": "null"}))
+}
+
+/// Every `$ref` in `value`, at any depth.
+fn references(value: &Value, found: &mut Vec<String>) {
+    match value {
+        Value::Object(members) => {
+            for (key, member) in members {
+                if key == "$ref"
+                    && let Some(reference) = member.as_str()
+                {
+                    found.push(reference.to_owned());
+                }
+                references(member, found);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| references(item, found)),
+        _ => {}
+    }
+}
+
+#[test]
+fn t089_a_profile_as_text_deserializes_with_text_and_no_profile() {
+    let command: partsmith_protocol::Command = serde_json::from_str(
+        r#"{"type":"put_printer_profile","text":"{\"id\": \"my-mk4\", \"name\": \"My MK4\", \"technology\": \"fdm\", \"layer_height\": 0.15}"}"#,
+    )
+    .expect("the request deserializes");
+
+    let partsmith_protocol::Command::PutPrinterProfile { profile, text } = command else {
+        panic!("a put_printer_profile command, got {command:?}");
+    };
+    assert_eq!(profile, None);
+    assert_eq!(
+        text.as_deref(),
+        Some(r#"{"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}"#)
+    );
+}
+
+#[test]
+fn t092_remove_printer_profile_round_trips_and_requires_its_id() {
+    let text = r#"{"type":"remove_printer_profile","id":"my-mk4"}"#;
+    let command: partsmith_protocol::Command =
+        serde_json::from_str(text).expect("the request deserializes");
+    let result = serde_json::to_string(&CommandResult::RemovePrinterProfile)
+        .expect("the result serializes");
+    let schema = schema_json();
+
+    assert_eq!(
+        serde_json::to_string(&command).expect("the request serializes"),
+        text
+    );
+    assert_eq!(result, r#"{"type":"remove_printer_profile"}"#);
+    let branch = variant(&schema, "Command", "type", "remove_printer_profile");
+    let required = branch
+        .get("required")
+        .and_then(Value::as_array)
+        .expect("the branch lists required members");
+    assert!(required.contains(&json!("id")), "{required:?}");
+}
+
+#[test]
+fn t093_the_schema_of_the_stored_profile() {
+    let schema = schema_json();
+    let set_printer = variant(&schema, "Edit", "type", "set_printer");
+    let put_result = variant(&schema, "CommandResult", "type", "put_printer_profile");
+    let mut found = Vec::new();
+
+    references(&schema, &mut found);
+
+    assert!(
+        is_optional_profile(
+            schema
+                .pointer("/$defs/Document/properties/printer_profile")
+                .expect("Document has printer_profile")
+        ),
+        "{}",
+        schema["$defs"]["Document"]["properties"]["printer_profile"]
+    );
+    assert!(
+        is_optional_profile(
+            set_printer
+                .pointer("/properties/profile")
+                .expect("set_printer has profile")
+        ),
+        "{set_printer}"
+    );
+    assert_eq!(
+        put_result.pointer("/properties/profile"),
+        Some(&json!({"$ref": "#/$defs/PrinterProfile"}))
+    );
+    let definitions = schema["$defs"].as_object().expect("$defs is an object");
+    let dangling: Vec<&String> = found
+        .iter()
+        .filter(|reference| {
+            reference
+                .strip_prefix("#/$defs/")
+                .is_none_or(|name| !definitions.contains_key(name))
+        })
+        .collect();
+    assert_eq!(dangling, Vec::<&String>::new());
+}
+
+#[test]
+fn t095_a_set_printer_edit_with_a_profile_round_trips() {
+    let request = json!({"type": "apply_edits", "doc": 1, "label": "Change printer", "edits": [{"type": "set_printer", "printer": "my-mk4", "profile": e11p()}]});
+    let mut extra = e11p();
+    extra["speed"] = json!(1);
+    let with_extra = json!({"type": "apply_edits", "doc": 1, "label": "Change printer", "edits": [{"type": "set_printer", "printer": "my-mk4", "profile": extra}]});
+
+    let command: partsmith_protocol::Command =
+        serde_json::from_value(request.clone()).expect("the request deserializes");
+    let extra_command = serde_json::from_value::<partsmith_protocol::Command>(with_extra);
+
+    assert_eq!(
+        serde_json::to_string(&command).expect("the request serializes"),
+        serde_json::to_string(&request).expect("the JSON serializes")
+    );
+    assert!(extra_command.is_ok(), "{extra_command:?}");
+}
+
+#[test]
+fn t122_the_protocol_schema_leaves_occurrence_free() {
+    let generated = schema_json();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/format/protocol.schema.json");
+    let committed: Value = serde_json::from_str(
+        &std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display())),
+    )
+    .expect("the committed schema is JSON");
+
+    for (name, schema) in [("protocol_schema()", &generated), ("protocol.schema.json", &committed)] {
+        let mut keys = Vec::new();
+        property_keys(schema, &mut keys);
+        assert!(
+            !keys.iter().any(|key| key == "occurrence"),
+            "{name} has a property named occurrence"
+        );
+    }
+}
+
+/// The key of every member of every `properties` object in `value`, at any depth.
+fn property_keys(value: &Value, found: &mut Vec<String>) {
+    match value {
+        Value::Object(members) => {
+            for (key, member) in members {
+                if key == "properties"
+                    && let Some(properties) = member.as_object()
+                {
+                    found.extend(properties.keys().cloned());
+                }
+                property_keys(member, found);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| property_keys(item, found)),
+        _ => {}
+    }
+}

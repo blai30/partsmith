@@ -132,11 +132,15 @@ fn t068_every_edit_example_round_trips() {
             r#"{"type": "set_printer", "printer": "generic-fdm"}"#,
             Edit::SetPrinter {
                 printer: Some("generic-fdm".to_string()),
+                profile: None,
             },
         ),
         (
             r#"{"type": "set_printer"}"#,
-            Edit::SetPrinter { printer: None },
+            Edit::SetPrinter {
+                printer: None,
+                profile: None,
+            },
         ),
     ];
 

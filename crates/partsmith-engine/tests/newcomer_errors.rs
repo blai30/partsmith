@@ -621,3 +621,33 @@ fn t150_nc12_a_hole_beside_the_body_says_where_it_is_and_offers_no_reverse() {
     assert_ok_without_messages(&sent, &["f-sk1", "f-ext1", "f-sk2"]);
     assert_block_volume(&mut session, doc, 120000.0);
 }
+
+// Test 175: a version 2 document that names an unknown profile warns (newcomer error corpus NC13).
+
+#[test]
+fn t175_nc13_a_version_2_document_that_names_an_unknown_profile_warns() {
+    let mut session = session();
+
+    let opened = common::open_text(
+        &mut session,
+        &crate::stored_profiles::box_at_version_2_on_my_printer(),
+    );
+
+    assert_eq!(opened.ok()["migrated_from"], 2);
+    let diagnostics = opened.event("recomputed")["diagnostics"].clone();
+    assert_eq!(
+        diagnostics,
+        json!([{
+            "severity": "warning",
+            "code": "unknown_printer_profile",
+            "message": crate::stored_profiles::unknown_printer_message("my-printer")
+        }])
+    );
+    let doc = common::doc_handle(&opened);
+    assert_eq!(
+        session
+            .printer_profile(common::typed_handle(doc))
+            .expect("the document is open"),
+        "generic-fdm"
+    );
+}

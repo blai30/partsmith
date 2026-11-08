@@ -30,14 +30,31 @@ pub const E7: &str = include_str!("../fixtures/e7_arrays.ptsm");
 pub const E8_OUTPUT: &str = include_str!("../fixtures/e8_normalized.ptsm");
 /// File-format example E10: every field format version 2 adds (3081 bytes).
 pub const E10: &str = include_str!("../fixtures/e10_version_2.ptsm");
+/// File-format example E11: a stored printer profile (588 bytes).
+pub const E11: &str = include_str!("../fixtures/e11_printer_profile.ptsm");
 
-/// A canonical example with its `format_version` line set to `value`, or removed when `value` is `None`.
+/// The `printer_profile` object of E11 (`P` of model.md section 6, `E11P` of engine.md section 6), members in order.
+pub fn e11_profile() -> Map<String, Value> {
+    params(serde_json::json!({
+        "id": "my-mk4",
+        "name": "My MK4",
+        "technology": "fdm",
+        "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
+        "nozzle_diameter": 0.4,
+        "layer_height": 0.15,
+        "max_overhang_angle": 0.7853981633974483,
+        "max_bridge_length": 10,
+        "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
+    }))
+}
+
+/// A canonical example with its `format_version` line (line 3) set to `value`, or removed when `value` is `None`.
 pub fn with_format_version(text: &str, value: Option<&str>) -> String {
     let line = |value: &str| format!("  \"format_version\": {value},\n");
     let current = line(&FORMAT_VERSION.to_string());
     assert!(
         text.contains(&current),
-        "the text has no canonical format_version line"
+        "the text has no format_version line at the current version {FORMAT_VERSION}"
     );
     text.replacen(&current, &value.map_or(String::new(), line), 1)
 }

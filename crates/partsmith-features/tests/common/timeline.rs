@@ -62,7 +62,7 @@ impl Timeline {
             .collect();
         let text = json!({
             "format": "partsmith",
-            "format_version": 2,
+            "format_version": 3,
             "units": "mm",
             "parameters": parameters,
             "bodies": bodies,

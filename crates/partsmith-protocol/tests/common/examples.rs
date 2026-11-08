@@ -2,7 +2,7 @@
 //! The last group, `ENGINE_EXAMPLES`, holds engine-filled records: compact uses, causes, messages and repairs as the engine writes them (engine.md and the corpora), which are not spec examples of this crate.
 
 /// Every command type of section 2.5, in the order of test 34.
-pub const COMMAND_TYPES: [&str; 35] = [
+pub const COMMAND_TYPES: [&str; 36] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -38,6 +38,7 @@ pub const COMMAND_TYPES: [&str; 35] = [
     "set_document_units",
     "list_uses",
     "attach_plane",
+    "remove_printer_profile",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -98,16 +99,17 @@ pub const ERROR_CODES: [&str; 40] = [
 pub const STALE_FIX_MESSAGE: &str = "This fix no longer applies because the document changed after it was offered. Look at the problem again.";
 
 /// Requests for the command types that section 2.5 lists without a request example (field lists from section 2.5).
-pub const SUPPLEMENTARY_COMMANDS: [&str; 5] = [
+pub const SUPPLEMENTARY_COMMANDS: [&str; 6] = [
     r#"{"type": "close_document", "doc": 1}"#,
     r#"{"type": "cancel_transaction", "doc": 1}"#,
     r#"{"type": "undo", "doc": 1}"#,
     r#"{"type": "redo", "doc": 1}"#,
     r#"{"type": "end_sketch_drag", "doc": 1, "feature": "f-sk1", "commit": true}"#,
+    REMOVE_PRINTER_PROFILE_REQUEST,
 ];
 
 /// Results for the command types that section 2.5 lists without a result example (field lists from section 2.5; sketch and element values from other spec examples).
-pub const SUPPLEMENTARY_RESULTS: [&str; 8] = [
+pub const SUPPLEMENTARY_RESULTS: [&str; 9] = [
     r#"{"type": "close_document"}"#,
     r#"{"type": "set_focus"}"#,
     r#"{"type": "cancel_transaction", "revision": 8}"#,
@@ -116,6 +118,7 @@ pub const SUPPLEMENTARY_RESULTS: [&str; 8] = [
     r#"{"type": "solve_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=10,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}"#,
     r#"{"type": "end_sketch_drag", "revision": 9}"#,
     r#"{"type": "list_elements", "elements": [{"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}]}"#,
+    REMOVE_PRINTER_PROFILE_RESULT,
 ];
 
 /// The `internal_error` outcome of section 2.8, with the panic text in `detail`.
@@ -136,7 +139,7 @@ pub const ERROR_OUTCOMES: [&str; 4] = [
 pub const DRAG_SOLUTION: &str = r#"{"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (20, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=20,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}"#;
 
 /// The `unknown_printer_profile` diagnostic example of section 2.4: a document message without field, suggestion or any of the newer fields.
-pub const UNKNOWN_PRINTER_DIAGNOSTIC: &str = r#"{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."}"#;
+pub const UNKNOWN_PRINTER_DIAGNOSTIC: &str = r#"{"severity": "warning", "code": "unknown_printer_profile", "message": "Printer profile \"my-printer\" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one."}"#;
 
 /// The `fillet_too_large` diagnostic example of section 2.4.
 pub const FILLET_DIAGNOSTIC: &str = r#"{"severity": "error", "code": "fillet_too_large", "message": "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm.", "field": "/radius", "suggestion": "2.3 mm"}"#;
@@ -195,6 +198,18 @@ pub const REGION_REPAIR: &str = r#"{"kind":"region","path":"/profile/regions/0",
 /// The `put_printer_profile` request example of section 2.5: a profile in the input form.
 pub const PUT_PRINTER_PROFILE_REQUEST: &str = r#"{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}}"#;
 
+/// The second `put_printer_profile` request example of section 2.5: the same profile as JSON text (ADR 0062).
+pub const PUT_PRINTER_PROFILE_TEXT_REQUEST: &str = r#"{"type": "put_printer_profile", "text": "{\"id\": \"my-mk4\", \"name\": \"My MK4\", \"technology\": \"fdm\", \"layer_height\": 0.15}"}"#;
+
+/// The `put_printer_profile` result example of section 2.5: the session profile in the written form.
+pub const PUT_PRINTER_PROFILE_RESULT: &str = r#"{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.15, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}}"#;
+
+/// The `remove_printer_profile` request example of section 2.5 (command 36).
+pub const REMOVE_PRINTER_PROFILE_REQUEST: &str = r#"{"type": "remove_printer_profile", "id": "my-mk4"}"#;
+
+/// The `remove_printer_profile` result example of section 2.5.
+pub const REMOVE_PRINTER_PROFILE_RESULT: &str = r#"{"type": "remove_printer_profile"}"#;
+
 /// The `list_printer_profiles` result example of section 2.5: `generic-fdm` in the written form.
 pub const LIST_PRINTER_PROFILES_RESULT: &str = r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#;
 
@@ -232,7 +247,7 @@ pub const LIST_USES_REQUEST: &str = r#"{"type": "list_uses", "doc": 1}"#;
 pub const LIST_USES_RESULT: &str = r#"{"type": "list_uses", "uses": [{"user": "f-ext1", "field": "/profile/sketch", "feature": "f-sk1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"}]}"#;
 
 /// The `document_changed` event example of section 2.7: a dirty document after an edit, with `bare_numbers` last.
-pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#;
+pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#;
 
 /// The mesh of the first `body_mesh` event example in section 2.7.
 pub const BOX_MESH: &str = r#"{"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "vertex_ids": 7, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}"#;
@@ -273,7 +288,7 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
     r#"{"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}"#,
     r#"{"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}"#,
     r#"{"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}"#,
-    r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}"#,
+    r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}"#,
     DOCUMENT_CHANGED_EVENT,
     r#"{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}"#,
     SKETCH_SOLVED_EVENT,
@@ -284,11 +299,12 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
 ];
 
 /// The command examples of section 2.5 (request side), in spec order.
-pub const COMMAND_EXAMPLES: [&str; 35] = [
+pub const COMMAND_EXAMPLES: [&str; 36] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
     PUT_PRINTER_PROFILE_REQUEST,
+    PUT_PRINTER_PROFILE_TEXT_REQUEST,
     r#"{"type": "new_document", "units": "mm"}"#,
     r#"{"type": "open_document", "text": "{\n  \"format\": \"partsmith\",\n  ...\n}\n", "assets": []}"#,
     r#"{"type": "save_document", "doc": 1}"#,
@@ -324,14 +340,14 @@ pub const COMMAND_EXAMPLES: [&str; 35] = [
 
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
 pub const RESULT_EXAMPLES: [&str; 29] = [
-    r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}"#,
+    r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 3, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     LIST_PRINTER_PROFILES_RESULT,
-    r#"{"type": "put_printer_profile"}"#,
+    PUT_PRINTER_PROFILE_RESULT,
     r#"{"type": "new_document", "doc": 1}"#,
     r#"{"type": "open_document", "doc": 2}"#,
-    r#"{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 2,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}"#,
-    r#"{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}"#,
+    r#"{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 3,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}"#,
+    r#"{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}"#,
     r#"{"type": "mark_saved"}"#,
     r#"{"type": "apply_edits", "revision": 4}"#,
     r#"{"type": "rename_parameter", "revision": 5}"#,

@@ -1,6 +1,6 @@
 {
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [
     {"id": "p-w", "name": "w", "expr": "8 mm"}

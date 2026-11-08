@@ -314,7 +314,7 @@ mod tests {
 
         assert_eq!(
             text,
-            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":2,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false,"bare_numbers":0}"#
+            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":3,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false,"bare_numbers":0}"#
         );
     }
 

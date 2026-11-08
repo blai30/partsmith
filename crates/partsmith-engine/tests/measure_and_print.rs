@@ -810,3 +810,33 @@ fn t165_the_smallest_box_is_measured_with_its_center_of_mass() {
 
     assert_small_cube_measured(&measured, partsmith_model::LINEAR_TOLERANCE);
 }
+
+// Test 192: print analysis uses the stored profile.
+
+#[test]
+fn t192_print_analysis_uses_the_stored_profile() {
+    let mut session = common::session();
+    crate::stored_profiles::put_profile(
+        &mut session,
+        json!({"id": "my-mk4", "name": "Tiny", "technology": "fdm", "bed": {"kind": "rectangle", "width": 10, "depth": 10, "height": 10}}),
+    )
+    .ok();
+    let doc = common::doc_handle(&common::open(&mut session, "custom-printer.ptsm"));
+
+    let analyzed = send(
+        &mut session,
+        json!({"type": "analyze_print", "doc": doc, "profile": "my-mk4", "orientation": {"kind": "as_modeled"}}),
+    );
+
+    analyzed.ok();
+    let report = &analyzed.event("print_health")["report"];
+    assert_eq!(report["profile"], "my-mk4");
+    let checks = report["bodies"][0]["report"]["checks"]
+        .as_array()
+        .expect("body reports list checks");
+    let bed_fit = checks
+        .iter()
+        .find(|check| check["check"] == "bed_fit")
+        .expect("the report has a bed_fit check");
+    assert_eq!(bed_fit["status"], "ok", "{bed_fit}");
+}

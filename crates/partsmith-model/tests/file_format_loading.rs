@@ -23,7 +23,7 @@ const SHUFFLED: &str = r##"{
   ],
   "printer": "generic-fdm",
   "units": "mm",
-  "format_version": 2,
+  "format_version": 3,
   "format": "partsmith"
 }
 "##;
@@ -31,7 +31,7 @@ const SHUFFLED: &str = r##"{
 /// `SHUFFLED` after loading and saving: keys in declaration order, params in file order.
 const SHUFFLED_SAVED: &str = r##"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "printer": "generic-fdm",
   "parameters": [
@@ -71,7 +71,7 @@ fn t014_keys_are_written_in_declaration_order() {
 
 #[test]
 fn t015_missing_lists_are_empty() {
-    let document = load_document(r#"{"format": "partsmith", "format_version": 2, "units": "mm"}"#);
+    let document = load_document(r#"{"format": "partsmith", "format_version": 3, "units": "mm"}"#);
 
     assert!(document.parameters.is_empty());
     assert!(document.bodies.is_empty());
@@ -210,19 +210,19 @@ fn t022_format_version_must_be_a_whole_number() {
 
 #[test]
 fn t023_newer_and_older_format_versions() {
-    let newer = load(&with_format_version(E1, Some("3")));
+    let newer = load(&with_format_version(E1, Some("4")));
     let older = load(&with_format_version(E1, Some("0")));
 
     assert_eq!(
         newer,
         Err(LoadError::NewerFormatVersion {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         })
     );
     assert_eq!(
-        newer.expect_err("version 3 is newer").to_string(),
-        "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
+        newer.expect_err("version 4 is newer").to_string(),
+        "This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it."
     );
     assert_eq!(
         older,

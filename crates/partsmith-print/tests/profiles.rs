@@ -661,3 +661,196 @@ proptest! {
         prop_assert_eq!(parsed.and_then(|parsed| parsed.to_json()), Ok(text));
     }
 }
+
+// Stored profiles (section 3.1, "Stored profiles", tests 128 to 135).
+
+/// `E11P`: the `printer_profile` object of file-format.md's E11, the written form of `MK4_INPUT`.
+fn stored_profile() -> serde_json::Map<String, Value> {
+    match serde_json::json!({
+        "id": "my-mk4",
+        "name": "My MK4",
+        "technology": "fdm",
+        "bed": {"kind": "rectangle", "width": 250, "depth": 210, "height": 220},
+        "nozzle_diameter": 0.4,
+        "layer_height": 0.15,
+        "max_overhang_angle": 0.7853981633974483,
+        "max_bridge_length": 10,
+        "fit": {"press": 0.05, "snug": 0.1, "slip": 0.15, "loose": 0.3}
+    }) {
+        Value::Object(map) => map,
+        _ => unreachable!("the literal is an object"),
+    }
+}
+
+/// `E11P` without the members `fields`.
+fn stored_profile_without(fields: &[&str]) -> serde_json::Map<String, Value> {
+    let mut profile = stored_profile();
+    for field in fields {
+        assert!(profile.shift_remove(*field).is_some(), "E11P has {field}");
+    }
+    profile
+}
+
+/// The error `from_written` gives for `value`.
+#[track_caller]
+fn written_error(value: &serde_json::Map<String, Value>) -> ProfileError {
+    PrinterProfile::from_written(value).expect_err("the stored profile is refused")
+}
+
+#[test]
+fn t128_from_written_reads_e11p_like_from_json() {
+    let text = serde_json::to_string(&stored_profile()).expect("E11P serializes");
+
+    let profile = PrinterProfile::from_written(&stored_profile()).expect("E11P is complete");
+
+    assert_eq!(profile, profile_from_json(&text));
+    assert_eq!(
+        partsmith_model::canonical::to_value(&profile).expect("the profile serializes"),
+        Value::Object(stored_profile())
+    );
+}
+
+#[test]
+fn t129_member_order_does_not_matter() {
+    let reversed: serde_json::Map<String, Value> = stored_profile().into_iter().rev().collect();
+
+    let profile = PrinterProfile::from_written(&reversed).expect("the order is free");
+
+    assert_eq!(
+        profile,
+        PrinterProfile::from_written(&stored_profile()).expect("E11P is complete")
+    );
+}
+
+#[test]
+fn t130_a_resin_profile_without_a_nozzle_is_complete() {
+    let written: Value = serde_json::from_str(
+        &generic_resin()
+            .to_json()
+            .expect("the built-in profile is valid"),
+    )
+    .expect("to_json writes JSON");
+    let Value::Object(map) = written else {
+        panic!("the written form is an object");
+    };
+
+    assert_eq!(PrinterProfile::from_written(&map), Ok(generic_resin()));
+}
+
+#[test]
+fn t131_a_missing_field_is_named() {
+    let error = written_error(&stored_profile_without(&["layer_height"]));
+
+    assert_eq!(
+        error,
+        ProfileError::MissingField {
+            field: "layer_height"
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "The printer profile has no layer_height. Add layer_height: a profile stored in a document lists every value."
+    );
+}
+
+#[test]
+fn t132_the_first_missing_field_in_the_order_of_section_3_1() {
+    assert_eq!(
+        written_error(&stored_profile_without(&["fit", "bed"])),
+        ProfileError::MissingField { field: "bed" }
+    );
+}
+
+#[test]
+fn t133_a_missing_fit_class_is_named_with_its_class() {
+    let mut profile = stored_profile();
+    profile.insert(
+        "fit".to_string(),
+        serde_json::json!({"press": 0.05, "snug": 0.1, "slip": 0.15}),
+    );
+
+    assert_eq!(
+        written_error(&profile),
+        ProfileError::MissingField { field: "fit.loose" }
+    );
+}
+
+#[test]
+fn t134_a_missing_nozzle_on_fdm_is_named() {
+    assert_eq!(
+        written_error(&stored_profile_without(&["nozzle_diameter"])),
+        ProfileError::MissingField {
+            field: "nozzle_diameter"
+        }
+    );
+}
+
+#[test]
+fn t135_the_form_comes_first_and_the_rules_last() {
+    let mut extra = stored_profile();
+    extra.insert("speed".to_string(), serde_json::json!(100));
+    let mut too_tall = stored_profile();
+    too_tall.insert("layer_height".to_string(), serde_json::json!(0.5));
+
+    let form_error = written_error(&extra);
+    let rule_error = written_error(&too_tall);
+
+    assert!(
+        matches!(form_error, ProfileError::Json { .. }),
+        "expected a JSON error, got {form_error:?}"
+    );
+    assert!(
+        form_error
+            .to_string()
+            .starts_with("The printer profile could not be read: "),
+        "{form_error}"
+    );
+    assert_eq!(
+        rule_error,
+        ProfileError::LayerTallerThanNozzle {
+            layer_height: 0.5,
+            nozzle_diameter: 0.4
+        }
+    );
+    assert_eq!(
+        rule_error.to_string(),
+        "Layer height 0.5 mm is larger than the 0.4 mm nozzle. Use a layer height of 0.4 mm or less."
+    );
+}
+
+#[test]
+fn from_written_checks_the_fit_classes_in_their_order() {
+    let mut profile = stored_profile();
+    profile.insert("fit".to_string(), serde_json::json!({"loose": 0.3}));
+
+    assert_eq!(
+        written_error(&profile),
+        ProfileError::MissingField { field: "fit.press" }
+    );
+}
+
+#[test]
+fn from_written_takes_no_default_from_a_generic_profile() {
+    let profile = PrinterProfile::from_written(&stored_profile()).expect("E11P is complete");
+
+    assert_ne!(profile.bed, generic_fdm().bed);
+    assert_eq!(profile.layer_height, 0.15);
+}
+
+#[test]
+fn from_written_drops_a_null_nozzle_of_a_resin_profile() {
+    let written: Value = serde_json::from_str(
+        &generic_resin()
+            .to_json()
+            .expect("the built-in profile is valid"),
+    )
+    .expect("to_json writes JSON");
+    let Value::Object(mut map) = written else {
+        panic!("the written form is an object");
+    };
+    map.insert("nozzle_diameter".to_string(), Value::Null);
+
+    let profile = PrinterProfile::from_written(&map).expect("null means absent");
+
+    assert_eq!(profile, generic_resin());
+}

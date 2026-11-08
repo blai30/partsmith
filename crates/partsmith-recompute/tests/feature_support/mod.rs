@@ -177,7 +177,7 @@ pub fn document_text(
 ) -> String {
     let bodies: Vec<String> = bodies.iter().map(|body| body_json(body)).collect();
     format!(
-        r#"{{"format": "partsmith", "format_version": 2, "units": "{units}", "parameters": [{}], "bodies": [{}], "features": [{}]}}"#,
+        r#"{{"format": "partsmith", "format_version": 3, "units": "{units}", "parameters": [{}], "bodies": [{}], "features": [{}]}}"#,
         parameters.join(", "),
         bodies.join(", "),
         features.join(", "),

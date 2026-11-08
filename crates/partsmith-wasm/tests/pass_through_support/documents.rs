@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 fn body_1_text(parameters: Vec<Value>, features: Vec<Value>) -> String {
     let document = json!({
         "format": "partsmith",
-        "format_version": 2,
+        "format_version": 3,
         "units": "mm",
         "parameters": parameters,
         "bodies": [{"id": "b-1", "name": "Body 1"}],
@@ -168,7 +168,7 @@ pub fn e10_at_version(version: u32) -> String {
 /// CUBE10 with a linear pattern of 2.5 copies along X (features/linear_pattern.md test 6): `f-lp1` fails with `not_whole_number` and offers `Use 2` and `Use 3` (engine.md test 126).
 pub const FRACTIONAL_PATTERN_TEXT: &str = r#"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -197,7 +197,7 @@ pub fn use_three() -> Value {
 /// Corpus R16 after its edit (engine.md test 115): CUBE20 with a 5 x 5 rabbet ('Sketch 1' and 'Extrude 1') inserted before the fillet of its front top edge, so `f-fil1` fails with `references_not_found` and an element repair whose candidates are the rabbet's edges.
 pub const CUT_AWAY_EDGE_TEXT: &str = r#"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -288,7 +288,7 @@ pub fn sketch_on_moved_top(frame: Option<&str>) -> String {
 /// features/sketch.md test 5 after a Move body (engine.md test 135): CUBE10 moved by (100, 0, 0), then a sketch `f-sk1` with the point `e-p1` on a face the cube does not have, its fallback at (3, 4, 0) in body coordinates, so it stands at its saved position, world (103, 4, 0), and offers to attach to the cube's faces.
 pub const LOST_FACE_ON_A_MOVED_CUBE_TEXT: &str = r#"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
@@ -319,7 +319,7 @@ pub const LOST_FACE_ON_A_MOVED_CUBE_TEXT: &str = r#"{
 /// Corpus R32 (b) after its edit (features/sketch.md test 24, engine.md tests 126 and 135): BLOCK with 'Extrude 1' reversed, so its end cap is the bottom at z = -30, facing -Z, and a face sketch `f-sk2` on that cap with its world fallback at (0, 0, 30) and the point `e-p1` at (20, 10), where the hole `f-hole1` of diameter 5 and depth 10 misses the body because the drawing lies mirrored on the turned-over face.
 pub const TURNED_OVER_TOP_TEXT: &str = r#"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [

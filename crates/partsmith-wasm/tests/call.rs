@@ -43,6 +43,7 @@ fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions
     assert_eq!(result["protocol_version"], 1);
     assert_eq!(result["engine_version"], ENGINE_VERSION);
     assert_eq!(result["format_version"], FORMAT_VERSION);
+    assert_eq!(result["format_version"], 3);
 }
 
 #[test]

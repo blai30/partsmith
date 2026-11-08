@@ -1,5 +1,5 @@
-//! Acceptance tests 146 to 149 of `docs/spec/engine.md` section 6: error texts with their details and actions, the
-//! actions of `transaction_open`, format version 1 texts, and invalid params in edits (section 4).
+//! Acceptance tests 146 to 149 and 171 of `docs/spec/engine.md` section 6: error texts with their details and actions,
+//! the actions of `transaction_open`, format version 1 and 2 texts, and invalid params in edits (section 4).
 //!
 //! Test 150 (the newcomer error corpus) lives in `newcomer_errors.rs`, the file the spec names for it, and test 151
 //! (determinism with causes and ghosts) in `frames_and_determinism.rs`, beside test 98, whose requests it extends.
@@ -78,12 +78,12 @@ fn t146_invalid_json_says_where_and_keeps_the_parser_text_in_the_detail() {
 fn t146_a_newer_format_version_names_both_versions() {
     let mut session = session();
 
-    let sent = open_text(&mut session, &box_at_version(3));
+    let sent = open_text(&mut session, &box_at_version(4));
 
     assert_eq!(sent.error_code(), "unsupported_format_version");
     assert_eq!(
         sent.error_message(),
-        "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
+        "This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it."
     );
 }
 
@@ -211,16 +211,17 @@ fn t147_the_typed_error_offers_the_same_action() {
 
 // Test 148: format version 1 texts.
 
-#[test]
-fn t148_a_version_1_text_opens_migrated_and_saves_at_version_2() {
+/// Opens `box.ptsm` at `version`, checks it migrated from that version, and checks that `save_document` gives the
+/// fixture text, which differs from the input only in its `format_version` line.
+fn assert_migrates_from(version: u32) {
     let mut session = session();
-    let old = box_at_version(1);
+    let old = box_at_version(version);
 
     let opened = session
         .open_document(&old, Vec::new())
-        .expect("a version 1 text opens");
+        .unwrap_or_else(|error| panic!("a version {version} text opens: {error}"));
 
-    assert_eq!(opened.migrated_from, Some(1));
+    assert_eq!(opened.migrated_from, Some(version));
     let doc = u64::from(opened.doc.0);
     let saved = saved_text(&mut session, doc);
     assert_eq!(saved, fixture("box.ptsm"));
@@ -229,24 +230,37 @@ fn t148_a_version_1_text_opens_migrated_and_saves_at_version_2() {
         .zip(saved.lines())
         .filter(|(before, after)| before != after)
         .collect();
+    let before = format!(r#"  "format_version": {version},"#);
     assert_eq!(
         differing,
-        [(r#"  "format_version": 1,"#, r#"  "format_version": 2,"#)]
+        [(before.as_str(), r#"  "format_version": 3,"#)]
     );
 }
 
 #[test]
-fn t148_new_documents_and_engine_info_are_at_version_2() {
+fn t148_a_version_1_text_opens_migrated_and_saves_at_version_3() {
+    assert_migrates_from(1);
+}
+
+#[test]
+fn t148_new_documents_and_engine_info_are_at_version_3() {
     let mut session = session();
 
     let doc = new_doc(&mut session);
 
     assert_eq!(
         get_document(&mut session, doc)["document"]["format_version"],
-        2
+        3
     );
     let info = send(&mut session, json!({"type": "engine_info"}));
-    assert_eq!(info.ok()["format_version"], 2);
+    assert_eq!(info.ok()["format_version"], 3);
+}
+
+// Test 171: format version 2 texts.
+
+#[test]
+fn t171_a_version_2_text_opens_migrated_and_saves_at_version_3() {
+    assert_migrates_from(2);
 }
 
 // Test 149: invalid params in edits.

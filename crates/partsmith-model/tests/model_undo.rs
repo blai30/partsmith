@@ -290,6 +290,7 @@ fn t086_record_adds_a_transaction_applied_by_the_caller() {
         "Set printer",
         vec![Edit::SetPrinter {
             printer: Some("generic-fdm".to_string()),
+            profile: None,
         }],
     )
     .expect("the commit applies");

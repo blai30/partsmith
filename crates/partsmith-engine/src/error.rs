@@ -598,9 +598,9 @@ mod tests {
 
     #[test]
     fn unsupported_format_versions_show_the_model_message() {
-        let message = "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it.";
+        let message = "This file uses format version 4, which is newer than this version of Partsmith supports (up to 3). Update Partsmith to open it.";
         let error = EngineError::UnsupportedFormatVersion {
-            found: 3,
+            found: 4,
             message: message.to_string(),
         };
 

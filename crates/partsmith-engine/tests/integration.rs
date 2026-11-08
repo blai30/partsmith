@@ -21,5 +21,6 @@ mod reference_causes;
 mod references_and_validation;
 mod regressions;
 mod sketches;
+mod stored_profiles;
 mod transactions_and_rollback;
 mod validation_and_catalog;

@@ -323,14 +323,19 @@ fn t064_set_units_and_printer() {
     );
     assert_eq!(
         document.apply(Edit::SetPrinter {
-            printer: Some("generic-fdm".to_string())
+            printer: Some("generic-fdm".to_string()),
+            profile: None,
         }),
-        Ok(Edit::SetPrinter { printer: None })
+        Ok(Edit::SetPrinter {
+                printer: None,
+                profile: None,
+            })
     );
     // Spec conflict: "\t" is whitespace only, which section 3.4 reports as Empty before it looks for control characters.
     assert_eq!(
         document.apply(Edit::SetPrinter {
-            printer: Some("\t".to_string())
+            printer: Some("\t".to_string()),
+            profile: None,
         }),
         Err(EditError::InvalidLabel(LabelError::Empty {
             field: LabelField::Printer
@@ -338,7 +343,8 @@ fn t064_set_units_and_printer() {
     );
     assert_eq!(
         document.apply(Edit::SetPrinter {
-            printer: Some("generic\tfdm".to_string())
+            printer: Some("generic\tfdm".to_string()),
+            profile: None,
         }),
         Err(EditError::InvalidLabel(LabelError::ControlCharacter {
             field: LabelField::Printer
@@ -456,12 +462,14 @@ fn t065_failing_edits_leave_the_document_unchanged() {
             d1(),
             Edit::SetPrinter {
                 printer: Some("\t".to_string()),
+                profile: None,
             },
         ),
         (
             d1(),
             Edit::SetPrinter {
                 printer: Some("generic\tfdm".to_string()),
+                profile: None,
             },
         ),
     ];
@@ -525,6 +533,7 @@ fn t066_every_edit_variant_round_trips_through_its_inverse() {
         Edit::SetUnits { units: Units::Cm },
         Edit::SetPrinter {
             printer: Some("generic-resin".to_string()),
+            profile: None,
         },
     ];
     assert_eq!(edits.len(), 15);
@@ -651,7 +660,10 @@ fn edit_strategy() -> impl Strategy<Value = Edit> {
         (id_strategy(), index_strategy()).prop_map(|(id, index)| Edit::MoveFeature { id, index }),
         prop::option::of(id_strategy()).prop_map(|rollback| Edit::SetRollback { rollback }),
         prop::sample::select(Units::ALL.to_vec()).prop_map(|units| Edit::SetUnits { units }),
-        prop::option::of(label_strategy()).prop_map(|printer| Edit::SetPrinter { printer }),
+        prop::option::of(label_strategy()).prop_map(|printer| Edit::SetPrinter {
+            printer,
+            profile: None,
+        }),
     ]
 }
 

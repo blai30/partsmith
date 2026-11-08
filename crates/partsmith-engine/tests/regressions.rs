@@ -245,7 +245,7 @@ fn an_unknown_printer_is_a_warning_of_recompute_and_export() {
     assert_eq!(diagnostics[0]["severity"], "warning");
     assert_eq!(
         diagnostics[0]["message"],
-        "Printer profile \"shop-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer."
+        "Printer profile \"shop-printer\" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one."
     );
     assert_eq!(
         codes(&exported.ok()["warnings"]),

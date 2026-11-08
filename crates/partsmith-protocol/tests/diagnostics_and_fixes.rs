@@ -38,7 +38,7 @@ use std::collections::BTreeSet;
 const R16_MESSAGE: &str = "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet.";
 
 /// The `unknown_printer_profile` message of section 2.4.
-const PRINTER_MESSAGE: &str = "Printer profile \"my-printer\" is not installed, so the default FDM profile is used. Install it or pick another printer.";
+const PRINTER_MESSAGE: &str = "Printer profile \"my-printer\" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one.";
 
 /// An `apply` action whose message has no field (test 74).
 const APPLY_WITHOUT_FIELD: &str = r#"{"label": "Put it in a new body", "run": {"kind": "apply", "fix": {"feature": "f-ext2", "code": "body_empty", "cause": false, "index": 0, "revision": 4}}}"#;

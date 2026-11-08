@@ -179,7 +179,7 @@ mod tests {
     /// A millimeter document with one body and these features.
     fn document(features: Vec<FeatureRecord>) -> Document {
         let mut document: Document = serde_json::from_value(json!({
-            "format": "partsmith", "format_version": 2, "units": "mm",
+            "format": "partsmith", "format_version": 3, "units": "mm",
             "bodies": [{"id": "b-1", "name": "Body 1"}]
         }))
         .expect("a well-formed document");

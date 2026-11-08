@@ -8,7 +8,10 @@ use partsmith_model::{
     Dimension, EvaluationContext, Expr, ExprErrorKind, LINEAR_TOLERANCE, ParameterValues, Quantity,
     Scope, Units,
 };
-use partsmith_print::{CheckThresholds, PrinterValues};
+use partsmith_print::{CheckThresholds, PrinterProfile, PrinterValues};
+
+/// The reason of `printer.nozzle` on `generic_resin()` (section 3.5, test 136).
+const RESIN_NOZZLE_REASON: &str = "printer.nozzle has no value with 'Generic resin MSLA', a resin printer with no nozzle. Pick an FDM printer, or write a length instead.";
 
 /// Five degrees in radians, as section 3.4 computes it.
 const FIVE_DEGREES: f64 = 0.08726646259971647;
@@ -133,8 +136,9 @@ fn t027_expressions_evaluate_against_printer_values() {
         .expect_err("resin printers have no nozzle value");
     assert_eq!(
         error.kind,
-        ExprErrorKind::UnknownValue {
-            name: "printer.nozzle".to_string()
+        ExprErrorKind::UnavailableValue {
+            name: "printer.nozzle".to_string(),
+            reason: RESIN_NOZZLE_REASON.to_string()
         }
     );
 }
@@ -178,4 +182,44 @@ fn t030_fdm_wall_and_feature_limits_follow_the_nozzle() {
 #[test]
 fn t111_weld_tolerance_equals_the_linear_tolerance() {
     assert_eq!(partsmith_mesh::WELD_TOLERANCE, LINEAR_TOLERANCE);
+}
+
+// The reason for `printer.nozzle` (section 3.5, tests 136 to 138).
+
+#[test]
+fn t136_printer_nozzle_on_resin_has_a_reason() {
+    assert_eq!(
+        PrinterValues::new(&resin()).reason("printer.nozzle"),
+        Some(RESIN_NOZZLE_REASON.to_string())
+    );
+}
+
+#[test]
+fn t137_the_reason_names_the_profile() {
+    let mars = PrinterProfile::from_json(r#"{"id": "my-mars", "name": "My Mars", "technology": "resin"}"#)
+        .expect("the profile is valid");
+
+    assert_eq!(
+        PrinterValues::new(&mars).reason("printer.nozzle"),
+        Some(RESIN_NOZZLE_REASON.replace("'Generic resin MSLA'", "'My Mars'"))
+    );
+}
+
+#[test]
+fn t138_no_other_name_has_a_reason() {
+    let resin_values = PrinterValues::new(&resin());
+    let fdm_values = PrinterValues::new(&fdm());
+
+    for name in ["printer.fit.slip", "printer.speed", "printer", "printer.nozzle "] {
+        assert_eq!(resin_values.reason(name), None, "{name:?}");
+    }
+    assert_eq!(fdm_values.reason("printer.nozzle"), None);
+}
+
+#[test]
+fn a_name_with_a_value_resolves_and_has_no_reason() {
+    let fdm_values = PrinterValues::new(&fdm());
+
+    assert!(fdm_values.resolve("printer.nozzle").is_some());
+    assert_eq!(fdm_values.reason("printer.fit.slip"), None);
 }

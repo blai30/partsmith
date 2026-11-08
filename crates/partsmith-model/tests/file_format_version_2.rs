@@ -80,7 +80,8 @@ fn t055_version_2_fields_round_trip_byte_for_byte() {
 
 #[test]
 fn t056_a_build_that_reads_only_version_1_stops_cleanly() {
-    let document: Value = serde_json::from_str(E10).expect("E10 is JSON");
+    let document: Value =
+        serde_json::from_str(&with_format_version(E10, Some("2"))).expect("E10 is JSON");
 
     let result = migrate_with(document, 1, 1, &[]);
 
@@ -140,7 +141,7 @@ fn a_document_in_memory_at_version_1_cannot_be_saved() {
         result
             .expect_err("version 1 is not the version in memory")
             .to_string(),
-        "The document cannot be saved: The document is at format version 1, but documents in memory must be at version 2. Load it from text so it is migrated."
+        "The document cannot be saved: The document is at format version 1, but documents in memory must be at version 3. Load it from text so it is migrated."
     );
 }
 

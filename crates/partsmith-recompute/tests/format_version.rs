@@ -23,8 +23,8 @@ use feature_support::{
 use partsmith_model::{Document, load};
 use partsmith_recompute::Status;
 
-/// The `format_version` line of canonical text at version 2, the current version.
-const VERSION_2_LINE: &str = "  \"format_version\": 2,";
+/// The `format_version` line of canonical text at version 3, the current version (ADR 0061).
+const CURRENT_VERSION_LINE: &str = "  \"format_version\": 3,";
 
 /// The same line as a file written at format version 1 holds it.
 const VERSION_1_LINE: &str = "  \"format_version\": 1,";
@@ -33,8 +33,8 @@ const VERSION_1_LINE: &str = "  \"format_version\": 1,";
 /// line 3, differs from the text `save` writes.
 fn version_1_text(document: &Document) -> String {
     let text = saved(document);
-    assert_eq!(text.lines().nth(2), Some(VERSION_2_LINE), "{text}");
-    text.replacen(VERSION_2_LINE, VERSION_1_LINE, 1)
+    assert_eq!(text.lines().nth(2), Some(CURRENT_VERSION_LINE), "{text}");
+    text.replacen(CURRENT_VERSION_LINE, VERSION_1_LINE, 1)
 }
 
 /// The numbers, counted from 1, of the lines in which `first` and `second` differ.
@@ -139,7 +139,7 @@ fn t057_saving_a_version_1_document_without_edits_changes_only_its_format_versio
 #[test]
 fn t057_at_version_2_with_a_body_frame_the_hole_follows_the_moved_face() {
     let document = moved_box_document(MOVE_BY_100, Some("body"));
-    let loaded = load(&saved(&document)).expect("the version 2 document loads");
+    let loaded = load(&saved(&document)).expect("the version 3 document loads");
     assert_eq!(loaded.migrated_from, None);
 
     let run = Run::new(loaded.document);

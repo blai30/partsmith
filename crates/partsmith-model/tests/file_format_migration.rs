@@ -67,31 +67,42 @@ fn format_version(document: &Value) -> Option<u64> {
 }
 
 #[test]
-fn t039_current_version_is_unchanged_and_version_1_is_brought_to_2() {
+fn t039_the_current_version_is_unchanged_and_versions_1_and_2_are_brought_to_3() {
     let document: Value = serde_json::from_str(E1).expect("E1 is JSON");
     let mut at_version_1 = document.clone();
     at_version_1["format_version"] = json!(1);
+    let mut at_version_2 = document.clone();
+    at_version_2["format_version"] = json!(2);
 
+    assert_eq!(format_version(&document), Some(3));
     assert_eq!(migrate(document.clone()), Ok((document.clone(), None)));
-    assert_eq!(migrate(at_version_1), Ok((document, Some(1))));
+    assert_eq!(migrate(at_version_1), Ok((document.clone(), Some(1))));
+    assert_eq!(migrate(at_version_2), Ok((document, Some(2))));
+}
+
+/// The built-in step from `from`.
+fn built_in_step(from: u32) -> MigrationStep {
+    *MIGRATIONS
+        .iter()
+        .find(|step| step.from == from)
+        .unwrap_or_else(|| panic!("the built-in chain has no step from {from}"))
 }
 
 #[test]
-fn the_built_in_step_from_version_1_keeps_params_it_does_not_know() {
-    let [step] = MIGRATIONS else {
-        panic!("the built-in chain has {} steps, not one", MIGRATIONS.len());
-    };
-    let document = json!({
-        "format": "partsmith",
-        "format_version": 1,
-        "units": "mm",
-        "features": [
-            {"id": "f-1", "type": "gear_demo", "nb": "not a map", "merged": [1, 2], "teeth": 12}
-        ]
-    });
+fn the_built_in_steps_keep_params_they_do_not_know() {
+    for from in [1, 2] {
+        let step = built_in_step(from);
+        let document = json!({
+            "format": "partsmith",
+            "format_version": from,
+            "units": "mm",
+            "features": [
+                {"id": "f-1", "type": "gear_demo", "nb": "not a map", "merged": [1, 2], "teeth": 12}
+            ]
+        });
 
-    assert_eq!(step.from, 1);
-    assert_eq!((step.migrate)(document.clone()), Ok(document));
+        assert_eq!((step.migrate)(document.clone()), Ok(document), "step from {from}");
+    }
 }
 
 #[test]

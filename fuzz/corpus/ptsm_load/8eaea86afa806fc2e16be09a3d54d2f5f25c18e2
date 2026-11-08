@@ -1,0 +1,36 @@
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10 mm", "10 mm", "10 mm"], "op": "new"},
+    {"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100 mm", "0 mm", "0 mm"]},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-1",
+      "size": ["10 mm", "10 mm", "20 mm"],
+      "position": ["100 mm", "8 mm", "0 mm"],
+      "op": "join"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/nothing", "fp": "plane|n=0,0,1|c=500,500,500|a=1"},
+        "fallback": {"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-p1", "type": "point", "position": [0, 0]}
+      ],
+      "constraints": []
+    }
+  ]
+}

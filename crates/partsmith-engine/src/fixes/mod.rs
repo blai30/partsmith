@@ -323,7 +323,7 @@ mod tests {
             }));
         }
         json!({
-            "format": "partsmith", "format_version": 2, "units": "mm", "parameters": [],
+            "format": "partsmith", "format_version": 3, "units": "mm", "parameters": [],
             "bodies": [{"id": "b-1", "name": "Body 1"}], "features": features
         })
         .to_string()

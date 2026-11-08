@@ -29,7 +29,7 @@ fn a_message_with_fix_actions_passes_through_unchanged() {
 /// BLOCK's region picked before its right side `e-2` was deleted and its bottom `e-1` was drawn on to x = 200 under a second outline: the stored region now matches two separate areas, so `f-ext1` fails with `profile_not_found` and a region repair with both areas as candidates (engine.md test 119; sketch.md section 3.14 matches regions from the sketch alone, so the text gives the same repair opened fresh).
 const TWO_AREAS_TEXT: &str = r#"{
   "format": "partsmith",
-  "format_version": 2,
+  "format_version": 3,
   "units": "mm",
   "parameters": [],
   "bodies": [
