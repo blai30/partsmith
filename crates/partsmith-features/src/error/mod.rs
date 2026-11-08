@@ -23,7 +23,7 @@ pub use describe::{
 };
 pub use field::FieldRef;
 pub use fix::{Fix, Place};
-pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
+pub use loss::{ChainLost, Loss, LossCandidate, RegionLost, Repair, Severity};
 pub use message::{
     Bound, DocumentNames, FallbackCause, IgnoredReason, ImportContent, Names, NoEffectHow, Noun,
     Placed, format_value,
@@ -34,8 +34,9 @@ pub use warning::FeatureWarning;
 
 use message::{format_bound, format_value_near, plural};
 use render::{
-    Entry, Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
-    region_matches_text, region_reasons, selected_for,
+    Entry, Renderer, capitalized, chain_detail, chain_fixes, chain_reason, entry_pointer,
+    loss_fixes, lost_reference_text, region_gone_text, region_matches_text, region_reasons,
+    selected_for,
 };
 use too_large::{Subject, TooLarge};
 
@@ -243,6 +244,15 @@ pub enum FeatureError {
         sketch: Id,
         /// One lost region per stored region.
         regions: Vec<RegionLost>,
+    },
+    /// No chain of a chain profile resolves; every chain is kept, in list order (M2, section 3.16).
+    ChainNotFound {
+        /// The chain profile field.
+        field: FieldRef,
+        /// The sketch.
+        sketch: Id,
+        /// One lost chain per stored chain.
+        chains: Vec<ChainLost>,
     },
     /// A face used as a plane is not flat.
     NotPlanar {
@@ -545,6 +555,27 @@ impl FeatureError {
                     region_reasons(regions)
                 ),
             },
+            FeatureError::ChainNotFound {
+                field,
+                sketch,
+                chains,
+            } => {
+                let reason = chains
+                    .first()
+                    .map(|lost| chain_reason(renderer, sketch, &lost.loss))
+                    .unwrap_or_default();
+                let sketch = renderer.quoted_feature(sketch);
+                match chains.len() {
+                    1 => format!(
+                        "The curves of {sketch} selected for {} cannot be used because {reason}.",
+                        field.label
+                    ),
+                    count => format!(
+                        "None of the {count} chains of curves of {sketch} selected for {} can be used. The curves of the first cannot be used because {reason}.",
+                        field.label
+                    ),
+                }
+            }
             FeatureError::Internal { .. } => format!(
                 "Partsmith hit a bug while building {}. Suppress it or undo the last change to keep working, and report it with the details.",
                 this()
@@ -892,6 +923,7 @@ impl FeatureError {
             FeatureError::ReferencesNotFound { .. } => "references_not_found",
             FeatureError::ReferenceNotFound { .. } => "reference_not_found",
             FeatureError::ProfileNotFound { .. } => "profile_not_found",
+            FeatureError::ChainNotFound { .. } => "chain_not_found",
             FeatureError::NotPlanar { .. } => "not_planar",
             FeatureError::NotCoplanar { .. } => "not_coplanar",
             FeatureError::NotCollinear { .. } => "not_collinear",
@@ -943,6 +975,7 @@ impl FeatureError {
             | FeatureError::ReferencesNotFound { field, .. }
             | FeatureError::ReferenceNotFound { field, .. }
             | FeatureError::ProfileNotFound { field, .. }
+            | FeatureError::ChainNotFound { field, .. }
             | FeatureError::NotPlanar { field, .. }
             | FeatureError::NotCoplanar { field, .. }
             | FeatureError::NotCollinear { field, .. }
@@ -1126,22 +1159,39 @@ impl FeatureError {
                 sketch,
                 regions,
             } => {
+                let entries = list_field(field, "regions");
                 let mut fixes: Vec<Fix> = regions
                     .iter()
                     .flat_map(|region| {
                         renderer.use_regions(
-                            &entry_pointer(&regions_field(field), region.position),
+                            &entry_pointer(&entries, region.position),
                             sketch,
                             &region.candidates,
                         )
                     })
                     .collect();
                 fixes.push(Fix::show(sketch));
-                fixes.extend(regions.iter().map(|region| {
-                    Fix::pick(entry_pointer(&regions_field(field), region.position))
-                }));
+                fixes.extend(
+                    regions
+                        .iter()
+                        .map(|region| Fix::pick(entry_pointer(&entries, region.position))),
+                );
                 fixes
             }
+            FeatureError::ChainNotFound {
+                field,
+                sketch,
+                chains,
+            } => chains
+                .first()
+                .map(|lost| {
+                    chain_fixes(
+                        sketch,
+                        &lost.loss,
+                        entry_pointer(&list_field(field, "chains"), lost.position),
+                    )
+                })
+                .unwrap_or_default(),
             FeatureError::NotCoplanar { field, faces, .. } => {
                 choice_fixes(&reference_pointer(field, ElementKind::Face), faces)
             }
@@ -1229,6 +1279,19 @@ impl FeatureError {
                     .join("; "),
             ),
             FeatureError::ReferenceNotFound { field, loss } => Some(loss_detail(&field.path, loss)),
+            FeatureError::ChainNotFound { field, chains, .. } => Some(
+                chains
+                    .iter()
+                    .map(|lost| {
+                        chain_detail(
+                            &format!("{}.chains[{}]", field.path, lost.position),
+                            &lost.chain,
+                            &lost.loss,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
             _ => None,
         }
     }
@@ -1264,7 +1327,7 @@ impl FeatureError {
             } => regions
                 .iter()
                 .map(|region| {
-                    let pointer = entry_pointer(&regions_field(field), region.position);
+                    let pointer = entry_pointer(&list_field(field, "regions"), region.position);
                     match &region.loss {
                         Some(loss) => Repair::region_lost(pointer, sketch, &region.region, loss),
                         None => Repair::region_in_use(
@@ -1418,11 +1481,11 @@ fn choice_repair(
     )]
 }
 
-/// The field of the region list of a profile field: `profile.regions`.
-fn regions_field(profile: &FieldRef) -> FieldRef {
+/// The field of the list `list` inside `field`, with its label: `profile.regions`, `path.chains`.
+fn list_field(field: &FieldRef, list: &str) -> FieldRef {
     FieldRef {
-        path: format!("{}.regions", profile.path),
-        label: profile.label.clone(),
+        path: format!("{}.{list}", field.path),
+        label: field.label.clone(),
     }
 }
 

@@ -229,8 +229,8 @@ impl LabelNames {
     }
 
     /// The names every sample of `samples` is rendered with: bodies 'Body 1' and 'Body 2', the features the samples
-    /// name and render on, and the record of `samples::SAMPLE_SKETCH`, so the sketch crate's messages name its
-    /// entities and constraints.
+    /// name and render on, and the records of `samples::SAMPLE_SKETCH` and `samples::CHAIN_SKETCH`, so the sketch
+    /// crate's messages name their entities and constraints.
     pub fn standard() -> LabelNames {
         LabelNames::new(
             &[("b-1", "Body 1"), ("b-2", "Body 2")],
@@ -259,9 +259,12 @@ impl LabelNames {
                 ("f-rev1", "Revolve 1", "Revolve"),
                 ("f-dp1", "Datum plane 1", "Datum plane"),
                 ("f-tor1", "Torus 1", "Torus"),
+                (samples::CHAIN_SKETCH, "Sketch 4", "Sketch"),
+                (samples::CHAIN_FEATURE, "Test 1", "Test"),
             ],
         )
         .with_record(samples::sample_sketch_record())
+        .with_record(samples::chain_sketch_record())
     }
 
     /// These names with `record` as the stored record of its feature.

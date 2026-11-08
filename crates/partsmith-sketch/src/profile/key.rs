@@ -178,7 +178,7 @@ fn parse_loop(text: &str) -> Option<Vec<KeyEdge>> {
 }
 
 /// The entries of a loop text, separated by ",", in written order; `None` when any entry is invalid.
-pub(super) fn parse_entries(text: &str) -> Option<Vec<KeyEdge>> {
+pub(crate) fn parse_entries(text: &str) -> Option<Vec<KeyEdge>> {
     text.split(',').map(parse_entry).collect()
 }
 
@@ -261,7 +261,7 @@ impl FromStr for RegionFingerprint {
 }
 
 /// The finite value of a plain decimal `-?[0-9]+(\.[0-9]+)?` (the minus only when `signed`), with -0 read as 0.
-fn decimal(text: &str, signed: bool) -> Option<f64> {
+pub(crate) fn decimal(text: &str, signed: bool) -> Option<f64> {
     let unsigned = match text.strip_prefix('-') {
         Some(rest) if signed => rest,
         Some(_) => return None,

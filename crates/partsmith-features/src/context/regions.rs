@@ -122,8 +122,8 @@ impl<'a> BuildContext<'a> {
     }
 }
 
-/// Successions sorted by entity, those with equal entity and list kept once (section 3.7).
-fn sorted_successions(mut successions: Vec<Succession>) -> Vec<Succession> {
+/// Successions sorted by entity, those with equal entity and list kept once (sections 3.7 and 3.16).
+pub(super) fn sorted_successions(mut successions: Vec<Succession>) -> Vec<Succession> {
     successions.sort_by(|first, second| {
         first
             .entity

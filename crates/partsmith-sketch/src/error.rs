@@ -195,6 +195,18 @@ pub enum SketchError {
         /// The text as written.
         text: String,
     },
+    /// A chain key text does not follow the grammar of spec section 3.18.1, or names an entity twice.
+    #[error("invalid_chain_key text={text:?}")]
+    InvalidChainKey {
+        /// The text as written, or the text of the entries given to `ChainKey::new`.
+        text: String,
+    },
+    /// A chain fingerprint text does not have the form `s=<u>,<v>|e=<u>,<v>|l=<length>`.
+    #[error("invalid_chain_fingerprint text={text:?}")]
+    InvalidChainFingerprint {
+        /// The text as written.
+        text: String,
+    },
 }
 
 impl SketchError {
@@ -330,6 +342,10 @@ impl SketchError {
             SketchError::NonFiniteCursor => "The pointer position cannot be used. Move the pointer over the sketch and drag again.".to_owned(),
             SketchError::InvalidRegionKey { .. } | SketchError::InvalidFingerprint { .. } => {
                 "A region stored in this document cannot be read. Pick the profile again.".to_owned()
+            }
+            SketchError::InvalidChainKey { .. } | SketchError::InvalidChainFingerprint { .. } => {
+                "A chain of curves stored in this document cannot be read. Pick the curves again."
+                    .to_owned()
             }
         }
     }

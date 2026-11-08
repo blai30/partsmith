@@ -3,9 +3,11 @@
 //! The behavior is specified in `docs/spec/sketch.md`. [`SketchParams`] are the typed params of a
 //! `sketch` feature; [`NativeSolver`] solves and diagnoses them and drags their geometry;
 //! [`build_profile`] turns solved entities into closed regions that [`match_region`] finds again
-//! after edits; [`SketchParams::mirrored`] gives the drawing mirrored across its x axis; and errors, solver
-//! issues and profile findings render their messages with a [`MessageContext`].
+//! after edits and [`union_regions`] unites; [`build_chain`] puts solved lines and arcs in order as a curve chain
+//! that [`match_chain`] finds again; [`SketchParams::mirrored`] gives the drawing mirrored across its x axis; and
+//! errors, solver issues, profile findings and chain losses render their messages with a [`MessageContext`].
 
+mod chain;
 mod constraint;
 mod entity;
 mod error;
@@ -27,6 +29,10 @@ mod vector;
 
 pub use partsmith_model::{Expr, Id};
 
+pub use chain::{
+    Chain, ChainFingerprint, ChainKey, ChainLoss, ChainMatch, ChainRef, Junction, build_chain,
+    chain_through, match_chain,
+};
 pub use constraint::{Alignment, ConstraintKind, DimensionExpr, DistanceTarget, SketchConstraint};
 pub use entity::{EntityKind, Geometry, SketchEntity};
 pub use error::{PlacementProblem, SketchError};
@@ -43,6 +49,7 @@ pub use solver::{
     DragSession, DragTarget, EntityState, NativeDragSession, NativeSolver, SketchStatus,
     SolveIssue, SolveResult, Solver,
 };
+pub use union::{UnionError, UnionPart, union_regions};
 
 /// Largest absolute residual (mm) at which the solver considers a row satisfied.
 pub const SOLVER_TOLERANCE: f64 = 1e-10;

@@ -1154,7 +1154,7 @@ pub enum ChainLoss {
 }
 ```
 
-`ChainKey` and `ChainFingerprint` serialize as their text forms. `ChainRef` serializes as `{"key": ..., "fp": ...}`, with `"closed": true` after them for a closed chain. `Chain`, `Junction`, `ChainMatch` and `ChainLoss` (the last two with `#[serde(tag = "kind", rename_all = "snake_case")]`) derive the serde traits, with every field always present. Neither a document nor the protocol carries them: tests and reports write them as JSON, as they write `RegionMatch`. JSON examples:
+`ChainKey` and `ChainFingerprint` serialize as their text forms. `ChainRef` serializes as `{"key": ..., "fp": ...}`, with `"closed": true` after them for a closed chain. `Chain`, `Junction`, `ChainMatch` and `ChainLoss` (the last two with `#[serde(tag = "kind", rename_all = "snake_case")]`) derive the serde traits, with every field always present. `Chain` also writes the tangents of `start_tangent()` and `end_tangent()` as `start_tangent` and `end_tangent` ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) choice 16). The `kind` field of `NotCurve` is written `entity_kind` (`#[serde(rename = "entity_kind")]`), because `kind` is the tag of `ChainLoss`. Neither a document nor the protocol carries them: tests and reports write them as JSON, as they write `RegionMatch`. JSON examples:
 
 ```json
 {"key": "e-1,e-2,e-3", "fp": "s=0,0|e=50,40|l=85.707963"}
@@ -1162,6 +1162,7 @@ pub enum ChainLoss {
 {"point": [40, 0], "turn": 1.5707963267948966}
 {"kind": "missing", "loss": {"kind": "deleted", "entities": ["e-9"], "all": false}}
 {"kind": "missing", "loss": {"kind": "turns_back", "entities": ["e-1", "e-2"], "point": [40, 0]}}
+{"kind": "missing", "loss": {"kind": "not_curve", "entity": "e-4", "entity_kind": "point"}}
 ```
 
 ### 2.11 Region union (M2)
@@ -2711,13 +2712,13 @@ Messages use the context of section 6.10 with the test's sketch, and units `Mm` 
 285. Fixes and shown entities (4.5). The loss of test 274 with the gap of 0.3 has `fixes()` `[ConnectEnds { first: e-1.end, second: e-2.end }]` and `entity()` `e-2`. With the gap of 3 its fixes are empty. With `e-2` ending at (40, 2), a gap of exactly `CONNECT_DISTANCE`, the fix is offered. Every other loss of tests 272 to 276 has no fixes. `arc e-1 c(0,0) r10 from 0 to 6.2` matched with `{key: e-1, fp: s=10,0|e=10,0|l=62.831853, closed: true}` gives `Disconnected { end: e-1.end, start: e-1.start, gap }`, with `gap` below `CONNECT_DISTANCE`, and no fixes: both points belong to `e-1`. `entity()` is None for `Deleted`, the entity itself for the losses of test 273 and for `NotCurve` of a circle, `e-2` for `TurnsBack` and `e-3` for `Crosses`.
 286. Details (4.4). `Display` gives `deleted entities=e-9 all=false`, `deleted entities=e-8,e-9 all=true`, `not_curve entity=e-4 kind=point`, `construction entity=e-2`, `zero_length entity=e-7`, `disconnected end=e-1.end start=e-2.end gap=0.3`, `turns_back entities=e-1,e-2 point=40,0` and `crosses entities=e-1,e-3 point=30,0` for the losses of tests 272 to 276.
 287. Unreadable chains (4.1). `InvalidChainKey { text: "e-1,,e-2" }` and `InvalidChainFingerprint { text: "s=0,0" }` render `A chain of curves stored in this document cannot be read. Pick the curves again.`, have no fixes, and display as `invalid_chain_key text="e-1,,e-2"` and `invalid_chain_fingerprint text="s=0,0"`. Every message and reason rendered in tests 282 to 287 passes the message lint of test 247 and contains no entity id of its sketch.
-288. Match results as JSON (2.10). The `Missing` result of test 272's first case serializes as `{"kind":"missing","loss":{"kind":"deleted","entities":["e-9"],"all":false}}`, and the result of test 278's first case has `"kind":"resolved"` and `"successions":[]`.
+288. Match results as JSON (2.10). The `Missing` result of test 272's first case serializes as `{"kind":"missing","loss":{"kind":"deleted","entities":["e-9"],"all":false}}`, and the result of test 278's first case has `"kind":"resolved"` and `"successions":[]`. The `NotCurve` loss of test 273 serializes as `{"kind":"not_curve","entity":"e-4","entity_kind":"point"}`.
 337. Pieces of one line or one circle (3.18.2 steps 5 and 7). `line e-1 (0,0)->(40,0)` and `line e-2 (40,0)->(80,0)` with the key `e-1,e-2` build an open chain with one tangent junction at (40, 0), and `is_smooth()` is true. `arc e-1 c(0,0) r10 from 0 to pi/2` and `arc e-2 c(0,0) r10 from pi/2 to pi` with the key `e-1,e-2` build the same way, with the junction at (0, 10). Shared stretches are measured on the curves as drawn. These pieces share none.
 338. A shared stretch (3.18.2 step 7). `line e-1 (0,0)->(40,0)`, `line e-2 (40,0)->(40,10)`, `line e-3 (40,10)->(60,10)`, `line e-4 (60,10)->(60,0)` and `line e-5 (60,0)->(20,0)` with the key `e-1,e-2,e-3,e-4,e-5` give `Crosses { entities: [e-1, e-5], point: [20, 0] }`: `e-5` runs back over `e-1` from (40, 0) to (20, 0), and the stretch starts at (20, 0) in the direction of `e-1`.
 
 ### 6.24 Region union (M2)
 
-Section 3.19, in `tests/union.rs`. Tests 289 to 298 are the unit tests of `union` in `crates/partsmith-features/src/profile.rs` at a3f4573, with the same sketches and assertions, through `union_regions` ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) decision 9). The regions come from `build_profile` of the sketch's entities, in profile order. The *area* of a union is the sum over its parts of the outer loop's signed area plus each hole's signed area. The *entities* of a loop are its edges' entity ids, sorted. Areas hold within 1e-6.
+Section 3.19, in `tests/union.rs`, except test 302, which checks chains and sits in `tests/chains.rs`. Tests 289 to 298 are the unit tests of `union` in `crates/partsmith-features/src/profile.rs` at a3f4573, with the same sketches and assertions, through `union_regions` ([ADR 0059](../adr/0059-curve-chains-and-the-region-union-in-the-sketch-crate.md) decision 9). The regions come from `build_profile` of the sketch's entities, in profile order. The *area* of a union is the sum over its parts of the outer loop's signed area plus each hole's signed area. The *entities* of a loop are its edges' entity ids, sorted. Areas hold within 1e-6.
 
 289. One region is its own union: `RECT`'s one region gives one part whose outer loop equals the region's outer loop, with no holes.
 290. A hole and the disc that fills it make the whole rectangle: `RECT` with `circle e-5 c(40,25) r10`, both regions: one part, no holes, outer entities `e-1, e-2, e-3, e-4`, area 4000.

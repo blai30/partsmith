@@ -1,8 +1,9 @@
-//! The mirrored drawing of a sketch across its x axis, with the constraints, point references and region
-//! references rewritten to hold on it (spec section 3.17).
+//! The mirrored drawing of a sketch across its x axis, with the constraints, point references, region references and
+//! chain references rewritten to hold on it (spec section 3.17).
 
 use partsmith_model::Id;
 
+use crate::chain::{ChainFingerprint, ChainKey, ChainRef};
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget, SketchConstraint};
 use crate::entity::{EntityKind, Geometry, SketchEntity};
 use crate::params::SketchParams;
@@ -71,6 +72,34 @@ impl SketchParams {
                 centroid: mirrored_coordinates(region.fp.centroid),
             },
             outline,
+        }
+    }
+
+    /// A chain reference of this sketch as it reads on `mirrored()` (section 3.17).
+    pub fn mirrored_chain(&self, chain: &ChainRef) -> ChainRef {
+        // The chain keeps its order. A mirrored line keeps which end is its start, while a mirrored arc or circle runs
+        // the other way round. An entity the sketch does not have keeps its flag.
+        let entries = chain
+            .key
+            .entries()
+            .iter()
+            .map(|entry| KeyEdge {
+                entity: entry.entity.clone(),
+                reversed: entry.reversed
+                    != matches!(
+                        self.kind_of(&entry.entity),
+                        Some(EntityKind::Arc | EntityKind::Circle)
+                    ),
+            })
+            .collect();
+        ChainRef {
+            key: ChainKey::new(entries).expect("flipping entries keeps each entity once"),
+            fp: ChainFingerprint {
+                start: mirrored_coordinates(chain.fp.start),
+                end: mirrored_coordinates(chain.fp.end),
+                length: chain.fp.length,
+            },
+            closed: chain.closed,
         }
     }
 

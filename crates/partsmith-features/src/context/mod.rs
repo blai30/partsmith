@@ -1,6 +1,7 @@
-//! The read-only build context and what it is made from (features.md sections 2.6, 3.4 and 3.6 to 3.8).
+//! The read-only build context and what it is made from (features.md sections 2.6, 3.4, 3.6 to 3.8 and 3.16).
 
 mod body_state;
+mod chains;
 #[cfg(test)]
 mod fixtures;
 mod geometry;
@@ -10,6 +11,7 @@ mod regions;
 mod values;
 
 pub use body_state::BodyState;
+pub use chains::{ResolvedChain, ResolvedChains};
 pub use placements::{FaceFallback, FacePlacement};
 pub use references::Usable;
 pub use values::Values;

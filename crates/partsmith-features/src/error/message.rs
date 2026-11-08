@@ -86,6 +86,8 @@ pub enum Noun {
     Face,
     /// An edge.
     Edge,
+    /// A sketch line, arc or circle of a curve chain (M2, section 3.16).
+    Curve,
 }
 
 impl fmt::Display for Noun {
@@ -99,6 +101,7 @@ impl fmt::Display for Noun {
             Noun::Line => "line",
             Noun::Face => "face",
             Noun::Edge => "edge",
+            Noun::Curve => "curve",
         })
     }
 }

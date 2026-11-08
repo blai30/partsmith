@@ -1,11 +1,13 @@
-//! What rendering a message needs: the render context, recompute's diagnosis, and the parts that losses, regions
-//! and empty bodies share (features.md sections 2.8, 3.12, 4.1, 4.2 and 4.4).
+//! What rendering a message needs: the render context, recompute's diagnosis, and the parts that losses, regions,
+//! curve chains and empty bodies share (features.md sections 2.8, 3.12, 3.16, 4.1, 4.2 and 4.4).
 
 use std::collections::BTreeMap;
 
 use partsmith_model::{FeatureManifest, FeatureRecord, FieldUnit, Id, Units};
 use partsmith_naming::{ElementName, Fingerprint, Reference};
-use partsmith_sketch::{DimensionValues, MessageContext, RegionLoss, SketchParams};
+use partsmith_sketch::{
+    ChainLoss, ChainRef, DimensionValues, MessageContext, RegionLoss, SketchParams,
+};
 
 use super::describe::{describe_elements, describe_face, describe_in, stored_params};
 use super::field::FieldRef;
@@ -599,6 +601,33 @@ pub(crate) fn region_matches_text(
         renderer.quoted_feature(sketch),
         entry.consequence()
     )
+}
+
+/// `{chain reason}` of a lost chain (sections 4.1 and 4.2): the sketch crate's reason clause, rendered in the sketch's
+/// message context, or the loss's detail when the names do not know the sketch.
+pub(crate) fn chain_reason(renderer: &Renderer<'_>, sketch: &Id, loss: &ChainLoss) -> String {
+    renderer
+        .in_sketch(sketch, &DimensionValues::new(), |context| {
+            loss.render(context)
+        })
+        .unwrap_or_else(|| loss.to_string())
+}
+
+/// The fixes of a lost chain whose entry is at `pointer`, in the order of section 3.16: the sketch crate's
+/// `ConnectEnds`, `Show` of the sketch with the entity the loss names, then `Pick` of the entry.
+pub(crate) fn chain_fixes(sketch: &Id, loss: &ChainLoss, pointer: String) -> Vec<Fix> {
+    let mut fixes = super::sketch_fixes(sketch, loss.fixes());
+    fixes.push(Fix::Show {
+        feature: sketch.clone(),
+        entity: loss.entity().cloned(),
+    });
+    fixes.push(Fix::pick(pointer));
+    fixes
+}
+
+/// The detail of one lost chain at the entry `path` (section 2.8): `path.chains[0] key=e-1,~e-2` and the loss's detail.
+pub(crate) fn chain_detail(path: &str, chain: &ChainRef, loss: &ChainLoss) -> String {
+    format!("{path} key={} {loss}", chain.key)
 }
 
 /// `{Element}` of a reference: its capitalized `description` followed by ` selected for {label}`.

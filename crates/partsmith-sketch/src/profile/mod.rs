@@ -16,7 +16,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use finding::{Connection, ProfileFinding};
+pub(crate) use intersection::{Curve, Shape, meet};
 pub use key::{KeyEdge, RegionFingerprint, RegionKey, RegionRef};
+pub(crate) use key::{decimal, loop_text, parse_entries};
 pub use matching::{MatchMethod, RegionLoss, RegionMatch, Succession, match_region};
 pub use region_loop::RegionLoop;
 

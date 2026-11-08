@@ -8,6 +8,7 @@ mod common;
 
 mod body_not_valid;
 mod body_rules;
+mod context_chains;
 mod context_evaluation;
 mod context_lookups;
 mod context_messages;

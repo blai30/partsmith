@@ -7,8 +7,8 @@
 //!
 //! A build is a pure function of the params and a read-only [`BuildContext`] that recompute
 //! assembles from what the feature declared: evaluated expressions, upstream body states, sketch
-//! and datum results, and asset bytes. The context resolves planes, axes, profiles and stored
-//! element references; [`apply_op`] gives every solid feature the shared body semantics.
+//! and datum results, and asset bytes. The context resolves planes, axes, profiles, curve chains
+//! and stored element references; [`apply_op`] gives every solid feature the shared body semantics.
 //!
 //! Errors and warnings store ids and internal-unit numbers, and render with current names and
 //! document units. The behavior is specified in `docs/spec/features.md`.
@@ -42,11 +42,11 @@ mod test_support;
 
 pub use context::{
     BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, FacePlacement, MODEL_LIMIT,
-    Resolved, ResolvedProfile, Usable, Values, WithWarnings,
+    Resolved, ResolvedChain, ResolvedChains, ResolvedProfile, Usable, Values, WithWarnings,
 };
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
-    Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
+    Because, Bound, ChainLost, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
     FeatureWarning, FieldRef, Fix, IgnoredReason, ImportContent, Limit, Loss, LossCandidate, Names,
     NoEffectHow, Noun, Place, Placed, RegionLost, RenderContext, Repair, Severity, describe_copy,
     describe_elements, describe_face, entity_words, format_value, joined, made_from_line,
@@ -60,7 +60,8 @@ pub use output::{
     has_volume, reverse_hits,
 };
 pub use params::{
-    AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef, point, vector,
+    AxisRef, BodyOp, ChainProfileRef, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef,
+    point, vector,
 };
 pub use partsmith_model::manifest::{
     Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind,

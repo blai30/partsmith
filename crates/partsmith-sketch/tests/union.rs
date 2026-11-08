@@ -379,10 +379,5 @@ fn union_parts_list_their_holes_in_the_order_they_were_traced() {
     assert_eq!(parts.len(), 1);
     assert_eq!(parts[0].holes, ring[0].holes);
     assert!(parts[0].outer.signed_area() > 0.0);
-    assert!(
-        parts[0]
-            .holes
-            .iter()
-            .all(|hole| hole.signed_area() < 0.0)
-    );
+    assert!(parts[0].holes.iter().all(|hole| hole.signed_area() < 0.0));
 }

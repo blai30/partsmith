@@ -1,9 +1,9 @@
-//! Losses of references and regions, their repair data and the severities of messages (features.md sections 2.8,
-//! 3.7, 3.8 and 4.2).
+//! Losses of references, regions and curve chains, their repair data and the severities of messages (features.md
+//! sections 2.8, 3.7, 3.8, 3.16 and 4.2).
 
 use partsmith_model::Id;
 use partsmith_naming::{ElementKind, Lost, Reference};
-use partsmith_sketch::{RegionLoss, RegionRef, Succession};
+use partsmith_sketch::{ChainLoss, ChainRef, RegionLoss, RegionRef, Succession};
 
 /// One reference that did not resolve to what it meant, as a feature reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -116,6 +116,17 @@ pub struct RegionLost {
     pub loss: Option<RegionLoss>,
     /// For several sets: each set's indices into the sketch result's regions.
     pub candidates: Vec<Vec<usize>>,
+}
+
+/// A chain reference that resolved to no chain (M2, section 3.16).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainLost {
+    /// Position in the chain profile's list.
+    pub position: usize,
+    /// The stored reference.
+    pub chain: ChainRef,
+    /// Why it cannot be built (sketch.md section 3.18).
+    pub loss: ChainLoss,
 }
 
 /// Severity of an error, warning or notice (docs/guidelines/errors.md). Recompute's rendered messages use it.

@@ -1,4 +1,5 @@
-//! Disjoint sets of indices, shared by the solver's components, identification and substitution and by the profile's chains.
+//! Disjoint sets of indices, shared by the solver's components, identification and substitution, by the profile's
+//! chains and by the region union.
 
 /// Union-find over the indices `0..len()`. The root of every set is its lowest index, so walking
 /// the roots in index order visits the sets in the order of their first member.

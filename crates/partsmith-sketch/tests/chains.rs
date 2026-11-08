@@ -538,7 +538,12 @@ fn t267_a_smooth_open_chain() {
     assert_close(chain.length, 70.0 + 5.0 * PI, 1e-12, "length");
     assert_point_close(chain.start(), [0.0, 0.0], TOLERANCE, "start");
     assert_point_close(chain.end(), [50.0, 40.0], TOLERANCE, "end");
-    assert_point_close(chain.start_tangent(), [1.0, 0.0], TOLERANCE, "start tangent");
+    assert_point_close(
+        chain.start_tangent(),
+        [1.0, 0.0],
+        TOLERANCE,
+        "start tangent",
+    );
     assert_point_close(chain.end_tangent(), [0.0, 1.0], TOLERANCE, "end tangent");
     assert_eq!(
         serde_json::to_string(&chain.reference()).expect("the reference serializes"),
@@ -636,7 +641,12 @@ fn t271_a_circle() {
     assert!(chain.junctions.is_empty());
     assert_point_close(chain.start(), [45.0, 25.0], TOLERANCE, "start");
     assert_point_close(chain.end(), [45.0, 25.0], TOLERANCE, "end");
-    assert_point_close(chain.start_tangent(), [0.0, 1.0], TOLERANCE, "start tangent");
+    assert_point_close(
+        chain.start_tangent(),
+        [0.0, 1.0],
+        TOLERANCE,
+        "start tangent",
+    );
     assert_point_close(chain.end_tangent(), [0.0, 1.0], TOLERANCE, "end tangent");
     assert_close(chain.length, 10.0 * PI, TOLERANCE, "length");
     assert!(chain.is_smooth());
@@ -1159,7 +1169,7 @@ fn t285_fixes_and_shown_entities() {
         second: point_ref("e-2.end"),
     };
     let near = lost(&elbow_ending_at([40.0, 0.3]), "e-1,~e-2");
-    assert_eq!(near.fixes(), [connect.clone()]);
+    assert_eq!(near.fixes(), std::slice::from_ref(&connect));
     assert_eq!(near.entity(), Some(&id("e-2")));
 
     let far = lost(&elbow_ending_at([40.0, 3.0]), "e-1,~e-2");
@@ -1211,7 +1221,10 @@ fn t286_details() {
     let path_with_point = with(path(), point("e-4", 60.0, 40.0));
     let details = [
         (deleted(&["e-9"], false), "deleted entities=e-9 all=false"),
-        (deleted(&["e-8", "e-9"], true), "deleted entities=e-8,e-9 all=true"),
+        (
+            deleted(&["e-8", "e-9"], true),
+            "deleted entities=e-8,e-9 all=true",
+        ),
         (
             lost(&path_with_point, "e-3,e-4"),
             "not_curve entity=e-4 kind=point",
@@ -1279,7 +1292,10 @@ fn t287_every_reason_passes_the_lint_and_names_no_ids() {
         reason(&lost(&rect_with_circle, "e-1,e-5"), &rect_with_circle),
         rect_with_circle,
     ));
-    for loss in [deleted(&["e-8", "e-9"], false), deleted(&["e-8", "e-9"], true)] {
+    for loss in [
+        deleted(&["e-8", "e-9"], false),
+        deleted(&["e-8", "e-9"], true),
+    ] {
         rendered.push((reason(&loss, &path()), path()));
     }
     let gap = elbow_ending_at([40.0, 0.3]);
@@ -1323,6 +1339,12 @@ fn t288_match_results_as_json() {
     let json = serde_json::to_value(&found).expect("the match serializes");
     assert_eq!(json["kind"], "resolved");
     assert_eq!(json["successions"], serde_json::json!([]));
+
+    let not_curve = lost(&with(path(), point("e-4", 60.0, 40.0)), "e-3,e-4");
+    assert_eq!(
+        serde_json::to_string(&not_curve).expect("the loss serializes"),
+        r#"{"kind":"not_curve","entity":"e-4","entity_kind":"point"}"#
+    );
 }
 
 #[test]
@@ -1363,7 +1385,10 @@ fn t302_the_curve_chain_scenarios_of_the_long_outline() {
     assert_eq!(chain.edges.len(), LONG_OUTLINE_LINES);
     assert_eq!(chain.junctions.len(), LONG_OUTLINE_LINES);
     assert!(
-        chain.junctions.iter().all(|junction| !junction.is_tangent()),
+        chain
+            .junctions
+            .iter()
+            .all(|junction| !junction.is_tangent()),
         "no junction of the polygon is tangent"
     );
     assert_eq!(chain_through(&outline, &id(LONG_OUTLINE_SEED)), Some(key));

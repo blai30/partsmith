@@ -10,15 +10,15 @@ use crate::entity::{Geometry, point_at_angle};
 use crate::vector::{add, angle_of, cross, dot, norm, scale, signed_distance, subtract, unit};
 
 /// A non-construction line, circle or arc of positive size.
-pub(super) struct Curve<'a> {
-    pub(super) entity: &'a Id,
-    pub(super) shape: Shape,
+pub(crate) struct Curve<'a> {
+    pub(crate) entity: &'a Id,
+    pub(crate) shape: Shape,
     /// Smallest and largest coordinates, widened by the tolerance.
-    pub(super) bounds: Bounds,
+    pub(crate) bounds: Bounds,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Shape {
+pub(crate) enum Shape {
     Line {
         start: [f64; 2],
         end: [f64; 2],
@@ -38,8 +38,9 @@ pub(super) enum Shape {
 }
 
 impl Shape {
-    /// The shape of a profile entity, or `None` for points and zero-size curves.
-    pub(super) fn of(geometry: &Geometry) -> Option<Shape> {
+    /// The shape of a line, circle or arc, or `None` for a point. Zero-size curves have a shape: callers check
+    /// `is_zero_size`.
+    pub(crate) fn of(geometry: &Geometry) -> Option<Shape> {
         let shape = match *geometry {
             Geometry::Point { .. } => return None,
             Geometry::Line { start, end } => Shape::Line { start, end },
@@ -62,7 +63,7 @@ impl Shape {
     }
 
     /// True when the curve is too small to use (section 3.13.1).
-    pub(super) fn is_zero_size(&self) -> bool {
+    pub(crate) fn is_zero_size(&self) -> bool {
         match *self {
             Shape::Line { start, end } => norm(subtract(end, start)) <= PROFILE_TOLERANCE,
             Shape::Circle { radius, .. } => radius <= PROFILE_TOLERANCE,
@@ -72,7 +73,7 @@ impl Shape {
         }
     }
 
-    pub(super) fn endpoints(&self) -> Option<[[f64; 2]; 2]> {
+    pub(crate) fn endpoints(&self) -> Option<[[f64; 2]; 2]> {
         match *self {
             Shape::Line { start, end } | Shape::Arc { start, end, .. } => Some([start, end]),
             Shape::Circle { .. } => None,
@@ -100,7 +101,7 @@ impl Shape {
 
     /// The position of `point` along the curve when it lies on it within the tolerance: the distance
     /// from a line's start, the counterclockwise angle from an arc's start, or a circle's angle from +u.
-    pub(super) fn parameter(&self, point: [f64; 2]) -> Option<f64> {
+    pub(crate) fn parameter(&self, point: [f64; 2]) -> Option<f64> {
         match *self {
             Shape::Line { start, end } => {
                 let length = norm(subtract(end, start));
@@ -142,7 +143,7 @@ impl Shape {
     }
 
     /// The point at a parameter of the curve.
-    pub(super) fn point_at(&self, parameter: f64) -> [f64; 2] {
+    pub(crate) fn point_at(&self, parameter: f64) -> [f64; 2] {
         match *self {
             Shape::Line { start, end } => add(start, scale(unit(subtract(end, start)), parameter)),
             Shape::Circle { center, radius } => point_at_angle(center, radius, parameter),
@@ -156,7 +157,7 @@ impl Shape {
     }
 
     /// The box around the curve (a circle or arc by its whole circle), widened by the tolerance.
-    pub(super) fn bounds(&self) -> Bounds {
+    pub(crate) fn bounds(&self) -> Bounds {
         let bounds = match *self {
             Shape::Line { start, end } => Bounds::around(start, end),
             Shape::Circle { center, radius } | Shape::Arc { center, radius, .. } => {
@@ -169,7 +170,7 @@ impl Shape {
 
 /// An axis-aligned box: the smallest and largest coordinates of what it holds.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Bounds {
+pub(crate) struct Bounds {
     low: [f64; 2],
     high: [f64; 2],
 }
@@ -215,7 +216,7 @@ impl Bounds {
     }
 
     /// True when the boxes share a point, edges included.
-    pub(super) fn overlaps(&self, other: &Bounds) -> bool {
+    pub(crate) fn overlaps(&self, other: &Bounds) -> bool {
         self.low[0] <= other.high[0]
             && other.low[0] <= self.high[0]
             && self.low[1] <= other.high[1]
@@ -262,7 +263,7 @@ pub(super) fn lies_on(piece: &ProfileCurve, carrier: &ProfileCurve) -> bool {
 
 /// The intersection points of two curves, sorted along `first`, and their shared stretches,
 /// each oriented along the curve with the smaller id (section 3.13.2, step 1).
-pub(super) fn meet(first: &Curve<'_>, second: &Curve<'_>) -> (Vec<[f64; 2]>, Vec<[[f64; 2]; 2]>) {
+pub(crate) fn meet(first: &Curve<'_>, second: &Curve<'_>) -> (Vec<[f64; 2]>, Vec<[[f64; 2]; 2]>) {
     let (by_id_first, by_id_second) = if first.entity <= second.entity {
         (first, second)
     } else {

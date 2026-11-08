@@ -4,11 +4,12 @@
 //! `LabelNames::standard`; the tests of a phase's rows iterate that phase's list.
 
 use std::collections::BTreeMap;
+use std::f64::consts::{FRAC_PI_2, SQRT_2};
 
 use partsmith_features::{
-    Because, Bound, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning, FieldRef,
-    FieldUnit, Fix, IgnoredReason, ImportContent, Limit, Loss, LossCandidate, NoEffectHow, Noun,
-    Placed, RegionLost,
+    Because, Bound, ChainLost, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning,
+    FieldRef, FieldUnit, Fix, IgnoredReason, ImportContent, Limit, Loss, LossCandidate,
+    NoEffectHow, Noun, Placed, RegionLost,
 };
 use partsmith_model::{
     Dimension, EmptyContext, Expr, ExprError, FeatureRecord, LINEAR_TOLERANCE, ParameterValues,
@@ -17,7 +18,8 @@ use partsmith_model::{
 use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_occt_sys::{KernelError, KernelErrorKind, Operation};
 use partsmith_sketch::{
-    DimensionValues, EntityKind, RegionLoss, RegionRef, SketchError, SolveIssue,
+    ChainLoss, ChainRef, DimensionValues, EntityKind, PointRef, RegionLoss, RegionRef, SketchError,
+    SolveIssue,
 };
 use serde_json::json;
 
@@ -27,11 +29,11 @@ use super::{field, id, record, show};
 
 /// The number of variants of `FeatureError`. `every_error` holds a sample of each; a new variant adds one and raises
 /// this count.
-pub const ERROR_VARIANTS: usize = 51;
+pub const ERROR_VARIANTS: usize = 52;
 
 /// The number of variants of `FeatureWarning`. `every_warning` holds a sample of each; a new variant adds one and
 /// raises this count.
-pub const WARNING_VARIANTS: usize = 20;
+pub const WARNING_VARIANTS: usize = 21;
 
 // Builders of the phase 1 and phase 2 rows.
 
@@ -356,6 +358,148 @@ fn unknown_name() -> ExprError {
     Expr::new("heigth")
         .evaluate(&scope, Some(Dimension::LENGTH))
         .expect_err("no parameter is named heigth")
+}
+
+// Builders of the chain rows (M2, section 3.16).
+
+/// The test feature the chain samples are rendered on, 'Test 1' in `LabelNames::standard`, whose field `path` is
+/// labeled Path (section 6.6).
+pub const CHAIN_FEATURE: &str = "f-test1";
+
+/// The sketch the chain samples are on, 'Sketch 4' in `LabelNames::standard`.
+pub const CHAIN_SKETCH: &str = "f-sk4";
+
+/// The record of `CHAIN_SKETCH`: `PATH` of sketch.md section 6.23 with a point, a circle, a construction line and a
+/// line without length, so each chain reason names an entity of the sketch.
+pub fn chain_sketch_record() -> FeatureRecord {
+    record(json!({
+        "id": CHAIN_SKETCH,
+        "type": "sketch",
+        "plane": {"kind": "origin", "plane": "XY"},
+        "entities": [
+            {"id": "e-1", "type": "line", "start": [0, 0], "end": [40, 0]},
+            {"id": "e-2", "type": "arc", "center": [40, 10], "radius": 10, "start_angle": -FRAC_PI_2, "end_angle": 0},
+            {"id": "e-3", "type": "line", "start": [50, 10], "end": [50, 40]},
+            {"id": "e-4", "type": "point", "position": [60, 40]},
+            {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5},
+            {"id": "e-6", "type": "line", "start": [0, 20], "end": [40, 20], "construction": true},
+            {"id": "e-7", "type": "line", "start": [10, 10], "end": [10, 10.000_000_4]}
+        ]
+    }))
+}
+
+/// A stored chain reference.
+pub fn chain(key: &str, fingerprint: &str) -> ChainRef {
+    serde_json::from_value(json!({"key": key, "fp": fingerprint}))
+        .expect("chain references written in tests are valid")
+}
+
+/// A point reference of a sketch.
+fn sketch_point(text: &str) -> PointRef {
+    text.parse()
+        .expect("point references written in tests are valid")
+}
+
+/// One loss of every row of sketch.md section 4.5 on `CHAIN_SKETCH`: one, two and all entities deleted, a point, a
+/// circle among other curves, construction geometry, a curve without length, ends that do not meet, a turn back and a
+/// crossing.
+pub fn chain_losses() -> Vec<ChainLoss> {
+    vec![
+        ChainLoss::Deleted {
+            entities: vec![id("e-9")],
+            all: false,
+        },
+        ChainLoss::Deleted {
+            entities: vec![id("e-8"), id("e-9")],
+            all: false,
+        },
+        ChainLoss::Deleted {
+            entities: vec![id("e-8"), id("e-9")],
+            all: true,
+        },
+        ChainLoss::NotCurve {
+            entity: id("e-4"),
+            kind: EntityKind::Point,
+        },
+        ChainLoss::NotCurve {
+            entity: id("e-5"),
+            kind: EntityKind::Circle,
+        },
+        ChainLoss::Construction { entity: id("e-6") },
+        ChainLoss::ZeroLength { entity: id("e-7") },
+        ChainLoss::Disconnected {
+            end: sketch_point("e-1.end"),
+            start: sketch_point("e-3.start"),
+            gap: 10.0 * SQRT_2,
+        },
+        ChainLoss::TurnsBack {
+            entities: [id("e-1"), id("e-2")],
+            point: [40.0, 0.0],
+        },
+        ChainLoss::Crosses {
+            entities: [id("e-1"), id("e-3")],
+            point: [30.0, 0.0],
+        },
+    ]
+}
+
+/// The chain of a lost chain sample.
+fn lost_chain_reference() -> ChainRef {
+    chain("e-1,e-9", "s=0,0|e=40,0|l=40")
+}
+
+/// `ChainMissing` of `CHAIN_SKETCH` at position 1 of `path` with `loss`.
+pub fn chain_missing(loss: ChainLoss) -> FeatureWarning {
+    FeatureWarning::ChainMissing {
+        field: field("path.chains[1]", "Path"),
+        position: 1,
+        sketch: id(CHAIN_SKETCH),
+        chain: lost_chain_reference(),
+        loss,
+    }
+}
+
+/// A lost chain at `position` with `loss`.
+pub fn lost_chain(position: usize, loss: ChainLoss) -> ChainLost {
+    ChainLost {
+        position,
+        chain: lost_chain_reference(),
+        loss,
+    }
+}
+
+/// `ChainNotFound` of `CHAIN_SKETCH` at `path` with these lost chains.
+pub fn chain_not_found(chains: Vec<ChainLost>) -> FeatureError {
+    FeatureError::ChainNotFound {
+        field: field("path", "Path"),
+        sketch: id(CHAIN_SKETCH),
+        chains,
+    }
+}
+
+/// A `ChainNotFound` of one chain for each loss of `chain_losses`, then one of two chains, with the feature they are
+/// rendered on (section 6.6 test 42).
+pub fn chain_errors() -> Vec<(FeatureError, &'static str)> {
+    let mut samples: Vec<(FeatureError, &'static str)> = chain_losses()
+        .into_iter()
+        .map(|loss| (chain_not_found(vec![lost_chain(0, loss)]), CHAIN_FEATURE))
+        .collect();
+    let mut losses = chain_losses().into_iter();
+    let first = losses.next().expect("there are chain losses");
+    let second = losses.next().expect("there are two chain losses");
+    samples.push((
+        chain_not_found(vec![lost_chain(0, first), lost_chain(1, second)]),
+        CHAIN_FEATURE,
+    ));
+    samples
+}
+
+/// A `ChainMissing` for each loss of `chain_losses`, with the feature they are rendered on (section 6.6 test 42).
+pub fn chain_warnings() -> Vec<(FeatureWarning, &'static str)> {
+    chain_losses()
+        .into_iter()
+        .map(|loss| (chain_missing(loss), CHAIN_FEATURE))
+        .collect()
 }
 
 // The samples.
@@ -1139,6 +1283,7 @@ pub fn every_error() -> Vec<(FeatureError, &'static str)> {
             "f-mir1",
         ),
     ]);
+    samples.extend(chain_errors());
     samples
 }
 
@@ -1163,6 +1308,7 @@ pub fn every_warning() -> Vec<(FeatureWarning, &'static str)> {
             .into_iter()
             .map(|warning| (warning, IMPORT_FEATURE)),
     );
+    samples.extend(chain_warnings());
     samples
 }
 

@@ -3,7 +3,7 @@
 use partsmith_model::Id;
 use partsmith_naming::{Motion, Reference};
 use partsmith_occt_sys::{Plane, Point, Vector};
-use partsmith_sketch::{OriginPlane, Placement, RegionRef};
+use partsmith_sketch::{ChainRef, OriginPlane, Placement, RegionRef};
 use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -48,6 +48,16 @@ pub struct ProfileRef {
     pub sketch: Id,
     /// The regions, at least one, in pick order (sketch.md `RegionRef`: key text and fingerprint text).
     pub regions: Vec<RegionRef>,
+}
+
+/// Curve chains of one sketch used as a path or an open profile (M2, section 3.16).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChainProfileRef {
+    /// The sketch feature.
+    pub sketch: Id,
+    /// The chains, at least one, in pick order (sketch.md `ChainRef`: key text, fingerprint text and `closed`).
+    pub chains: Vec<ChainRef>,
 }
 
 /// A plane given by an origin plane, a datum plane, or a flat face of a body.

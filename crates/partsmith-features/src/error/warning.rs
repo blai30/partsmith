@@ -4,7 +4,7 @@ use std::fmt;
 
 use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Follow, Reference, piece_free_text};
-use partsmith_sketch::{DimensionValues, RegionLoss, RegionRef, SolveIssue};
+use partsmith_sketch::{ChainLoss, ChainRef, DimensionValues, RegionLoss, RegionRef, SolveIssue};
 
 use super::body_rules;
 use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
@@ -13,8 +13,9 @@ use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
 use super::message::{FallbackCause, IgnoredReason, ImportContent, NoEffectHow, Placed, plural};
 use super::render::{
-    Entry, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
-    plain_text, region_gone_text, region_matches_text, selected_for,
+    Entry, RenderContext, Renderer, candidate_fixes, chain_detail, chain_fixes, chain_reason,
+    joined, loss_fixes, lost_reference_text, plain_text, region_gone_text, region_matches_text,
+    selected_for,
 };
 use super::{candidate_detail, loss_detail, sketch_fixes};
 
@@ -148,6 +149,19 @@ pub enum FeatureWarning {
         region: RegionRef,
         /// Why no region matched.
         loss: RegionLoss,
+    },
+    /// A chain of a chain profile cannot be built and was skipped (M2, section 3.16).
+    ChainMissing {
+        /// The chain entry, for example `path.chains[1]`.
+        field: FieldRef,
+        /// The entry's position in the chain list.
+        position: usize,
+        /// The sketch.
+        sketch: Id,
+        /// The stored chain reference.
+        chain: ChainRef,
+        /// Why it cannot be built.
+        loss: ChainLoss,
     },
     /// A sketch on a face could not be placed on it and was placed elsewhere (features/sketch.md section 3.5).
     PlaneFallback {
@@ -356,6 +370,17 @@ impl FeatureWarning {
                 loss,
                 ..
             } => region_gone_text(renderer, sketch, &field.label, loss, Entry::Skipped),
+            FeatureWarning::ChainMissing {
+                field,
+                sketch,
+                loss,
+                ..
+            } => format!(
+                "The curves of {} selected for {} cannot be used because {}. They were skipped.",
+                renderer.quoted_feature(sketch),
+                field.label,
+                chain_reason(renderer, sketch, loss)
+            ),
             FeatureWarning::PlaneFallback {
                 body,
                 reference,
@@ -435,6 +460,7 @@ impl FeatureWarning {
             FeatureWarning::RegionRemapped { .. } => "region_remapped",
             FeatureWarning::RegionAmbiguous { .. } => "region_ambiguous",
             FeatureWarning::RegionMissing { .. } => "region_missing",
+            FeatureWarning::ChainMissing { .. } => "chain_missing",
             FeatureWarning::PlaneFallback { .. } => "plane_fallback",
             FeatureWarning::SketchTurnedOver { .. } => "sketch_turned_over",
             FeatureWarning::NoEffect { .. } => "no_effect",
@@ -461,6 +487,7 @@ impl FeatureWarning {
             | FeatureWarning::RegionRemapped { field, .. }
             | FeatureWarning::RegionAmbiguous { field, .. }
             | FeatureWarning::RegionMissing { field, .. }
+            | FeatureWarning::ChainMissing { field, .. }
             | FeatureWarning::PlaneFallback { field, .. }
             | FeatureWarning::SketchTurnedOver { field, .. }
             | FeatureWarning::PointMissing { field, .. }
@@ -522,6 +549,9 @@ impl FeatureWarning {
             }
             FeatureWarning::RegionMissing { sketch, .. } => {
                 vec![Fix::show(sketch), Fix::pick(pointer())]
+            }
+            FeatureWarning::ChainMissing { sketch, loss, .. } => {
+                chain_fixes(sketch, loss, pointer())
             }
             FeatureWarning::PlaneFallback { body, loss, .. } => {
                 let explanation = loss
@@ -624,6 +654,9 @@ impl FeatureWarning {
                 }
                 Some(detail)
             }
+            FeatureWarning::ChainMissing {
+                field, chain, loss, ..
+            } => Some(chain_detail(&field.path, chain, loss)),
             FeatureWarning::PointMissing { point, .. } => Some(point.clone()),
             FeatureWarning::ImportWarning { detail, .. } => Some(detail.clone()),
             _ => None,
@@ -680,7 +713,9 @@ impl FeatureWarning {
                 loss,
                 ..
             } => Some(Repair::region_lost(pointer(), sketch, region, loss)),
+            // Chain repairs come with the sweep's spec (section 2.8).
             FeatureWarning::ReferenceFollowed { .. }
+            | FeatureWarning::ChainMissing { .. }
             | FeatureWarning::SketchTurnedOver { .. }
             | FeatureWarning::NoEffect { .. }
             | FeatureWarning::SeparateSolid { .. }

@@ -541,7 +541,8 @@ pub struct ProfileFaces {
 pub struct ResolvedChains<'a> {
     /// The sketch result.
     pub sketch: &'a SketchResult,
-    /// The chains that resolved, in list order. An entry whose key equals an earlier entry's key is left out.
+    /// The chains that resolved, in list order. An entry whose key equals the key of a chain that resolved earlier in
+    /// the list is left out.
     pub chains: Vec<ResolvedChain>,
     /// Successions of the resolved chains, sorted by entity, without duplicates. Always empty until M2 item 25
     /// (sketch.md section 3.18.3).
@@ -1812,7 +1813,7 @@ A feature that takes curves which bound no region, as a path or as an open profi
 | `Resolved` | used, no warning; its successions (empty until M2 item 25) are added to `ResolvedChains::successions` |
 | `Missing` | skipped; warning `ChainMissing` with `field` `ctx.field("<field>.chains[<i>]")` (as `RegionMissing` takes `<field>.regions[<i>]`), `position` `i`, its `ChainRef` and its `ChainLoss`, and the fixes below |
 
-Two entries with equal keys use the chain once, at the first entry's position. If no chain resolves, the result is `ChainNotFound` with `field` `ctx.field(field)`, as `ProfileNotFound` has, and a `ChainLost` for every entry in list order. Nothing is dropped. The warnings of the entries are then not returned: the error keeps their losses. An empty `chains` list is rejected at validation: a feature's `validate` gives `EmptySelection` with `Noun::Curve`, as extrude's does for an empty `regions` list. Nothing about a chain is written back into the document: a stored chain changes only through a pick or a fix the user applies.
+Two entries with equal keys use the chain once, at the position of the first of them that resolves. If no chain resolves, the result is `ChainNotFound` with `field` `ctx.field(field)`, as `ProfileNotFound` has, and a `ChainLost` for every entry in list order. Nothing is dropped. The warnings of the entries are then not returned: the error keeps their losses. An empty `chains` list is rejected at validation: a feature's `validate` gives `EmptySelection` with `Noun::Curve`, as extrude's does for an empty `regions` list. Nothing about a chain is written back into the document: a stored chain changes only through a pick or a fix the user applies.
 
 The fixes of a lost chain, in this order: `ConnectEnds { sketch, first, second }` when its `ChainLoss::fixes()` gives one (two ends of different entities at most `CONNECT_DISTANCE` apart); `Show { feature: sketch, entity }` with the entity of `ChainLoss::entity()`, or none; then `Pick { pointer }` of the entry, `<field pointer>/chains/<i>`.
 
