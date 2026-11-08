@@ -2,7 +2,7 @@
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, ElementName, Follow, Reference, roles};
-use partsmith_occt_sys::{ChamferEdge, ChamferSize, chamfer};
+use partsmith_occt_sys::{ChamferEdge, ChamferSize, Interrupt, chamfer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -201,7 +201,7 @@ impl Feature for Chamfer {
                     size: scaled(edge.size, factor),
                 })
                 .collect();
-            chamfer(shape, &scaled_edges)
+            chamfer(shape, &scaled_edges, &Interrupt::new())
         };
         let requests: Vec<&ChamferEdge> = edges.iter().collect();
         let result = run_or_search(

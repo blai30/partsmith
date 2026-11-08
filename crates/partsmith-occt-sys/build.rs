@@ -53,6 +53,7 @@ const SOURCES: &[&str] = &[
     "cpp/shape.cpp",
     "cpp/validity.cpp",
     "cpp/history.cpp",
+    "cpp/interrupt.cpp",
 ];
 
 fn main() {
@@ -111,6 +112,15 @@ fn main() {
     };
     for library in system_libraries {
         println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    if emscripten {
+        // The page's cancel word for this crate's own test and bench binaries, never the web core
+        // that partsmith-wasm links (kernel spec section 3.12 item 9).
+        let manifest = env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+        let pre_js = PathBuf::from(manifest).join("tests/node/cancel_word.js");
+        println!("cargo:rustc-link-arg-tests=--pre-js={}", pre_js.display());
+        println!("cargo:rustc-link-arg-benches=--pre-js={}", pre_js.display());
+        println!("cargo:rerun-if-changed=tests/node/cancel_word.js");
     }
 
     println!("cargo:rerun-if-changed=src/ffi.rs");

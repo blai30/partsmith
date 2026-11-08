@@ -5,7 +5,7 @@ use std::sync::Arc;
 use partsmith_model::Id;
 use partsmith_naming::{ElementName, Motion, NamingMap, Reference, TopologyInfo};
 use partsmith_occt_sys::{
-    InputHistory, KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse,
+    InputHistory, Interrupt, KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse,
 };
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
@@ -33,7 +33,7 @@ pub fn has_volume(volume: f64, area: f64) -> bool {
 }
 
 /// A kernel boolean of a target with every tool (`fuse`, `cut` or `common`).
-type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
+type KernelBoolean = fn(&Shape, &[Shape], &Interrupt) -> Result<OpResult, KernelError>;
 
 /// What a feature produced, plus warnings.
 #[derive(Clone, Debug)]
@@ -258,7 +258,7 @@ pub fn apply_op(
     };
     context.check_canceled()?;
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = boolean(target, &tool_shapes)?;
+    let result = boolean(target, &tool_shapes, &Interrupt::new())?;
     apply_op_result(context, body, op, &tools, result, direction)
 }
 
@@ -453,7 +453,7 @@ fn combine_tools(
     }
     context.check_canceled()?;
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = fuse(&shapes[0], &shapes[1..])?;
+    let result = fuse(&shapes[0], &shapes[1..], &Interrupt::new())?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();
     let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
     Ok((result.shape, named.naming, Some(named.topology)))
@@ -902,6 +902,7 @@ mod tests {
         let result = cut(
             state.shape().expect("a solid"),
             std::slice::from_ref(&tools[0].shape),
+            &Interrupt::new(),
         )
         .expect("the kernel cuts");
 
@@ -931,7 +932,14 @@ mod tests {
             named_box("f-b", [-5.0, -5.0, -5.0], 10.0),
         ];
         let target = state.shape().expect("a solid");
-        let with_one = || cut(target, std::slice::from_ref(&tools[0].shape)).expect("cuts");
+        let with_one = || {
+            cut(
+                target,
+                std::slice::from_ref(&tools[0].shape),
+                &Interrupt::new(),
+            )
+            .expect("cuts")
+        };
         let apply_result = |op, result| {
             apply_op_result(&fixture.context(), &id("b-1"), op, &tools, result, None)
                 .map(|_| ())

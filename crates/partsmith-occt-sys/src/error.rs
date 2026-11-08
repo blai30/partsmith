@@ -40,6 +40,8 @@ pub enum KernelErrorKind {
     ReadFailed,
     /// An unexpected C++ exception (not an OCCT failure).
     Internal,
+    /// The call stopped because its interrupt was requested (section 3.13).
+    Canceled,
 }
 
 /// The facade operation, displayed in snake_case (`make_box`, `write_step`).
@@ -95,6 +97,8 @@ pub enum Operation {
     WriteBrep,
     /// [`crate::Shape::from_brep`].
     ReadBrep,
+    /// [`crate::wait_for_interrupt`].
+    WaitForInterrupt,
 }
 
 impl Operation {
@@ -126,6 +130,7 @@ impl Operation {
             Operation::ReadStep => "read_step",
             Operation::WriteBrep => "write_brep",
             Operation::ReadBrep => "read_brep",
+            Operation::WaitForInterrupt => "wait_for_interrupt",
         }
     }
 
@@ -167,6 +172,9 @@ impl Operation {
             Operation::ReadStep => "The STEP file could not be read.",
             Operation::WriteBrep => "The geometry could not be saved to the cache.",
             Operation::ReadBrep => "The cached geometry could not be read, so it will be rebuilt.",
+            Operation::WaitForInterrupt => {
+                "The test wait could not run; report it with the details."
+            }
         }
     }
 
@@ -198,7 +206,8 @@ impl Operation {
             | Operation::WriteStep
             | Operation::ReadStep
             | Operation::WriteBrep
-            | Operation::ReadBrep => None,
+            | Operation::ReadBrep
+            | Operation::WaitForInterrupt => None,
         }
     }
 }
@@ -214,6 +223,7 @@ impl KernelErrorKind {
             KernelErrorKind::EmptyResult => "empty_result",
             KernelErrorKind::ReadFailed => "read_failed",
             KernelErrorKind::Internal => "internal",
+            KernelErrorKind::Canceled => "canceled",
         }
     }
 }
@@ -234,6 +244,8 @@ const INVALID_INPUT_SHAPE_EXCEPTION: &str = "Partsmith_InvalidInputShape";
 const EMPTY_RESULT_EXCEPTION: &str = "Partsmith_EmptyResult";
 /// Exception type name of unreadable input bytes.
 const READ_ERROR_EXCEPTION: &str = "Partsmith_ReadError";
+/// Exception type name of calls stopped by their interrupt.
+const CANCELED_EXCEPTION: &str = "Partsmith_Canceled";
 /// Exception type the shim reports for `std::exception`.
 const STD_EXCEPTION: &str = "std::exception";
 /// Exception type the shim reports for anything that is not a `std::exception`.
@@ -249,6 +261,10 @@ const INVALID_INPUT_SHAPE_HINT: &str = "The shape it was given was already not v
 const INTERNAL_HINT: &str = "It hit an unexpected problem; report it with the details.";
 /// The user message of every `Internal` error.
 const INTERNAL_MESSAGE: &str = "Partsmith's geometry kernel hit an unexpected problem.";
+/// The hint of every `Canceled` error: a stop is not a failure (section 4.3).
+const CANCELED_HINT: &str = "It was stopped before it finished.";
+/// The user message of every `Canceled` error.
+const CANCELED_MESSAGE: &str = "Partsmith stopped this step before it finished.";
 /// The hint of STEP bytes that do not parse.
 const NOT_STEP_HINT: &str = "The file is not a valid STEP file.";
 /// The hint of a STEP file without solids.
@@ -297,6 +313,7 @@ impl KernelError {
             INVALID_INPUT_SHAPE_EXCEPTION => KernelErrorKind::InvalidInputShape,
             EMPTY_RESULT_EXCEPTION => KernelErrorKind::EmptyResult,
             READ_ERROR_EXCEPTION => KernelErrorKind::ReadFailed,
+            CANCELED_EXCEPTION => KernelErrorKind::Canceled,
             STD_EXCEPTION | UNKNOWN_EXCEPTION => KernelErrorKind::Internal,
             _ => KernelErrorKind::Failed,
         };
@@ -314,6 +331,7 @@ impl KernelError {
         match self.kind {
             KernelErrorKind::InvalidInput => self.message.clone(),
             KernelErrorKind::Internal => INTERNAL_MESSAGE.to_owned(),
+            KernelErrorKind::Canceled => CANCELED_MESSAGE.to_owned(),
             KernelErrorKind::Failed
             | KernelErrorKind::InvalidResult
             | KernelErrorKind::InvalidInputShape
@@ -341,6 +359,7 @@ impl KernelError {
             (KernelErrorKind::InvalidInput, _) => INVALID_INPUT_HINT,
             (KernelErrorKind::InvalidInputShape, _) => INVALID_INPUT_SHAPE_HINT,
             (KernelErrorKind::Internal, _) => INTERNAL_HINT,
+            (KernelErrorKind::Canceled, _) => CANCELED_HINT,
             (KernelErrorKind::ReadFailed, Operation::ReadStep) => NOT_STEP_HINT,
             (KernelErrorKind::EmptyResult, Operation::ReadStep) => NO_SOLID_IN_STEP_HINT,
             (_, operation) => operation.failure_hint(),

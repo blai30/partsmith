@@ -157,11 +157,14 @@ fn t056_control_character_in_name_is_replaced() {
 #[test]
 fn t056_part_without_name_reads_back_with_empty_name() {
     // The bytes of kernel.md test 82: BOX written by the kernel with an empty name.
-    let kernel_bytes = partsmith_occt_sys::write_step(&[StepBody {
-        shape: box_shape(),
-        name: String::new(),
-        color: None,
-    }])
+    let kernel_bytes = partsmith_occt_sys::write_step(
+        &[StepBody {
+            shape: box_shape(),
+            name: String::new(),
+            color: None,
+        }],
+        &partsmith_occt_sys::Interrupt::new(),
+    )
     .expect("the kernel writes the box");
     let text = String::from_utf8(kernel_bytes).expect("STEP text is UTF-8");
     assert!(

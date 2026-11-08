@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, FaceSource, GeometryKind, NamingMap, Reference, roles};
-use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, compound, shell};
+use partsmith_occt_sys::{Interrupt, KernelError, OpResult, Shape, SubShapeKind, compound, shell};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -270,7 +270,7 @@ struct Hollow {
 fn shell_solids(solids: &[BodySolid], thickness: f64) -> Result<Hollow, KernelError> {
     let results = solids
         .iter()
-        .map(|solid| shell(&solid.shape, &solid.remove, thickness))
+        .map(|solid| shell(&solid.shape, &solid.remove, thickness, &Interrupt::new()))
         .collect::<Result<Vec<_>, _>>()?;
     if let [result] = &results[..] {
         return Ok(Hollow {
@@ -547,7 +547,12 @@ mod tests {
     fn each_solid_of_a_body_is_shelled_with_its_own_faces() {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
-        let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let both = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
         let naming = name_by_history(
             &id("f-box2"),
             &both,
@@ -576,7 +581,12 @@ mod tests {
     fn a_solid_without_removed_faces_becomes_a_closed_hollow() {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
-        let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let both = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
         let naming = name_by_history(
             &id("f-box2"),
             &both,

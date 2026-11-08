@@ -3,7 +3,7 @@
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, ElementName, NamingMap, roles};
-use partsmith_occt_sys::{Point, Vector, extrude};
+use partsmith_occt_sys::{Interrupt, Point, Vector, extrude};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -151,7 +151,7 @@ impl Feature for Extrude {
         };
         let (start, end) = interval(params, context, &profile, plane.origin, direction)?;
         let tool = swept_tool(context, &profile, |faces| {
-            extrude(faces, direction, start, end)
+            extrude(faces, direction, start, end, &Interrupt::new())
         })?;
         let caps = match params.op {
             BodyOp::Cut => Some(CutCaps::of(context.feature(), &tool.naming)?),
@@ -170,7 +170,7 @@ impl Feature for Extrude {
                 reverse_checked(context, &params.body, op_warnings, params.reverse, || {
                     let back = direction.scaled(-1.0);
                     Ok(vec![swept_tool(context, &profile, |faces| {
-                        extrude(faces, back, start, end)
+                        extrude(faces, back, start, end, &Interrupt::new())
                     })?])
                 })?;
         }
@@ -281,7 +281,13 @@ fn interval(
                 // Only a reversed sweep that shares volume with the body makes Turn on Reverse a fix that works.
                 let reverse_hits = back_reach > 0.0 && {
                     let tool = swept_tool(context, profile, |faces| {
-                        extrude(faces, back, 0.0, back_reach + THROUGH_ALL_MARGIN)
+                        extrude(
+                            faces,
+                            back,
+                            0.0,
+                            back_reach + THROUGH_ALL_MARGIN,
+                            &Interrupt::new(),
+                        )
                     })?;
                     reverse_hits(context, &params.body, &[tool])?
                 };

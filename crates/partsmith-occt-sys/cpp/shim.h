@@ -61,9 +61,15 @@ DEFINE_STANDARD_EXCEPTION(Partsmith_EmptyResult, Standard_Failure)
 // Input bytes could not be parsed.
 DEFINE_STANDARD_HANDLE(Partsmith_ReadError, Standard_Failure)
 DEFINE_STANDARD_EXCEPTION(Partsmith_ReadError, Standard_Failure)
+// The call stopped because its interrupt was requested (kernel spec section 3.13).
+DEFINE_STANDARD_HANDLE(Partsmith_Canceled, Standard_Failure)
+DEFINE_STANDARD_EXCEPTION(Partsmith_Canceled, Standard_Failure)
 
 namespace partsmith {
 namespace occt {
+
+// The Rust interrupt of a polling call, opaque to C++ (src/interrupt.rs).
+struct Interrupt;
 
 // Shared types defined by the generated bridge header.
 struct Vec3;
@@ -128,15 +134,17 @@ double shape_area(const Shape &shape);
 Vec3 shape_center_of_mass(const Shape &shape);
 
 // mesh.cpp
-MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle);
+MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle,
+                          const Interrupt &interrupt);
 rust::Vec<double> shape_element_display(const Shape &shape, ElementKind kind, std::uint32_t index,
                                         double chord_deviation, double angle);
 
 // exchange.cpp
 std::unique_ptr<std::string> shape_to_brep(const Shape &shape);
 std::shared_ptr<Shape> shape_from_brep(rust::Slice<const std::uint8_t> bytes);
-std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies);
-StepImportData read_step(rust::Slice<const std::uint8_t> bytes);
+std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies,
+                                        const Interrupt &interrupt);
+StepImportData read_step(rust::Slice<const std::uint8_t> bytes, const Interrupt &interrupt);
 
 // primitives.cpp
 std::shared_ptr<Shape> make_box(const Frame &frame, double length, double width, double height);
@@ -150,26 +158,40 @@ std::shared_ptr<Shape> make_torus(const Frame &frame, double major_radius, doubl
 ProfileData make_profile(const Frame &frame, rust::Slice<const ProfileCurveData> curves);
 
 // sweeps.cpp
-SweepData extrude(const Shape &profile, const Vec3 &direction, double start, double end);
+SweepData extrude(const Shape &profile, const Vec3 &direction, double start, double end,
+                  const Interrupt &interrupt);
 SweepData revolve(const Shape &profile, const Vec3 &origin, const Vec3 &direction, double angle,
-                  bool full);
+                  bool full, const Interrupt &interrupt);
 
 // booleans.cpp
-OpResultData fuse(const Shape &target, rust::Slice<const ShapeHandle> tools);
-OpResultData cut(const Shape &target, rust::Slice<const ShapeHandle> tools);
-OpResultData common(const Shape &target, rust::Slice<const ShapeHandle> tools);
+OpResultData fuse(const Shape &target, rust::Slice<const ShapeHandle> tools,
+                  const Interrupt &interrupt);
+OpResultData cut(const Shape &target, rust::Slice<const ShapeHandle> tools,
+                 const Interrupt &interrupt);
+OpResultData common(const Shape &target, rust::Slice<const ShapeHandle> tools,
+                    const Interrupt &interrupt);
 
 // blends.cpp
-OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges);
-OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edges);
+OpResultData fillet(const Shape &shape, rust::Slice<const FilletEdgeData> edges,
+                    const Interrupt &interrupt);
+OpResultData chamfer(const Shape &shape, rust::Slice<const ChamferEdgeData> edges,
+                     const Interrupt &interrupt);
 OpResultData shell(const Shape &shape, rust::Slice<const std::uint32_t> remove_faces,
-                   double thickness);
+                   double thickness, const Interrupt &interrupt);
 
 // transforms.cpp
 OpResultData transform(const Shape &shape, rust::Slice<const double> matrix);
-SplitData split(const Shape &shape, const Frame &plane);
+SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interrupt);
 std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
 OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+
+// interrupt.cpp
+void wait_for_interrupt(const Interrupt &interrupt, double limit);
+#ifdef __EMSCRIPTEN__
+// The web page's cancel word, from the JavaScript import partsmith_cancel_word (kernel spec
+// section 3.13 item 7).
+double page_cancel_word();
+#endif
 
 }  // namespace occt
 }  // namespace partsmith

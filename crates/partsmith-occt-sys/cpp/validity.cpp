@@ -450,20 +450,25 @@ namespace {
 // Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
 // the operation's inputs). When the whole repaired result is valid, and still holds a solid if
 // `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
-// Otherwise leaves both as they were and returns false.
-bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+// Otherwise leaves both as they were and returns false. `polls` polls before each step.
+bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls) {
   initialize();
+  polls.before("BRepBuilderAPI_Copy");
   BRepBuilderAPI_Copy copier(shape, Standard_True, Standard_False);
   const Handle(BRepTools_History) copy_history = history_of(shape, copier);
   ShapeFix_Shape fixer(copier.Shape());
   fixer.SetPrecision(kLinear);
-  fixer.Perform();
+  polls.run("ShapeFix_Shape",
+            [&](const Message_ProgressRange &range) { fixer.Perform(range); });
   const TopoDS_Shape fixed = fixer.Shape();
   const bool lost_solids = has_solid(shape) && !has_solid(fixed);
+  polls.before("BRepCheck_Analyzer");
   if (lost_solids || !BRepCheck_Analyzer(fixed).IsValid()) {
     return false;
   }
+  polls.before("BRepTools_History::Merge");
   merge_history(history, copy_history);
+  polls.before("BRepTools_History::Merge");
   merge_history(history, fixer.Context()->History());
   shape = fixed;
   return true;
@@ -477,15 +482,18 @@ std::string stays_invalid(const char *algorithm) {
 }  // namespace
 
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const CheckInputs &inputs, const char *algorithm) {
-  if (!changed_part_valid(shape, inputs) && !repair(shape, history)) {
+                  const CheckInputs &inputs, const char *algorithm, Polls &polls) {
+  polls.before("BRepCheck_Analyzer");
+  if (!changed_part_valid(shape, inputs) && !repair(shape, history, polls)) {
     raise_invalid_result(stays_invalid(algorithm));
   }
 }
 
 void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
                        const TopoDS_Shape &input, const char *algorithm) {
-  if (BRepCheck_Analyzer(shape).IsValid() || repair(shape, history)) {
+  // Only `transform` checks copies, and it takes no interrupt.
+  Polls never;
+  if (BRepCheck_Analyzer(shape).IsValid() || repair(shape, history, never)) {
     return;
   }
   if (BRepCheck_Analyzer(input).IsValid()) {
@@ -495,10 +503,10 @@ void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &his
 }
 
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const CheckInputs &inputs, const char *algorithm) {
+                          const CheckInputs &inputs, const char *algorithm, Polls &polls) {
   TopoDS_Shape result = solids_only(shape);
   require_solid(result, algorithm);
-  ensure_valid(result, history, inputs, algorithm);
+  ensure_valid(result, history, inputs, algorithm, polls);
   return solids_only(result);
 }
 

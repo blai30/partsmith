@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{Id, LINEAR_TOLERANCE};
-use partsmith_occt_sys::{OpResult, Shape, common, compound, cut};
+use partsmith_occt_sys::{Interrupt, OpResult, Shape, common, compound, cut};
 
 use crate::builtin::common::check_canceled;
 use crate::context::{BodyState, BuildContext};
@@ -57,7 +57,7 @@ pub(super) fn cut_candidates(
         .map(|candidate| candidate.tool.clone())
         .collect();
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = cut(shape, &shapes)?;
+    let result = cut(shape, &shapes, &Interrupt::new())?;
     let mut overlaps = tools_with_own_faces(&result);
     let nothing_overlaps = Decision {
         overlaps: vec![false; candidates.len()],
@@ -145,7 +145,11 @@ fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, F
         return candidates
             .iter()
             .map(|candidate| {
-                let shared = common(body, std::slice::from_ref(&candidate.tool.shape))?;
+                let shared = common(
+                    body,
+                    std::slice::from_ref(&candidate.tool.shape),
+                    &Interrupt::new(),
+                )?;
                 Ok(shared.shape.volume()?)
             })
             .collect();
@@ -155,7 +159,7 @@ fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, F
         .map(|candidate| candidate.tool.shape.clone())
         .collect();
     let group = compound(&tools)?.shape;
-    let shared = common(body, std::slice::from_ref(&group))?.shape;
+    let shared = common(body, std::slice::from_ref(&group), &Interrupt::new())?.shape;
     let mut volumes = vec![0.0; candidates.len()];
     for solid in shared.solids()? {
         let center = solid.bounding_box()?.center();
@@ -310,7 +314,7 @@ mod tests {
         ];
         let shapes: Vec<Shape> = rods.iter().map(|rod| rod.tool.shape.clone()).collect();
 
-        let result = cut(&cube.shape, &shapes).expect("the kernel cuts");
+        let result = cut(&cube.shape, &shapes, &Interrupt::new()).expect("the kernel cuts");
 
         assert_eq!(tools_with_own_faces(&result), [true, false, false]);
     }

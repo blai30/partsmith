@@ -306,7 +306,7 @@ mod feature_import {
 
     use crate::feature_support::import::{assets, block_bytes};
     use crate::feature_support::{load_example, median_build_time_with_assets, median_duration};
-    use partsmith_occt_sys::read_step;
+    use partsmith_occt_sys::{Interrupt, read_step};
 
     #[test]
     #[cfg_attr(
@@ -319,7 +319,7 @@ mod feature_import {
         let runs = 21;
         let read_time = median_duration(runs, || {
             let start = Instant::now();
-            read_step(&bytes).expect("the kernel reads its own STEP output");
+            read_step(&bytes, &Interrupt::new()).expect("the kernel reads its own STEP output");
             start.elapsed()
         });
 

@@ -12,6 +12,9 @@
 #include <BinTools.hxx>
 #include <BinTools_ShapeSetBase.hxx>
 #include <DESTEP_Parameters.hxx>
+#include <IFSelect_WorkSession.hxx>
+#include <Interface_Check.hxx>
+#include <Interface_CheckIterator.hxx>
 #include <Interface_HArray1OfHAsciiString.hxx>
 #include <Message.hxx>
 #include <Message_Messenger.hxx>
@@ -36,6 +39,7 @@
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XSControl_WorkSession.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
 
@@ -106,12 +110,36 @@ std::string label_name(const TDF_Label &label) {
   return std::string(name.ToCString());
 }
 
-// The bodies of a STEP import being collected.
+// Raises Partsmith_ReadError when the complete check list of the file `reader` loaded holds a
+// fail: the load check and OCCT's semantic check of every entity (kernel spec section 3.8.1 read
+// item 4). OCCT transfers such a file over unresolved references and null entities.
+void require_no_fails(STEPCAFControl_Reader &reader) {
+  const Interface_CheckIterator checks =
+      reader.ChangeReader().WS()->ModelCheckList(Standard_True);
+  if (checks.IsEmpty(Standard_True)) {
+    return;
+  }
+  int fails = 0;
+  std::string first;
+  for (checks.Start(); checks.More(); checks.Next()) {
+    const Handle(Interface_Check) &check = checks.Value();
+    if (fails == 0 && check->NbFails() > 0) {
+      first = check->CFail(1);
+    }
+    fails += check->NbFails();
+  }
+  raise_read_error("STEPCAFControl_Reader found " + std::to_string(fails) +
+                   (fails == 1 ? " fail" : " fails") + " in the file's check list, the first: " +
+                   first);
+}
+
+// The bodies of a STEP import being collected; `polls` polls before each step.
 class StepCollector {
  public:
-  explicit StepCollector(const Handle(TDocStd_Document) & document)
+  StepCollector(const Handle(TDocStd_Document) & document, Polls &polls)
       : shapes_(XCAFDoc_DocumentTool::ShapeTool(document->Main())),
-        colors_(XCAFDoc_DocumentTool::ColorTool(document->Main())) {}
+        colors_(XCAFDoc_DocumentTool::ColorTool(document->Main())),
+        polls_(polls) {}
 
   StepImportData finish() {
     if (data_.skipped_shapes == 1) {
@@ -168,9 +196,11 @@ class StepCollector {
         ++data_.skipped_shapes;
         continue;
       }
+      polls_.before("BRepBuilderAPI_MakeSolid");
       BRepBuilderAPI_MakeSolid maker(shell);
       ShapeFix_Solid fixer(maker.Solid());
-      fixer.Perform();
+      polls_.run("ShapeFix_Solid",
+                 [&](const Message_ProgressRange &range) { fixer.Perform(range); });
       add_body(fixer.Solid(), location, name, part_colored ? &part_color : nullptr);
     }
     const TopAbs_ShapeEnum loose[][2] = {{TopAbs_FACE, TopAbs_SHELL},
@@ -190,9 +220,11 @@ class StepCollector {
                 const std::string &name, const Quantity_Color *color) {
     ShapeFix_Shape fixer(solid);
     fixer.SetPrecision(kLinear);
-    fixer.Perform();
+    polls_.run("ShapeFix_Shape",
+               [&](const Message_ProgressRange &range) { fixer.Perform(range); });
     for (TopExp_Explorer solids(fixer.Shape(), TopAbs_SOLID); solids.More(); solids.Next()) {
       const TopoDS_Shape body = solids.Current().Moved(location);
+      polls_.before("BRepCheck_Analyzer");
       if (!BRepCheck_Analyzer(body).IsValid()) {
         ++data_.invalid_solids;
         data_.warnings.push_back(rust::String("Solid " + std::to_string(data_.bodies.size() + 1) +
@@ -210,6 +242,7 @@ class StepCollector {
 
   Handle(XCAFDoc_ShapeTool) shapes_;
   Handle(XCAFDoc_ColorTool) colors_;
+  Polls &polls_;
   // Value-initialized, so both counts start at zero.
   StepImportData data_{};
 };
@@ -257,9 +290,13 @@ std::shared_ptr<Shape> shape_from_brep(rust::Slice<const std::uint8_t> bytes) {
   return make_shape(shape);
 }
 
-std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies) {
+std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies,
+                                        const Interrupt &interrupt) {
   initialize();
+  Polls polls(interrupt);
   const std::lock_guard<std::mutex> lock(exchange_mutex());
+  // The call's first poll comes right after it takes the mutex (kernel spec section 3.13 item 4).
+  polls.before("STEPCAFControl_Writer");
   const Handle(TDocStd_Document) document = new_document();
   const Handle(XCAFDoc_ShapeTool) shapes = XCAFDoc_DocumentTool::ShapeTool(document->Main());
   const Handle(XCAFDoc_ColorTool) colors = XCAFDoc_DocumentTool::ColorTool(document->Main());
@@ -268,6 +305,7 @@ std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies) 
       Standard_NullObject::Raise("a STEP body has no shape");
     }
     // A copy, so writing never touches the body's shape.
+    polls.before("BRepBuilderAPI_Transform");
     const TDF_Label label = shapes->AddShape(located_copy(body.shape->get()), Standard_False);
     const std::string name(body.name);
     TDataStd_Name::Set(label, TCollection_ExtendedString(name.c_str(), Standard_True));
@@ -285,10 +323,15 @@ std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies) 
   STEPCAFControl_Writer writer;
   writer.SetNameMode(Standard_True);
   writer.SetColorMode(Standard_True);
-  if (!writer.Transfer(document, parameters, STEPControl_AsIs)) {
+  bool transferred = false;
+  polls.run("STEPCAFControl_Writer", [&](const Message_ProgressRange &range) {
+    transferred = writer.Transfer(document, parameters, STEPControl_AsIs, nullptr, range);
+  });
+  if (!transferred) {
     raise_not_done("STEPCAFControl_Writer could not transfer the bodies");
   }
   set_header(writer.ChangeWriter().Model());
+  polls.before("STEPCAFControl_Writer::WriteStream");
   std::ostringstream stream;
   if (writer.WriteStream(stream) != IFSelect_RetDone) {
     raise_not_done("STEPCAFControl_Writer could not write the stream");
@@ -296,9 +339,12 @@ std::unique_ptr<std::string> write_step(rust::Slice<const StepBodyData> bodies) 
   return std::make_unique<std::string>(stream.str());
 }
 
-StepImportData read_step(rust::Slice<const std::uint8_t> bytes) {
+StepImportData read_step(rust::Slice<const std::uint8_t> bytes, const Interrupt &interrupt) {
   initialize();
+  Polls polls(interrupt);
   const std::lock_guard<std::mutex> lock(exchange_mutex());
+  // The call's first poll comes right after it takes the mutex (kernel spec section 3.13 item 4).
+  polls.before("STEPCAFControl_Reader");
   std::istringstream stream(
       std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()));
   DESTEP_Parameters parameters;
@@ -313,11 +359,19 @@ StepImportData read_step(rust::Slice<const std::uint8_t> bytes) {
   if (reader.NbRootsForTransfer() == 0) {
     raise_empty_result("the STEP file has nothing to transfer");
   }
+  // After the check for nothing to transfer and before any transfer (kernel spec section 3.8.1
+  // read item 4). An empty file stays EmptyResult.
+  polls.before("IFSelect_WorkSession::ModelCheckList");
+  require_no_fails(reader);
   const Handle(TDocStd_Document) document = new_document();
-  if (!reader.Transfer(document)) {
+  bool transferred = false;
+  polls.run("STEPCAFControl_Reader", [&](const Message_ProgressRange &range) {
+    transferred = reader.Transfer(document, range);
+  });
+  if (!transferred) {
     raise_not_done("STEPCAFControl_Reader could not transfer the file");
   }
-  StepCollector collector(document);
+  StepCollector collector(document, polls);
   TDF_LabelSequence roots;
   XCAFDoc_DocumentTool::ShapeTool(document->Main())->GetFreeShapes(roots);
   for (int position = 1; position <= roots.Length(); ++position) {

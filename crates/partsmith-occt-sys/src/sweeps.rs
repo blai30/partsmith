@@ -4,6 +4,7 @@ use std::f64::consts::{PI, TAU};
 
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
+use crate::interrupt::Interrupt;
 use crate::profiles::{
     PlanarCurve, PlanarProfile, PlanarRegion, angle_around, counterclockwise_sweep,
 };
@@ -100,6 +101,7 @@ pub fn extrude(
     direction: Vector,
     start: f64,
     end: f64,
+    interrupt: &Interrupt,
 ) -> Result<SweepResult, KernelError> {
     let operation = Operation::Extrude;
     check_finite(
@@ -123,7 +125,7 @@ pub fn extrude(
         ));
     }
     let data = call(operation, || {
-        sys::extrude(profile.shape.inner(), &unit.to_ffi(), start, end)
+        sys::extrude(profile.shape.inner(), &unit.to_ffi(), start, end, interrupt)
     })?;
     sweep_result(operation, profile, data)
 }
@@ -189,6 +191,7 @@ pub fn revolve(
     profile: &PlanarProfile,
     axis: &Axis,
     angle: f64,
+    interrupt: &Interrupt,
 ) -> Result<SweepResult, KernelError> {
     let operation = Operation::Revolve;
     check_finite(operation, &axis.values())?;
@@ -232,6 +235,7 @@ pub fn revolve(
             &direction.to_ffi(),
             angle,
             full,
+            interrupt,
         )
     })?;
     sweep_result(operation, profile, data)
@@ -266,8 +270,14 @@ mod tests {
 
     #[test]
     fn extrusion_against_the_normal_is_a_valid_solid() {
-        let result = extrude(&square_profile(), Vector::new(0.0, 0.0, -1.0), 0.0, 10.0)
-            .expect("the extrusion builds");
+        let result = extrude(
+            &square_profile(),
+            Vector::new(0.0, 0.0, -1.0),
+            0.0,
+            10.0,
+            &Interrupt::new(),
+        )
+        .expect("the extrusion builds");
 
         assert!((result.shape.volume().expect("volume") - 1000.0).abs() < 1e-9);
         assert!(result.shape.is_valid().expect("validity"));
@@ -283,7 +293,8 @@ mod tests {
             direction: Vector::new(0.0, 1.0, 0.0),
         };
 
-        let result = revolve(&square_profile(), &axis, -TAU).expect("the revolution builds");
+        let result = revolve(&square_profile(), &axis, -TAU, &Interrupt::new())
+            .expect("the revolution builds");
 
         assert!(!result.faces.contains(&SweepFace::StartCap));
         assert!(!result.faces.contains(&SweepFace::EndCap));
@@ -297,8 +308,14 @@ mod tests {
         let mut profile = square_profile();
         profile.edge_tags.pop();
 
-        let error = extrude(&profile, Vector::new(0.0, 0.0, 1.0), 0.0, 1.0)
-            .expect_err("the tags do not match");
+        let error = extrude(
+            &profile,
+            Vector::new(0.0, 0.0, 1.0),
+            0.0,
+            1.0,
+            &Interrupt::new(),
+        )
+        .expect_err("the tags do not match");
 
         assert_eq!(error.kind, crate::KernelErrorKind::Internal);
         assert_eq!(error.operation, Operation::Extrude);
@@ -313,8 +330,8 @@ mod tests {
         };
 
         for angle in [1e-12, -1e-12, ANGULAR_TOLERANCE, -ANGULAR_TOLERANCE] {
-            let error =
-                revolve(&square_profile(), &axis, angle).expect_err("the angle is too small");
+            let error = revolve(&square_profile(), &axis, angle, &Interrupt::new())
+                .expect_err("the angle is too small");
 
             assert_eq!(error.kind, crate::KernelErrorKind::InvalidInput, "{angle}");
             assert_eq!(error.message, ANGLE_MESSAGE, "{angle}");
@@ -328,7 +345,8 @@ mod tests {
             direction: Vector::new(0.0, 1.0, 0.0),
         };
 
-        let result = revolve(&square_profile(), &axis, 1e-6).expect("a small angle builds");
+        let result = revolve(&square_profile(), &axis, 1e-6, &Interrupt::new())
+            .expect("a small angle builds");
 
         assert!(result.faces.contains(&SweepFace::StartCap));
         assert!(result.faces.contains(&SweepFace::EndCap));

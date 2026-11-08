@@ -279,7 +279,8 @@ mod tests {
     use partsmith_model::Category;
     use partsmith_naming::ElementKind;
     use partsmith_occt_sys::{
-        KernelError, KernelErrorKind, Operation, Plane, StepBody, Vector, compound, write_step,
+        Interrupt, KernelError, KernelErrorKind, Operation, Plane, StepBody, Vector, compound,
+        write_step,
     };
 
     use super::*;
@@ -599,10 +600,13 @@ mod tests {
     #[test]
     fn a_source_whose_solids_all_have_volume_is_valid() {
         let cubes = imported(
-            write_step(&[
-                step_box("A", [0.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
-                step_box("B", [50.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
-            ])
+            write_step(
+                &[
+                    step_box("A", [0.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
+                    step_box("B", [50.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
+                ],
+                &Interrupt::new(),
+            )
             .expect("the kernel writes STEP"),
         );
         let fixture = Fixture::new("f-lp1").with_body("b-1", cubes);

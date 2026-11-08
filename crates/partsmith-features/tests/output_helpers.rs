@@ -19,7 +19,7 @@ use partsmith_features::{
 use partsmith_model::Units;
 use partsmith_naming::NamingMap;
 use partsmith_occt_sys::{
-    KernelError, Plane, Point, Shape, SubShapeKind, Vector, cut, make_box, make_cylinder,
+    Interrupt, KernelError, Plane, Point, Shape, SubShapeKind, Vector, cut, make_box, make_cylinder,
 };
 use serde_json::json;
 
@@ -298,6 +298,7 @@ fn t024_apply_op_result_gives_what_apply_op_gives() {
     let result = cut(
         body.shape().expect("b-1 holds a solid"),
         std::slice::from_ref(&tool.shape),
+        &Interrupt::new(),
     )
     .expect("the cut builds");
 
@@ -339,11 +340,16 @@ fn t024_apply_op_result_rejects_results_it_cannot_apply() {
         cut(
             body.shape().expect("b-1 holds a solid"),
             std::slice::from_ref(&tool.shape),
+            &Interrupt::new(),
         )
         .expect("the cut builds")
     };
-    let cylinder_cut =
-        cut(&cylinder(), std::slice::from_ref(&tool.shape)).expect("the cylinder is cut");
+    let cylinder_cut = cut(
+        &cylinder(),
+        std::slice::from_ref(&tool.shape),
+        &Interrupt::new(),
+    )
+    .expect("the cylinder is cut");
     let with_box = fixture_with(body.clone());
     let with_nothing = fixture_with(BodyState::empty());
     let one_tool = std::slice::from_ref(&tool);

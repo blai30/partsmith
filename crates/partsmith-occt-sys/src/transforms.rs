@@ -3,6 +3,7 @@
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::history::{OpResult, op_result_from_ffi};
+use crate::interrupt::Interrupt;
 use crate::shape::{Shape, SubShapeKind};
 use crate::values::{Plane, Transform, check_finite};
 
@@ -62,7 +63,11 @@ pub fn transform(shape: &Shape, transform: &Transform) -> Result<OpResult, Kerne
 }
 
 /// Splits every solid of the shape by an unbounded plane.
-pub fn split(shape: &Shape, plane: &Plane) -> Result<SplitResult, KernelError> {
+pub fn split(
+    shape: &Shape,
+    plane: &Plane,
+    interrupt: &Interrupt,
+) -> Result<SplitResult, KernelError> {
     let operation = Operation::Split;
     let frame = plane.frame(operation)?;
     if shape.count(SubShapeKind::Solid) == 0 {
@@ -71,7 +76,9 @@ pub fn split(shape: &Shape, plane: &Plane) -> Result<SplitResult, KernelError> {
             SPLIT_NOT_SOLID_MESSAGE,
         ));
     }
-    let data = call(operation, || sys::split(shape.inner(), &frame.to_ffi()))?;
+    let data = call(operation, || {
+        sys::split(shape.inner(), &frame.to_ffi(), interrupt)
+    })?;
     let result = op_result_from_ffi(operation, data.result)?;
     let solid_sides = data
         .solid_positive
@@ -219,7 +226,7 @@ mod tests {
     #[test]
     fn split_keeps_a_solid_the_plane_misses() {
         let above_the_plane = cube_with_corner(Point::new(20.0, 0.0, 20.0));
-        let pair = fuse(&cube_at(0.0), &[above_the_plane])
+        let pair = fuse(&cube_at(0.0), &[above_the_plane], &Interrupt::new())
             .expect("separate cubes")
             .shape;
         let plane = Plane {
@@ -227,7 +234,7 @@ mod tests {
             ..Plane::XY
         };
 
-        let result = split(&pair, &plane).expect("split");
+        let result = split(&pair, &plane, &Interrupt::new()).expect("split");
 
         assert_eq!(result.result.shape.count(SubShapeKind::Solid), 3);
         let positive = result

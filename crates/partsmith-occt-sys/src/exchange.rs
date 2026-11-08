@@ -2,6 +2,7 @@
 
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
+use crate::interrupt::Interrupt;
 use crate::shape::{Shape, SubShapeKind};
 use crate::values::{Color, check_finite};
 
@@ -53,7 +54,7 @@ fn written_name(position: usize, name: &str) -> String {
 }
 
 /// Writes bodies to an AP214 STEP file in millimeters.
-pub fn write_step(bodies: &[StepBody]) -> Result<Vec<u8>, KernelError> {
+pub fn write_step(bodies: &[StepBody], interrupt: &Interrupt) -> Result<Vec<u8>, KernelError> {
     let operation = Operation::WriteStep;
     if bodies.is_empty() {
         return Err(KernelError::invalid_input(
@@ -92,7 +93,7 @@ pub fn write_step(bodies: &[StepBody]) -> Result<Vec<u8>, KernelError> {
             blue,
         });
     }
-    let bytes = call(operation, || sys::write_step(&data))?;
+    let bytes = call(operation, || sys::write_step(&data, interrupt))?;
     owned_bytes(operation, &bytes)
 }
 
@@ -108,9 +109,9 @@ fn owned_bytes(
 }
 
 /// Reads solids, names and colors from a STEP file, converted to millimeters.
-pub fn read_step(bytes: &[u8]) -> Result<StepImport, KernelError> {
+pub fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImport, KernelError> {
     let operation = Operation::ReadStep;
-    let data = call(operation, || sys::read_step(bytes))?;
+    let data = call(operation, || sys::read_step(bytes, interrupt))?;
     let bodies = data
         .bodies
         .into_iter()
@@ -165,6 +166,12 @@ mod tests {
         }
     }
 
+    /// `bodies` written to STEP and read back.
+    fn round_trip(bodies: &[StepBody]) -> StepImport {
+        let bytes = write_step(bodies, &Interrupt::new()).expect("written");
+        read_step(&bytes, &Interrupt::new()).expect("read")
+    }
+
     #[test]
     fn empty_names_get_their_position() {
         assert_eq!(written_name(0, ""), "Body 1");
@@ -174,14 +181,16 @@ mod tests {
 
     #[test]
     fn body_of_two_solids_reads_as_two_bodies_with_its_name() {
-        let pair = fuse(&cube_at(0.0), &[cube_at(20.0)]).expect("fused").shape;
+        let pair = fuse(&cube_at(0.0), &[cube_at(20.0)], &Interrupt::new())
+            .expect("fused")
+            .shape;
         let bodies = [StepBody {
             shape: pair,
             name: "Pair".to_owned(),
             color: None,
         }];
 
-        let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+        let import = round_trip(&bodies);
 
         assert_eq!(import.bodies.len(), 2);
         assert!(import.bodies.iter().all(|body| body.name == "Pair"));
@@ -195,7 +204,7 @@ mod tests {
             color: None,
         }];
 
-        let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+        let import = round_trip(&bodies);
 
         assert_eq!(import.skipped_shapes, 0);
         assert_eq!(import.invalid_solids, 0);
@@ -209,7 +218,7 @@ mod tests {
             cube_beside_a_face(100.0, "Second"),
         ];
 
-        let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+        let import = round_trip(&bodies);
 
         assert_eq!(import.bodies.len(), 2);
         assert_eq!(import.skipped_shapes, 2);
@@ -232,7 +241,7 @@ mod tests {
             color: None,
         }];
 
-        let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+        let import = round_trip(&bodies);
 
         assert_eq!(import.bodies.len(), 1);
         assert_eq!(import.skipped_shapes, 4);
@@ -252,7 +261,7 @@ mod tests {
             color: None,
         }];
 
-        let import = read_step(&write_step(&bodies).expect("written")).expect("read");
+        let import = round_trip(&bodies);
 
         let bounds = import.bodies[0].shape.bounding_box().expect("bounds");
         assert!((bounds.min[0] - 100.0).abs() < 1e-6);
@@ -269,11 +278,14 @@ mod tests {
 
     #[test]
     fn empty_body_names_the_default_name() {
-        let error = write_step(&[StepBody {
-            shape: Shape::empty(),
-            name: String::new(),
-            color: None,
-        }])
+        let error = write_step(
+            &[StepBody {
+                shape: Shape::empty(),
+                name: String::new(),
+                color: None,
+            }],
+            &Interrupt::new(),
+        )
         .expect_err("the body has no solid");
 
         assert_eq!(error.message, "Body \"Body 1\" has no solid to export.");
@@ -281,15 +293,18 @@ mod tests {
 
     #[test]
     fn nan_color_is_not_finite() {
-        let error = write_step(&[StepBody {
-            shape: Shape::empty(),
-            name: "Part".to_owned(),
-            color: Some(Color {
-                red: f64::NAN,
-                green: 0.0,
-                blue: 0.0,
-            }),
-        }])
+        let error = write_step(
+            &[StepBody {
+                shape: Shape::empty(),
+                name: "Part".to_owned(),
+                color: Some(Color {
+                    red: f64::NAN,
+                    green: 0.0,
+                    blue: 0.0,
+                }),
+            }],
+            &Interrupt::new(),
+        )
         .expect_err("NaN is rejected");
 
         assert_eq!(error.message, crate::values::NOT_FINITE_MESSAGE);
@@ -297,15 +312,18 @@ mod tests {
 
     #[test]
     fn negative_color_is_out_of_range() {
-        let error = write_step(&[StepBody {
-            shape: Shape::empty(),
-            name: "Part".to_owned(),
-            color: Some(Color {
-                red: 0.5,
-                green: -0.1,
-                blue: 0.0,
-            }),
-        }])
+        let error = write_step(
+            &[StepBody {
+                shape: Shape::empty(),
+                name: "Part".to_owned(),
+                color: Some(Color {
+                    red: 0.5,
+                    green: -0.1,
+                    blue: 0.0,
+                }),
+            }],
+            &Interrupt::new(),
+        )
         .expect_err("negative components are rejected");
 
         assert_eq!(error.message, COLOR_RANGE_MESSAGE);

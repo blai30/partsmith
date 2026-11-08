@@ -55,14 +55,17 @@ pub fn write_step(bodies: &[StepExportBody<'_>]) -> Result<Vec<u8>, IoError> {
             color: body.color.map(to_kernel_color),
         })
         .collect();
-    Ok(kernel::write_step(&kernel_bodies)?)
+    Ok(kernel::write_step(
+        &kernel_bodies,
+        &kernel::Interrupt::new(),
+    )?)
 }
 
 /// Reads the solids, names and colors of a STEP file through the kernel.
 ///
 /// Shapes are in millimeters whatever unit the file uses, in the kernel's order.
 pub fn read_step(bytes: &[u8]) -> Result<ImportedStep, IoError> {
-    let import = kernel::read_step(bytes)?;
+    let import = kernel::read_step(bytes, &kernel::Interrupt::new())?;
     let solids = import
         .bodies
         .into_iter()

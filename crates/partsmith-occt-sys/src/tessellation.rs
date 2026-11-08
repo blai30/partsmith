@@ -5,6 +5,7 @@ use partsmith_mesh::{EdgePolyline, Mesh, Point3, TessellationTolerance, VertexMa
 
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::{bridge as sys, split_at_offsets, triples};
+use crate::interrupt::Interrupt;
 use crate::shape::{Shape, SubShapeKind};
 use crate::values::{Point, check_finite};
 
@@ -125,11 +126,15 @@ fn display_from_ffi(
 impl Shape {
     /// Triangulates the shape into a mesh with face ids, edge polylines and vertex markers
     /// (section 3.7).
-    pub fn tessellate(&self, tolerance: &TessellationTolerance) -> Result<Mesh, KernelError> {
+    pub fn tessellate(
+        &self,
+        tolerance: &TessellationTolerance,
+        interrupt: &Interrupt,
+    ) -> Result<Mesh, KernelError> {
         let operation = Operation::Tessellate;
         let (chord_deviation, angular_deviation) = checked_tolerance(operation, tolerance)?;
         let data = call(operation, || {
-            sys::shape_tessellate(self.inner(), chord_deviation, angular_deviation)
+            sys::shape_tessellate(self.inner(), chord_deviation, angular_deviation, interrupt)
         })?;
         mesh_from_ffi(data)
     }
@@ -258,7 +263,9 @@ mod tests {
             .expect("rotated")
             .shape;
 
-        let mesh = moved.tessellate(&tolerance()).expect("meshed");
+        let mesh = moved
+            .tessellate(&tolerance(), &Interrupt::new())
+            .expect("meshed");
 
         assert!(welds_closed(&mesh));
         assert!((mesh.signed_volume() - 6000.0).abs() < 1e-6);
@@ -273,7 +280,9 @@ mod tests {
             .expect("mirrored")
             .shape;
 
-        let mesh = mirrored.tessellate(&tolerance()).expect("meshed");
+        let mesh = mirrored
+            .tessellate(&tolerance(), &Interrupt::new())
+            .expect("meshed");
 
         assert!(welds_closed(&mesh));
         assert!(mesh.signed_volume() > 780.0);
@@ -284,7 +293,9 @@ mod tests {
         let shape = block();
         let before = shape.to_brep().expect("bytes");
 
-        shape.tessellate(&tolerance()).expect("meshed");
+        shape
+            .tessellate(&tolerance(), &Interrupt::new())
+            .expect("meshed");
 
         assert!(shape.to_brep().expect("bytes") == before);
     }
@@ -292,7 +303,7 @@ mod tests {
     #[test]
     fn empty_shape_meshes_to_an_empty_mesh() {
         let mesh = Shape::empty()
-            .tessellate(&tolerance())
+            .tessellate(&tolerance(), &Interrupt::new())
             .expect("nothing to mesh");
 
         assert!(mesh.is_empty());
@@ -348,7 +359,7 @@ mod tests {
         };
 
         let error = Shape::empty()
-            .tessellate(&tolerance)
+            .tessellate(&tolerance, &Interrupt::new())
             .expect_err("infinity is rejected");
 
         assert_eq!(error.message, crate::values::NOT_FINITE_MESSAGE);

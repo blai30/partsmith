@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use partsmith_mesh::BoundingBox;
 use partsmith_model::LINEAR_TOLERANCE;
 use partsmith_naming::{ElementKind, GeometryKind, Reference};
-use partsmith_occt_sys::{InputHistory, OpResult, Shape, SubShapeKind, common};
+use partsmith_occt_sys::{InputHistory, Interrupt, OpResult, Shape, SubShapeKind, common};
 use partsmith_sketch::Placement;
 
 use crate::context::{BodyState, BuildContext};
@@ -200,7 +200,7 @@ pub fn reverse_hits(
     let volume = state.volume()?;
     for tool in tools {
         context.check_canceled()?;
-        let overlap = common(target, std::slice::from_ref(&tool.shape))?;
+        let overlap = common(target, std::slice::from_ref(&tool.shape), &Interrupt::new())?;
         let shared = overlap.shape.count(SubShapeKind::Solid) > 0
             && overlap.shape.volume()? > VOLUME_TOLERANCE * volume;
         if shared {

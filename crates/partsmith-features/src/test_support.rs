@@ -11,7 +11,9 @@ use partsmith_model::{
     ParameterValues, Scope, Units,
 };
 use partsmith_naming::{ElementKind, NamingMap, Reference};
-use partsmith_occt_sys::{Plane, Point, Primitive, Shape, StepBody, make_box, write_step};
+use partsmith_occt_sys::{
+    Interrupt, Plane, Point, Primitive, Shape, StepBody, make_box, write_step,
+};
 use partsmith_sketch::RegionRef;
 use serde_json::{Value, json};
 
@@ -167,8 +169,9 @@ pub(crate) fn step_box(name: &str, corner: [f64; 3], size: [f64; 3]) -> StepBody
 /// too. That solid stays invalid after repair and bounds no material. Fails unless the text has
 /// one `MANIFOLD_SOLID_BREP` entity per body and no `BREP_WITH_VOIDS`.
 pub(crate) fn self_void_step(bodies: &[StepBody]) -> Vec<u8> {
-    let step = String::from_utf8(write_step(bodies).expect("the kernel writes STEP"))
-        .expect("STEP text is UTF-8");
+    let step =
+        String::from_utf8(write_step(bodies, &Interrupt::new()).expect("the kernel writes STEP"))
+            .expect("STEP text is UTF-8");
     assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), bodies.len());
     assert!(!step.contains("BREP_WITH_VOIDS("));
     let solid = step

@@ -6,17 +6,29 @@
 //! -- fillet step`. Each operation runs several times and its median time is compared with its
 //! budget; the benchmark fails when any median is over budget. The budgets hold for a release
 //! build on the reference laptop (technical design section 14), single thread. Web budgets are
-//! three times these and are not measured here.
+//! three times these and are not measured here, except the rows of interrupts whose names end in
+//! `web`, which have budgets of their own and run only in the WebAssembly build under Node:
+//! `cargo bench -p partsmith-occt-sys --target wasm32-unknown-emscripten --bench budgets -- web`.
+//! The cancel latencies without a budget are printed, for kernel spec open issue 17.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
 
+#[cfg(not(target_os = "emscripten"))]
+use std::cell::LazyCell;
 use std::f64::consts::TAU;
+use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+#[cfg(not(target_os = "emscripten"))]
+use std::thread;
+use std::time::{Duration, Instant};
 
-use partsmith_budgets::{Report, median_time_of};
+use partsmith_budgets::{Report, median, median_mean_time, median_time_of};
 use partsmith_mesh::TessellationTolerance;
+#[cfg(not(target_os = "emscripten"))]
+use partsmith_occt_sys::split;
 use partsmith_occt_sys::{
     Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
     PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
@@ -280,6 +292,185 @@ fn too_large_search(requested: f64, succeeds: impl Fn(f64) -> bool) -> Option<f6
     largest
 }
 
+/// The engine's tessellation tolerance at `chord_deviation` mm and 5 degrees (engine.md section
+/// 3.7).
+fn engine_tolerance(chord_deviation: f64) -> TessellationTolerance {
+    TessellationTolerance {
+        chord_deviation,
+        angular_deviation: 5.0_f64.to_radians(),
+    }
+}
+
+/// The sphere of radius 250 of spec section 5.
+fn large_sphere() -> Shape {
+    make_sphere(&Plane::XY, 250.0)
+        .expect("the sphere builds")
+        .shape
+}
+
+/// The cancel latency of a call (kernel spec section 5): the median over 5 runs of the largest
+/// latency over 10 delays, k d / 11 for k = 1 to 10, with d the median duration of the call when
+/// nothing stops it.
+#[cfg(not(target_os = "emscripten"))]
+fn cancel_latency<Output>(call: impl Fn(&Interrupt) -> Output + Sync) -> Duration {
+    let unstopped = median_time_of(5, || call(&Interrupt::new()));
+    median(5, |_| {
+        (1..=10)
+            .map(|elevenths| latency_after(&call, unstopped * elevenths / 11))
+            .max()
+            .expect("ten delays")
+    })
+}
+
+/// The time from a request that another thread makes `delay` after the call starts to the call's
+/// return.
+#[cfg(not(target_os = "emscripten"))]
+fn latency_after<Output>(
+    call: &(impl Fn(&Interrupt) -> Output + Sync),
+    delay: Duration,
+) -> Duration {
+    let interrupt = Interrupt::new();
+    let requester = interrupt.clone();
+    thread::scope(|scope| {
+        let request = scope.spawn(move || {
+            thread::sleep(delay);
+            requester.request();
+            Instant::now()
+        });
+        black_box(call(&interrupt));
+        let returned = Instant::now();
+        let requested = request.join().expect("the requesting thread ends");
+        returned.saturating_duration_since(requested)
+    })
+}
+
+/// The cancel latencies of spec section 5 that have no budget, printed for open issue 17. The
+/// inputs are built only for the rows the command line selects.
+#[cfg(not(target_os = "emscripten"))]
+fn print_cancel_latencies(report: &Report) {
+    let print = |name: &str, latency: &dyn Fn() -> Duration| {
+        if report.includes(name) {
+            println!(
+                "{name}: {:?} (no budget, kernel spec open issue 17)",
+                latency()
+            );
+        }
+    };
+    let parts = LazyCell::new(common::plate_parts);
+    let plate = LazyCell::new(plate);
+    let plate_bodies = LazyCell::new(|| [common::uncolored_body(plate.clone(), "Plate")]);
+    print(
+        "cancel latency, cut of PLATE's box and its 194 cylinders",
+        &|| {
+            let (block, tools) = &*parts;
+            cancel_latency(|interrupt| cut(block, tools, interrupt))
+        },
+    );
+    print("cancel latency, split of PLATE by the plane z = 0", &|| {
+        let plate = &*plate;
+        cancel_latency(|interrupt| split(plate, &Plane::XY, interrupt))
+    });
+    print("cancel latency, write_step of PLATE", &|| {
+        let bodies = &*plate_bodies;
+        cancel_latency(|interrupt| write_step(bodies, interrupt))
+    });
+    print("cancel latency, read_step of PLATE's STEP file", &|| {
+        let bytes = write_step(&*plate_bodies, &Interrupt::new()).expect("PLATE exports");
+        cancel_latency(|interrupt| read_step(&bytes, interrupt))
+    });
+    print(
+        "cancel latency, fillet of PLATE's 4 outer vertical edges at radius 5",
+        &|| {
+            let plate = &*plate;
+            let corners = outer_vertical_edges(plate, 200.0);
+            cancel_latency(|interrupt| fillet(plate, &corners, interrupt))
+        },
+    );
+    print(
+        "cancel latency, tessellate of PLATE at 0.05 mm and 5 degrees",
+        &|| {
+            let plate = &*plate;
+            cancel_latency(|interrupt| plate.tessellate(&engine_tolerance(0.05), interrupt))
+        },
+    );
+    print(
+        "cancel latency, tessellate of the sphere of radius 250 at 0.0125 mm and 5 degrees",
+        &|| {
+            let sphere = large_sphere();
+            cancel_latency(|interrupt| sphere.tessellate(&engine_tolerance(0.0125), interrupt))
+        },
+    );
+}
+
+/// The four vertical edges at the corners of a plate `size` mm wide, each rounded at radius 5.
+#[cfg(not(target_os = "emscripten"))]
+fn outer_vertical_edges(plate: &Shape, size: f64) -> Vec<EdgeRadius> {
+    let at_side = |coordinate: f64| coordinate.abs() < 1e-9 || (coordinate - size).abs() < 1e-9;
+    let corners: Vec<EdgeRadius> = plate
+        .elements(SubShapeKind::Edge)
+        .expect("edges can be queried")
+        .iter()
+        .enumerate()
+        .filter(|(_, edge)| at_side(edge.centroid.x) && at_side(edge.centroid.y))
+        .map(|(position, _)| EdgeRadius {
+            edge: common::index_from_position(position),
+            radius: 5.0,
+        })
+        .collect();
+    assert_eq!(corners.len(), 4, "the plate has four outer vertical edges");
+    corners
+}
+
+/// The rows of interrupts in the WebAssembly build under Node, whose page word the pre-js of
+/// kernel spec section 3.12 item 9 sets to 7: one call of the page's import, and the polls' cost
+/// of `Interrupt::page(1)`, which the word never requests, against `Interrupt::new()`.
+#[cfg(target_os = "emscripten")]
+fn measure_web_interrupts(report: &mut Report) {
+    report.measure(
+        "Interrupt::is_requested, page, web",
+        Duration::from_micros(1),
+        || {
+            let page = Interrupt::page(1);
+            median_mean_time(RUNS, 100_000, || black_box(&page).is_requested())
+        },
+    );
+    // The two forms of each call alternate. Neither gains from the other's warm-up.
+    let polls_cost = |report: &mut Report, name: &str, call: &dyn Fn(&Interrupt)| {
+        if report.includes(name) {
+            let timed = |interrupt: Interrupt| {
+                let start = Instant::now();
+                call(&interrupt);
+                start.elapsed()
+            };
+            let mut page_times = Vec::with_capacity(RUNS);
+            let plain = median(RUNS, |_| {
+                page_times.push(timed(Interrupt::page(1)));
+                timed(Interrupt::new())
+            });
+            let page = median(RUNS, |run| page_times[run]);
+            report.record_time(name, page, plain.mul_f64(1.1));
+        }
+    };
+    let (block, tools) = common::plate_parts();
+    polls_cost(
+        report,
+        "cut of PLATE's box and its 194 cylinders with Interrupt::page(1), web",
+        &|interrupt| {
+            cut(&block, &tools, interrupt).expect("the holes cut");
+        },
+    );
+    let sphere = large_sphere();
+    polls_cost(
+        report,
+        "tessellate, sphere of radius 250 at 0.0125 mm and 5 degrees with Interrupt::page(1), web",
+        &|interrupt| {
+            sphere
+                .tessellate(&engine_tolerance(0.0125), interrupt)
+                .expect("the sphere meshes");
+        },
+    );
+}
+
 fn main() -> ExitCode {
     let mut report = Report::from_arguments();
 
@@ -410,18 +601,11 @@ fn main() -> ExitCode {
             })
         },
     );
-    let engine_tolerance = |chord_deviation: f64| TessellationTolerance {
-        chord_deviation,
-        // The engine's 5 degrees (engine.md section 3.7).
-        angular_deviation: 5.0_f64.to_radians(),
-    };
     report.measure(
         "tessellate, sphere of radius 250 at 0.0125 mm and 5 degrees",
         milliseconds(1500),
         || {
-            let sphere = make_sphere(&Plane::XY, 250.0)
-                .expect("the sphere builds")
-                .shape;
+            let sphere = large_sphere();
             median_time_of(RUNS, || {
                 sphere.tessellate(&engine_tolerance(0.0125), &Interrupt::new())
             })
@@ -546,6 +730,30 @@ fn main() -> ExitCode {
         let bytes = write_step(&bodies, &Interrupt::new()).expect("the part exports");
         median_time_of(RUNS, || read_step(&bytes, &Interrupt::new()))
     });
+
+    report.measure(
+        "Interrupt::is_requested, new or word",
+        Duration::from_nanos(50),
+        || {
+            let interrupt = Interrupt::word(Arc::new(AtomicU64::new(4)), 5);
+            median_mean_time(RUNS, 1_000_000, || black_box(&interrupt).is_requested())
+        },
+    );
+    #[cfg(not(target_os = "emscripten"))]
+    {
+        report.measure(
+            "cancel latency, shell of RC with RT removed and a 2 mm wall",
+            milliseconds(50),
+            || {
+                let rounded = rounded_cube();
+                let top = planar_face(&rounded, common::UP, 20.0);
+                cancel_latency(|interrupt| shell(&rounded, &[top], 2.0, interrupt))
+            },
+        );
+        print_cancel_latencies(&report);
+    }
+    #[cfg(target_os = "emscripten")]
+    measure_web_interrupts(&mut report);
 
     report.finish()
 }

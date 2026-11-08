@@ -8,7 +8,9 @@
 use std::sync::Arc;
 
 use partsmith_features::Fix;
-use partsmith_occt_sys::{Plane, Point, Shape, StepBody, SubShapeKind, cut, make_box, write_step};
+use partsmith_occt_sys::{
+    Interrupt, Plane, Point, Shape, StepBody, SubShapeKind, cut, make_box, write_step,
+};
 
 use super::{
     Assets, Run, assert_bounding_box, assert_error_field, assert_face_count, assert_solid_count,
@@ -34,7 +36,7 @@ pub fn block(name: &str, placement: &Plane, size: [f64; 3]) -> StepBody {
 
 /// The STEP file the kernel writes for `bodies`.
 pub fn step_bytes(bodies: &[StepBody]) -> Arc<[u8]> {
-    Arc::from(write_step(bodies).expect("the kernel writes STEP"))
+    Arc::from(write_step(bodies, &Interrupt::new()).expect("the kernel writes STEP"))
 }
 
 /// The solid of `BYTES`: a `make_box` solid spanning [0,10]x[0,20]x[0,30].
@@ -137,7 +139,7 @@ pub fn hollow() -> Shape {
     let cavity = make_box(&cavity_corner, 6.0, 16.0, 26.0)
         .expect("the kernel makes the cavity box")
         .shape;
-    cut(&solid, &[cavity])
+    cut(&solid, &[cavity], &Interrupt::new())
         .expect("the kernel cuts the cavity out")
         .shape
 }
@@ -145,7 +147,8 @@ pub fn hollow() -> Shape {
 /// The STEP text `write_step` gives for `shape` as one body named `Hollow`, with its void listed
 /// twice (kernel.md tests 140 and 141).
 pub fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
-    let bytes = write_step(&[step_body("Hollow", shape)]).expect("the kernel writes STEP");
+    let bytes = write_step(&[step_body("Hollow", shape)], &Interrupt::new())
+        .expect("the kernel writes STEP");
     let step = String::from_utf8(bytes).expect("STEP text is UTF-8");
     Arc::from(void_listed_twice(&step).into_bytes())
 }

@@ -21,7 +21,9 @@ use partsmith_model::{FieldUnit, Units};
 use partsmith_naming::{
     ElementKind, ElementName, FaceSource, Fingerprint, Motion, NamingMap, Successions,
 };
-use partsmith_occt_sys::{Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder};
+use partsmith_occt_sys::{
+    Interrupt, Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder,
+};
 use partsmith_sketch::{HintFrame, OriginPlane};
 use serde_json::json;
 
@@ -240,7 +242,9 @@ fn plate_with_holes() -> Shape {
                 .shape
         })
         .collect();
-    let plate = cut(&plate, &holes).expect("the holes cut").shape;
+    let plate = cut(&plate, &holes, &Interrupt::new())
+        .expect("the holes cut")
+        .shape;
     assert_eq!(plate.count(SubShapeKind::Face), 200);
     let removed = 194.0 * PI * 16.0 * 10.0;
     assert!((plate.volume().expect("a volume") - (400_000.0 - removed)).abs() < 1e-3);

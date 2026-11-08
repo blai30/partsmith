@@ -61,14 +61,16 @@ TopoDS_Shape caps_of(const TopoDS_Shape &first, const TopoDS_Shape &last) {
 // Normalizes, checks and repairs a swept shape, then gives every face exactly one role. The caps
 // are copies of the profile, which `make_profile` checked, moved rigidly, so the check trusts
 // them like the unchanged faces of an input (kernel spec section 3.5, item 4); without caps the
-// whole result is checked.
+// whole result is checked. `polls` polls before each step.
 SweepData sweep_data(const TopoDS_Shape &swept, const TopoDS_Shape &caps, const Roles &roles,
-                     const char *algorithm) {
+                     const char *algorithm, Polls &polls) {
   CheckInputs inputs = caps.IsNull() ? CheckInputs() : CheckInputs({caps});
   // The sweep copied the profile, so every sub-shape of the swept shape is new.
+  polls.before("store_plane_pcurves");
   store_result_pcurves(inputs, swept);
   Handle(BRepTools_History) history = new BRepTools_History;
-  std::shared_ptr<Shape> shape = make_shape(finish_solid(swept, history, inputs, algorithm));
+  std::shared_ptr<Shape> shape =
+      make_shape(finish_solid(swept, history, inputs, algorithm, polls));
 
   const int face_count = shape->faces().Extent();
   std::vector<bool> assigned(static_cast<std::size_t>(face_count) + 1, false);
@@ -105,12 +107,16 @@ SweepData sweep_data(const TopoDS_Shape &swept, const TopoDS_Shape &caps, const 
 
 }  // namespace
 
-SweepData extrude(const Shape &profile, const Vec3 &direction, double start, double end) {
+SweepData extrude(const Shape &profile, const Vec3 &direction, double start, double end,
+                  const Interrupt &interrupt) {
+  Polls polls(interrupt);
   const gp_Vec unit(direction.x, direction.y, direction.z);
   gp_Trsf shift;
   shift.SetTranslation(unit * start);
   const TopoDS_Shape moved = profile.get().Moved(TopLoc_Location(shift));
-  // Copy so the sweep never writes to the profile's sub-shapes (kernel spec section 3.1).
+  // Copy so the sweep never writes to the profile's sub-shapes (kernel spec section 3.1). The
+  // prism builds in its constructor, which takes no progress range.
+  polls.before("BRepPrimAPI_MakePrism");
   BRepPrimAPI_MakePrism prism(moved, unit * (end - start), Standard_True, Standard_True);
   if (!prism.IsDone()) {
     raise_not_done("BRepPrimAPI_MakePrism could not sweep the profile");
@@ -120,13 +126,16 @@ SweepData extrude(const Shape &profile, const Vec3 &direction, double start, dou
   add_faces(roles, prism.FirstShape(), SweepFaceData{SweepRole::StartCap, 0});
   add_faces(roles, prism.LastShape(), SweepFaceData{SweepRole::EndCap, 0});
   return sweep_data(prism.Shape(), caps_of(prism.FirstShape(), prism.LastShape()), roles,
-                    "BRepPrimAPI_MakePrism");
+                    "BRepPrimAPI_MakePrism", polls);
 }
 
 SweepData revolve(const Shape &profile, const Vec3 &origin, const Vec3 &direction, double angle,
-                  bool full) {
+                  bool full, const Interrupt &interrupt) {
+  Polls polls(interrupt);
   const gp_Ax1 axis(to_point(origin), to_direction(direction));
-  // Copy so the sweep never writes to the profile's sub-shapes (kernel spec section 3.1).
+  // Copy so the sweep never writes to the profile's sub-shapes (kernel spec section 3.1). The
+  // revolution builds in its constructor, which takes no progress range.
+  polls.before("BRepPrimAPI_MakeRevol");
   BRepPrimAPI_MakeRevol revolution(profile.get(), axis, full ? 2.0 * M_PI : angle, Standard_True);
   if (!revolution.IsDone() || revolution.Shape().IsNull()) {
     raise_not_done("BRepPrimAPI_MakeRevol could not revolve the profile");
@@ -139,7 +148,7 @@ SweepData revolve(const Shape &profile, const Vec3 &origin, const Vec3 &directio
   }
   const TopoDS_Shape caps =
       full ? TopoDS_Shape() : caps_of(revolution.FirstShape(), revolution.LastShape());
-  return sweep_data(revolution.Shape(), caps, roles, "BRepPrimAPI_MakeRevol");
+  return sweep_data(revolution.Shape(), caps, roles, "BRepPrimAPI_MakeRevol", polls);
 }
 
 }  // namespace occt

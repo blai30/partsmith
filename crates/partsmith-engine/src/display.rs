@@ -11,7 +11,7 @@ use partsmith_mesh::{
 use partsmith_naming::{
     EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet, FaceInfo, TopologyInfo, VertexInfo,
 };
-use partsmith_occt_sys::{KernelError, Shape, SubShapeKind};
+use partsmith_occt_sys::{Interrupt, KernelError, Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
 use crate::counts::saturating_u32;
@@ -250,7 +250,7 @@ impl DisplayMesh {
         table: Arc<ElementTable>,
         tolerance: &TessellationTolerance,
     ) -> Result<DisplayMesh, DisplayError> {
-        let kernel = shape.tessellate(tolerance)?;
+        let kernel = shape.tessellate(tolerance, &Interrupt::new())?;
         let face_ids = kernel
             .face_ids()
             .iter()

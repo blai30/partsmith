@@ -3,6 +3,7 @@
 //! Functions take plain values and immutable [`Shape`] handles and return new shapes with the
 //! history and face roles that naming needs. Every C++ exception becomes a [`KernelError`];
 //! no C++ type appears in the public API. All lengths are millimeters and all angles radians.
+//! The calls that poll OCCT's progress range take a trailing [`Interrupt`] (section 3.13).
 
 mod blends;
 mod booleans;
@@ -11,6 +12,7 @@ mod error;
 mod exchange;
 mod ffi;
 mod history;
+mod interrupt;
 mod primitives;
 mod profiles;
 mod shape;
@@ -30,6 +32,7 @@ pub use element::{
 pub use error::{KernelError, KernelErrorKind, Operation};
 pub use exchange::{StepBody, StepImport, read_step, write_step};
 pub use history::{ElementFate, History, InputHistory, OpResult, Origin};
+pub use interrupt::{Interrupt, wait_for_interrupt};
 pub use primitives::{
     Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
 };

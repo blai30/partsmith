@@ -508,9 +508,9 @@ mod tests {
     use std::f64::consts::PI;
 
     use partsmith_occt_sys::{
-        EdgeRadius, ElementFate, FaceNormal, GeometryKind, Operation, PlanarCurve, PlanarLoop,
-        PlanarRegion, Plane, Point, Point2, SubShape, TaggedCurve, Vector, extrude, fillet,
-        make_cylinder, make_profile,
+        EdgeRadius, ElementFate, FaceNormal, GeometryKind, Interrupt, Operation, PlanarCurve,
+        PlanarLoop, PlanarRegion, Plane, Point, Point2, SubShape, TaggedCurve, Vector, extrude,
+        fillet, make_cylinder, make_profile,
     };
 
     use super::*;
@@ -590,7 +590,12 @@ mod tests {
             face_index(&cube.naming, "f-box1/front"),
             face_index(&cube.naming, "f-box1/top"),
         );
-        let result = fillet(&cube.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("fillets");
+        let result = fillet(
+            &cube.shape,
+            &[EdgeRadius { edge, radius: 2.0 }],
+            &Interrupt::new(),
+        )
+        .expect("fillets");
         let faces = result.shape.elements(SubShapeKind::Face).expect("faces");
         let position = faces
             .iter()
@@ -628,6 +633,7 @@ mod tests {
                 edge: rim,
                 radius: 2.0,
             }],
+            &Interrupt::new(),
         )
         .expect("fillets")
         .shape;
@@ -681,9 +687,15 @@ mod tests {
             holes: Vec::new(),
         };
         let profile = make_profile(&Plane::XY, &[region]).expect("the profile is valid");
-        let shape = extrude(&profile, Vector::new(0.0, 0.0, 1.0), 0.0, 10.0)
-            .expect("extrudes")
-            .shape;
+        let shape = extrude(
+            &profile,
+            Vector::new(0.0, 0.0, 1.0),
+            0.0,
+            10.0,
+            &Interrupt::new(),
+        )
+        .expect("extrudes")
+        .shape;
         let edges = shape.elements(SubShapeKind::Edge).expect("edges");
         let knife = (1_u32..)
             .zip(&edges)
@@ -1112,7 +1124,12 @@ mod tests {
             face_index(&cube.naming, "f-box1/front"),
             face_index(&cube.naming, "f-box1/top"),
         );
-        let result = fillet(&cube.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("fillets");
+        let result = fillet(
+            &cube.shape,
+            &[EdgeRadius { edge, radius: 2.0 }],
+            &Interrupt::new(),
+        )
+        .expect("fillets");
 
         let naming = name_blend(&id("f-fil1"), roles::FILLET, &cube.naming, &result)
             .expect("the result is named")
@@ -1138,7 +1155,7 @@ mod tests {
         let edges: Vec<EdgeRadius> = (1..=12)
             .map(|edge| EdgeRadius { edge, radius: 1.0 })
             .collect();
-        let result = fillet(&cube.shape, &edges).expect("fillets");
+        let result = fillet(&cube.shape, &edges, &Interrupt::new()).expect("fillets");
 
         let naming = name_blend(&id("f-fil1"), roles::FILLET, &cube.naming, &result)
             .expect("the result is named")

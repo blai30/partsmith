@@ -49,14 +49,15 @@ TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
 }
 
 // The solids of `split_solids` copied apart, so that the pieces share no sub-shapes, with the
-// copies' history merged into `history`.
+// copies' history merged into `history`. `polls` polls before each copy and the merge.
 TopoDS_Shape separated_pieces(const TopoDS_Shape &split_solids,
-                              const Handle(BRepTools_History) &history) {
+                              const Handle(BRepTools_History) &history, Polls &polls) {
   TopTools_IndexedMapOfShape pieces;
   TopExp::MapShapes(split_solids, TopAbs_SOLID, pieces);
   Handle(BRepTools_History) copies = new BRepTools_History;
   std::vector<TopoDS_Shape> separated;
   for (int piece = 1; piece <= pieces.Extent(); ++piece) {
+    polls.before("BRepBuilderAPI_Copy");
     BRepBuilderAPI_Copy copier(pieces(piece), Standard_True, Standard_False);
     separated.push_back(copier.Shape());
     TopTools_IndexedMapOfShape elements;
@@ -70,6 +71,7 @@ TopoDS_Shape separated_pieces(const TopoDS_Shape &split_solids,
       }
     }
   }
+  polls.before("BRepTools_History::Merge");
   merge_history(history, copies);
   return solids_only(compound_of(separated));
 }
@@ -163,8 +165,10 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
   return op_result(result, history, {shape.get()});
 }
 
-SplitData split(const Shape &shape, const Frame &plane_frame) {
+SplitData split(const Shape &shape, const Frame &plane_frame, const Interrupt &interrupt) {
+  Polls polls(interrupt);
   const gp_Pln plane(to_ax3(plane_frame));
+  polls.before("BRepBuilderAPI_MakeFace");
   const TopoDS_Face tool = covering_face(shape.get(), plane);
   // The splitter runs non-destructively; recording the input still lets the check see any face
   // it changed in place (kernel spec section 3.5).
@@ -177,20 +181,23 @@ SplitData split(const Shape &shape, const Frame &plane_frame) {
   splitter.SetArguments(arguments);
   splitter.SetTools(tools);
   set_boolean_options(splitter);
-  splitter.Build();
+  polls.run("BRepAlgoAPI_Splitter",
+            [&](const Message_ProgressRange &range) { splitter.Build(range); });
   require_no_errors(splitter, "BRepAlgoAPI_Splitter");
   Handle(BRepTools_History) history = new BRepTools_History;
+  polls.before("BRepTools_History::Merge");
   merge_history(history, splitter.History());
 
   const TopoDS_Shape split_solids = solids_only(splitter.Shape());
   require_solid(split_solids, "BRepAlgoAPI_Splitter");
   // The pieces are checked as the splitter built them, where the faces the plane does not cut
   // are still the input's own (kernel spec section 3.5); copying keeps them valid.
+  polls.before("BRepCheck_Analyzer");
   const bool valid = changed_part_valid(split_solids, check_inputs);
-  TopoDS_Shape result = separated_pieces(split_solids, history);
+  TopoDS_Shape result = separated_pieces(split_solids, history, polls);
   if (!valid) {
     // Repair the separated pieces: ShapeFix_Shape merges solids that share a face.
-    ensure_valid(result, history, CheckInputs(), "BRepAlgoAPI_Splitter");
+    ensure_valid(result, history, CheckInputs(), "BRepAlgoAPI_Splitter", polls);
     result = solids_only(result);
   }
 

@@ -58,8 +58,9 @@ std::vector<gp_XYZ> from_first_vertex(std::vector<gp_XYZ> points, const TopoDS_E
 }
 
 // Meshes `shape` in place with the parameters and face algorithms of kernel spec section 3.7,
-// item 2, as BRepMesh_IncrementalMesh's own Perform does with OCCT's context.
-void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle) {
+// item 2, as BRepMesh_IncrementalMesh's own Perform does with OCCT's context. The mesher gets a
+// range of `polls`.
+void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle, Polls &polls) {
   // Built with a named algorithm, so it never reads CSF_MeshAlgo from the environment; its face
   // algorithms are then replaced by the shim's.
   const Handle(BRepMesh_Context) context = new BRepMesh_Context(IMeshTools_MeshAlgoType_Delabella);
@@ -71,7 +72,8 @@ void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle) {
   parameters.Angle = angle;
   parameters.Relative = Standard_False;
   parameters.InParallel = Standard_False;
-  mesher.Perform(context);
+  polls.run("BRepMesh_IncrementalMesh",
+            [&](const Message_ProgressRange &range) { mesher.Perform(context, range); });
 }
 
 // The triangulation the mesher stored on face `index`, in the frame of the face without
@@ -303,10 +305,13 @@ class MeshBuilder {
 
 }  // namespace
 
-MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle) {
+MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle,
+                          const Interrupt &interrupt) {
+  Polls polls(interrupt);
   // Mesh a copy so the input never carries a triangulation (kernel spec section 3.7, item 2).
+  polls.before("BRepBuilderAPI_Copy");
   const Shape copy = copy_shape(shape);
-  mesh(copy.get(), chord_deviation, angle);
+  mesh(copy.get(), chord_deviation, angle, polls);
   return MeshBuilder(copy).build();
 }
 
@@ -319,7 +324,9 @@ rust::Vec<double> face_display(const TopoDS_Face &face, std::uint32_t index, dou
                                double angle) {
   BRepBuilderAPI_Copy copier(face, Standard_False, Standard_False);
   const TopoDS_Face copy = TopoDS::Face(copier.Shape());
-  mesh(copy, chord_deviation, angle);
+  // The display geometry of one element takes no interrupt (kernel spec section 3.13).
+  Polls never;
+  mesh(copy, chord_deviation, angle, never);
   TopLoc_Location location;
   const Handle(Poly_Triangulation) &triangulation = triangulation_of(copy, index, location);
   // The triangulation lies in the frame of the face without its location, like a whole shape's.

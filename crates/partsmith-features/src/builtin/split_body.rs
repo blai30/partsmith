@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
 use partsmith_naming::{FaceSource, NamingMap, roles};
-use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
+use partsmith_occt_sys::{Interrupt, PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -91,7 +91,7 @@ impl Feature for SplitBody {
     ) -> Result<FeatureOutput, FeatureError> {
         let (state, shape) = solid_body(context, "body", &params.body)?;
         let plane = context.plane("plane", &params.plane)?;
-        let pieces = split(shape, &plane.value.to_kernel())?;
+        let pieces = split(shape, &plane.value.to_kernel(), &Interrupt::new())?;
         // A side holds no solid when its volume is at most the volume tolerance of the body
         // (split_body.md section 3.3).
         let threshold = VOLUME_TOLERANCE * state.volume()?;

@@ -11,6 +11,9 @@
 #include <BOPAlgo_Operation.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools_History.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressRange.hxx>
+#include <Message_ProgressScope.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -30,10 +33,78 @@ class IMeshTools_MeshAlgoFactory;
 
 namespace partsmith {
 namespace occt {
+
+// interrupt.cpp: the progress indicator of one polling call (kernel spec section 3.13 item 3).
+// OCCT's algorithms ask it through their progress ranges whether to stop. It asks the call's
+// interrupt and, once that answered true, answers true for the rest of the call without asking
+// again. OCCT's internal parallelism is off. It runs on the calling thread.
+class Interruption : public Message_ProgressIndicator {
+ public:
+  explicit Interruption(const Interrupt &interrupt) : interrupt_(interrupt) {}
+
+  Standard_Boolean UserBreak() override;
+
+  // The indicator's position is never read. It shows nothing.
+  void Show(const Message_ProgressScope &, const Standard_Boolean) override {}
+
+  // True once it has answered true.
+  bool answered() const { return answered_; }
+
+ private:
+  const Interrupt &interrupt_;
+  bool answered_ = false;
+};
+
 namespace detail {
 
 // Modeling tolerance in millimeters (kernel spec section 3.1).
 constexpr double kLinear = 1e-6;
+
+// interrupt.cpp: the polls of one call (kernel spec section 3.13 items 3 to 5). A call that polls
+// makes one, over its interrupt; every OCCT algorithm of the call that takes a progress range gets
+// one of the root scope's ranges, and the shim polls before each of its own steps. The polls of a
+// call that takes no interrupt never stop it.
+class Polls {
+ public:
+  // The polls of a call that takes no interrupt: no indicator, and ranges that report nowhere.
+  Polls() : Polls(Handle(Interruption)()) {}
+  // The polls of a call that stops once `interrupt` is requested.
+  explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
+  Polls(const Polls &) = delete;
+  Polls &operator=(const Polls &) = delete;
+
+  // The shim's own poll before `step`, an OCCT class or a shim step: raises Partsmith_Canceled
+  // "stopped by its interrupt before <step>" when the indicator answers true.
+  void before(const char *step);
+
+  // Polls before the OCCT algorithm `algorithm`, then runs `step` with a range of the root scope.
+  // When the indicator answered true during it, raises Partsmith_Canceled "<algorithm> stopped by
+  // its interrupt", however the algorithm ended, by an exception too (section 3.13 item 5). A
+  // failure before the indicator answered true keeps its own kind.
+  template <class Step>
+  void run(const char *algorithm, Step &&step) {
+    before(algorithm);
+    try {
+      step(scope_.Next());
+    } catch (const Partsmith_Canceled &) {
+      throw;
+    } catch (...) {
+      stop_if_answered(algorithm);
+      throw;
+    }
+    stop_if_answered(algorithm);
+  }
+
+ private:
+  explicit Polls(const Handle(Interruption) &indicator);
+
+  // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+  void stop_if_answered(const char *algorithm) const;
+
+  Handle(Interruption) indicator_;
+  // Declared after the indicator. The scope then closes before the indicator goes.
+  Message_ProgressScope scope_;
+};
 
 // shape.cpp: the shim's Shape, conversions, exceptions, compounds and copies.
 
@@ -190,8 +261,9 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
 // an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
 // inputs stay untouched), the repair is merged into the history and the whole repaired result
 // is checked; a result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
+// `polls` polls before the check and each step of the repair.
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const CheckInputs &inputs, const char *algorithm);
+                  const CheckInputs &inputs, const char *algorithm, Polls &polls);
 
 // Checks the whole of a result built anew from a copy of `input` and repairs it as ensure_valid
 // does. A result still invalid raises Partsmith_InvalidInputShape when `input` is not valid
@@ -204,7 +276,7 @@ void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &his
 // and repairs it relative to `inputs` (see ensure_valid), and raises Partsmith_EmptyResult
 // when no solid is left.
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                          const CheckInputs &inputs, const char *algorithm);
+                          const CheckInputs &inputs, const char *algorithm, Polls &polls);
 
 // history.cpp: the history of every input relative to the result.
 
@@ -253,10 +325,10 @@ double solids_volume(const TopoDS_Shape &shape);
 // Runs one boolean of `target` with `tools` with the settings of kernel spec section 3.4.5
 // (non-destructive, sequential, history filled), unifying coplanar faces and collinear edges
 // when `unify` is set, and merges its history into `history`. Raises StdFail_NotDone with the
-// algorithm's alerts when it fails.
+// algorithm's alerts when it fails. `polls` polls before each step.
 TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target,
                          const TopTools_ListOfShape &tools, bool unify,
-                         const Handle(BRepTools_History) &history);
+                         const Handle(BRepTools_History) &history, Polls &polls);
 
 // mesh_algorithm.cpp
 

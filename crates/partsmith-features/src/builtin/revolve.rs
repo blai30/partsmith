@@ -8,7 +8,7 @@ use partsmith_model::{
     SelectionKind,
 };
 use partsmith_naming::roles;
-use partsmith_occt_sys::{Axis, Point, Vector, revolve};
+use partsmith_occt_sys::{Axis, Interrupt, Point, Vector, revolve};
 use partsmith_sketch::{Placement, ProfileCurve};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -129,7 +129,9 @@ impl Feature for Revolve {
         }
         let turn = turn(params, context)?;
         let angle = turn.sweep_angle(params.reverse);
-        let tool = swept_tool(context, &profile, |faces| revolve(faces, &axis, angle))?;
+        let tool = swept_tool(context, &profile, |faces| {
+            revolve(faces, &axis, angle, &Interrupt::new())
+        })?;
         // A revolve has no straight direction, so a cut that changes nothing lies beside the body.
         let (update, mut op_warnings) =
             apply_op(context, &params.body, params.op, vec![tool], None)?;
@@ -138,7 +140,7 @@ impl Feature for Revolve {
             op_warnings = reverse_checked(context, &params.body, op_warnings, false, || {
                 let back = turn.sweep_angle(!params.reverse);
                 Ok(vec![swept_tool(context, &profile, |faces| {
-                    revolve(faces, &axis, back)
+                    revolve(faces, &axis, back, &Interrupt::new())
                 })?])
             })?;
         }

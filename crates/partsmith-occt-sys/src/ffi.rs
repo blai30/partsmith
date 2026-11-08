@@ -2,7 +2,9 @@
 //!
 //! Every function that can fail returns `Result`, so the shim's `trycatch` turns any C++
 //! exception into an error. The only functions without `Result` read values cached when a
-//! `Shape` is built, or create the empty shape.
+//! `Shape` is built, create the empty shape, or read the web page's cancel word.
+
+use crate::interrupt::Interrupt;
 
 #[cxx::bridge(namespace = "partsmith::occt")]
 pub(crate) mod bridge {
@@ -280,11 +282,22 @@ pub(crate) mod bridge {
         warnings: Vec<String>,
     }
 
+    extern "Rust" {
+        /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+        /// requested and keeps it only for the call that received it (kernel spec section 3.13
+        /// item 3).
+        type Interrupt;
+
+        fn is_requested(self: &Interrupt) -> bool;
+    }
+
     // SAFETY: each declaration matches its definition in cpp/shim.h, which the compiler checks
     // when it builds the generated C++. No shim function throws past `trycatch` or keeps a
-    // reference to a Rust slice or string after it returns, returned shapes come from
+    // reference to a Rust slice, string or interrupt after it returns, returned shapes come from
     // `std::make_shared` (the facade still rejects null), and the C++ `Shape` is immutable, so
-    // the calls are safe from any thread (kernel spec sections 3.9 and 3.10).
+    // the calls are safe from any thread (kernel spec sections 3.9 and 3.10). `page_cancel_word`
+    // only reads a number through the page's JavaScript import, which never throws (section
+    // 3.13 item 7).
     unsafe extern "C++" {
         include!("partsmith-occt-sys/cpp/shim.h");
 
@@ -306,7 +319,12 @@ pub(crate) mod bridge {
         fn shape_topology(shape: &Shape) -> Result<TopologyData>;
         fn shape_edge_normals(shape: &Shape, edge: u32) -> Result<EdgeNormalsData>;
         fn shape_width_across(shape: &Shape, face: u32, edge: u32) -> Result<f64>;
-        fn shape_tessellate(shape: &Shape, chord_deviation: f64, angle: f64) -> Result<MeshData>;
+        fn shape_tessellate(
+            shape: &Shape,
+            chord_deviation: f64,
+            angle: f64,
+            interrupt: &Interrupt,
+        ) -> Result<MeshData>;
         /// The points of one element's display geometry, three coordinates each: a face's
         /// triangles, an edge's polyline or a vertex's position.
         fn shape_element_display(
@@ -340,30 +358,74 @@ pub(crate) mod bridge {
         ) -> Result<SharedPtr<Shape>>;
 
         fn make_profile(frame: &Frame, curves: &[ProfileCurveData]) -> Result<ProfileData>;
-        fn extrude(profile: &Shape, direction: &Vec3, start: f64, end: f64) -> Result<SweepData>;
+        fn extrude(
+            profile: &Shape,
+            direction: &Vec3,
+            start: f64,
+            end: f64,
+            interrupt: &Interrupt,
+        ) -> Result<SweepData>;
         fn revolve(
             profile: &Shape,
             origin: &Vec3,
             direction: &Vec3,
             angle: f64,
             full: bool,
+            interrupt: &Interrupt,
         ) -> Result<SweepData>;
 
-        fn fuse(target: &Shape, tools: &[ShapeHandle]) -> Result<OpResultData>;
-        fn cut(target: &Shape, tools: &[ShapeHandle]) -> Result<OpResultData>;
-        fn common(target: &Shape, tools: &[ShapeHandle]) -> Result<OpResultData>;
+        fn fuse(
+            target: &Shape,
+            tools: &[ShapeHandle],
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
+        fn cut(
+            target: &Shape,
+            tools: &[ShapeHandle],
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
+        fn common(
+            target: &Shape,
+            tools: &[ShapeHandle],
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
 
-        fn fillet(shape: &Shape, edges: &[FilletEdgeData]) -> Result<OpResultData>;
-        fn chamfer(shape: &Shape, edges: &[ChamferEdgeData]) -> Result<OpResultData>;
-        fn shell(shape: &Shape, remove_faces: &[u32], thickness: f64) -> Result<OpResultData>;
+        fn fillet(
+            shape: &Shape,
+            edges: &[FilletEdgeData],
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
+        fn chamfer(
+            shape: &Shape,
+            edges: &[ChamferEdgeData],
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
+        fn shell(
+            shape: &Shape,
+            remove_faces: &[u32],
+            thickness: f64,
+            interrupt: &Interrupt,
+        ) -> Result<OpResultData>;
 
         fn transform(shape: &Shape, matrix: &[f64]) -> Result<OpResultData>;
-        fn split(shape: &Shape, plane: &Frame) -> Result<SplitData>;
+        fn split(shape: &Shape, plane: &Frame, interrupt: &Interrupt) -> Result<SplitData>;
         fn section(shape: &Shape, plane: &Frame) -> Result<SharedPtr<Shape>>;
         fn compound(shapes: &[ShapeHandle]) -> Result<OpResultData>;
 
-        fn write_step(bodies: &[StepBodyData]) -> Result<UniquePtr<CxxString>>;
-        fn read_step(bytes: &[u8]) -> Result<StepImportData>;
+        fn write_step(
+            bodies: &[StepBodyData],
+            interrupt: &Interrupt,
+        ) -> Result<UniquePtr<CxxString>>;
+        fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImportData>;
+
+        /// Polls `interrupt` about once per millisecond until it is requested or `limit`
+        /// milliseconds have passed (kernel spec section 3.13 item 8).
+        fn wait_for_interrupt(interrupt: &Interrupt, limit: f64) -> Result<()>;
+
+        /// The web page's cancel word, from the JavaScript import `partsmith_cancel_word`, or 0
+        /// without one. It reads one number and cannot fail (kernel spec section 3.13 item 7).
+        #[cfg(target_os = "emscripten")]
+        fn page_cancel_word() -> f64;
     }
 }
 

@@ -245,7 +245,7 @@ fn geometry_kind(kind: KernelGeometryKind) -> GeometryKind {
 #[cfg(test)]
 mod tests {
     use partsmith_naming::ElementInfo;
-    use partsmith_occt_sys::fuse;
+    use partsmith_occt_sys::{Interrupt, fuse};
 
     use super::*;
     use crate::test_support::{face_names, id, named_box};
@@ -314,7 +314,12 @@ mod tests {
     fn fused_disjoint_boxes_keep_every_face_name() {
         let first = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
-        let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let result = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
 
         let naming = name_by_history(
             &id("f-c"),
@@ -335,7 +340,12 @@ mod tests {
     fn fused_touching_boxes_merge_their_tops_with_an_alias() {
         let first = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-b", [10.0, 0.0, 0.0], 10.0);
-        let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let result = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
 
         let naming = name_by_history(
             &id("f-c"),
@@ -357,7 +367,12 @@ mod tests {
     fn modified_sources_list_each_output_face_once_per_input() {
         let first = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
-        let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let result = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
 
         let sources = modified_sources(&result, &[&first.naming, &second.naming]).expect("sources");
 
@@ -369,7 +384,12 @@ mod tests {
     fn history_with_the_wrong_number_of_maps_is_internal() {
         let first = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
-        let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
+        let result = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
 
         let error = modified_sources(&result, &[&first.naming]).expect_err("one map is missing");
 

@@ -11,8 +11,8 @@ use partsmith_naming::{
     roles,
 };
 use partsmith_occt_sys::{
-    KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
-    Transform, Vector, common, compound,
+    Interrupt, KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace,
+    SweepResult, Transform, Vector, common, compound,
 };
 use partsmith_sketch::{RegionRef, Succession};
 
@@ -479,7 +479,7 @@ fn adds_volume(
     let volume = state.volume()?;
     for tool in tools {
         check_canceled(context)?;
-        let shared = common(target, std::slice::from_ref(&tool.shape))?
+        let shared = common(target, std::slice::from_ref(&tool.shape), &Interrupt::new())?
             .shape
             .volume()?;
         if tool.shape.volume()? - shared > VOLUME_TOLERANCE * volume {

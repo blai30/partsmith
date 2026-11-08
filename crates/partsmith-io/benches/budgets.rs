@@ -24,7 +24,7 @@ use partsmith_io::{
     ExportBody, StepExportBody, read_step, write_obj, write_step, write_stl_ascii, write_stl_binary,
 };
 use partsmith_model::{BodyRole, Color};
-use partsmith_occt_sys::{Plane, Point, Shape, StepBody, cut, make_box, make_cylinder};
+use partsmith_occt_sys::{Interrupt, Plane, Point, Shape, StepBody, cut, make_box, make_cylinder};
 
 /// Times each operation runs; the median counts.
 const RUNS: usize = 7;
@@ -47,7 +47,9 @@ fn drilled_block() -> Shape {
     let hole = make_cylinder(&below_center, 5.0, 22.0)
         .expect("the hole cylinder builds")
         .shape;
-    cut(&block, &[hole]).expect("the hole cuts").shape
+    cut(&block, &[hole], &Interrupt::new())
+        .expect("the hole cuts")
+        .shape
 }
 
 fn main() -> ExitCode {
@@ -97,13 +99,17 @@ fn main() -> ExitCode {
         }),
     }];
     if report.includes("write_step") {
-        let kernel = median_time_of(RUNS, || partsmith_occt_sys::write_step(&kernel_bodies));
+        let kernel = median_time_of(RUNS, || {
+            partsmith_occt_sys::write_step(&kernel_bodies, &Interrupt::new())
+        });
         let wrapped = median_time_of(RUNS, || write_step(&io_bodies));
         report.record_time("write_step", wrapped, kernel + STEP_OVERHEAD);
     }
     if report.includes("read_step") {
         let bytes = write_step(&io_bodies).expect("the block exports");
-        let kernel = median_time_of(RUNS, || partsmith_occt_sys::read_step(&bytes));
+        let kernel = median_time_of(RUNS, || {
+            partsmith_occt_sys::read_step(&bytes, &Interrupt::new())
+        });
         let wrapped = median_time_of(RUNS, || read_step(&bytes));
         report.record_time("read_step", wrapped, kernel + STEP_OVERHEAD);
     }

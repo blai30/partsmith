@@ -6,8 +6,8 @@ use std::f64::consts::TAU;
 use partsmith_model::Id;
 use partsmith_naming::{FaceSource, Generator, Motion, Successions, roles};
 use partsmith_occt_sys::{
-    Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, SweepFace, TaggedCurve,
-    Vector, make_profile, revolve,
+    Axis, Interrupt, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, SweepFace,
+    TaggedCurve, Vector, make_profile, revolve,
 };
 use partsmith_sketch::PointRef;
 
@@ -135,7 +135,7 @@ pub(super) fn hole_tool(
         holes: Vec::new(),
     };
     let profile = make_profile(&frame.plane(), &[region])?;
-    let sweep = revolve(&profile, &frame.axis(), TAU)?;
+    let sweep = revolve(&profile, &frame.axis(), TAU, &Interrupt::new())?;
     let point_text = point.to_string();
     let faces = sweep
         .faces

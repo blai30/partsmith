@@ -27,7 +27,9 @@ use std::sync::Arc;
 use partsmith_features::{BodyState, Fix, Repair};
 use partsmith_model::Document;
 use partsmith_naming::{ElementKind, ElementName, Reference, Resolution, resolve, score};
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape, SubShapeKind};
+use partsmith_occt_sys::{
+    ElementGeometry, GeometryKind, Interrupt, Plane, Point, Shape, SubShapeKind,
+};
 use partsmith_recompute::Message;
 use serde_json::Value;
 
@@ -162,7 +164,7 @@ pub fn plate_bytes(holes: &[[f64; 2]]) -> Arc<[u8]> {
     let shape = if tools.is_empty() {
         plate
     } else {
-        partsmith_occt_sys::cut(&plate, &tools)
+        partsmith_occt_sys::cut(&plate, &tools, &Interrupt::new())
             .expect("the kernel cuts the holes")
             .shape
     };

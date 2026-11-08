@@ -2,7 +2,7 @@
 
 use partsmith_model::{Category, FeatureManifest, Id, is_asset_name};
 use partsmith_naming::{FaceSource, Motion, Successions, roles};
-use partsmith_occt_sys::{Operation, Shape, StepImport, SubShapeKind, read_step};
+use partsmith_occt_sys::{Interrupt, Operation, Shape, StepImport, SubShapeKind, read_step};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +85,7 @@ impl Feature for Import {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let bytes = context.asset("asset", &params.asset)?;
-        let imported = read_step(bytes)?;
+        let imported = read_step(bytes, &Interrupt::new())?;
         let warnings = import_warnings(&imported);
         let solids: Vec<Shape> = imported.bodies.into_iter().map(|body| body.shape).collect();
         let tool = imported_tool(context, solids)?;
@@ -186,7 +186,7 @@ mod tests {
                 }
             })
             .collect();
-        Arc::from(write_step(&bodies).expect("the kernel writes STEP"))
+        Arc::from(write_step(&bodies, &Interrupt::new()).expect("the kernel writes STEP"))
     }
 
     /// STEP bytes of one body named `Block`: the box [0,10]x[0,20]x[0,30] with the square face
@@ -224,7 +224,7 @@ mod tests {
             name: "Block".to_string(),
             color: None,
         };
-        Arc::from(write_step(&[body]).expect("the kernel writes STEP"))
+        Arc::from(write_step(&[body], &Interrupt::new()).expect("the kernel writes STEP"))
     }
 
     /// Builds the import with these asset bytes and `b-1` in `state`.

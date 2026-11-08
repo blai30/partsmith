@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::history::{OpResult, op_result_from_ffi};
+use crate::interrupt::Interrupt;
 use crate::shape::{Shape, SubShapeKind};
 use crate::values::{check_finite, is_positive_length};
 
@@ -103,7 +104,11 @@ fn check_blend_request(
 }
 
 /// Rounds edges with constant radii. History inputs: [shape].
-pub fn fillet(shape: &Shape, edges: &[EdgeRadius]) -> Result<OpResult, KernelError> {
+pub fn fillet(
+    shape: &Shape,
+    edges: &[EdgeRadius],
+    interrupt: &Interrupt,
+) -> Result<OpResult, KernelError> {
     let operation = Operation::Fillet;
     let indices: Vec<u32> = edges.iter().map(|edge| edge.edge).collect();
     let radii: Vec<f64> = edges.iter().map(|edge| edge.radius).collect();
@@ -122,7 +127,7 @@ pub fn fillet(shape: &Shape, edges: &[EdgeRadius]) -> Result<OpResult, KernelErr
             radius: edge.radius,
         })
         .collect();
-    let result = call(operation, || sys::fillet(shape.inner(), &data))?;
+    let result = call(operation, || sys::fillet(shape.inner(), &data, interrupt))?;
     op_result_from_ffi(operation, result)
 }
 
@@ -153,7 +158,11 @@ impl ChamferEdge {
 }
 
 /// Bevels edges. History inputs: [shape].
-pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelError> {
+pub fn chamfer(
+    shape: &Shape,
+    edges: &[ChamferEdge],
+    interrupt: &Interrupt,
+) -> Result<OpResult, KernelError> {
     let operation = Operation::Chamfer;
     let data: Vec<sys::ChamferEdgeData> = edges.iter().map(|edge| edge.to_ffi()).collect();
     let indices: Vec<u32> = data.iter().map(|edge| edge.edge).collect();
@@ -172,13 +181,18 @@ pub fn chamfer(shape: &Shape, edges: &[ChamferEdge]) -> Result<OpResult, KernelE
     for edge in data.iter().filter(|edge| edge.two_distances) {
         shape.check_index(operation, SubShapeKind::Face, edge.face)?;
     }
-    let result = call(operation, || sys::chamfer(shape.inner(), &data))?;
+    let result = call(operation, || sys::chamfer(shape.inner(), &data, interrupt))?;
     op_result_from_ffi(operation, result)
 }
 
 /// Hollows a single solid inward with wall `thickness`, opening the removed faces. History
 /// inputs: [shape].
-pub fn shell(shape: &Shape, remove_faces: &[u32], thickness: f64) -> Result<OpResult, KernelError> {
+pub fn shell(
+    shape: &Shape,
+    remove_faces: &[u32],
+    thickness: f64,
+    interrupt: &Interrupt,
+) -> Result<OpResult, KernelError> {
     let operation = Operation::Shell;
     check_finite(operation, &[thickness])?;
     if !is_positive_length(thickness) {
@@ -206,7 +220,7 @@ pub fn shell(shape: &Shape, remove_faces: &[u32], thickness: f64) -> Result<OpRe
         ));
     }
     let result = call(operation, || {
-        sys::shell(shape.inner(), remove_faces, thickness)
+        sys::shell(shape.inner(), remove_faces, thickness, interrupt)
     })?;
     op_result_from_ffi(operation, result)
 }
@@ -215,8 +229,8 @@ pub fn shell(shape: &Shape, remove_faces: &[u32], thickness: f64) -> Result<OpRe
 mod tests {
     use super::*;
     use crate::{
-        GeometryKind, Plane, Point2, PrimitiveFace, SweepFace, Vector, cut, extrude, make_box,
-        make_profile,
+        GeometryKind, KernelErrorKind, Plane, Point2, PrimitiveFace, SweepFace, Vector, cut,
+        extrude, make_box, make_profile,
     };
     use crate::{PlanarCurve, PlanarLoop, PlanarRegion, TaggedCurve};
 
@@ -242,7 +256,9 @@ mod tests {
             ..Plane::XY
         };
         let notch = make_box(&corner, 10.0, 10.0, 10.0).expect("notch").shape;
-        cut(&block, &[notch]).expect("the notch is cut").shape
+        cut(&block, &[notch], &Interrupt::new())
+            .expect("the notch is cut")
+            .shape
     }
 
     #[test]
@@ -298,7 +314,8 @@ mod tests {
             },
         }];
 
-        let error = chamfer(&Shape::empty(), &edges).expect_err("distances must be positive");
+        let error = chamfer(&Shape::empty(), &edges, &Interrupt::new())
+            .expect_err("distances must be positive");
 
         assert_eq!(error.message, CHAMFER_DISTANCE_MESSAGE);
     }
@@ -314,6 +331,7 @@ mod tests {
                 edge: 1,
                 radius: tiny,
             }],
+            &Interrupt::new(),
         )
         .expect_err("the radius is below the tolerance");
         let chamfer_error = chamfer(
@@ -322,9 +340,11 @@ mod tests {
                 edge: 1,
                 size: ChamferSize::Equal { distance: tiny },
             }],
+            &Interrupt::new(),
         )
         .expect_err("the distance is below the tolerance");
-        let shell_error = shell(&block, &[1], tiny).expect_err("the wall is below the tolerance");
+        let shell_error = shell(&block, &[1], tiny, &Interrupt::new())
+            .expect_err("the wall is below the tolerance");
 
         assert_eq!(fillet_error.message, FILLET_RADIUS_MESSAGE);
         assert_eq!(chamfer_error.message, CHAMFER_DISTANCE_MESSAGE);
@@ -339,6 +359,7 @@ mod tests {
                 edge: 1,
                 radius: 1.0,
             }],
+            &Interrupt::new(),
         )
         .expect_err("no solid");
 
@@ -353,6 +374,7 @@ mod tests {
                 edge: 1,
                 radius: f64::INFINITY,
             }],
+            &Interrupt::new(),
         )
         .expect_err("infinity is rejected");
 
@@ -363,7 +385,8 @@ mod tests {
     fn closed_shell_joins_a_concave_vertex_with_a_sphere_from_that_vertex() {
         let notched = notched_cube();
 
-        let result = shell(&notched, &[], 1.0).expect("the notched cube is hollowed");
+        let result =
+            shell(&notched, &[], 1.0, &Interrupt::new()).expect("the notched cube is hollowed");
 
         assert!(result.shape.is_valid().expect("validity"));
         for face in 1..=result.shape.count(SubShapeKind::Face) {
@@ -408,7 +431,8 @@ mod tests {
             })
             .expect("the cube has a bottom face");
 
-        let result = shell(&notched, &[bottom], 1.0).expect("the notched cube is shelled");
+        let result = shell(&notched, &[bottom], 1.0, &Interrupt::new())
+            .expect("the notched cube is shelled");
 
         let rims = &result.history.inputs[0].faces[bottom as usize - 1].modified;
         assert_eq!(rims.len(), 1);
@@ -419,10 +443,10 @@ mod tests {
         assert_eq!(rim.direction, Some(Vector::new(0.0, 0.0, -1.0)));
     }
 
-    #[test]
-    fn tangent_edges_with_different_radii_are_rejected() {
-        // A prism whose outline turns through a tangent arc, so the top edges along line 1, arc
-        // 2 and line 3 form one tangent contour.
+    /// Fillets the top edges along line 1 and arc 2 of a prism whose outline turns through a
+    /// tangent arc, at radii 1 and 2, with `interrupt`. The two edges form one tangent contour.
+    /// Returns the error with the two edges.
+    fn fillet_tangent_edges_at_two_radii(interrupt: &Interrupt) -> (KernelError, u32, u32) {
         let point = |x, y| Point2 { x, y };
         let line = |tag, start, end| TaggedCurve {
             tag,
@@ -448,8 +472,14 @@ mod tests {
             holes: Vec::new(),
         };
         let profile = make_profile(&Plane::XY, &[region]).expect("the outline builds");
-        let prism =
-            extrude(&profile, Vector::new(0.0, 0.0, 1.0), 0.0, 10.0).expect("the prism builds");
+        let prism = extrude(
+            &profile,
+            Vector::new(0.0, 0.0, 1.0),
+            0.0,
+            10.0,
+            &Interrupt::new(),
+        )
+        .expect("the prism builds");
         let role = |wanted: SweepFace| {
             let position = prism
                 .faces
@@ -474,9 +504,17 @@ mod tests {
                     radius: 2.0,
                 },
             ],
+            interrupt,
         )
         .expect_err("tangent edges need one radius");
+        (error, straight, curved)
+    }
 
+    /// Asserts that `error` rejects the tangent edges `straight` and `curved` for their two
+    /// sizes (section 4.2).
+    #[track_caller]
+    fn assert_tangent_sizes_rejected(error: &KernelError, straight: u32, curved: u32) {
+        assert_eq!(error.kind, KernelErrorKind::InvalidInput, "{error:?}");
         assert_eq!(error.exception, "Partsmith_InvalidInput");
         assert_eq!(
             error.message,
@@ -484,6 +522,24 @@ mod tests {
                 "Edges {straight} and {curved} are tangent to each other, so they must use the same size."
             )
         );
+    }
+
+    #[test]
+    fn tangent_edges_with_different_radii_are_rejected() {
+        let (error, straight, curved) = fillet_tangent_edges_at_two_radii(&Interrupt::new());
+
+        assert_tangent_sizes_rejected(&error, straight, curved);
+    }
+
+    #[test]
+    fn tangent_edges_with_different_radii_are_rejected_whatever_the_interrupt_holds() {
+        // Section 3.13 item 2: argument checks come before the interrupt.
+        let interrupt = Interrupt::new();
+        interrupt.request();
+
+        let (error, straight, curved) = fillet_tangent_edges_at_two_radii(&interrupt);
+
+        assert_tangent_sizes_rejected(&error, straight, curved);
     }
 
     #[test]
@@ -499,8 +555,12 @@ mod tests {
         };
         let top = index_of(PrimitiveFace::Top);
         let edge = edge_between(&block.shape, top, index_of(PrimitiveFace::Front));
-        let rounded = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }])
-            .expect("the edge is filleted");
+        let rounded = fillet(
+            &block.shape,
+            &[EdgeRadius { edge, radius: 2.0 }],
+            &Interrupt::new(),
+        )
+        .expect("the edge is filleted");
         let history = &rounded.history.inputs[0];
         let top_image = history.faces[top as usize - 1].modified[0];
         let round = history.edges[edge as usize - 1].generated[0].index;
@@ -513,6 +573,7 @@ mod tests {
                 edge: smooth,
                 radius: 1.0,
             }],
+            &Interrupt::new(),
         )
         .expect_err("a smooth edge has nothing to round");
 
@@ -536,7 +597,9 @@ mod tests {
     fn l_body() -> Shape {
         let low = block_at(-20.0, -10.0, 0.0, 40.0, 20.0, 10.0);
         let high = block_at(0.0, -10.0, 10.0, 20.0, 20.0, 10.0);
-        crate::fuse(&low, &[high]).expect("the boxes fuse").shape
+        crate::fuse(&low, &[high], &Interrupt::new())
+            .expect("the boxes fuse")
+            .shape
     }
 
     /// The face of a shape whose centroid is `centroid`.
@@ -564,7 +627,8 @@ mod tests {
         let body = l_body();
         let wall = face_at(&body, crate::Point::new(0.0, 0.0, 15.0));
 
-        let result = shell(&body, &[wall], 2.0).expect("the wall face is opened");
+        let result =
+            shell(&body, &[wall], 2.0, &Interrupt::new()).expect("the wall face is opened");
 
         // L minus the cavity of the low half below z = 8 and the high half right of x = 0.
         assert_volume(
@@ -579,7 +643,8 @@ mod tests {
         let step = face_at(&body, crate::Point::new(-10.0, 0.0, 10.0));
         let bottom = face_at(&body, crate::Point::new(0.0, 0.0, 0.0));
 
-        let result = shell(&body, &[step, bottom], 2.0).expect("both faces are opened");
+        let result =
+            shell(&body, &[step, bottom], 2.0, &Interrupt::new()).expect("both faces are opened");
 
         // L minus the cavity through the low half and inside the high half above it.
         assert_volume(
@@ -592,10 +657,12 @@ mod tests {
     fn cavity_cut_can_cut_a_boss_loose() {
         let plate = block_at(0.0, 0.0, 0.0, 40.0, 40.0, 10.0);
         let boss = block_at(15.0, 15.0, 10.0, 10.0, 10.0, 10.0);
-        let body = crate::fuse(&plate, &[boss]).expect("the boss fuses").shape;
+        let body = crate::fuse(&plate, &[boss], &Interrupt::new())
+            .expect("the boss fuses")
+            .shape;
         let top = face_at(&body, crate::Point::new(20.0, 20.0, 10.0));
 
-        let result = shell(&body, &[top], 2.0).expect("the plate top is opened");
+        let result = shell(&body, &[top], 2.0, &Interrupt::new()).expect("the plate top is opened");
 
         // The open tray and the hollow boss, which no longer touch.
         assert_eq!(result.shape.count(SubShapeKind::Solid), 2);
@@ -607,7 +674,7 @@ mod tests {
 
     #[test]
     fn shell_of_an_empty_shape_needs_one_solid() {
-        let error = shell(&Shape::empty(), &[], 1.0).expect_err("no solid");
+        let error = shell(&Shape::empty(), &[], 1.0, &Interrupt::new()).expect_err("no solid");
 
         assert_eq!(error.message, SHELL_SOLID_COUNT_MESSAGE);
     }
