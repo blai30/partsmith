@@ -431,9 +431,16 @@ fn pick_open_asks_the_open_dialog_once() {
     let files = Files::in_memory();
     let dialogs = FakeDialogs::canceling();
 
-    files.pick_open(&dialogs, FileKind::Ptsm).expect("a cancel is not an error");
+    files
+        .pick_open(&dialogs, FileKind::Ptsm)
+        .expect("a cancel is not an error");
 
-    assert_eq!(dialogs.calls(), vec![DialogCall::Open { kind: FileKind::Ptsm }]);
+    assert_eq!(
+        dialogs.calls(),
+        vec![DialogCall::Open {
+            kind: FileKind::Ptsm
+        }]
+    );
 }
 
 #[test]
@@ -935,7 +942,10 @@ fn t081_a_font_whose_bytes_are_not_its_name_is_refused() {
 
     let written = files.write_asset(&grant, &name, b"other");
 
-    assert_eq!(written, Err(FileError::AssetMismatch { name: name.clone() }));
+    assert_eq!(
+        written,
+        Err(FileError::AssetMismatch { name: name.clone() })
+    );
     assert!(
         !folder.path().join("assets").join(&name).exists(),
         "nothing is written"
@@ -943,7 +953,9 @@ fn t081_a_font_whose_bytes_are_not_its_name_is_refused() {
     let woff2 = format!("{}.woff2", "0".repeat(64));
     assert_eq!(
         files.read_asset(&grant, &woff2),
-        Err(FileError::NotAnAssetName { name: woff2.clone() })
+        Err(FileError::NotAnAssetName {
+            name: woff2.clone()
+        })
     );
 }
 

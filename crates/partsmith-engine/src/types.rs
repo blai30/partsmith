@@ -4,8 +4,8 @@ use partsmith_mesh::TessellationTolerance;
 use partsmith_model::Id;
 use partsmith_print::Severity;
 use partsmith_protocol::{
-    Buffer, Diagnostic, DocHandle, Event, ExportFormat, Orientation, PrintReport, RepairCandidate,
-    Response,
+    AssetKind, Buffer, Diagnostic, DocHandle, Event, ExportFormat, Orientation, PrintReport,
+    RepairCandidate, Response,
 };
 
 /// A file the document references, stored under its content-hash name.
@@ -15,6 +15,18 @@ pub struct Asset {
     pub name: String,
     /// The file contents.
     pub bytes: Vec<u8>,
+}
+
+/// Since M2: a file that `add_assets` puts into a document's asset store (section 3.14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewAsset {
+    /// The file's kind, which its asset name ends in.
+    pub kind: AssetKind,
+    /// The file contents.
+    pub bytes: Vec<u8>,
+    /// The name a host read it under in the document's `assets/` folder; `None` for a file the
+    /// user picked.
+    pub name: Option<String>,
 }
 
 /// Everything `execute` produced for one request.

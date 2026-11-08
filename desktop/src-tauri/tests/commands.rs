@@ -301,7 +301,7 @@ fn t082_a_wrong_kind_rejects_the_pick() {
     let app = app();
     let main = window(&app, "main");
 
-    // The arguments are read before the command runs, so a wrong kind shows no dialog.
+    // The arguments are read before the command runs. A wrong kind shows no dialog.
     let answer = invoke(
         &main,
         "pick_open_file",
@@ -310,7 +310,10 @@ fn t082_a_wrong_kind_rejects_the_pick() {
     );
 
     let message = rejection_text(answer);
-    assert!(message.contains("kind"), "the rejection names the kind: {message}");
+    assert!(
+        message.contains("kind"),
+        "the rejection names the kind: {message}"
+    );
 }
 
 #[test]

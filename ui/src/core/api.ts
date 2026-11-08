@@ -1,4 +1,5 @@
 import type {
+  AddedAsset,
   CatalogEntry,
   Command,
   CommandResult,
@@ -25,7 +26,7 @@ import type {
   Units,
   Use,
 } from '../generated/protocol'
-import type { AssetFile } from '../files/assets'
+import type { AssetFile, NewAsset } from '../files/assets'
 import { CoreError, type CoreClient } from './client'
 import { byteBuffer, sketchDisplayData, type SketchDisplayData } from './events'
 import type { BufferView } from './frame'
@@ -150,12 +151,15 @@ export type CoreApi = {
   ): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
   /** Since M2: `rebuild` (command 37), which builds a document whose recompute was stopped (3.26 of engine.md). */
   rebuild(documentHandle: DocHandle): Promise<void>
+  /** Since M2: `add_assets` (command 38, 3.19): puts files into the open document's asset store; resolves what the core did with each, in the order given. */
+  addAssets(documentHandle: DocHandle, assets: readonly NewAsset[]): Promise<readonly AddedAsset[]>
 }
 
 /**
  * Commands after which the core rebuilds a document: they change its recipe, focus or what it
- * shows, so it recomputes features and remeshes bodies (engine.md 3.3). Saving, closing, starting a
- * transaction, new_document (nothing to build) and queries rebuild nothing.
+ * shows, so it recomputes features and remeshes bodies (engine.md 3.3). add_assets rebuilds when it
+ * stores a file a record reads (engine.md 3.14). Saving, closing, starting a transaction,
+ * new_document (nothing to build) and queries rebuild nothing.
  */
 const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'open_document',
@@ -170,6 +174,7 @@ const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'redo',
   'end_sketch_drag',
   'rebuild',
+  'add_assets',
 ])
 
 /** Whether the core rebuilds a document for this command (ui.md 2.8 `pendingMutations`, 3.21). */
@@ -367,6 +372,22 @@ export function createCoreApi(client: CoreClient): CoreApi {
     },
     async rebuild(documentHandle) {
       await call({ type: 'rebuild', doc: documentHandle })
+    },
+    async addAssets(documentHandle, assets) {
+      // Entry i travels as the request's buffer i, as for openDocument (protocol.md command 38).
+      const { result } = await call(
+        {
+          type: 'add_assets',
+          doc: documentHandle,
+          assets: assets.map((asset, data) => ({
+            kind: asset.kind,
+            data,
+            ...(asset.name === null ? {} : { name: asset.name }),
+          })),
+        },
+        assets.map((asset) => asset.bytes),
+      )
+      return result.assets
     },
     solveSketch(documentHandle, feature, candidate) {
       return unlessSuperseded(

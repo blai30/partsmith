@@ -1,5 +1,5 @@
 import { CoreError } from '../../core/client'
-import { referencedAssetNames, type AssetFile } from '../../files/assets'
+import { assetKindOf, namedAssets, type AssetFile } from '../../files/assets'
 import {
   ASSETS_FOLDER,
   FileServiceError,
@@ -8,23 +8,30 @@ import {
   type AssetReading,
   type DocumentPlace,
   type FileHandle,
+  type OpenedFile,
 } from '../../files/file-service'
-import type { DocHandle } from '../../generated/protocol'
+import type { AddedAsset, AssetKind, AssetUse, DocHandle } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { adoptDocument } from '../../state/core-events'
-import { isUnsaved } from '../../state/selectors'
-import type { AppState, DocumentState, FileReference, Notification } from '../../state/store'
+import { pendingMissingAssets } from '../../state/core-events'
+import { selectFeatureLabel } from '../../state/selectors'
+import type {
+  DocumentState,
+  FileReference,
+  Notification,
+  NotificationAction,
+} from '../../state/store'
 import { settledRecipeOf } from '../connection'
 import type { App } from '../createApp'
-import { documentOf, refusedDuringCommand, showCoreError } from './edits'
+import { sessionGoesOn } from '../recovery-copy'
+import { documentOf, showCoreError } from './edits'
 import { showFileError } from './files'
 import { copyDetails } from './fixes'
 import { notify } from './notifications'
-import { leaveSketchHistory } from './sketch'
 
-// A document's assets folder in the UI (ui.md 3.19, ADR 0037): which assets Open reads and why
-// imports are missing, the folder the web asks for ("Choose folder"), which reopens the document
-// with its assets, and the actions offered for one document only.
+// A document's assets folder in the UI (ui.md 3.19, ADR 0037, ADR 0064): the files Open reads for
+// the names the core reports missing and adds to the opened document, why imports are missing, the
+// folder the web asks for ("Choose folder"), which adds its files to the open document, the files
+// a user picks, and the actions offered for one document only.
 
 /** The file name the messages of 3.19 give a document: its file's name, else its name and `.ptsm`. */
 function fileNameOf(document: {
@@ -91,21 +98,74 @@ export async function folderOfFile(
   return folders.find((recentFolder) => recentFolder !== null) ?? null
 }
 
+/** A reading of a folder that was reached but had no name to read (openFile step 4). */
+const NOTHING_READ: AssetReading = { assets: [], failure: null }
+
 /**
- * Reads the assets a document's text names from the folder next to its file (openFile step 3);
- * null when it names none, has no file, or the host does not reach the folder.
+ * The names of `missing` that a host reads from a folder: those whose name has an asset kind, in
+ * order (3.19).
  */
-export async function readDocumentAssets(
-  app: App,
-  text: string,
-  file: FileReference | null,
-): Promise<AssetReading | null> {
-  const names = referencedAssetNames(text)
-  const place = placeOf(file)
-  if (names.length === 0 || place === null || !app.files.reachesFolder(place)) {
-    return null
+function namesToRead(missing: readonly AssetUse[]): readonly string[] {
+  return missing.map((use) => use.name).filter((name) => assetKindOf(name) !== null)
+}
+
+/** What one `addAssets` of files read from a folder did: the files the core stored, and the missing names it refused, with the features that read them, in the order read. */
+type AddedFiles = { readonly stored: readonly AssetFile[]; readonly refused: readonly AssetUse[] }
+
+/** Nothing added. */
+const NOTHING_ADDED: AddedFiles = { stored: [], refused: [] }
+
+/** Sorts the files given to one `addAssets` by its result, which lists one entry per file in order. */
+function sortAdded(
+  files: readonly AssetFile[],
+  added: readonly AddedAsset[],
+  missing: readonly AssetUse[],
+): AddedFiles {
+  const refused = new Set(
+    files.filter((_, index) => added[index]?.stored === false).map((file) => file.name),
+  )
+  return {
+    stored: files.filter((_, index) => added[index]?.stored === true),
+    refused: missing.filter((use) => refused.has(use.name)),
   }
-  return app.files.readAssets(place, names)
+}
+
+/** The assets read from a folder for an opened document (openFile step 4): the reading, null when the host does not reach the folder, and what the core stored. */
+export type FolderAssets = { readonly reading: AssetReading | null; readonly added: AddedFiles }
+
+/**
+ * Reads the names an opened document misses from the folder next to its file and gives what it
+ * read to the core with one `addAssets` in an `other` task (openFile step 4). A `CoreError` of the
+ * add is shown as it is and the document opens without assets; a `CoreFatalError` is thrown.
+ */
+export async function addFolderAssets(
+  app: App,
+  documentHandle: DocHandle,
+  file: FileReference | null,
+): Promise<FolderAssets> {
+  const place = placeOf(file)
+  if (place === null || !app.files.reachesFolder(place)) {
+    return { reading: null, added: NOTHING_ADDED }
+  }
+  const missing = pendingMissingAssets(app.store, documentHandle)
+  const names = namesToRead(missing)
+  const reading = names.length === 0 ? NOTHING_READ : await app.files.readAssets(place, names)
+  if (reading.assets.length === 0) {
+    return { reading, added: NOTHING_ADDED }
+  }
+  try {
+    const added = await app.mutations.run(
+      () => app.core.addAssets(documentHandle, namedAssets(reading.assets)),
+      'other',
+    )
+    return { reading, added: sortAdded(reading.assets, added, missing) }
+  } catch (error) {
+    if (!(error instanceof CoreError)) {
+      throw error
+    }
+    showCoreError(app, error)
+    return { reading, added: NOTHING_ADDED }
+  }
 }
 
 /** Whether a reading reached the folder: a refused permission of the folder itself counts as not reached (openFile step 6). */
@@ -156,17 +216,29 @@ function showAssetsNotRead(app: App, fileName: string, failure: FileServiceError
   )
 }
 
-/** `assets_mismatch`: the core refused the folder's files, so the document opened without them (openFile step 4). */
-function showAssetsMismatch(app: App, fileName: string, refusal: CoreError): void {
+/**
+ * `assets_mismatch`, or `assets_mismatch_more` for more than one feature: the core did not store
+ * the files of `refused`. The features that read them miss their geometry (3.19 openFile step 6).
+ */
+function showAssetsMismatch(app: App, fileName: string, refused: readonly AssetUse[]): void {
+  const state = app.store.getState()
+  const timeline = (state.document?.recipe.features ?? []).map((feature) => feature.id)
+  const features = [...new Set(refused.flatMap((use) => use.features))].toSorted(
+    (first, second) => timeline.indexOf(first) - timeline.indexOf(second),
+  )
+  const [first = ''] = features
+  const label = selectFeatureLabel(state, first)
+  const notification =
+    features.length > 1
+      ? {
+          message: MESSAGES.assets_mismatch_more(label, features.length - 1, fileName),
+          code: 'assets_mismatch_more',
+        }
+      : { message: MESSAGES.assets_mismatch(label, fileName), code: 'assets_mismatch' }
   notifyWithDetails(
     app,
-    {
-      severity: 'warning',
-      message: MESSAGES.assets_mismatch(fileName),
-      code: 'assets_mismatch',
-      actions: [],
-    },
-    refusal.message,
+    { severity: 'warning', ...notification, actions: [] },
+    refused.map((use) => `assets/${use.name}: its contents do not match its name`).join('\n'),
   )
 }
 
@@ -204,8 +276,8 @@ function featuresMissingAssets(document: DocumentState): readonly string[] {
 }
 
 /**
- * Says why the imports of a document just opened are missing (openFile steps 4 and 6): the core's
- * refusal of the folder's files, a failed read, and, when the folder was not reached, one warning
+ * Says why the imports of a document just opened are missing (openFile step 6): the files the core
+ * did not store, a failed read, and, when the folder was not reached, one warning
  * naming the features that miss their asset. A host that reached the folder adds nothing more,
  * since each import's own `asset_missing` message says what to copy. `openWithPicker` is the
  * "Open..." action of `assets_without_folder`.
@@ -213,13 +285,12 @@ function featuresMissingAssets(document: DocumentState): readonly string[] {
 export function explainMissingAssets(
   app: App,
   document: DocumentState,
-  reading: AssetReading | null,
-  refusal: CoreError | null,
+  { reading, added }: FolderAssets,
   openWithPicker: () => void,
 ): void {
   const fileName = fileNameOf(document)
-  if (refusal !== null) {
-    showAssetsMismatch(app, fileName, refusal)
+  if (added.refused.length > 0) {
+    showAssetsMismatch(app, fileName, added.refused)
   }
   if (reachedFolder(reading)) {
     if (reading.failure !== null) {
@@ -266,30 +337,38 @@ function showFolderNeeded(
       message: MESSAGES.assets_folder_needed(fileName),
       code: 'assets_folder_needed',
       features,
-      actions: [
-        {
-          label: 'Choose folder',
-          run: () => {
-            void chooseDocumentFolder(app, offer, fileName, features)
-          },
-          editsDocument: true,
-        },
-      ],
+      actions: [chooseFolderAction(app, offer, fileName, features)],
     },
     { persistent: true },
   )
 }
 
+/** The "Choose folder" that adds the folder's files to the document. It edits nothing and runs during a feature command (3.19). */
+function chooseFolderAction(
+  app: App,
+  offer: DocumentOffer,
+  fileName: string,
+  features: readonly string[],
+): NotificationAction {
+  return {
+    label: 'Choose folder',
+    run: () => {
+      void chooseDocumentFolder(app, offer, fileName, features)
+    },
+    editsDocument: false,
+  }
+}
+
 /**
  * Asks for the folder that holds `handle` (3.19 Choose folder) and resolves it. Another folder
- * shows `assets_wrong_folder`, whose "Choose folder" runs `again`, and a canceled dialog runs
- * `canceled`, since running an action dismissed the notification it came from; both resolve null.
+ * shows `assets_wrong_folder`, whose action is `again`, and a canceled dialog runs `canceled`,
+ * since running an action dismissed the notification it came from; both resolve null.
  */
 export async function chooseFolderOf(
   app: App,
   handle: FileHandle,
   fileName: string,
-  again: () => void,
+  again: NotificationAction,
   canceled: () => void,
 ): Promise<FileSystemDirectoryHandle | null> {
   let choice: Awaited<ReturnType<App['files']['chooseFolder']>>
@@ -313,16 +392,16 @@ export async function chooseFolderOf(
     severity: 'error',
     message: MESSAGES.assets_wrong_folder(choice.name, fileName),
     code: 'assets_wrong_folder',
-    actions: [{ label: 'Choose folder', run: again, editsDocument: true }],
+    actions: [again],
   })
   return null
 }
 
 /**
  * "Choose folder" of `assets_folder_needed` (3.19): keeps the chosen folder in the document's file
- * reference and recent files, reads the assets the settled recipe names from it, and reopens the
- * document with them when it read any. Nothing happens unless the document is the one it was
- * offered for, and it is refused during a feature command.
+ * reference and recent files, then adds the files it holds for the document's missing assets.
+ * Nothing happens unless the document is the one it was offered for. It edits nothing. A feature
+ * command, a transaction or a sketch session stays open.
  */
 async function chooseDocumentFolder(
   app: App,
@@ -331,21 +410,13 @@ async function chooseDocumentFolder(
   features: readonly string[],
 ): Promise<void> {
   const { handle } = offer
-  if (handle === null || !isOffered(app, offer) || refusedDuringCommand(app)) {
+  if (handle === null || !isOffered(app, offer)) {
     return
   }
-  const offerAgain = (): void => {
+  const again = chooseFolderAction(app, offer, fileName, features)
+  const folder = await chooseFolderOf(app, handle, fileName, again, () => {
     showFolderNeeded(app, offer, fileName, features)
-  }
-  const folder = await chooseFolderOf(
-    app,
-    handle,
-    fileName,
-    () => {
-      void chooseDocumentFolder(app, offer, fileName, features)
-    },
-    offerAgain,
-  )
+  })
   const document = documentOf(app)
   if (folder === null || document === null || document.file === null || !isOffered(app, offer)) {
     return
@@ -356,78 +427,155 @@ async function chooseDocumentFolder(
   )
   const text = JSON.stringify(settledRecipeOf(app, document), null, 2)
   await app.recent.remember({ name: file.name, handle, folder, text })
-  const reading = await app.files.readAssets({ handle, folder }, referencedAssetNames(text))
-  if (reading.failure !== null) {
-    showAssetsNotRead(app, fileName, reading.failure)
-  }
-  if (reading.assets.length > 0) {
-    await reopenWithAssets(app, offer, fileName, reading.assets, offerAgain)
-  }
+  await addChosenFolderAssets(
+    app,
+    offer,
+    { handle, folder },
+    document.missingAssets,
+    fileName,
+    again,
+  )
 }
 
 /**
- * Reopens the shown document's settled recipe with assets, as a core restart does but without
- * stopping the core (3.19, 4.4): the session keeps its name, file reference, recovery entry and
- * unsaved state, while sketch mode, the selection and the undo history start again. The recipe is
- * taken when the task's turn in the mutation queue comes, so every edit queued before it is kept.
- * A document that is no longer the one offered changes nothing, a feature command opened meanwhile
- * refuses with `finish_command_first` and runs `refused`, and a refusal of the assets leaves the
- * document as it is.
+ * Reads the names of `missing` from a chosen folder and adds what it read to the document of
+ * `offer` with one `addAssets` (3.19 Choose folder). A stopped core shows `assets_stopped`, whose
+ * action is `again`.
  */
-async function reopenWithAssets(
+async function addChosenFolderAssets(
   app: App,
   offer: DocumentOffer,
+  place: DocumentPlace,
+  missing: readonly AssetUse[],
   fileName: string,
-  assets: readonly AssetFile[],
-  refused: () => void,
+  again: NotificationAction,
 ): Promise<void> {
+  const names = namesToRead(missing)
+  if (names.length === 0) {
+    return
+  }
+  const reading = await app.files.readAssets(place, names)
+  if (reading.failure !== null) {
+    showAssetsNotRead(app, fileName, reading.failure)
+  }
+  if (reading.assets.length === 0) {
+    return
+  }
   try {
-    // One task, so no queued edit lands on the old document between the open and the close.
-    await app.mutations.run(async () => {
-      const document = documentOf(app)
-      if (document === null || !isOffered(app, offer)) {
-        return
-      }
-      if (refusedDuringCommand(app) || document.transactionOpen) {
-        refused()
-        return
-      }
-      const text = JSON.stringify(settledRecipeOf(app, document), null, 2)
-      const opened = await app.core.openDocument(text, assets)
-      await app.core.closeDocument(document.documentHandle)
-      adoptReopened(app, documentOf(app) ?? document, opened.documentHandle, assets)
+    // Its turn comes after every edit queued before it, and it goes to the document then shown.
+    const added = await app.mutations.run(async () => {
+      const shown = sessionDocument(app, offer.recoveryId)
+      return shown === null || !isOffered(app, offer)
+        ? null
+        : app.core.addAssets(shown.documentHandle, namedAssets(reading.assets))
     }, 'other')
-  } catch (error) {
-    if (error instanceof CoreError && error.code === 'asset_mismatch') {
-      showAssetsMismatch(app, fileName, error)
+    if (added === null) {
       return
     }
+    const { stored, refused } = sortAdded(reading.assets, added, missing)
+    keepAssets(app, offer, stored)
+    if (refused.length > 0) {
+      showAssetsMismatch(app, fileName, refused)
+    }
+  } catch (error) {
     showCoreError(app, error, {
-      stopped: { code: 'open_stopped', message: MESSAGES.open_stopped(fileName) },
+      stopped: {
+        code: 'assets_stopped',
+        message: MESSAGES.assets_stopped(fileName),
+        actions: [again],
+      },
     })
   }
 }
 
-/** Shows the reopened document in place of `shown`, in the same document session (3.19 Choose folder). */
-function adoptReopened(
+/**
+ * The shown document while it is the session `recoveryId` and no New or Open has ended that
+ * session; null otherwise. A New or an Open ends the session before it closes the document, and
+ * the document stays shown until the new one is open (ADR 0064 choice 13).
+ */
+function sessionDocument(app: App, recoveryId: string): DocumentState | null {
+  const shown = documentOf(app)
+  return shown !== null && shown.recoveryId === recoveryId && sessionGoesOn(app, recoveryId)
+    ? shown
+    : null
+}
+
+/** Adds the files the core stored to the session's assets, each name once, while the shown document is the session they were added for (3.19). */
+function keepAssets(
   app: App,
-  shown: DocumentState,
-  documentHandle: DocHandle,
-  assets: readonly AssetFile[],
+  offer: Pick<DocumentOffer, 'recoveryId'>,
+  files: readonly AssetFile[],
 ): void {
-  leaveSketchHistory(app)
-  app.store.setState((state): Partial<AppState> => ({
-    context: state.context === 'sketch' ? 'model' : state.context,
-    selection: [],
-    hover: null,
-    command: null,
-    sketch: null,
-  }))
-  adoptDocument(app.store, documentHandle, {
-    name: shown.name,
-    file: shown.file,
-    localUnsaved: isUnsaved(shown),
-    recoveryId: shown.recoveryId,
-    assets,
+  app.store.setState((state) => {
+    const shown = state.document
+    if (shown === null || shown.recoveryId !== offer.recoveryId) {
+      return {}
+    }
+    const kept = new Set(shown.assets.map((asset) => asset.name))
+    const added = files.filter((file) => !kept.has(file.name))
+    return added.length === 0 ? {} : { document: { ...shown, assets: [...shown.assets, ...added] } }
   })
+}
+
+/** Whether a picked file of the asset kind `assetKind` is a file of the file kind `kind` (3.19 picked files step 1). */
+function isOfKind(assetKind: AssetKind | null, kind: 'step' | 'font'): boolean {
+  return kind === 'step' ? assetKind === 'step' : assetKind === 'ttf' || assetKind === 'otf'
+}
+
+/**
+ * Adds a file the user picked to the shown document's asset store (3.19 picked files, ADR 0064
+ * decision 5) and resolves with the asset name the core gave it, or null when it added nothing.
+ * A record then names the asset in an edit: wave 2's Import and wave 3's sketch text call it.
+ */
+export async function addPickedAsset(
+  app: App,
+  file: OpenedFile,
+  kind: 'step' | 'font',
+): Promise<string | null> {
+  const assetKind = assetKindOf(file.name)
+  const document = documentOf(app)
+  if (assetKind === null || !isOfKind(assetKind, kind)) {
+    notify(app, {
+      severity: 'error',
+      ...(kind === 'step'
+        ? { message: MESSAGES.asset_not_step(file.name), code: 'asset_not_step' }
+        : { message: MESSAGES.asset_not_font(file.name), code: 'asset_not_font' }),
+      actions: [],
+    })
+    return null
+  }
+  if (document === null) {
+    return null
+  }
+  const { recoveryId } = document
+  try {
+    const added = await app.mutations.run(async () => {
+      const shown = sessionDocument(app, recoveryId)
+      return shown === null
+        ? null
+        : app.core.addAssets(shown.documentHandle, [
+            { kind: assetKind, bytes: file.bytes, name: null },
+          ])
+    }, 'other')
+    const [entry] = added ?? []
+    if (entry === undefined) {
+      return null
+    }
+    keepAssets(app, { recoveryId }, [{ name: entry.name, bytes: file.bytes }])
+    return entry.name
+  } catch (error) {
+    if (error instanceof CoreError) {
+      notify(app, {
+        severity: 'error',
+        message: MESSAGES.asset_add_failed(file.name, error.message),
+        code: 'asset_add_failed',
+        actions: [],
+      })
+      return null
+    }
+    showCoreError(app, error, {
+      stopped: { code: 'asset_add_stopped', message: MESSAGES.asset_add_stopped(file.name) },
+    })
+    return null
+  }
 }

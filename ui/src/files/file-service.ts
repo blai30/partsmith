@@ -1,7 +1,8 @@
 import { errorMessage } from '../core/errors'
 import type { AssetFile } from './assets'
 
-export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step'
+/** `font` since M2: a TrueType or OpenType font to open (ADR 0037's amendment of 2026-11-07 on font assets). */
+export type FileKind = 'ptsm' | '3mf' | 'stl' | 'obj' | 'step' | 'font'
 
 /** A file the desktop host granted through a native dialog. Plain data, so IndexedDB stores it. */
 export type DesktopFileHandle = {
@@ -66,8 +67,8 @@ export type PermissionMode = 'read' | 'readwrite'
 
 export type FileService = {
   readonly fileSystemAccess: boolean
-  /** Null when the user cancels. */
-  pickToOpen(): Promise<OpenedFile | null>
+  /** Null when the user cancels. `kind` is `ptsm` unless given; since M2 a host also opens `step` and `font` files (3.19, `addPickedAsset`). */
+  pickToOpen(kind?: FileKind): Promise<OpenedFile | null>
   /**
    * `mode` is the permission the web asks for: `read` unless given; Save's change check asks
    * `readwrite` (3.19). `folder` is the web folder that holds the file, whose permission is asked
@@ -133,6 +134,7 @@ export const FILE_TYPES: Readonly<
   stl: { description: 'STL mesh', mediaType: 'model/stl', extensions: ['.stl'] },
   obj: { description: 'OBJ mesh', mediaType: 'model/obj', extensions: ['.obj'] },
   step: { description: 'STEP model', mediaType: 'model/step', extensions: ['.step', '.stp'] },
+  font: { description: 'Font', mediaType: 'font/sfnt', extensions: ['.ttf', '.otf'] },
 }
 
 /** How long a download's object URL stays valid after the click, so the browser can fetch it. */
@@ -407,12 +409,12 @@ async function writeAsset(
   }
 }
 
-/** Opens a file chosen in a hidden `<input type="file">`; null when the user chooses nothing. */
-function pickWithInput(document: Document): Promise<OpenedFile | null> {
+/** Opens a file of `kind` chosen in a hidden `<input type="file">`; null when the user chooses nothing. */
+function pickWithInput(document: Document, kind: FileKind): Promise<OpenedFile | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = FILE_TYPES.ptsm.extensions.join(',')
+    input.accept = FILE_TYPES[kind].extensions.join(',')
     input.addEventListener(
       'change',
       () => {
@@ -467,14 +469,14 @@ export function createWebFileService(environment: Window & typeof globalThis): F
   return {
     fileSystemAccess: pickers !== null,
 
-    async pickToOpen() {
+    async pickToOpen(kind = 'ptsm') {
       if (pickers === null) {
-        return pickWithInput(environment.document)
+        return pickWithInput(environment.document, kind)
       }
       let handles: readonly FileSystemFileHandle[]
       try {
         handles = await pickers.open({
-          types: [pickerType('ptsm')],
+          types: [pickerType(kind)],
           excludeAcceptAllOption: false,
           multiple: false,
         })
@@ -482,7 +484,7 @@ export function createWebFileService(environment: Window & typeof globalThis): F
         if (isDomError(error, 'AbortError')) {
           return null
         }
-        throw fileServiceError(error, FILE_TYPES.ptsm.description)
+        throw fileServiceError(error, FILE_TYPES[kind].description)
       }
       const [handle] = handles
       return handle === undefined ? null : readFileHandle(handle)

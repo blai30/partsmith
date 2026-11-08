@@ -1,4 +1,5 @@
 import type {
+  AssetUse,
   BoundingBox,
   Diagnostic,
   DocHandle,
@@ -30,6 +31,8 @@ export type CoreEvent =
       readonly transactionOpen: boolean
       readonly transaction: string | null
       readonly focus: string | null
+      /** Since M2: `missing_assets`, the asset names the recipe reads and the core lacks (3.19). */
+      readonly missingAssets: readonly AssetUse[]
       /** `bare_numbers`: expressions that are numbers without a unit, for Keep sizes (3.21). */
       readonly bareNumbers: number
     }
@@ -220,6 +223,7 @@ export function decodeEvent(event: Event, buffers: readonly BufferView[]): CoreE
         transactionOpen: event.transaction_open,
         transaction: event.transaction ?? null,
         focus: event.focus ?? null,
+        missingAssets: event.missing_assets,
         bareNumbers: event.bare_numbers,
       }
     case 'recomputed':

@@ -1,37 +1,37 @@
-// The asset files of a document's `assets/` folder (ui.md 2.15, file-format.md 3.11) and the names
-// Open reads from it (3.19 openFile step 3, ADR 0037 decision 2).
+import type { AssetKind } from '../generated/protocol'
+
+// The asset files of a document's `assets/` folder and the files `addAssets` gives the core (ui.md
+// 2.15, file-format.md 3.11). Since M2 the UI reads no `.ptsm` text: the core names the assets a
+// document reads (`missing_assets`, ADR 0064).
 
 /** A file of a document's `assets/` folder: its asset name and its bytes (file-format.md 3.11). */
 export type AssetFile = { readonly name: string; readonly bytes: Uint8Array }
 
-/** An asset's file name (file-format.md 3.11): 64 lowercase hex digits, a dot and a lowercase extension. */
-export const ASSET_NAME = /^[0-9a-f]{64}\.[a-z0-9]+$/
+/** A file for `addAssets` (2.6): its kind, its bytes, and the name it was read under in the document's `assets/` folder, or null for a file the user picked. */
+export type NewAsset = {
+  readonly kind: AssetKind
+  readonly bytes: Uint8Array
+  readonly name: string | null
+}
 
-/**
- * The asset names among the string values anywhere in a document's JSON text, each once, sorted;
- * none when the text is not JSON. This is the one place the UI reads `.ptsm` text (ui.md section
- * 1): it collects matching strings and interprets nothing else, and object keys are not values.
- */
-export function referencedAssetNames(text: string): readonly string[] {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return []
-  }
-  const names = new Set<string>()
-  const pending: unknown[] = [parsed]
-  for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
-    if (typeof value === 'string') {
-      if (ASSET_NAME.test(value)) {
-        names.add(value)
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      // An array's values are its items.
-      for (const child of Object.values(value)) {
-        pending.push(child)
-      }
-    }
-  }
-  return [...names].toSorted()
+/** The asset kind of each lowercase file extension. */
+const ASSET_KINDS: ReadonlyMap<string, AssetKind> = new Map([
+  ['step', 'step'],
+  ['stp', 'step'],
+  ['ttf', 'ttf'],
+  ['otf', 'otf'],
+])
+
+/** The asset kind of a file name by its extension, compared without case; null for any other name. */
+export function assetKindOf(fileName: string): AssetKind | null {
+  const dot = fileName.lastIndexOf('.')
+  return dot < 0 ? null : (ASSET_KINDS.get(fileName.slice(dot + 1).toLowerCase()) ?? null)
+}
+
+/** Files read from a document's `assets/` folder as `addAssets` takes them: each with the kind of its name and that name; a name of no kind is left out. */
+export function namedAssets(files: readonly AssetFile[]): readonly NewAsset[] {
+  return files.flatMap((file) => {
+    const kind = assetKindOf(file.name)
+    return kind === null ? [] : [{ kind, bytes: file.bytes, name: file.name }]
+  })
 }

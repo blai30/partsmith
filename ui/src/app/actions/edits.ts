@@ -3,7 +3,7 @@ import type { TaskKind } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
 import type { Edit, FeatureStatus } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import type { DocumentState, Notification } from '../../state/store'
+import type { DocumentState, Notification, NotificationAction } from '../../state/store'
 import type { App } from '../createApp'
 import { copyDetails, fixNotificationAction, offeredActions } from './fixes'
 import { reportChange } from './loss-notifications'
@@ -37,7 +37,12 @@ export function refusedDuringCommand(app: App): boolean {
 }
 
 /** The warning of an open, a new document, a save or an export that the core stopped before it ended (4.3). */
-export type StoppedNotice = { readonly code: string; readonly message: string }
+export type StoppedNotice = {
+  readonly code: string
+  readonly message: string
+  /** The warning's actions; none unless given. */
+  readonly actions?: readonly NotificationAction[]
+}
 
 export type RefusalOptions = {
   /** Receives the core's refusal instead of an error notification, for errors shown next to a field. */
@@ -94,7 +99,7 @@ export function showCoreError(app: App, error: unknown, options: RefusalOptions 
   }
   if (error instanceof CoreFatalError) {
     if (options.stopped !== undefined) {
-      notify(app, { severity: 'warning', ...options.stopped, actions: [] })
+      notify(app, { severity: 'warning', actions: [], ...options.stopped })
     }
     return
   }

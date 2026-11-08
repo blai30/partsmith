@@ -14,7 +14,7 @@ use partsmith_recompute::Input;
 use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
 use serde_json::Value;
 
-use crate::assets::asset_matches;
+use crate::assets::{asset_matches, mismatch};
 use crate::counts::saturating_u32;
 use crate::diagnostics::render_feature_error;
 use crate::document::canonical_text;
@@ -22,6 +22,7 @@ use crate::error::EngineError;
 use crate::run::RunView;
 use crate::session::Session;
 use crate::sketch::{SKETCH_TYPE, SketchWords, dimension_values};
+use crate::state::feature_label;
 use crate::types::{
     Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
@@ -444,7 +445,7 @@ impl<'a> Checks<'a> {
         assets: &[Asset],
     ) -> BTreeMap<String, Arc<[u8]>> {
         let mut stored = BTreeMap::new();
-        for (position, _, found) in self.valid(checked) {
+        for (position, record, found) in self.valid(checked) {
             for link in &found.dependencies.assets {
                 match assets.iter().find(|asset| asset.name == link.name) {
                     None => {
@@ -455,10 +456,8 @@ impl<'a> Checks<'a> {
                         self.feature_error(position, "asset_missing", &error);
                     }
                     Some(asset) if !asset_matches(&asset.name, &asset.bytes) => {
-                        let message = EngineError::AssetMismatch {
-                            name: asset.name.clone(),
-                        }
-                        .to_string();
+                        let feature = feature_label(self.registry, self.document, &record.id);
+                        let message = mismatch(&asset.name, &asset.bytes, &feature).to_string();
                         let path = feature_path(
                             position,
                             Some(&FieldRef::new(&link.field, found.manifest)),

@@ -9,8 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BufferIndex, Diagnostic, DocHandle, Ghost, Layer, MAX_SAFE_INTEGER, MeshElement, Orientation,
-    ResolutionStatus, SketchSolution, Vec3,
+    AssetUse, BufferIndex, Diagnostic, DocHandle, Ghost, Layer, MAX_SAFE_INTEGER, MeshElement,
+    Orientation, ResolutionStatus, SketchSolution, Vec3,
 };
 
 /// A state change caused by the request answered in the same frame. Tagged by `type`; every event carries `doc` and the document `revision` it describes.
@@ -41,6 +41,8 @@ pub enum Event {
         /// The focused feature.
         #[serde(skip_serializing_if = "Option::is_none")]
         focus: Option<Id>,
+        /// Since M2: each asset name that a valid record of the recipe reads and the session's asset store lacks, sorted by name (byte order), with the features that read it (engine.md section 3.14). Hosts read these files from the document's `assets/` folder and add them with `add_assets`.
+        missing_assets: Vec<AssetUse>,
         /// How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
         bare_numbers: u32,
     },
@@ -309,6 +311,7 @@ mod tests {
             transaction_open: false,
             transaction: None,
             focus: None,
+            missing_assets: Vec::new(),
             bare_numbers: 0,
         };
 
@@ -316,7 +319,7 @@ mod tests {
 
         assert_eq!(
             text,
-            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":3,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false,"bare_numbers":0}"#
+            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":3,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false,"missing_assets":[],"bare_numbers":0}"#
         );
     }
 

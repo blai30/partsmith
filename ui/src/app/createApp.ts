@@ -7,7 +7,7 @@ import { createMutationQueue, type MutationQueue } from '../core/queue'
 import { CoreFatalError, type Transport } from '../core/transport'
 import type { FileService } from '../files/file-service'
 import type { RecentFilesStore } from '../files/recent'
-import type { AssetFile } from '../files/assets'
+import { namedAssets, type AssetFile } from '../files/assets'
 import type { RecoveryStore } from '../files/recovery'
 import type { PrinterLibrary } from '../print/library'
 import type { Command, DocHandle, Document } from '../generated/protocol'
@@ -365,10 +365,14 @@ export function createApp(options: CreateAppOptions): App {
       }))
       return
     }
-    const opened = await mutations.run(
-      () => core.openDocument(JSON.stringify(kept.recipe, null, 2), kept.assets),
-      'other',
-    )
+    // A picked file that no record reads yet stays stored in the new core too (4.4).
+    const opened = await mutations.run(async () => {
+      const reopened = await core.openDocument(JSON.stringify(kept.recipe, null, 2), kept.assets)
+      if (kept.assets.length > 0) {
+        await core.addAssets(reopened.documentHandle, namedAssets(kept.assets))
+      }
+      return reopened
+    }, 'other')
     adoptDocument(store, opened.documentHandle, {
       name: kept.name,
       file: kept.file,

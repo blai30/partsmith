@@ -33,7 +33,7 @@ function documentChanged(
   document: Document = CUBE_DOCUMENT,
   handle = 1,
   bareNumbers = 0,
-): CoreEvent {
+): Extract<CoreEvent, { type: 'document_changed' }> {
   return {
     type: 'document_changed',
     documentHandle: handle,
@@ -328,9 +328,9 @@ describe('missing assets (since M2, 2.8, ADR 0064)', () => {
   const A = `${'a'.repeat(64)}.step`
   const MISSING = [{ name: A, features: ['f-imp1'] }]
 
-  /** A document_changed of handle `handle` at revision 0 that reports `A` missing. */
+  /** A document_changed of handle `handle` at the shown document's revision 3 that reports `A` missing. */
   function missingA(handle: number): CoreEvent {
-    return { ...documentChanged(0, CUBE_DOCUMENT, handle), missingAssets: MISSING }
+    return { ...documentChanged(3, CUBE_DOCUMENT, handle), missingAssets: MISSING }
   }
 
   it('U-278 a document no action has adopted yet reports its missing assets', () => {

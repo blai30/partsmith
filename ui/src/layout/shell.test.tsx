@@ -122,9 +122,9 @@ describe('dropping a file on the window (3.19)', () => {
     fireEvent.dragEnter(root, fileDrag([]))
     fireEvent.drop(root, fileDrag([new File([text], 'cube.ptsm')]))
     expect(screen.queryByTestId('drop-overlay')).toBeNull()
-    // openFile step 4 sends the assets step 3 read: none for a dropped file (3.19).
+    // Since M2 openFile step 4 opens the text without assets (3.19, ADR 0064).
     await waitFor(() => {
-      expect(core.callsTo('openDocument')).toEqual([[text, []]])
+      expect(core.callsTo('openDocument')).toEqual([[text]])
     })
   })
 

@@ -24,6 +24,8 @@ type RecoveryCopy = {
   stop(recoveryId: string, ending: 'continues' | 'ends'): void
   /** Goes on with the session of the shown document, ended or not, and writes its entry now. */
   resume(recoveryId: string): void
+  /** Whether a New or an Open ended the session, which its document may still show until the new one is open. */
+  ended(recoveryId: string): boolean
 }
 
 const copies = new WeakMap<App, RecoveryCopy>()
@@ -123,6 +125,9 @@ function createRecoveryCopy(app: App): RecoveryCopy {
       ended.delete(recoveryId)
       writeDue(recoveryId)
     },
+    ended(recoveryId) {
+      return ended.has(recoveryId)
+    },
   }
 }
 
@@ -157,6 +162,11 @@ export async function endRecoverySession(
 export async function removeRecoveryEntry(app: App, document: DocumentState): Promise<void> {
   copies.get(app)?.stop(document.recoveryId, 'continues')
   await app.recovery.remove(document.recoveryId)
+}
+
+/** Whether the document session `recoveryId` goes on: no New or Open has ended it (3.19). */
+export function sessionGoesOn(app: App, recoveryId: string): boolean {
+  return copies.get(app)?.ended(recoveryId) !== true
 }
 
 /**

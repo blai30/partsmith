@@ -153,8 +153,10 @@ export function createDesktopFileService(tauri: TauriInvokeGlobal): FileService 
   return {
     fileSystemAccess: true,
 
-    async pickToOpen() {
-      const handle = pickedHandle(await invoke('pick_open_file'), 'pick_open_file')
+    async pickToOpen(kind = 'ptsm') {
+      // A Partsmith model is the host's default. Its invoke names no kind (desktop.md 3.7).
+      const reply = kind === 'ptsm' ? invoke('pick_open_file') : invoke('pick_open_file', { kind })
+      const handle = pickedHandle(await reply, 'pick_open_file')
       return handle === null ? null : read(handle)
     },
 

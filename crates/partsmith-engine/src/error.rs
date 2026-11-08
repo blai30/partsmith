@@ -74,11 +74,16 @@ pub enum EngineError {
         /// The model's message.
         message: String,
     },
-    /// A referenced asset's bytes do not hash to its name.
-    #[error("Asset {name} does not match its content hash.")]
+    /// A supplied asset that a valid record reads does not hash to its name (section 3.14).
+    /// `message` names the file by its kind and the first record that reads it, never by its hash.
+    #[error("{message}")]
     AssetMismatch {
         /// The asset name.
         name: String,
+        /// The BLAKE3 hex of the bytes supplied under it.
+        hash: String,
+        /// The words of section 4 for the asset's kind.
+        message: String,
     },
     /// The command is not allowed while a transaction is open.
     #[error("Finish or cancel \"{label}\" first.")]
@@ -401,6 +406,9 @@ impl EngineError {
             | EngineError::InvalidParams { detail, .. }
             | EngineError::InvalidSketch { detail, .. }
             | EngineError::Internal { detail, .. } => Some(detail.clone()),
+            EngineError::AssetMismatch { name, hash, .. } => Some(format!(
+                "assets/{name}: the BLAKE3 hash of its bytes is {hash}."
+            )),
             _ => None,
         }
     }

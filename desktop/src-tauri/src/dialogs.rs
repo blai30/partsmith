@@ -31,8 +31,8 @@ impl<R: Runtime> TauriDialogs<R> {
 }
 
 impl<R: Runtime> Dialogs for TauriDialogs<R> {
-    fn pick_open(&self) -> Option<PathBuf> {
-        self.file_dialog(FileKind::Ptsm)
+    fn pick_open(&self, kind: FileKind) -> Option<PathBuf> {
+        self.file_dialog(kind)
             .blocking_pick_file()
             .and_then(local_path)
     }

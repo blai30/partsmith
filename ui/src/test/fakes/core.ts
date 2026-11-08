@@ -1029,7 +1029,10 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     const assets = new Map<string, Uint8Array>()
     for (const { name, data } of command.assets ?? []) {
       if (referenced.has(name) && (options.mismatchedAssets ?? []).includes(name)) {
-        reject('asset_mismatch', assetMismatchMessage(name))
+        // The default label of the first import that reads it (features.md 3.12).
+        const imports = featuresOf(recipe).filter((feature) => importedAsset(feature) !== null)
+        const position = imports.findIndex((feature) => importedAsset(feature) === name)
+        reject('asset_mismatch', assetMismatchMessage(`Import ${String(position + 1)}`))
       }
       assets.set(name, assetBytes(buffers[data], name))
     }

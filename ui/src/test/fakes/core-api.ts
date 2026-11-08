@@ -107,6 +107,7 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     analyzePrint: async () => null,
     exportBodies: async () => ({ files: [], warnings: [] }),
     rebuild: async () => undefined,
+    addAssets: async () => [],
   }
   const implementation: CoreApi = { ...defaults, ...stubs }
 
@@ -255,6 +256,10 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     rebuild: (...args: Parameters<CoreApi['rebuild']>) => {
       record('rebuild', args)
       return implementation.rebuild(...args)
+    },
+    addAssets: (...args: Parameters<CoreApi['addAssets']>) => {
+      record('addAssets', args)
+      return implementation.addAssets(...args)
     },
   }
 }

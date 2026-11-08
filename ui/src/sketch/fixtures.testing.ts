@@ -305,6 +305,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     putPrinterProfile: unexpected('putPrinterProfile'),
     removePrinterProfile: unexpected('removePrinterProfile'),
     rebuild: unexpected('rebuild'),
+    addAssets: unexpected('addAssets'),
     newDocument: unexpected('newDocument'),
     openDocument: unexpected('openDocument'),
     saveDocument: unexpected('saveDocument'),

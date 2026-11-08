@@ -16,7 +16,7 @@ use crate::error::EngineError;
 use crate::events::{Output, sketch_display};
 use crate::session::Session;
 use crate::sketch::Solved;
-use crate::types::{Asset, ExportRequest, PrintRequest, Reply};
+use crate::types::{Asset, ExportRequest, NewAsset, PrintRequest, Reply};
 
 /// Why a command failed.
 enum Failure {
@@ -235,6 +235,19 @@ impl Session {
             Command::CloseDocument { doc } => {
                 self.close_document(doc)?;
                 CommandResult::CloseDocument
+            }
+            Command::AddAssets { doc, assets } => {
+                let assets = assets
+                    .into_iter()
+                    .map(|asset| NewAsset {
+                        kind: asset.kind,
+                        bytes: bytes_of(buffers, asset.data),
+                        name: asset.name,
+                    })
+                    .collect();
+                let assets = self.add_assets(doc, assets)?;
+                self.events(doc, &mut output)?;
+                CommandResult::AddAssets { assets }
             }
             Command::GetDocument { doc } => CommandResult::GetDocument {
                 revision: self.revision(doc)?,
@@ -484,6 +497,7 @@ fn error_reply(id: u64, error: &EngineError) -> Reply {
 fn check_buffers(command: &Command, buffers: &[Buffer]) -> Result<(), EngineError> {
     let referenced: Vec<BufferIndex> = match command {
         Command::OpenDocument { assets, .. } => assets.iter().map(|asset| asset.data).collect(),
+        Command::AddAssets { assets, .. } => assets.iter().map(|asset| asset.data).collect(),
         Command::ImportStep { data, .. } => vec![*data],
         _ => Vec::new(),
     };
@@ -528,6 +542,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::CloseDocument { doc }
         | Command::GetDocument { doc }
         | Command::MarkSaved { doc, .. }
+        | Command::AddAssets { doc, .. }
         | Command::ApplyEdits { doc, .. }
         | Command::RenameParameter { doc, .. }
         | Command::ApplyFix { doc, .. }

@@ -39,6 +39,8 @@ pub(crate) struct KeyInput<'k> {
     pub(crate) features: Vec<(&'k Id, Option<CacheKey>)>,
     /// Each body link (read, then written) in order, with the key of its provider when it has one.
     pub(crate) bodies: Vec<(&'k Id, Option<CacheKey>)>,
+    /// Each asset link in order, with whether the input holds the asset.
+    pub(crate) assets: Vec<(&'k str, bool)>,
 }
 
 impl KeyInput<'_> {
@@ -85,6 +87,10 @@ impl KeyInput<'_> {
                 Some(key) => item(format_args!("body {body} {key}")),
                 None => item(format_args!("body {body} empty")),
             }
+        }
+        for (asset, present) in &self.assets {
+            let presence = if *present { "present" } else { "missing" };
+            item(format_args!("asset {asset} {presence}"));
         }
         text
     }
@@ -204,6 +210,7 @@ mod tests {
             values,
             features: Vec::new(),
             bodies: Vec::new(),
+            assets: Vec::new(),
         }
     }
 
@@ -260,11 +267,12 @@ mod tests {
         let key = KeyInput {
             features: vec![(&datum, Some(upstream)), (&missing, None)],
             bodies: vec![(&read, None), (&written, Some(provider))],
+            assets: vec![("a.step", true), ("b.ttf", false)],
             ..input(&feature, r#"{"values":["3"]}"#, &values)
         };
 
         let expected = format!(
-            "partsmith-recompute 1\npartsmith-features {VERSION} occt {OCCT_VERSION}\ntype test_datum\nversion 1\nid f-n\nparams {{\"values\":[\"3\"]}}\nexpr values[0] length\nvalue {:016x}\nfeature f-d1 {}\nfeature f-s none\nbody b-2 empty\nbody b-1 {}\n",
+            "partsmith-recompute 1\npartsmith-features {VERSION} occt {OCCT_VERSION}\ntype test_datum\nversion 1\nid f-n\nparams {{\"values\":[\"3\"]}}\nexpr values[0] length\nvalue {:016x}\nfeature f-d1 {}\nfeature f-s none\nbody b-2 empty\nbody b-1 {}\nasset a.step present\nasset b.ttf missing\n",
             3.0_f64.to_bits(),
             "11".repeat(32),
             "22".repeat(32)

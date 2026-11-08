@@ -83,8 +83,20 @@ export const MESSAGES = {
     `The imported geometry of ${file} is missing, because this browser does not let Partsmith reach files next to the one you chose. Open it in Chrome or Edge, or in the Partsmith desktop app.`,
   assets_not_read: (file: string) =>
     `Partsmith could not read some imported files from the assets folder next to ${file}, so their geometry is missing.`,
-  assets_mismatch: (file: string) =>
-    `Some files in the assets folder next to ${file} are not the files it imported, so Partsmith opened it without them and its imported geometry is missing.`,
+  assets_mismatch: (feature: string, file: string) =>
+    `The geometry of '${feature}' is missing, because the assets folder next to ${file} holds another file in place of the one it uses. Copy the assets folder that came with ${file} next to it.`,
+  /** `count` is the number of other features that read a refused file (3.19). */
+  assets_mismatch_more: (feature: string, count: number, file: string) =>
+    `The geometry of '${feature}' and ${counted(count, 'other feature')} is missing, because the assets folder next to ${file} holds other files in place of the ones they use. Copy the assets folder that came with ${file} next to it.`,
+  assets_stopped: (file: string) =>
+    `The geometry that ${file} reads from its assets folder is still missing, because the geometry core stopped before it took the files. Choose the folder again.`,
+  asset_not_step: (file: string) =>
+    `${file} is not a STEP file. Partsmith imports .step and .stp files.`,
+  asset_not_font: (file: string) =>
+    `${file} is not a font file. Partsmith uses .ttf and .otf fonts.`,
+  asset_add_failed: (file: string, message: string) => `Could not add ${file}. ${message}`,
+  asset_add_stopped: (file: string) =>
+    `${file} was not added, because the geometry core stopped before adding it. Add it again.`,
   stashed: (name: string) => `${name} had unsaved changes. They are kept for you.`,
   recovered: (name: string, time: string) =>
     `Partsmith kept unsaved changes to ${name} from ${time}.`,

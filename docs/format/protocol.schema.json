@@ -317,6 +317,33 @@
           ]
         },
         {
+          "description": "Since M2: puts files into the document's asset store without reopening it (engine.md section 3.14).",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "assets": {
+              "description": "The files, each with its kind and, when a host read it from the `assets/` folder, its name there.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AssetInput"
+              },
+              "default": []
+            },
+            "type": {
+              "type": "string",
+              "const": "add_assets"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
           "description": "Applies edits atomically.",
           "type": "object",
           "properties": {
@@ -1307,6 +1334,52 @@
       "type": "integer",
       "format": "uint32",
       "minimum": 0
+    },
+    "AssetInput": {
+      "description": "Since M2: a file that `add_assets` puts into a document's asset store (command 38).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "The file's kind. The asset's name ends in it.",
+          "$ref": "#/$defs/AssetKind"
+        },
+        "data": {
+          "description": "The file's bytes: a `u8` buffer.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "name": {
+          "description": "The name a host read the file under in the document's `assets/` folder, which the engine checks against the bytes.\nAbsent for a file the user picked.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "data"
+      ]
+    },
+    "AssetKind": {
+      "description": "Since M2: the kinds of asset file. Each is the extension of the asset's name (file-format.md section 3.11).",
+      "oneOf": [
+        {
+          "description": "A STEP model, `<hash>.step`.",
+          "type": "string",
+          "const": "step"
+        },
+        {
+          "description": "A TrueType font, `<hash>.ttf`.",
+          "type": "string",
+          "const": "ttf"
+        },
+        {
+          "description": "An OpenType font, `<hash>.otf`.",
+          "type": "string",
+          "const": "otf"
+        }
+      ]
     },
     "Edit": {
       "description": "One change to a document. Every change goes through an Edit; applying one returns its exact inverse.",
@@ -3746,6 +3819,24 @@
         "units"
       ]
     },
+    "AddedAsset": {
+      "description": "Since M2: what `add_assets` did with one file.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The file's asset name: the entry's `name` when it has one, else the name the engine gave it.",
+          "type": "string"
+        },
+        "stored": {
+          "description": "False when the entry's `name` is not the name of its bytes. The engine then stored nothing for the entry.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "stored"
+      ]
+    },
     "SketchSolution": {
       "description": "Solved state of one sketch.",
       "type": "object",
@@ -6089,6 +6180,27 @@
           ]
         },
         {
+          "description": "Result of `add_assets`.",
+          "type": "object",
+          "properties": {
+            "assets": {
+              "description": "What the command did with each file, in the order of the request.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AddedAsset"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "add_assets"
+            }
+          },
+          "required": [
+            "type",
+            "assets"
+          ]
+        },
+        {
           "description": "Result of `apply_edits`.",
           "type": "object",
           "properties": {
@@ -6919,6 +7031,27 @@
       "required": [
         "id",
         "result"
+      ]
+    },
+    "AssetUse": {
+      "description": "Since M2: an asset name that the recipe reads, and the features that read it (`document_changed`, section 2.7).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "`<64 lowercase hex>.<extension>` (file-format.md section 3.11).",
+          "type": "string"
+        },
+        "features": {
+          "description": "The features whose valid records read it, in timeline order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "features"
       ]
     },
     "FeatureStatus": {
@@ -7995,6 +8128,13 @@
                 }
               ]
             },
+            "missing_assets": {
+              "description": "Since M2: each asset name that a valid record of the recipe reads and the session's asset store lacks, sorted by name (byte order), with the features that read it (engine.md section 3.14). Hosts read these files from the document's `assets/` folder and add them with `add_assets`.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AssetUse"
+              }
+            },
             "bare_numbers": {
               "description": "How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).",
               "type": "integer",
@@ -8013,6 +8153,7 @@
             "document",
             "dirty",
             "transaction_open",
+            "missing_assets",
             "bare_numbers"
           ]
         },

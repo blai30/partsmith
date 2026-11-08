@@ -80,6 +80,7 @@ def test_t134_save_writes_the_asset_a_record_reads(tmp_path):
     part = Part("Block")
     name = document.add_asset(IMPORT_ASSET)
     feature("import", body=part.id, asset=name, op="new")
+    (tmp_path / "b").mkdir()
 
     document.save(tmp_path / "b" / "a.ptsm")
 
@@ -89,6 +90,7 @@ def test_t134_save_writes_the_asset_a_record_reads(tmp_path):
 def test_t134_save_writes_no_asset_that_no_record_reads(tmp_path):
     document = Document()
     document.add_asset(IMPORT_ASSET)
+    (tmp_path / "c").mkdir()
 
     document.save(tmp_path / "c" / "a.ptsm")
 
@@ -151,4 +153,3 @@ def test_t137_a_wrong_file_at_open(tmp_path):
     assert raised.value.code == "asset_mismatch"
     assert str(raised.value) == STEP_MISMATCH
     assert ASSET_NAME.removesuffix(".step") not in str(raised.value)
-

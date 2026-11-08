@@ -141,6 +141,7 @@ impl Runner<'_> {
             step,
             &self.progress.keys,
             self.inputs.scope,
+            self.inputs.assets,
         );
         if let Err(error) =
             timeline.check_links(position, step, &self.progress.failed, self.inputs.assets)

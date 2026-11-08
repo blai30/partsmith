@@ -95,6 +95,16 @@ type: "mark_saved"
  */
 doc: DocHandle
 /**
+ * The files, each with its kind and, when a host read it from the `assets/` folder, its name there.
+ */
+assets?: AssetInput[]
+type: "add_assets"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
+/**
  * Undo label; required outside a transaction and absent inside one.
  */
 label?: (string | null)
@@ -445,6 +455,13 @@ export type BufferIndex = number
  * via the `definition` "DocHandle".
  */
 export type DocHandle = number
+/**
+ * Since M2: the kinds of asset file. Each is the extension of the asset's name (file-format.md section 3.11).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "AssetKind".
+ */
+export type AssetKind = ("step" | "ttf" | "otf")
 /**
  * One change to a document. Every change goes through an Edit; applying one returns its exact inverse.
  * 
@@ -1130,6 +1147,12 @@ document: Document
 type: "get_document"
 } | {
 type: "mark_saved"
+} | {
+/**
+ * What the command did with each file, in the order of the request.
+ */
+assets: AddedAsset[]
+type: "add_assets"
 } | {
 /**
  * The revision after the edits.
@@ -1830,6 +1853,10 @@ transaction?: (string | null)
  */
 focus?: (Id | null)
 /**
+ * Since M2: each asset name that a valid record of the recipe reads and the session's asset store lacks, sorted by name (byte order), with the features that read it (engine.md section 3.14). Hosts read these files from the document's `assets/` folder and add them with `add_assets`.
+ */
+missing_assets: AssetUse[]
+/**
  * How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
  */
 bare_numbers: number
@@ -2220,6 +2247,27 @@ name: string
  * The file bytes (a `u8` buffer).
  */
 data: BufferIndex
+}
+/**
+ * Since M2: a file that `add_assets` puts into a document's asset store (command 38).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "AssetInput".
+ */
+export interface AssetInput {
+/**
+ * The file's kind. The asset's name ends in it.
+ */
+kind: AssetKind
+/**
+ * The file's bytes: a `u8` buffer.
+ */
+data: BufferIndex
+/**
+ * The name a host read the file under in the document's `assets/` folder, which the engine checks against the bytes.
+ * Absent for a file the user picked.
+ */
+name?: (string | null)
 }
 /**
  * A named expression that other expressions use by name.
@@ -2724,6 +2772,22 @@ features?: FeatureRecord[]
  * First rolled-back feature: it and every later feature do not run. `None` means nothing is rolled back.
  */
 rollback?: (Id | null)
+}
+/**
+ * Since M2: what `add_assets` did with one file.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "AddedAsset".
+ */
+export interface AddedAsset {
+/**
+ * The file's asset name: the entry's `name` when it has one, else the name the engine gave it.
+ */
+name: string
+/**
+ * False when the entry's `name` is not the name of its bytes. The engine then stored nothing for the entry.
+ */
+stored: boolean
 }
 /**
  * Solved state of one sketch.
@@ -3400,6 +3464,22 @@ start: number
  * One past the last byte.
  */
 end: number
+}
+/**
+ * Since M2: an asset name that the recipe reads, and the features that read it (`document_changed`, section 2.7).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "AssetUse".
+ */
+export interface AssetUse {
+/**
+ * `<64 lowercase hex>.<extension>` (file-format.md section 3.11).
+ */
+name: string
+/**
+ * The features whose valid records read it, in timeline order.
+ */
+features: Id[]
 }
 /**
  * The recompute status of one feature.

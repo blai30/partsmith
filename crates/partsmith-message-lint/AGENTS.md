@@ -1,6 +1,6 @@
 # partsmith-message-lint
 
-The message lint of the error guidelines (`docs/guidelines/errors.md`, "Checklist"), shared by the tests of `partsmith-occt-sys` (kernel.md test 130), `partsmith-sketch` (sketch.md test 247), `partsmith-features` (features.md section 3.12 and test 14) and `partsmith-recompute` (the messages of its document tests, recompute.md test 19 and the explanation clauses of section 3.10). Dev-only (ADR 0027): no dependencies, `publish = false`, used only as a dev-dependency of tests.
+The message lint of the error guidelines (`docs/guidelines/errors.md`, "Checklist"), shared by the tests of `partsmith-occt-sys` (kernel.md test 130), `partsmith-sketch` (sketch.md test 247), `partsmith-features` (features.md section 3.12 and test 14), `partsmith-recompute` (the messages of its document tests, recompute.md test 19 and the explanation clauses of section 3.10) and `partsmith-engine` (engine.md test 222, the words of `asset_mismatch`). Dev-only (ADR 0027): no dependencies, `publish = false`, used only as a dev-dependency of tests.
 
 ## Public interface (crate root)
 

@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.[a-z0-9]+")
 """The file names `Document.open` reads from the `assets/` folder."""
 
+ASSET_KINDS = {".step": "step", ".stp": "step", ".ttf": "ttf", ".otf": "otf"}
+"""The asset kind of each lowercase file extension `Document.add_asset` takes (section 3.7)."""
+
 PACKAGE_DIRECTORY = str(Path(__file__).resolve().parent)
 """Warnings and the notes of feature errors point at the first frame outside this directory."""
 
@@ -214,6 +217,18 @@ class Document:
         data = Path(path).read_bytes()
         reply = self._command_and_warn("Document.import_step()", "import_step", [data], data=0, name=name)
         return self._part(reply.result["body"])
+
+    def add_asset(self, path: str | os.PathLike[str]) -> str:
+        """Adds a STEP or font file to the document's assets without a record and returns its asset
+        name, which a record can then name (section 3.7). The kind comes from the extension."""
+        kind = ASSET_KINDS.get(Path(path).suffix.lower())
+        if kind is None:
+            raise ValueError(
+                f"add_asset(): {path} is not a STEP or font file. Partsmith adds .step, .stp, .ttf and .otf files."
+            )
+        data = Path(path).read_bytes()
+        reply = self._client.command("add_assets", [data], assets=[{"kind": kind, "data": 0}])
+        return reply.result["assets"][0]["name"]
 
     def check(
         self,

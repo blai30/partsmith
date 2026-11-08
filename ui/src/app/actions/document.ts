@@ -239,8 +239,13 @@ async function chooseSaveFolder(app: App, write: DocumentWrite): Promise<void> {
     app,
     target.handle,
     target.name,
-    () => {
-      void chooseSaveFolder(app, write)
+    {
+      label: 'Choose folder',
+      run: () => {
+        void chooseSaveFolder(app, write)
+      },
+      // It saves. It waits during a feature command (3.19).
+      editsDocument: true,
     },
     () => {
       askForSaveFolder(app, write)

@@ -183,15 +183,18 @@ mod tests {
 
     #[test]
     fn other_refusals_carry_the_engine_message() {
+        let message = "The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.";
         let error = EngineError::AssetMismatch {
             name: "a.step".to_owned(),
+            hash: "b".to_owned(),
+            message: message.to_owned(),
         };
 
         let failure = CliError::load("model.ptsm".to_owned(), &error);
 
         assert_eq!(
             failure.report_line(),
-            "model.ptsm: error[asset_mismatch]: Asset a.step does not match its content hash."
+            format!("model.ptsm: error[asset_mismatch]: {message}")
         );
     }
 

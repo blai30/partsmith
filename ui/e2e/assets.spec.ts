@@ -24,9 +24,9 @@ import {
 import { buttonNames, notificationActions } from './support/documents'
 
 // Documents with imports and their assets folder, and saves that stop when the file was changed
-// elsewhere (ui.md 3.19, 4.4, 6.5 E-150 to E-154, ADR 0037). The tests run on the origin private
-// file system behind the pickers of `useFolders` (6.3), with the fixture `step-block.ptsm` and its
-// asset `S`, read from `examples/import/assets/` (6.2).
+// elsewhere (ui.md 3.19, 4.4, 6.5 E-150 to E-154 and E-173, ADR 0037, ADR 0064). The tests run on
+// the origin private file system behind the pickers of `useFolders` (6.3), with the fixture
+// `step-block.ptsm` and its asset `S`, read from `examples/import/assets/` (6.2).
 
 /** `S`: the import track's STEP asset, the 10 by 20 by 30 "Block" of features/import.md 6. */
 const S = 'b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step'
@@ -270,5 +270,32 @@ test.describe('Assets and files changed elsewhere', () => {
     await dropFile(second, 'cube.ptsm')
     await expect(notificationCoded(second, 'assets_unsupported')).toHaveCount(0)
     await expect(notificationCoded(second, 'assets_without_folder')).toHaveCount(0)
+  })
+
+  test('E-173 Choose folder keeps the undo history', async ({ page }) => {
+    await useFolders(page)
+    await openApp(page)
+    await writeFolderFile(page, 'work/step-block.ptsm', await fixtureBytes('step-block.ptsm'))
+    await writeFolderFile(page, `work/assets/${S}`, await assetBytes())
+    await queuePick(page, 'work/step-block.ptsm')
+    await page.keyboard.press('ControlOrMeta+O')
+    await expectImport(page, 'error')
+    const needed = notificationCoded(page, 'assets_folder_needed')
+    await expect(needed).toBeVisible()
+    await renameBody(page, 'Body 1', 'Block')
+
+    await queuePick(page, 'work')
+    await button(needed, 'Choose folder').click()
+    await expectImport(page, 'ok')
+    await expect(bodyRow(page, 'Block')).toBeVisible()
+    await expect(page.getByTestId('document-name')).toHaveAttribute('data-dirty', 'true')
+
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect(bodyRow(page, 'Body 1')).toBeVisible()
+    await expectImport(page, 'ok')
+    await expectBlock(page, 'Body 1')
+
+    await page.keyboard.press('ControlOrMeta+Shift+Z')
+    await expect(bodyRow(page, 'Block')).toBeVisible()
   })
 })

@@ -1,7 +1,6 @@
 import type { CoreApi } from '../../core/api'
 import { CoreError } from '../../core/client'
 import { errorMessage } from '../../core/errors'
-import type { AssetFile } from '../../files/assets'
 import { fileDigestOrNull } from '../../files/digest'
 import { FileServiceError, type OpenedFile } from '../../files/file-service'
 import type { RecentFile } from '../../files/recent'
@@ -18,7 +17,12 @@ import type { App } from '../createApp'
 import { adoptRecoveryEntry, endRecoverySession } from '../recovery-copy'
 import { measureToNextFrame } from '../timing'
 import { cancelCommand } from './command'
-import { explainMissingAssets, folderOfFile, readDocumentAssets } from './document-assets'
+import {
+  addFolderAssets,
+  explainMissingAssets,
+  folderOfFile,
+  type FolderAssets,
+} from './document-assets'
 import { documentOf, showCoreError, type StoppedNotice } from './edits'
 import { showFileError, showOpenFailed } from './files'
 import { notify } from './notifications'
@@ -132,34 +136,17 @@ type DocumentSource = {
   readonly stopped: StoppedNotice
 }
 
-/** What the core opened for a text: the document, the assets it accepted, and its refusal of the assets it was given first, if any. */
-type OpenedText = {
-  readonly opened: Awaited<ReturnType<CoreApi['openDocument']>>
-  readonly assets: readonly AssetFile[]
-  readonly refusal: CoreError | null
-}
-
 /**
- * Has the core open a text with its assets (3.19 openFile step 4). When a file under an asset's
- * name holds other bytes (`asset_mismatch`), the text opens again without assets, so the document
- * can still be edited. Any other refusal shows `open_failed`; resolves null when nothing opened.
+ * Has the core open a text without assets (3.19 openFile step 4). A refusal shows `open_failed`;
+ * resolves null when nothing opened.
  */
 async function openText(
   app: App,
   source: DocumentSource,
-  assets: readonly AssetFile[],
-): Promise<OpenedText | null> {
+): Promise<Awaited<ReturnType<CoreApi['openDocument']>> | null> {
   try {
-    const opened = await app.mutations.run(
-      () => app.core.openDocument(source.text, assets),
-      'other',
-    )
-    return { opened, assets, refusal: null }
+    return await app.mutations.run(() => app.core.openDocument(source.text), 'other')
   } catch (error) {
-    if (error instanceof CoreError && error.code === 'asset_mismatch' && assets.length > 0) {
-      const retried = await openText(app, source, [])
-      return retried === null ? null : { ...retried, refusal: error }
-    }
     if (error instanceof CoreError) {
       showOpenFailed(app, source.fileName, error.message)
       return null
@@ -170,19 +157,19 @@ async function openText(
 }
 
 /**
- * Opens a recipe text in place of the current document (3.19 openFile steps 3 to 6) in a new
- * document session, with the assets its file's folder holds. Resolves the session's recovery id,
- * or null when the text was not opened.
+ * Opens a recipe text in place of the current document (3.19 openFile steps 4 to 6) in a new
+ * document session, then adds the files its folder holds for the asset names the core reports
+ * missing. Resolves the session's recovery id, or null when the text was not opened.
  */
 async function replaceDocument(app: App, source: DocumentSource): Promise<string | null> {
-  const reading = await readDocumentAssets(app, source.text, source.file)
-  const result = await openText(app, source, reading?.assets ?? [])
-  if (result === null) {
+  const opened = await openText(app, source)
+  if (opened === null) {
     return null
   }
-  const { opened } = result
+  let assets: FolderAssets
   let offerReopen: () => void
   try {
+    assets = await addFolderAssets(app, opened.documentHandle, source.file)
     await cancelCommandOfReplaced(app)
     offerReopen = await closeReplaced(app, documentOf(app))
   } catch (error) {
@@ -196,7 +183,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
     file: source.file,
     localUnsaved: source.localUnsaved,
     recoveryId,
-    assets: result.assets,
+    assets: assets.added.stored,
   })
   startDocumentSession(app)
   const viewport = app.viewport()
@@ -214,7 +201,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
   const shown = documentOf(app)
   if (shown !== null) {
     offerStoredPrinter(app, source.fileName, shown.recipe)
-    explainMissingAssets(app, shown, reading, result.refusal, () => {
+    explainMissingAssets(app, shown, assets, () => {
       void openWithPicker(app)
     })
   }

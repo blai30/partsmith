@@ -52,7 +52,7 @@ describe('createDesktopFileService', () => {
   })
 
   it('desktop test 83: pickToOpen picks a font by its kind and reads it through its grant', async () => {
-    const glyphs = new TextEncoder().encode('glyphs')
+    const glyphs = Uint8Array.from(new TextEncoder().encode('glyphs'))
     const { service, invocations } = serviceAnswering({
       pick_open_file: [resolves({ name: 'logo.ttf', grant: 'g2' })],
       read_file: [resolves(arrayBufferOf(glyphs))],
@@ -81,8 +81,9 @@ describe('createDesktopFileService', () => {
     ])
   })
 
-  it('desktop test 83: pickToOpen of a Partsmith model sends no kind', async () => {
-    for (const kind of [undefined, 'ptsm'] as const) {
+  it.each([undefined, 'ptsm'] as const)(
+    'desktop test 83: pickToOpen(%s) of a Partsmith model sends no kind',
+    async (kind) => {
       const { service, invocations } = serviceAnswering({ pick_open_file: [resolves(null)] })
 
       await service.pickToOpen(kind)
@@ -90,8 +91,8 @@ describe('createDesktopFileService', () => {
       expect(invocations).toHaveLength(1)
       expect(invocations[0]?.command).toBe('pick_open_file')
       expect(invocations[0]?.payload).toBeUndefined()
-    }
-  })
+    },
+  )
 
   it('desktop test 37: pickToOpen resolves null when the user cancels, without reading', async () => {
     const { service, invocations } = serviceAnswering({ pick_open_file: [resolves(null)] })

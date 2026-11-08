@@ -7,9 +7,10 @@ import {
   type FileHandle,
   type SaveTarget,
 } from '../../files/file-service'
+import type { TaskKind } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
 import { createMemoryRecovery, type RecoveryEntry } from '../../files/recovery'
-import type { Edit, FeatureRecord } from '../../generated/protocol'
+import type { Document, Edit, FeatureRecord } from '../../generated/protocol'
 import { isUnsaved } from '../../state/selectors'
 import type { App } from '../createApp'
 import {
@@ -49,6 +50,7 @@ import { deferred, type Deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import { startFeatureCommand } from './command'
 import { applyEdits, newDocument, openFile, save, saveAs, undo } from './document'
+import { addPickedAsset } from './document-assets'
 
 // Documents with imports and their assets folder (ui.md 3.19, 4.4, ADR 0037, ADR 0064): Open
 // opens without assets and adds the files the core reports missing, says why imports are missing,
@@ -186,6 +188,24 @@ function holdReadAssets(fake: FakeApp): Deferred<void> {
   return held
 }
 
+/** Records the kind of each mutation-queue task that sends `add_assets` (2.6: an `other` task). */
+function addAssetsTaskKinds(fake: FakeApp): readonly TaskKind[] {
+  const kinds: TaskKind[] = []
+  const queue = fake.app.mutations
+  const run = queue.run.bind(queue)
+  vi.spyOn(queue, 'run').mockImplementation((task, kind = 'change') =>
+    run(async () => {
+      const sent = fake.transport.commandsOfType('add_assets').length
+      const result = await task()
+      if (fake.transport.commandsOfType('add_assets').length > sent) {
+        kinds.push(kind)
+      }
+      return result
+    }, kind),
+  )
+  return kinds
+}
+
 /** The arguments of the `writeAssets` calls, with the assets as plain names and bytes. */
 function writtenAssets(
   fake: FakeApp,
@@ -202,8 +222,10 @@ describe('Open reads the assets the text names (3.19 openFile step 3)', () => {
     const handle = createDesktopHandle('block.ptsm', 'g1')
     fake.files.putAssets(handle, [ASSET_A, ASSET_B])
     forgetCalls(fake)
+    const taskKinds = addAssetsTaskKinds(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
     expect(openedAssets(fake)).toEqual([[]])
+    expect(taskKinds).toEqual(['other'])
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder: null }, [A]]])
     expect(assetSteps(fake)).toEqual([
       'command:open_document',
@@ -303,7 +325,7 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
     )
   })
 
-  it('U-220 (b) the session keeps no file the core did not store, so a restart sends assets: [] and no buffer', async () => {
+  it('U-220 (b) the session keeps no file the core did not store: a restart sends assets: [] and no buffer', async () => {
     const fake = await startFakeApp({ core: { mismatchedAssets: [A] } })
     const handle = createDesktopHandle('block.ptsm', 'g1')
     fake.files.putAssets(handle, [ASSET_A])
@@ -439,16 +461,12 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
   })
 })
 
-describe('Choose folder adds the assets to the open document (3.19, since M2, ADR 0064)', () => {
-  /** Clicks "Choose folder" of the shown `assets_folder_needed`. */
-  async function chooseFolder(fake: FakeApp): Promise<void> {
-    await clickAction(
-      fake.app,
-      notificationCoded(fake.app, 'assets_folder_needed'),
-      'Choose folder',
-    )
-  }
+/** Clicks "Choose folder" of the shown `assets_folder_needed`. */
+async function chooseFolder(fake: FakeApp): Promise<void> {
+  await clickAction(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+}
 
+describe('Choose folder adds the assets to the open document (3.19, since M2, ADR 0064)', () => {
   it('U-222 another folder shows assets_wrong_folder, whose Choose folder adds the assets once the right one is chosen', async () => {
     const { fake, handle, folder } = await blockWithoutFolder()
     const { recoveryId, documentHandle } = currentDocument(fake.app)
@@ -466,9 +484,11 @@ describe('Choose folder adds the assets to the open document (3.19, since M2, AD
     expect(actionLabels(wrong)).toEqual(['Choose folder'])
 
     forgetCalls(fake)
+    const taskKinds = addAssetsTaskKinds(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
     await clickAction(fake.app, wrong, 'Choose folder')
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder }, [A]]])
+    expect(taskKinds).toEqual(['other'])
     expect(assetSteps(fake)).toEqual(['files.readAssets', 'command:add_assets'])
     expect(addedAssets(fake)).toEqual([[{ kind: 'step', name: A, bytes: [1, 2, 3] }]])
     expect(fake.transport.commandsOfType('add_assets')[0]?.doc).toBe(documentHandle)
@@ -549,6 +569,46 @@ describe('Choose folder adds the assets to the open document (3.19, since M2, AD
     expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
   })
 
+  it('U-222 a rename still waiting for the core when the folder is chosen is sent before add_assets, to the same document', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const { documentHandle } = currentDocument(fake.app)
+    fake.transport.pause()
+    const renaming = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await chooseFolder(fake)
+    expect(callsOf(fake.files, 'readAssets')).toHaveLength(1)
+    expect(fake.transport.commandTypes()).toEqual(['apply_edits'])
+    fake.transport.resume()
+    await renaming
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual(['apply_edits', 'add_assets'])
+    expect(fake.transport.commandsOfType('add_assets')[0]?.doc).toBe(documentHandle)
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
+  })
+
+  it('U-222 a rename made while add_assets has not answered is sent once it has, with the same handle', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const { documentHandle } = currentDocument(fake.app)
+    const held = deferred<void>()
+    fake.transport.handle('add_assets', async (command, core, buffers) => {
+      await held.promise
+      return core.reply(command, buffers)
+    })
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    const choosing = chooseFolder(fake)
+    await settle()
+    const renaming = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    await settle()
+    expect(fake.transport.commandsOfType('apply_edits')).toEqual([])
+    held.resolve()
+    await choosing
+    await renaming
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual(['add_assets', 'apply_edits'])
+    expect(fake.transport.commandsOfType('apply_edits')[0]?.doc).toBe(documentHandle)
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
+  })
+
   it('U-222 a New while the folder is read sends no add_assets', async () => {
     const { fake, folder } = await blockWithoutFolder()
     const held = holdReadAssets(fake)
@@ -560,6 +620,25 @@ describe('Choose folder adds the assets to the open document (3.19, since M2, AD
     await choosing
     await settle()
     expect(fake.transport.commandsOfType('add_assets')).toEqual([])
+  })
+
+  it('U-222 a New that has ended the session but not yet shown its document sends no add_assets', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const held = holdReadAssets(fake)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    const choosing = chooseFolder(fake)
+    await settle()
+    fake.transport.pause()
+    const replacing = newDocument(fake.app)
+    await settle()
+    held.resolve()
+    await settle()
+    fake.transport.resume()
+    await replacing
+    await choosing
+    await settle()
+    expect(fake.transport.commandsOfType('add_assets')).toEqual([])
+    expect(notificationCodes(fake.app)).not.toContain('unknown_document')
   })
 
   it('a folder whose asset the core does not store leaves the document as it is and shows assets_mismatch', async () => {
@@ -659,6 +738,21 @@ describe('Choose folder adds the assets to the open document (3.19, since M2, AD
     expect(notificationCodes(fake.app)).not.toContain('open_stopped')
   })
 })
+
+/** `block.ptsm` from a desktop handle whose folder holds `A`, with the body renamed. */
+async function renamedDesktopBlock(): Promise<{
+  readonly fake: FakeApp
+  readonly handle: FileHandle
+}> {
+  const fake = await startFakeApp()
+  const handle = createDesktopHandle('block.ptsm', 'g1')
+  fake.files.putAssets(handle, [ASSET_A])
+  await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
+  await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+  await settle()
+  forgetCalls(fake)
+  return { fake, handle }
+}
 
 describe('Save writes the assets first (3.19 writing the document)', () => {
   it('U-226 Save calls saveDocument, readHandle, writeAssets, write and markSaved, in that order', async () => {
@@ -992,5 +1086,223 @@ describe('recovery and recent files keep the place (3.19, 2.15)', () => {
     const places = callsOf(fake.files, 'readAssets').map(([place]) => place as DocumentPlace)
     expect(places.every((place) => place.folder !== elsewhere)).toBe(true)
     expect(currentDocument(fake.app).file?.folder ?? null).toBeNull()
+  })
+})
+
+/** `two-imports.ptsm`: `f-imp1` "Import 1", an import of `A` into `b-1`, then `f-imp2` "Import 2", an import of `B` into `b-2`. */
+const TWO_IMPORTS: Document = {
+  ...BLOCK_DOCUMENT,
+  bodies: [
+    { id: 'b-1', name: 'Body 1' },
+    { id: 'b-2', name: 'Body 2' },
+  ],
+  features: [
+    { id: 'f-imp1', type: 'import', body: 'b-1', asset: A, op: 'new' },
+    { id: 'f-imp2', type: 'import', body: 'b-2', asset: ASSET_B.name, op: 'new' },
+  ],
+}
+
+/** `two-imports.ptsm` opened from a desktop handle whose folder holds `A` and `B`. */
+async function twoImportsOpened(mismatchedAssets: readonly string[]): Promise<FakeApp> {
+  const fake = await startFakeApp({ core: { mismatchedAssets } })
+  const handle = createDesktopHandle('two-imports.ptsm', 'g1')
+  fake.files.putAssets(handle, [ASSET_A, ASSET_B])
+  await openTestDocument(fake, 'two-imports.ptsm', TWO_IMPORTS, handle)
+  return fake
+}
+
+describe('the words of files the core does not store (3.19 openFile step 6, since M2)', () => {
+  it('U-279 (a) two refused files name the first feature and count the other', async () => {
+    const fake = await twoImportsOpened([A, ASSET_B.name])
+    const message =
+      "The geometry of 'Import 1' and 1 other feature is missing, because the assets folder next to two-imports.ptsm holds other files in place of the ones they use. Copy the assets folder that came with two-imports.ptsm next to it."
+    const notification = notificationCoded(fake.app, 'assets_mismatch_more')
+    expect(notification.severity).toBe('warning')
+    expect(notification.message).toBe(message)
+    const writeText = stubClipboard()
+    runAction(notification, 'Copy details')
+    await settle()
+    expect(writeText).toHaveBeenCalledWith(
+      [
+        'assets_mismatch_more',
+        message,
+        `assets/${A}: its contents do not match its name`,
+        `assets/${ASSET_B.name}: its contents do not match its name`,
+      ].join('\n'),
+    )
+    expect(currentDocument(fake.app).assets).toEqual([])
+  })
+
+  it('U-279 (b) one refused file names the feature that reads it', async () => {
+    const fake = await twoImportsOpened([ASSET_B.name])
+    expect(notificationCoded(fake.app, 'assets_mismatch').message).toBe(
+      "The geometry of 'Import 2' is missing, because the assets folder next to two-imports.ptsm holds another file in place of the one it uses. Copy the assets folder that came with two-imports.ptsm next to it.",
+    )
+    expect(assetValues(currentDocument(fake.app).assets)).toEqual([{ name: A, bytes: [1, 2, 3] }])
+    expect(currentDocument(fake.app).featureStatus['f-imp1']?.status).toBe('ok')
+    expect(currentDocument(fake.app).featureStatus['f-imp2']?.status).toBe('error')
+  })
+})
+
+describe('an add the stopped core never took (4.4, since M2)', () => {
+  it('U-282 an Open whose add_assets the stopped core never answered shows open_stopped and not the document', async () => {
+    const fake = await startFakeApp()
+    const before = currentDocument(fake.app).documentHandle
+    const handle = createDesktopHandle('block.ptsm', 'g1')
+    fake.files.putAssets(handle, [ASSET_A])
+    fake.transport.handle('add_assets', () =>
+      Promise.reject(new CoreFatalError('The geometry core was stopped.')),
+    )
+    await openFile(fake.app, documentFile('block.ptsm', BLOCK_DOCUMENT, handle))
+    await settle()
+    expect(notificationCodes(fake.app)).toContain('open_stopped')
+    expect(currentDocument(fake.app).name).not.toBe('block')
+    expect(currentDocument(fake.app).documentHandle).toBe(before)
+  })
+})
+
+/** `C`: the name the fake core gives a file of `kind` without a name. */
+function pickedName(kind: string): string {
+  return `${'c'.repeat(64)}.${kind}`
+}
+
+/** A file the user picked, without a handle. */
+function picked(name: string, ...bytes: number[]) {
+  return { name, bytes: Uint8Array.from(bytes), handle: null }
+}
+
+/** `block.ptsm` dropped: it has no handle and no assets. */
+async function droppedBlock(): Promise<FakeApp> {
+  const fake = await startFakeApp()
+  await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT)
+  forgetCalls(fake)
+  return fake
+}
+
+describe('addPickedAsset (3.19 picked files, since M2, ADR 0064 decision 5)', () => {
+  it('U-283 (a) a picked STEP file is added without a name as an other task and named by the core', async () => {
+    const fake = await droppedBlock()
+    const run = vi.spyOn(fake.app.mutations, 'run')
+
+    const name = await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    expect(name).toBe(pickedName('step'))
+    expect(addedAssets(fake)).toEqual([[{ kind: 'step', name: null, bytes: [7, 8] }]])
+    expect(fake.transport.commandsOfType('add_assets')[0]?.assets?.[0]).not.toHaveProperty('name')
+    expect(run).toHaveBeenCalledWith(expect.any(Function), 'other')
+    expect(assetValues(currentDocument(fake.app).assets).at(-1)).toEqual({
+      name: pickedName('step'),
+      bytes: [7, 8],
+    })
+  })
+
+  it('U-283 (a) the same file again resolves with its name and adds no second entry', async () => {
+    const fake = await droppedBlock()
+    await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    const again = await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    expect(again).toBe(pickedName('step'))
+    expect(
+      currentDocument(fake.app).assets.filter((asset) => asset.name === pickedName('step')),
+    ).toHaveLength(1)
+  })
+
+  it.each([
+    ['logo.otf', 'otf'],
+    ['logo.ttf', 'ttf'],
+  ])('U-283 (b) %s picked as a font is sent with the kind %s', async (fileName, kind) => {
+    const fake = await droppedBlock()
+
+    await addPickedAsset(fake.app, picked(fileName, 1), 'font')
+
+    expect(addedAssets(fake)).toEqual([[{ kind, name: null, bytes: [1] }]])
+  })
+
+  it('U-283 (c) a file of another kind shows asset_not_step or asset_not_font and sends nothing', async () => {
+    const fake = await droppedBlock()
+
+    const notStep = await addPickedAsset(fake.app, picked('notes.txt', 1), 'step')
+    const notFont = await addPickedAsset(fake.app, picked('part.step', 1), 'font')
+
+    expect(notStep).toBeNull()
+    expect(notFont).toBeNull()
+    expect(fake.transport.commandsOfType('add_assets')).toEqual([])
+    expect(notificationCoded(fake.app, 'asset_not_step').message).toBe(
+      'notes.txt is not a STEP file. Partsmith imports .step and .stp files.',
+    )
+    expect(notificationCoded(fake.app, 'asset_not_step').severity).toBe('error')
+    expect(notificationCoded(fake.app, 'asset_not_font').message).toBe(
+      'part.step is not a font file. Partsmith uses .ttf and .otf fonts.',
+    )
+  })
+
+  it('U-283 (d) during a feature command it sends at once and the command stays open', async () => {
+    const fake = await droppedBlock()
+    await startFeatureCommand(fake.app, 'fillet')
+    await settle()
+    const command = fake.app.store.getState().command
+
+    const name = await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    expect(name).toBe(pickedName('step'))
+    expect(fake.transport.commandsOfType('add_assets')).toHaveLength(1)
+    expect(fake.app.store.getState().command).toEqual(command)
+  })
+
+  it('U-283 (e) a document that New replaced before its turn gets nothing', async () => {
+    const fake = await droppedBlock()
+    fake.transport.pause()
+    const renaming = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    const replacing = newDocument(fake.app)
+    const adding = addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+    fake.transport.resume()
+    await Promise.allSettled([renaming, replacing])
+
+    expect(await adding).toBeNull()
+    expect(fake.transport.commandsOfType('add_assets')).toEqual([])
+  })
+
+  it('U-283 (f) a core error shows asset_add_failed with the core message', async () => {
+    const fake = await droppedBlock()
+    fake.transport.handle('add_assets', () => ({
+      error: { code: 'document_poisoned', message: 'The document is broken.' },
+    }))
+
+    const name = await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    expect(name).toBeNull()
+    expect(notificationCoded(fake.app, 'asset_add_failed').message).toBe(
+      'Could not add part.STEP. The document is broken.',
+    )
+  })
+
+  it('U-283 (f) a stopped core shows asset_add_stopped', async () => {
+    const fake = await droppedBlock()
+    fake.transport.handle('add_assets', () =>
+      Promise.reject(new CoreFatalError('The geometry core was stopped.')),
+    )
+
+    const name = await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+
+    expect(name).toBeNull()
+    expect(notificationCoded(fake.app, 'asset_add_stopped').message).toBe(
+      'part.STEP was not added, because the geometry core stopped before adding it. Add it again.',
+    )
+  })
+
+  it('U-283 (g) a restart gives the new core the picked file again', async () => {
+    const fake = await droppedBlock()
+    await addPickedAsset(fake.app, picked('part.STEP', 7, 8), 'step')
+    fake.transport.die('The worker crashed.')
+    await settle()
+    forgetCalls(fake)
+
+    await fake.app.restartCore()
+    await settle()
+
+    expect(openedAssets(fake)).toEqual([[{ name: pickedName('step'), bytes: [7, 8] }]])
+    expect(assetSteps(fake)).toEqual(['command:open_document', 'command:add_assets'])
+    expect(addedAssets(fake)).toEqual([[{ kind: 'step', name: pickedName('step'), bytes: [7, 8] }]])
   })
 })

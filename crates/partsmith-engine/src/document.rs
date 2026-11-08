@@ -1,8 +1,8 @@
 //! The state of one open document: recipe, revision, undo history, transaction, drags, dirty
 //! baseline, assets, display quality, the latest recompute, the causes and ghosts the session
-//! made of it, what was last emitted and the latest count of its numbers without a unit
-//! (engine.md sections 3.2 to 3.6, 3.21, 3.23 and 3.25); and the canonical forms of a recipe: its
-//! text, and its params as the registry writes them.
+//! made of it, what was last emitted, the latest count of its numbers without a unit and its
+//! latest missing assets (engine.md sections 3.2 to 3.6, 3.14, 3.21, 3.23 and 3.25); and the
+//! canonical forms of a recipe: its text, and its params as the registry writes them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use partsmith_features::Registry;
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{Document, Id, Step, canonical, save};
-use partsmith_protocol::TessellationQuality;
+use partsmith_protocol::{AssetUse, TessellationQuality};
 
 use crate::causes::{Baseline, Causes};
 use crate::error::EngineError;
@@ -81,6 +81,9 @@ pub(crate) struct OpenDocument {
     pub(crate) poisoned: Option<Arc<Document>>,
     /// The latest count of `bare_numbers` with the revision it counts (section 3.25).
     pub(crate) bare_count: Option<(u64, u32)>,
+    /// The latest missing assets, with the revision and the size of the asset store they were
+    /// found at (section 3.14).
+    pub(crate) missing: Option<((u64, usize), Vec<AssetUse>)>,
 }
 
 impl OpenDocument {
@@ -113,6 +116,7 @@ impl OpenDocument {
             emitted: Emitted::default(),
             poisoned: None,
             bare_count: None,
+            missing: None,
         })
     }
 

@@ -34,14 +34,16 @@ pub(crate) async fn call(
         .map_err(|error| format!("The geometry core failed: {error}"))
 }
 
-/// Asks the user for a Partsmith model to open and grants it.
+/// Asks the user for a file of `kind` to open, a Partsmith model when it has none, and grants it.
 #[tauri::command]
 pub(crate) async fn pick_open_file<R: Runtime>(
     window: WebviewWindow<R>,
     files: State<'_, Arc<Files>>,
+    kind: Option<FileKind>,
 ) -> Result<Option<Granted>, FileError> {
     let files = Arc::clone(&files);
-    on_blocking_pool(move || files.pick_open(&TauriDialogs::new(window))).await
+    let kind = kind.unwrap_or(FileKind::Ptsm);
+    on_blocking_pool(move || files.pick_open(&TauriDialogs::new(window), kind)).await
 }
 
 /// Asks the user where to save a file of `kind` and grants it.

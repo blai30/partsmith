@@ -213,6 +213,61 @@ pub struct AssetData {
     pub data: BufferIndex,
 }
 
+/// Since M2: the kinds of asset file. Each is the extension of the asset's name (file-format.md section 3.11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetKind {
+    /// A STEP model, `<hash>.step`.
+    Step,
+    /// A TrueType font, `<hash>.ttf`.
+    Ttf,
+    /// An OpenType font, `<hash>.otf`.
+    Otf,
+}
+
+impl AssetKind {
+    /// The extension of an asset name of this kind, as the wire writes the kind: `step`, `ttf` or `otf`.
+    pub fn extension(self) -> &'static str {
+        match self {
+            AssetKind::Step => "step",
+            AssetKind::Ttf => "ttf",
+            AssetKind::Otf => "otf",
+        }
+    }
+}
+
+/// Since M2: a file that `add_assets` puts into a document's asset store (command 38).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AssetInput {
+    /// The file's kind. The asset's name ends in it.
+    pub kind: AssetKind,
+    /// The file's bytes: a `u8` buffer.
+    pub data: BufferIndex,
+    /// The name a host read the file under in the document's `assets/` folder, which the engine checks against the bytes.
+    /// Absent for a file the user picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Since M2: what `add_assets` did with one file.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct AddedAsset {
+    /// The file's asset name: the entry's `name` when it has one, else the name the engine gave it.
+    pub name: String,
+    /// False when the entry's `name` is not the name of its bytes. The engine then stored nothing for the entry.
+    pub stored: bool,
+}
+
+/// Since M2: an asset name that the recipe reads, and the features that read it (`document_changed`, section 2.7).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct AssetUse {
+    /// `<64 lowercase hex>.<extension>` (file-format.md section 3.11).
+    pub name: String,
+    /// The features whose valid records read it, in timeline order.
+    pub features: Vec<Id>,
+}
+
 /// A file produced by an export.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct ExportFile {

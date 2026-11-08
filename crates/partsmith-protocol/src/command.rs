@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::strict::{self, no_fields};
 use crate::{
-    AssetData, Axis, BufferIndex, CurveKind, Diagnostic, DocHandle, ElementDescriptor, ElementRef,
-    ExportFile, FixRef, MeshElement, Orientation, Pick, SketchSolution, SurfaceKind,
-    TessellationQuality, Vec2, Vec3,
+    AddedAsset, AssetData, AssetInput, Axis, BufferIndex, CurveKind, Diagnostic, DocHandle,
+    ElementDescriptor, ElementRef, ExportFile, FixRef, MeshElement, Orientation, Pick,
+    SketchSolution, SurfaceKind, TessellationQuality, Vec2, Vec3,
 };
 
 /// Every command a client can send. Tagged by `type`; unknown types and fields are rejected.
@@ -82,6 +82,14 @@ pub enum Command {
         doc: DocHandle,
         /// The revision of the written text.
         revision: u64,
+    },
+    /// Since M2: puts files into the document's asset store without reopening it (engine.md section 3.14).
+    AddAssets {
+        /// The document.
+        doc: DocHandle,
+        /// The files, each with its kind and, when a host read it from the `assets/` folder, its name there.
+        #[serde(default)]
+        assets: Vec<AssetInput>,
     },
     /// Applies edits atomically.
     ApplyEdits {
@@ -326,6 +334,7 @@ impl Command {
             Command::CloseDocument { .. } => "close_document",
             Command::GetDocument { .. } => "get_document",
             Command::MarkSaved { .. } => "mark_saved",
+            Command::AddAssets { .. } => "add_assets",
             Command::ApplyEdits { .. } => "apply_edits",
             Command::RenameParameter { .. } => "rename_parameter",
             Command::ApplyFix { .. } => "apply_fix",
@@ -423,6 +432,11 @@ pub enum CommandResult {
     },
     /// Result of `mark_saved`.
     MarkSaved,
+    /// Result of `add_assets`.
+    AddAssets {
+        /// What the command did with each file, in the order of the request.
+        assets: Vec<AddedAsset>,
+    },
     /// Result of `apply_edits`.
     ApplyEdits {
         /// The revision after the edits.

@@ -32,9 +32,12 @@ export const BLOCK_DOCUMENT: Document = {
 export const ASSET_MISSING_MESSAGE =
   "The STEP file of this import is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again."
 
-/** The engine's refusal of a supplied asset whose bytes do not hash to its name (protocol.md 4). */
-export function assetMismatchMessage(name: string): string {
-  return `Asset ${name} does not match its content hash.`
+/**
+ * The engine's refusal of a supplied STEP asset whose bytes do not hash to its name, naming the first feature that
+ * reads it by its label (protocol.md 4, engine.md 4, since M2).
+ */
+export function assetMismatchMessage(feature: string): string {
+  return `The STEP file of '${feature}' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.`
 }
 
 /** The names and bytes of asset files as plain values, for comparing them with `toEqual`. */

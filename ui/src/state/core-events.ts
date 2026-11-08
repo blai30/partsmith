@@ -1,6 +1,6 @@
 import type { CoreEvent } from '../core/events'
 import type { AssetFile } from '../files/assets'
-import type { DocHandle, Document } from '../generated/protocol'
+import type { AssetUse, DocHandle, Document } from '../generated/protocol'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppStore, DocumentState, FileReference } from './store'
 
@@ -20,7 +20,7 @@ export type DocumentDetails = {
    * the one an action named for it; adopting a document without one starts a new session.
    */
   readonly recoveryId?: string
-  /** The asset files the core accepted when it opened the document (ui.md 3.19); none unless given. */
+  /** The asset files the core stored for the document (ui.md 3.19); none unless given. */
   readonly assets?: readonly AssetFile[]
 }
 
@@ -66,6 +66,7 @@ function newDocumentState(
     localUnsaved: details.localUnsaved,
     recoveryId: details.recoveryId,
     assets: details.assets ?? [],
+    missingAssets: [],
     undoLabel: null,
     redoLabel: null,
     transactionOpen: false,
@@ -112,6 +113,7 @@ function applied(document: DocumentState, event: CoreEvent): DocumentState | nul
         redoLabel: event.redo,
         transactionOpen: event.transactionOpen,
         focus: event.focus,
+        missingAssets: event.missingAssets,
         bareNumbers: event.bareNumbers,
         // Results of bodies and features the recipe no longer has are gone.
         meshes: filtered(document.meshes, (body) => bodies.has(body)),
@@ -268,6 +270,22 @@ export function adoptDocument(
   }
   registry.awaiting = null
   store.setState({ document: { ...pending, ...adopted } })
+}
+
+/**
+ * The missing assets of the document with this handle (ui.md 2.8): the shown one, or one the core
+ * reported that no action has adopted yet (an opened file before `openFile` shows it); none for any
+ * other handle.
+ */
+export function pendingMissingAssets(
+  store: AppStore,
+  documentHandle: DocHandle,
+): readonly AssetUse[] {
+  const current = store.getState().document
+  if (current !== null && current.documentHandle === documentHandle) {
+    return current.missingAssets
+  }
+  return registryOf(store).pending.get(documentHandle)?.missingAssets ?? []
 }
 
 /**

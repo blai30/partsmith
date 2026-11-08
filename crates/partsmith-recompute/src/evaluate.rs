@@ -1,5 +1,8 @@
 //! Evaluating a step's expressions and computing its cache key (recompute.md section 3.5 step 3).
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use partsmith_features::Values;
 use partsmith_model::Scope;
 
@@ -34,13 +37,15 @@ impl Progress {
 /// key of every earlier step (None for records without one).
 ///
 /// A feature link takes the key of the record it names when that record is earlier, and none
-/// otherwise; a body link takes the key of its provider, or empty when it has none.
+/// otherwise; a body link takes the key of its provider, or empty when it has none; an asset
+/// link is present when `assets` holds it.
 pub(crate) fn evaluate(
     timeline: &Timeline<'_>,
     position: usize,
     step: &ActiveStep<'_>,
     keys: &[Option<CacheKey>],
     scope: &Scope<'_>,
+    assets: &BTreeMap<String, Arc<[u8]>>,
 ) -> (Values, CacheKey) {
     let record = timeline.steps[position].record;
     let manifest = step.feature.manifest();
@@ -66,6 +71,11 @@ pub(crate) fn evaluate(
             .body_links()
             .zip(&step.providers)
             .map(|(link, &provider)| (&link.id, earlier_key(provider)))
+            .collect(),
+        assets: dependencies
+            .assets
+            .iter()
+            .map(|link| (link.name.as_str(), assets.contains_key(&link.name)))
             .collect(),
     }
     .key();
@@ -95,7 +105,7 @@ mod tests {
         for (position, step) in timeline.steps.iter().enumerate() {
             let key = match &step.kind {
                 StepKind::Active(active) => {
-                    Some(evaluate(&timeline, position, active, &keys, &scope).1)
+                    Some(evaluate(&timeline, position, active, &keys, &scope, &BTreeMap::new()).1)
                 }
                 _ => None,
             };

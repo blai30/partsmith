@@ -17,8 +17,8 @@ pub const MAX_GRANTS: usize = 100;
 /// The grant store format this host reads and writes.
 const STORE_VERSION: u64 = 1;
 
-/// The extensions of the assets the engine names (engine.md 3.14: `<hash>.step` in M1).
-pub const ASSET_EXTENSIONS: &[&str] = &["step"];
+/// The extensions of the assets the engine names (engine.md 3.14): `step` in M1, and since M2 the font kinds `ttf` and `otf`.
+pub const ASSET_EXTENSIONS: &[&str] = &["step", "ttf", "otf"];
 
 /// The folder next to a document that holds its assets (file-format.md 3.11).
 const ASSETS_FOLDER: &str = "assets";
@@ -58,6 +58,9 @@ pub enum FileKind {
     /// A STEP model.
     #[serde(rename = "step")]
     Step,
+    /// Since M2: a TrueType or OpenType font, which the UI adds as an asset (ui.md 3.19, `addPickedAsset`).
+    #[serde(rename = "font")]
+    Font,
 }
 
 impl FileKind {
@@ -69,6 +72,7 @@ impl FileKind {
             FileKind::Stl => "STL mesh",
             FileKind::Obj => "OBJ mesh",
             FileKind::Step => "STEP model",
+            FileKind::Font => "Font",
         }
     }
 
@@ -80,6 +84,7 @@ impl FileKind {
             FileKind::Stl => &["stl"],
             FileKind::Obj => &["obj"],
             FileKind::Step => &["step", "stp"],
+            FileKind::Font => &["ttf", "otf"],
         }
     }
 
@@ -104,8 +109,8 @@ pub struct Granted {
 
 /// The native file dialogs. `TauriDialogs` implements them with tauri-plugin-dialog; tests use fakes.
 pub trait Dialogs {
-    /// Asks for one Partsmith model to open. None when the user cancels.
-    fn pick_open(&self) -> Option<PathBuf>;
+    /// Asks for one file of `kind` to open. None when the user cancels.
+    fn pick_open(&self, kind: FileKind) -> Option<PathBuf>;
     /// Asks where to save a file of `kind`, proposing `suggested_name`. None when the user cancels.
     fn pick_save(&self, suggested_name: &str, kind: FileKind) -> Option<PathBuf>;
 }
@@ -299,9 +304,13 @@ impl Files {
         }
     }
 
-    /// Shows the open dialog and grants the chosen file.
-    pub fn pick_open(&self, dialogs: &dyn Dialogs) -> Result<Option<Granted>, FileError> {
-        let Some(chosen) = dialogs.pick_open() else {
+    /// Shows the open dialog for `kind` and grants the chosen file.
+    pub fn pick_open(
+        &self,
+        dialogs: &dyn Dialogs,
+        kind: FileKind,
+    ) -> Result<Option<Granted>, FileError> {
+        let Some(chosen) = dialogs.pick_open(kind) else {
             return Ok(None);
         };
         let path = utf8_path(chosen)?;

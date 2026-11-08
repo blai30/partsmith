@@ -97,7 +97,7 @@ describe('the fake core keeps the assets of a document', () => {
     expect(refused.response.result).toMatchObject({
       kind: 'error',
       code: 'asset_mismatch',
-      message: assetMismatchMessage(A),
+      message: assetMismatchMessage('Import 1'),
     })
     expect(transport.core.handles).toEqual([])
 
@@ -125,7 +125,9 @@ describe('the fake core keeps the assets of a document', () => {
 })
 
 /** The `document_changed` event of a response; fails the test when there is none. */
-function documentChanged(events: readonly ProtocolEvent[]): ProtocolEvent & { type: 'document_changed' } {
+function documentChanged(
+  events: readonly ProtocolEvent[],
+): ProtocolEvent & { type: 'document_changed' } {
   const changed = events.find((event) => event.type === 'document_changed')
   if (changed?.type !== 'document_changed') {
     throw new Error('The response has no document_changed.')
@@ -152,7 +154,9 @@ describe('the fake core adds assets as the engine does (since M2, ADR 0064)', ()
       assets: [],
     })
 
-    expect(documentChanged(opened.events).missing_assets).toEqual([{ name: A, features: ['f-imp1'] }])
+    expect(documentChanged(opened.events).missing_assets).toEqual([
+      { name: A, features: ['f-imp1'] },
+    ])
   })
 
   it('stores a named file, then emits document_changed and recomputed', async () => {

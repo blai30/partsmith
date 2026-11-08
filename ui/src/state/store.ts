@@ -3,6 +3,7 @@ import type { SolvedSketch } from '../core/api'
 import type { AssetFile } from '../files/assets'
 import type { FileHandle } from '../files/file-service'
 import type {
+  AssetUse,
   BoundingBox,
   Diagnostic,
   DocHandle,
@@ -115,8 +116,10 @@ export type DocumentState = {
   readonly localUnsaved: boolean
   /** The key of this document session's recovery entry (3.19): a new `crypto.randomUUID()` for each document the app adopts (New, Open, a recovery Open), kept when a core restart reopens the document (4.4). */
   readonly recoveryId: string
-  /** The asset files the core accepted when this session opened the document (3.19; none after an `asset_mismatch` retry), which a core restart gives it again (4.4); empty when none. */
+  /** Every asset file the core stored for this session, at the open and through `addAssets` since, each once by name (3.19), which a core restart gives it again (4.4); empty when none. */
   readonly assets: readonly AssetFile[]
+  /** `missing_assets` of the latest `document_changed`: the asset names the recipe reads that the core lacks, with the features that read them (3.19). */
+  readonly missingAssets: readonly AssetUse[]
   readonly undoLabel: string | null
   readonly redoLabel: string | null
   readonly transactionOpen: boolean

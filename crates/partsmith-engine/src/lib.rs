@@ -54,11 +54,12 @@ pub use cancel::CancelFlag;
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
 pub use partsmith_model::{SequentialIds, is_asset_name};
+pub use partsmith_protocol::{AddedAsset, AssetKind, AssetUse};
 pub use session::Session;
 pub use types::{
     Asset, Committed, EngineInfo, ExportRequest, Exported, ExportedFile, FeatureMessage, Imported,
-    Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, UnitsChanged, ValidateOptions,
-    ValidationDiagnostic, ValidationReport,
+    NewAsset, Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, UnitsChanged,
+    ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
 pub use validate::{message_candidates, message_location};
 

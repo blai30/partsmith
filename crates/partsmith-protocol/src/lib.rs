@@ -52,8 +52,9 @@ pub use loss::{Absence, InstanceIndex, LossReason, Removal};
 pub use message::{Message, Outcome, Request, Response};
 pub use schema::protocol_schema;
 pub use shared::{
-    AssetData, Axis, CurveKind, DocHandle, ElementDescriptor, ElementRef, ExportFile, Layer,
-    MeshElement, Orientation, Pick, SurfaceKind, TessellationQuality, Vec2, Vec3,
+    AddedAsset, AssetData, AssetInput, AssetKind, AssetUse, Axis, CurveKind, DocHandle,
+    ElementDescriptor, ElementRef, ExportFile, Layer, MeshElement, Orientation, Pick, SurfaceKind,
+    TessellationQuality, Vec2, Vec3,
 };
 pub use solution::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchDisplay, SketchSolution, SolvedEntity,

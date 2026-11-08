@@ -9,8 +9,8 @@ use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_occt_sys::Interrupt;
 use partsmith_protocol::{
-    Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
-    SketchSolution,
+    AssetUse, Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement,
+    SketchDisplay, SketchSolution,
 };
 use partsmith_sketch::Placement;
 
@@ -119,6 +119,8 @@ struct Changed {
     transaction: Option<String>,
     /// The focus feature.
     focus: Option<Id>,
+    /// The asset names the recipe reads and the store lacks (section 3.14).
+    missing_assets: Vec<AssetUse>,
     /// How many expressions and parameters are numbers without a unit (section 3.25).
     bare_numbers: u32,
 }
@@ -221,6 +223,7 @@ fn document_changed(
             .as_ref()
             .map(|transaction| transaction.label.clone()),
         focus: open.focus().cloned(),
+        missing_assets: open.missing_assets(registry).to_vec(),
     };
     if open.emitted.changed.as_ref() == Some(&changed) {
         return Ok(());
@@ -235,6 +238,7 @@ fn document_changed(
         transaction_open: changed.transaction.is_some(),
         transaction: changed.transaction.clone(),
         focus: changed.focus.clone(),
+        missing_assets: changed.missing_assets.clone(),
         bare_numbers: changed.bare_numbers,
     });
     open.emitted.changed = Some(changed);

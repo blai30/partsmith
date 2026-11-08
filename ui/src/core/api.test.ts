@@ -667,6 +667,8 @@ describe('asset plumbing (2.6, 3.19)', () => {
 describe('addAssets (since M2, 2.6, ADR 0064)', () => {
   const C = `${'c'.repeat(64)}.ttf`
 
+  // The callers run addAssets as an `other` task of the mutation queue (2.6): U-219, U-222 and
+  // U-283 (a) in app/actions/document-assets.test.ts check that.
   it('U-278 sends add_assets with each entry kind, buffer index and name, leaving out a null name', async () => {
     const { transport, frames } = recordingTransport((id) =>
       responseFrame({

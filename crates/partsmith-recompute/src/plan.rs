@@ -60,7 +60,7 @@ pub(crate) fn plan(
             StepKind::Suppressed(_) => (Action::Suppressed, None, false),
             StepKind::Invalid(_) => (Action::Fail, None, true),
             StepKind::Active(active) => {
-                let (_, key) = evaluate(timeline, position, active, &progress.keys, scope);
+                let (_, key) = evaluate(timeline, position, active, &progress.keys, scope, assets);
                 let (action, fails) = if timeline
                     .check_links(position, active, &progress.failed, assets)
                     .is_err()
