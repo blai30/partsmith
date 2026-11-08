@@ -22,6 +22,33 @@ pub struct ElementInfo {
     /// vertices. The anchor test of an edge with its own `#n` reads it (section 3.9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vertices: Vec<ElementName>,
+    /// For an edge or vertex, the direct-generator names it holds (`NamingMap::direct`), sorted and
+    /// distinct; empty for faces and for elements that hold none (section 3.12).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub direct: Vec<ElementName>,
+}
+
+impl ElementInfo {
+    /// The name `Reference::from_element` writes as `q` for this element (section 3.12.5): its
+    /// first direct-generator name when its name is that name, or when its name is order dependent
+    /// and that first name is not; else its name.
+    pub fn reference_name(&self) -> &ElementName {
+        match self.first_direct() {
+            Some(first)
+                if *first == self.name
+                    || (self.name.is_order_dependent() && !first.is_order_dependent()) =>
+            {
+                first
+            }
+            _ => &self.name,
+        }
+    }
+
+    /// The smallest name of the `direct` list in byte order: its first entry in every info that
+    /// `NamingMap::element_infos` gives (section 2.7).
+    pub(crate) fn first_direct(&self) -> Option<&ElementName> {
+        self.direct.iter().min()
+    }
 }
 
 #[cfg(test)]
@@ -40,6 +67,7 @@ mod tests {
                 ElementName::parse("f-b/y").expect("valid name"),
             ],
             vertices: Vec::new(),
+            direct: Vec::new(),
         };
 
         let json = serde_json::to_string(&info).expect("an element info serializes");

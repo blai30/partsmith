@@ -53,7 +53,9 @@ pub use error::{
     sketch_coordinates,
 };
 pub use feature::{FEATURE_API_VERSION, Feature};
-pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_info};
+pub use naming::{
+    Named, direct_sources, modified_sources, name_by_history, name_shape, topology_info,
+};
 pub use output::{
     Absence, AbsentFace, BodyChange, BodyUpdate, DatumResult, Direction, FeatureOutput,
     Measurements, OutputData, SketchResult, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,

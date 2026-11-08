@@ -343,14 +343,19 @@ impl Explainer<'_> {
     }
 
     /// True when the element the query names reads as an element of a feature that is not in the
-    /// document (features.md section 3.12, "Missing features").
+    /// document (features.md section 3.12, "Missing features"): a feature that starts one of its
+    /// face terms, or for a direct-generator name the feature after its prefix.
     fn described_as_missing(&self, query: &ElementName) -> bool {
-        query.face_parts().iter().any(|part| {
-            part.face_name().is_some_and(|face| {
-                Id::new(face.feature())
-                    .map_or(true, |feature| self.names.feature_label(&feature).is_none())
-            })
-        })
+        let missing = |feature: &str| {
+            Id::new(feature).map_or(true, |feature| self.names.feature_label(&feature).is_none())
+        };
+        match query.direct_parts() {
+            Some(parts) => missing(parts.feature()),
+            None => query
+                .face_parts()
+                .iter()
+                .any(|part| part.face_name().is_some_and(|face| missing(face.feature()))),
+        }
     }
 
     /// The words for the face `face` in the loss's body just before the feature explained.

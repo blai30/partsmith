@@ -17,8 +17,19 @@ use crate::shape::InstanceName;
 
 impl Reference {
     /// The reference that denotes this element as it is now in `set`, with anchors and merged
-    /// names (section 3.11). Every pick and every stored fix uses it.
+    /// names (section 3.11). Every pick and every stored fix uses it. When the element's reference
+    /// name is a direct-generator name, the reference is that name and the fingerprint alone
+    /// (section 3.12.5).
     pub fn from_element(info: &ElementInfo, set: &ElementSet) -> Reference {
+        let query = info.reference_name();
+        if query.is_direct() {
+            return Reference {
+                query: query.clone(),
+                fingerprint: info.fingerprint.clone(),
+                anchors: Anchors::default(),
+                merged: Merged::default(),
+            };
+        }
         Reference {
             query: info.name.clone(),
             fingerprint: info.fingerprint.clone(),

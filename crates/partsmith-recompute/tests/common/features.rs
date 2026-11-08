@@ -3,7 +3,7 @@
 //! The first four are the ones recompute.md section 6 defines (`test_panic`, `test_wait`,
 //! `test_peek`, `test_stray`). The others are small features that let the runner be exercised
 //! without the built-in feature pipelines: datum outputs (`test_datum`), bodies that hold a real
-//! kernel solid (`test_block`), body readers (`test_probe`), a node with arbitrary links
+//! kernel solid (`test_block`, optionally with direct-generator names on its edges), body readers (`test_probe`), a node with arbitrary links
 //! (`test_node`), an asset reader (`test_asset`), a feature that updates one body twice
 //! (`test_twice`) and a reader of a body's writer chain (`test_history`).
 
@@ -23,6 +23,7 @@ use partsmith_occt_sys::{Plane, make_box};
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 /// Names of a box's 6 faces, 12 edges and 8 vertices in kernel index order (naming.md test 33,
 /// with the feature id `f-cube`). `test_block` gives every solid it makes this map.
@@ -175,9 +176,30 @@ fn empty_naming() -> Arc<NamingMap> {
     BodyState::empty().naming().clone()
 }
 
-/// The naming map `test_block` gives its cubes.
-fn cube_naming() -> Arc<NamingMap> {
-    Arc::new(serde_json::from_str(CUBE_NAMING).expect("the cube naming map is valid"))
+/// The naming map `test_block` gives its cubes. With `direct`, each edge
+/// `edge(f-cube/<a>|f-cube/<b>)` also holds the direct-generator name `edge:f-cube/<a>-<b>`
+/// (naming.md section 3.12), as `direct` in the map's cache JSON (naming.md section 2.6).
+fn cube_naming(direct: bool) -> Arc<NamingMap> {
+    let mut map: Value = serde_json::from_str(CUBE_NAMING).expect("the cube naming map is JSON");
+    if direct {
+        let lists: Vec<Value> = map["edges"]
+            .as_array()
+            .expect("the cube naming map lists its edges")
+            .iter()
+            .map(|edge| {
+                let faces = edge
+                    .as_str()
+                    .expect("an edge name is a string")
+                    .trim_start_matches("edge(")
+                    .trim_end_matches(')')
+                    .replace("f-cube/", "")
+                    .replace('|', "-");
+                json!([format!("edge:f-cube/{faces}")])
+            })
+            .collect();
+        map["direct"] = json!({ "edges": lists });
+    }
+    Arc::new(serde_json::from_value(map).expect("the cube naming map is valid"))
 }
 
 /// Params with no fields.
@@ -374,6 +396,9 @@ pub struct TestBlockParams {
     pub size: Expr,
     /// How the cube combines with the body.
     pub op: TestBlockOp,
+    /// True when each edge of the cube also holds a direct-generator name (see `cube_naming`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct: bool,
 }
 
 /// `test_block`: writes `body` with a real kernel cube, so body states have volumes.
@@ -406,6 +431,7 @@ impl Feature for TestBlock {
                 hint("size", "Size", Some(FieldUnit::Length), None),
                 operation,
                 body_hint(),
+                hint("direct", "Edge names", None, None),
             ],
         )
     }
@@ -455,7 +481,7 @@ impl Feature for TestBlock {
         Ok(output(OutputData::Bodies(vec![BodyUpdate {
             body: params.body.clone(),
             shape: Some(cube.shape),
-            naming: cube_naming(),
+            naming: cube_naming(params.direct),
             change,
             measured: Measurements::default(),
         }])))

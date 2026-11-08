@@ -17,6 +17,42 @@ pub enum FaceSource {
     From(Vec<(u32, ElementName)>),
 }
 
+/// Where the direct-generator names of one output edge or vertex come from (section 3.12.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DirectSource {
+    /// The element has no generator of its own and descends from no input element.
+    None,
+    /// The current feature made the element from a generator: its direct-generator name before
+    /// numbering, as `ElementName::direct` gives it.
+    New(ElementName),
+    /// The element descends (kept, modified, split or merged) from these input elements of its
+    /// kind, each given by the index of its map in `inherited` and its 1-based index in that map.
+    /// Never empty.
+    From(Vec<(u32, u32)>),
+}
+
+/// The direct sources of one output shape: one entry per edge and one per vertex, in index order.
+/// An empty list means `DirectSource::None` for every element of its kind.
+/// `DirectSources::default()` gives no direct names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DirectSources {
+    /// One entry per edge, or none.
+    pub edges: Vec<DirectSource>,
+    /// One entry per vertex, or none.
+    pub vertices: Vec<DirectSource>,
+}
+
+impl DirectSources {
+    /// The list for edges or vertices, as `kind` says; empty for faces.
+    pub(crate) fn of(&self, kind: ElementKind) -> &[DirectSource] {
+        match kind {
+            ElementKind::Face => &[],
+            ElementKind::Edge => &self.edges,
+            ElementKind::Vertex => &self.vertices,
+        }
+    }
+}
+
 /// Topology and geometry of one output shape, indexed like the kernel: entry `i` is element `i + 1`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TopologyInfo {

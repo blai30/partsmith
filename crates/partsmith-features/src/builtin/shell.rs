@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, FaceSource, GeometryKind, NamingMap, Reference, roles};
-use partsmith_occt_sys::{Interrupt, KernelError, OpResult, Shape, SubShapeKind, compound, shell};
+use partsmith_occt_sys::{
+    InputHistory, Interrupt, KernelError, OpResult, Shape, SubShapeKind, compound, shell,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +19,7 @@ use super::dressup::{
     FaceOrigins, add_origins, from_body, modified, names_of_faces, new_face, run_or_search,
     smallest_name,
 };
+use crate::naming::CarriedElements;
 use crate::{
     BodyState, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Limit, Named,
     PythonCall, PythonNames, PythonValue,
@@ -291,7 +294,9 @@ fn shell_solids(solids: &[BodySolid], thickness: f64) -> Result<Hollow, KernelEr
 /// Names the hollow body (naming.md section 3.6.7): the rim where a removed face was is
 /// `<feature>/rim/<face>`; kept faces keep their names; an inner offset face, or a join filling
 /// the gap at a concave edge or vertex, is `<feature>/inner/<element>`; anything else falls back
-/// to `<feature>/face`. The new faces take the body's base motion (features.md section 3.9).
+/// to `<feature>/face`. The new faces take the body's base motion (features.md section 3.9). Its
+/// edges and vertices carry the direct-generator names of the body elements whose `modified`
+/// lists hold them (naming.md section 3.12.2).
 fn name_shell(
     feature: &Id,
     input: &NamingMap,
@@ -300,6 +305,7 @@ fn name_shell(
     hollow: &Hollow,
 ) -> Result<Named, FeatureError> {
     let mut origins = vec![FaceOrigins::default(); hollow.shape.count(SubShapeKind::Face) as usize];
+    let mut carried = CarriedElements::of(&hollow.shape);
     for (position, (solid, result)) in solids.iter().zip(&hollow.solids).enumerate() {
         let [history] = &result.history.inputs[..] else {
             return Err(FeatureError::internal(
@@ -314,27 +320,39 @@ fn name_shell(
                 )
             })?),
         };
-        let final_face = |face: u32| match placed {
-            None => Some(face),
-            Some(placed) => placed
-                .faces
-                .get(face.checked_sub(1)? as usize)?
-                .modified
-                .first()
-                .copied(),
-        };
-        add_origins(
-            &mut origins,
-            history,
-            |kind, index| solid.body_index(kind, index),
-            final_face,
-        )?;
+        let body_index = |kind, index| solid.body_index(kind, index);
+        add_origins(&mut origins, history, body_index, |face| {
+            final_index(placed, SubShapeKind::Face, face)
+        })?;
+        carried.add(0, history, body_index, |kind, index| {
+            final_index(placed, kind, index)
+        })?;
     }
     let faces = origins
         .iter()
         .map(|origin| face_source(feature, input, removed, origin))
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_on_body(feature, &hollow.shape, faces, input)
+    name_on_body(feature, &hollow.shape, faces, carried.sources(), input)
+}
+
+/// The index in the hollow body of element `index` of `kind` of one solid's shell result: the
+/// same index when one solid was shelled, else its first image in the compound of the shelled
+/// solids, whose history of that solid is `placed`.
+fn final_index(placed: Option<&InputHistory>, kind: SubShapeKind, index: u32) -> Option<u32> {
+    let Some(placed) = placed else {
+        return Some(index);
+    };
+    let fates = match kind {
+        SubShapeKind::Face => &placed.faces,
+        SubShapeKind::Edge => &placed.edges,
+        SubShapeKind::Vertex => &placed.vertices,
+        SubShapeKind::Solid | SubShapeKind::Shell => return None,
+    };
+    fates
+        .get(index.checked_sub(1)? as usize)?
+        .modified
+        .first()
+        .copied()
 }
 
 /// The source of one face of the hollow body by the first rule of naming.md section 3.6.7 that

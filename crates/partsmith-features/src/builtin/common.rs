@@ -7,8 +7,8 @@ use partsmith_model::{
     SelectionKind,
 };
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap, Reference, Successions,
-    roles,
+    DirectSources, ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap, Reference,
+    Successions, roles,
 };
 use partsmith_occt_sys::{
     Interrupt, KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace,
@@ -399,17 +399,19 @@ pub(crate) fn naming_motion(transform: &Transform) -> Motion {
 }
 
 /// Names `shape`, made by a fillet, chamfer, shell or split body from the body whose naming map is `input`, with
-/// `input` inherited and no successions. Its new faces take the base motion of the body's map (features.md section
-/// 3.9): the motion of a name the map never saw, the feature's own `<feature>/face`.
+/// `input` inherited, the direct sources `direct` and no successions. Its new faces take the base motion of the
+/// body's map (features.md section 3.9): the motion of a name the map never saw, the feature's own `<feature>/face`.
 pub(crate) fn name_on_body(
     feature: &Id,
     shape: &Shape,
     faces: Vec<FaceSource>,
+    direct: DirectSources,
     input: &NamingMap,
 ) -> Result<Named, FeatureError> {
     name_shape(
         shape,
         faces,
+        direct,
         &[input],
         &Successions::default(),
         &input.motion(&face_name(feature, roles::FACE, None)?),
@@ -548,6 +550,7 @@ pub(crate) fn primitive_tool(feature: &Id, primitive: Primitive) -> Result<Tool,
     let naming = name_shape(
         &primitive.shape,
         faces,
+        DirectSources::default(),
         &[],
         &Successions::default(),
         &Motion::IDENTITY,
@@ -587,7 +590,15 @@ fn sweep_tool(
             Ok(FaceSource::New(name))
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[], successions, motion)?.naming;
+    let naming = name_shape(
+        &sweep.shape,
+        faces,
+        DirectSources::default(),
+        &[],
+        successions,
+        motion,
+    )?
+    .naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,

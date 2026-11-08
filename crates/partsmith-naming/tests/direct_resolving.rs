@@ -265,19 +265,26 @@ fn random_element() -> impl Strategy<Value = RandomElement> {
 
 /// A random property scope.
 fn random_scope() -> impl Strategy<Value = RandomScope> {
-    let holders = || prop::collection::vec(prop::option::of(0..PROPERTY_ELEMENTS), PROPERTY_BODIES.len());
+    let holders = || {
+        prop::collection::vec(
+            prop::option::of(0..PROPERTY_ELEMENTS),
+            PROPERTY_BODIES.len(),
+        )
+    };
     (
         prop::collection::vec(random_element(), 1..=PROPERTY_ELEMENTS),
         prop::collection::vec(random_element(), 1..=PROPERTY_ELEMENTS),
         holders(),
         holders(),
     )
-        .prop_map(|(edges, vertices, edge_holders, vertex_holders)| RandomScope {
-            edges,
-            vertices,
-            edge_holders,
-            vertex_holders,
-        })
+        .prop_map(
+            |(edges, vertices, edge_holders, vertex_holders)| RandomScope {
+                edges,
+                vertices,
+                edge_holders,
+                vertex_holders,
+            },
+        )
 }
 
 /// The infos of a random scope in their order and in a shuffled order.
@@ -295,12 +302,7 @@ fn t176_a_direct_generator_query_resolves_exactly_to_its_holder() {
         &wire_scope(),
     );
 
-    assert_resolved(
-        &resolution,
-        &["edge:f-hel1/helix"],
-        MatchMethod::Exact,
-        1.0,
-    );
+    assert_resolved(&resolution, &["edge:f-hel1/helix"], MatchMethod::Exact, 1.0);
     assert_follow(&resolution, None);
     assert_via(&resolution, &[]);
 }
@@ -430,12 +432,7 @@ fn t183_the_first_name_of_a_merged_element_resolves_exactly() {
         &merged_rails_scope(),
     );
 
-    assert_resolved(
-        &resolution,
-        &["edge:f-a/rail/e-1"],
-        MatchMethod::Exact,
-        1.0,
-    );
+    assert_resolved(&resolution, &["edge:f-a/rail/e-1"], MatchMethod::Exact, 1.0);
     assert_follow(&resolution, None);
 }
 

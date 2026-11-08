@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    EdgeInfo, ElementKind, ElementName, FaceInfo, FaceSource, Fingerprint, GeometryKind, Motion,
-    NamingMap, Successions, TopologyInfo, VertexInfo, roles,
+    DirectSource, DirectSources, EdgeInfo, ElementKind, ElementName, FaceInfo, FaceSource,
+    Fingerprint, GeometryKind, Motion, NamingMap, Successions, TopologyInfo, VertexInfo, roles,
 };
 use partsmith_occt_sys::{
-    ElementGeometry, GeometryKind as KernelGeometryKind, OpResult, Shape, SubShapeKind,
+    ElementGeometry, GeometryKind as KernelGeometryKind, InputHistory, OpResult, Shape,
+    SubShapeKind,
 };
 
 use crate::error::FeatureError;
@@ -80,20 +81,23 @@ pub struct Named {
     pub topology: Arc<TopologyInfo>,
 }
 
-/// Names every element of `shape` from one source per face, in face index order (naming.md
-/// section 3.3, `NamingMap::build`). `inherited` are the naming maps of every input, the body the
-/// feature writes first, which `FaceSource::From` entries index; `successions` are the sketch
+/// Names every element of `shape` from one source per face, in face index order, and one direct
+/// source per edge and vertex (naming.md sections 3.3 and 3.12, `NamingMap::build_with_direct`).
+/// `inherited` are the naming maps of every input, the body the feature writes first, which
+/// `FaceSource::From` and `DirectSource::From` entries index; `successions` are the sketch
 /// successions the feature records (extrude and revolve, features.md section 3.9); `new_motion` is
 /// the motion of the geometry its new faces are built on (features.md section 3.9).
 pub fn name_shape(
     shape: &Shape,
     faces: Vec<FaceSource>,
+    direct: DirectSources,
     inherited: &[&NamingMap],
     successions: &Successions,
     new_motion: &Motion,
 ) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    let naming = NamingMap::build(faces, &topology, inherited, successions, new_motion)?;
+    let naming =
+        NamingMap::build_with_direct(faces, direct, &topology, inherited, successions, new_motion)?;
     Ok(Named {
         naming,
         topology: Arc::new(topology),
@@ -107,13 +111,7 @@ pub fn modified_sources(
     result: &OpResult,
     inputs: &[&NamingMap],
 ) -> Result<Vec<Vec<(u32, ElementName)>>, FeatureError> {
-    if inputs.len() != result.history.inputs.len() {
-        return Err(FeatureError::internal(format!(
-            "the kernel history has {} inputs but {} naming maps were given",
-            result.history.inputs.len(),
-            inputs.len()
-        )));
-    }
+    check_history_inputs(result, inputs)?;
     let face_count = result.shape.count(SubShapeKind::Face) as usize;
     let mut sources = vec![Vec::new(); face_count];
     for ((map, history), naming) in (0..).zip(&result.history.inputs).zip(inputs) {
@@ -139,10 +137,119 @@ pub fn modified_sources(
     Ok(sources)
 }
 
+/// For each edge and each vertex of `result.shape`, in index order, the input elements of its kind
+/// whose `modified` list contains it, in input order, each as the index of its input in `inputs`
+/// and its element index there (`DirectSource::From`), or `DirectSource::None` when no input
+/// element lists it (naming.md section 3.12.2). `inputs` names the operation's history inputs in
+/// order.
+pub fn direct_sources(
+    result: &OpResult,
+    inputs: &[&NamingMap],
+) -> Result<DirectSources, FeatureError> {
+    check_history_inputs(result, inputs)?;
+    let mut carried = CarriedElements::of(&result.shape);
+    for (map, history) in (0..).zip(&result.history.inputs) {
+        carried.add(map, history, |_, index| Some(index), |_, index| Some(index))?;
+    }
+    Ok(carried.sources())
+}
+
+/// The input edges and vertices each edge and vertex of a kernel result descends from, gathered
+/// from the `modified` lists of one or more history inputs (naming.md section 3.12.2).
+pub(crate) struct CarriedElements {
+    /// For each edge of the result, its sources as `(map, element index)`.
+    edges: Vec<Vec<(u32, u32)>>,
+    /// For each vertex of the result, its sources as `(map, element index)`.
+    vertices: Vec<Vec<(u32, u32)>>,
+}
+
+impl CarriedElements {
+    /// No sources yet for any edge or vertex of `shape`.
+    pub(crate) fn of(shape: &Shape) -> CarriedElements {
+        let empty = |kind| vec![Vec::new(); shape.count(kind) as usize];
+        CarriedElements {
+            edges: empty(SubShapeKind::Edge),
+            vertices: empty(SubShapeKind::Vertex),
+        }
+    }
+
+    /// Adds the edges and vertices of one history input, whose elements map `map` indexes:
+    /// `input` gives the index in that map of an element of the history's input, and `output` the
+    /// index in the result of an element of the history's output.
+    pub(crate) fn add(
+        &mut self,
+        map: u32,
+        history: &InputHistory,
+        input: impl Fn(SubShapeKind, u32) -> Option<u32>,
+        output: impl Fn(SubShapeKind, u32) -> Option<u32>,
+    ) -> Result<(), FeatureError> {
+        let kinds = [
+            (SubShapeKind::Edge, &history.edges, &mut self.edges),
+            (SubShapeKind::Vertex, &history.vertices, &mut self.vertices),
+        ];
+        for (kind, fates, sources) in kinds {
+            let count = sources.len();
+            for (input_index, fate) in (1..).zip(fates) {
+                let element = input(kind, input_index).ok_or_else(|| {
+                    FeatureError::internal(format!(
+                        "the kernel history names input {kind:?} {input_index}, which the naming map does not have"
+                    ))
+                })?;
+                for &modified in &fate.modified {
+                    let carried = output(kind, modified)
+                        .and_then(|index| index.checked_sub(1))
+                        .and_then(|position| sources.get_mut(position as usize))
+                        .ok_or_else(|| {
+                            FeatureError::internal(format!(
+                                "the kernel history names output {kind:?} {modified} of a shape with {count}"
+                            ))
+                        })?;
+                    carried.push((map, element));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The direct sources: `From` the gathered elements, or `None` for an element without any.
+    pub(crate) fn sources(self) -> DirectSources {
+        let of = |lists: Vec<Vec<(u32, u32)>>| {
+            lists
+                .into_iter()
+                .map(|from| {
+                    if from.is_empty() {
+                        DirectSource::None
+                    } else {
+                        DirectSource::From(from)
+                    }
+                })
+                .collect()
+        };
+        DirectSources {
+            edges: of(self.edges),
+            vertices: of(self.vertices),
+        }
+    }
+}
+
+/// `Internal` unless `inputs` has one naming map per history input of `result`.
+fn check_history_inputs(result: &OpResult, inputs: &[&NamingMap]) -> Result<(), FeatureError> {
+    if inputs.len() == result.history.inputs.len() {
+        return Ok(());
+    }
+    Err(FeatureError::internal(format!(
+        "the kernel history has {} inputs but {} naming maps were given",
+        result.history.inputs.len(),
+        inputs.len()
+    )))
+}
+
 /// Names a kernel result by the boolean rule (naming.md section 3.6): each face descends from the
 /// input faces whose `modified` lists contain it, and a face without one gets the fallback name
-/// `<feature>/face` with `new_motion`. `inputs` names the operation's history inputs in order; their
-/// aliases, successions and motions are inherited.
+/// `<feature>/face` with `new_motion`. Each edge and vertex carries the direct-generator names of
+/// the input elements whose `modified` lists contain it (`direct_sources`, naming.md section
+/// 3.12). `inputs` names the operation's history inputs in order; their aliases, successions and
+/// motions are inherited.
 pub fn name_by_history(
     feature: &Id,
     result: &OpResult,
@@ -163,6 +270,7 @@ pub fn name_by_history(
     name_shape(
         &result.shape,
         faces,
+        direct_sources(result, inputs)?,
         inputs,
         &Successions::default(),
         new_motion,
@@ -244,8 +352,8 @@ fn geometry_kind(kind: KernelGeometryKind) -> GeometryKind {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_naming::ElementInfo;
-    use partsmith_occt_sys::{Interrupt, fuse};
+    use partsmith_naming::{DirectSource, DirectSources, ElementInfo};
+    use partsmith_occt_sys::{Interrupt, cut, fuse};
 
     use super::*;
     use crate::test_support::{face_names, id, named_box};
@@ -394,6 +502,79 @@ mod tests {
         let error = modified_sources(&result, &[&first.naming]).expect_err("one map is missing");
 
         assert_eq!(error.code(), "internal");
+    }
+
+    #[test]
+    fn direct_sources_of_a_cut_give_none_to_the_edges_the_cut_makes() {
+        let block = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
+        let tool = named_box("f-b", [5.0, 5.0, 5.0], 10.0);
+        let result = cut(
+            &block.shape,
+            std::slice::from_ref(&tool.shape),
+            &Interrupt::new(),
+        )
+        .expect("cuts");
+
+        let direct = direct_sources(&result, &[&block.naming, &tool.naming]).expect("sources");
+
+        assert_eq!(
+            direct.edges.len(),
+            result.shape.count(SubShapeKind::Edge) as usize
+        );
+        assert_eq!(
+            direct.vertices.len(),
+            result.shape.count(SubShapeKind::Vertex) as usize
+        );
+        assert!(direct.edges.contains(&DirectSource::None));
+        assert!(direct.edges.iter().all(|source| match source {
+            DirectSource::None => true,
+            DirectSource::From(pairs) => !pairs.is_empty(),
+            DirectSource::New(_) => false,
+        }));
+    }
+
+    #[test]
+    fn direct_sources_with_the_wrong_number_of_maps_is_internal() {
+        let first = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
+        let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
+        let result = fuse(
+            &first.shape,
+            std::slice::from_ref(&second.shape),
+            &Interrupt::new(),
+        )
+        .expect("fuses");
+
+        let error = direct_sources(&result, &[&first.naming]).expect_err("one map is missing");
+
+        assert_eq!(error.code(), "internal");
+    }
+
+    #[test]
+    fn name_shape_without_direct_sources_names_as_build_does() {
+        let block = named_box("f-a", [0.0, 0.0, 0.0], 10.0);
+        let faces = (1..=block.naming.count(ElementKind::Face))
+            .map(|index| {
+                FaceSource::New(
+                    block
+                        .naming
+                        .name(ElementKind::Face, index)
+                        .expect("every box face is named")
+                        .clone(),
+                )
+            })
+            .collect();
+
+        let named = name_shape(
+            &block.shape,
+            faces,
+            DirectSources::default(),
+            &[],
+            &Successions::default(),
+            &Motion::IDENTITY,
+        )
+        .expect("the box is named");
+
+        assert_eq!(named.naming, block.naming);
     }
 
     #[test]

@@ -135,6 +135,13 @@ impl Describer<'_> {
                     position,
                 }
             }
+            ElementKind::Edge | ElementKind::Vertex if name.direct_parts().is_some() => {
+                Description {
+                    text: self.direct(&element),
+                    entity: None,
+                    position,
+                }
+            }
             ElementKind::Edge | ElementKind::Vertex => {
                 let terms: Vec<FaceFacts> = name
                     .face_terms()
@@ -246,11 +253,35 @@ impl Describer<'_> {
         format!("the corner where {} meet", super::render::joined(&texts))
     }
 
+    /// An edge or vertex stored by its direct-generator name: by the feature that `ElementName::direct_parts` names,
+    /// with the position rule, or by the missing-features rule when that feature is not in the document.
+    fn direct(&self, element: &Element<'_>) -> String {
+        let (noun, missing) = if element.name.kind() == ElementKind::Edge {
+            ("edge", "an edge")
+        } else {
+            ("corner", "a corner")
+        };
+        let feature = element
+            .name
+            .direct_parts()
+            .map_or("", |parts| parts.feature());
+        let maker = Maker::of(self.names, feature);
+        if !maker.exists() {
+            return format!("{missing} of {NOT_IN_DOCUMENT}");
+        }
+        self.near_owner(element, &maker.quoted(), noun)
+    }
+
     /// The position rule: `an edge of 'Box 1' near (40, 0, 30)`, `a round edge of 'Import 1' near (30, 10, 5)`.
     fn near(&self, element: &Element<'_>, terms: &[FaceFacts], noun: &str) -> String {
         let owner = terms
             .first()
             .map_or_else(|| NOT_IN_DOCUMENT.to_string(), |term| term.owner.clone());
+        self.near_owner(element, &owner, noun)
+    }
+
+    /// The position rule for an element of `owner`, already quoted.
+    fn near_owner(&self, element: &Element<'_>, owner: &str, noun: &str) -> String {
         let article = if noun == "edge" && element.kind() == Some(GeometryKind::Circle) {
             "a round"
         } else if noun == "edge" {

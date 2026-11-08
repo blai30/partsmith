@@ -565,8 +565,8 @@ pub fn sphere_map() -> NamingMap {
     build(vec![new_source("f-sph1/surface")], &sphere_topology())
 }
 
-/// Everything `NamingMap::build` takes, kept so that a test can build the same map again with
-/// `NamingMap::build_with_direct` (spec test 168).
+/// Everything `NamingMap::build` takes. Spec test 168 builds the same map from it again with
+/// `NamingMap::build_with_direct`.
 pub struct MapInputs {
     /// One source per face.
     pub faces: Vec<FaceSource>,
@@ -590,14 +590,6 @@ impl MapInputs {
             inherited: inherited.iter().map(|map| (*map).clone()).collect(),
             successions: Successions::default(),
             motion: Motion::IDENTITY,
-        }
-    }
-
-    /// The same inputs with these added successions.
-    pub fn with_successions(self, successions: Successions) -> Self {
-        MapInputs {
-            successions,
-            ..self
         }
     }
 
@@ -832,7 +824,7 @@ pub fn single_pair_edge_map() -> NamingMap {
     )
 }
 
-/// Test 188's map: PAIR topology with both edges `New(edge:f-a/side/e-1)`, so every
+/// Test 188's map: PAIR topology with both edges `New(edge:f-a/side/e-1)`. Every
 /// direct-generator name it holds is order dependent too.
 pub fn numbered_pair_map() -> NamingMap {
     build_direct(

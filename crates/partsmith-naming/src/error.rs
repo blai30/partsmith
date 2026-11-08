@@ -131,6 +131,40 @@ pub enum NamingError {
         /// The repeated name.
         name: String,
     },
+    /// A list of direct sources holds neither none nor one entry per element of its kind.
+    #[error(
+        "Naming received {sources} direct sources for a shape with {elements} elements of kind {kind}."
+    )]
+    DirectSourceCountMismatch {
+        /// Kind of the elements.
+        kind: ElementKind,
+        /// Number of direct sources.
+        sources: usize,
+        /// Number of elements of that kind in the topology.
+        elements: usize,
+    },
+    /// A `DirectSource::From` lists no input elements.
+    #[error("The {kind} {index} has no direct sources.")]
+    EmptyDirectSources {
+        /// Kind of the element.
+        kind: ElementKind,
+        /// The element's 1-based index.
+        index: u32,
+    },
+    /// A direct source names an input map beyond the inherited maps given.
+    #[error(
+        "The {kind} {index} has a direct source in input map {map}, but only {count} input maps were given."
+    )]
+    DirectSourceOutOfRange {
+        /// Kind of the element.
+        kind: ElementKind,
+        /// The element's 1-based index.
+        index: u32,
+        /// The index of the input map the source names.
+        map: u32,
+        /// Number of inherited maps given.
+        count: u32,
+    },
 }
 
 #[cfg(test)]
@@ -225,6 +259,45 @@ mod tests {
                 "the limits are {MAX_NAME_LENGTH} bytes and {MAX_NAME_DEPTH} levels."
             )),
             "{message}"
+        );
+    }
+
+    #[test]
+    fn direct_source_count_mismatch_message_counts_sources_and_elements() {
+        let error = NamingError::DirectSourceCountMismatch {
+            kind: ElementKind::Edge,
+            sources: 2,
+            elements: 3,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Naming received 2 direct sources for a shape with 3 elements of kind edge."
+        );
+    }
+
+    #[test]
+    fn empty_direct_sources_message_names_the_element() {
+        let error = NamingError::EmptyDirectSources {
+            kind: ElementKind::Vertex,
+            index: 1,
+        };
+
+        assert_eq!(error.to_string(), "The vertex 1 has no direct sources.");
+    }
+
+    #[test]
+    fn direct_source_out_of_range_message_counts_the_input_maps() {
+        let error = NamingError::DirectSourceOutOfRange {
+            kind: ElementKind::Edge,
+            index: 1,
+            map: 1,
+            count: 1,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "The edge 1 has a direct source in input map 1, but only 1 input maps were given."
         );
     }
 }

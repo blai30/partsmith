@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::aliases::{Aliases, Successions};
 use crate::canon::{Form, Forms, FormsBuilder, Pattern};
 use crate::chase::Chaser;
+use crate::direct::DirectIndex;
 use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
@@ -43,6 +44,8 @@ pub struct NameSet {
     keys: KeyIndex,
     /// Instance numbers known for each `<piece-free source>@<feature>`, from face names and keys.
     copies: FastMap<String, BTreeSet<String>>,
+    /// The direct-generator names the edges and vertices hold (section 3.12.4).
+    direct: DirectIndex,
 }
 
 /// One face name of a body state.
@@ -142,23 +145,36 @@ impl NameSet {
                 touching[face as usize].extend(faces.iter().filter(|&&other| other != face));
             }
         }
+        let held = [ElementKind::Edge, ElementKind::Vertex]
+            .into_iter()
+            .flat_map(|kind| {
+                (1..=map.count(kind)).flat_map(move |index| {
+                    map.direct(kind, index)
+                        .iter()
+                        .map(move |name| (name, index))
+                })
+            });
+        let direct =
+            DirectIndex::new(held).expect("a naming map holds each direct-generator name once");
         NameSet::build(
             names,
             by_name,
             touching,
             map.aliases().clone(),
             map.successions().clone(),
+            direct,
         )
     }
 
     /// Builds the view of the face `names` (sorted and distinct) with their ids `by_name`, the
-    /// faces each touches, and the aliases and successions.
+    /// faces each touches, the aliases and successions, and the direct-generator names held.
     pub(crate) fn build(
         names: Vec<ElementName>,
         by_name: FastMap<Arc<str>, u32>,
         mut touching: Vec<Vec<u32>>,
         aliases: Aliases,
         successions: Successions,
+        direct: DirectIndex,
     ) -> NameSet {
         let mut shapes = Shapes::default();
         let keys = KeyIndex::new(&aliases, &successions, &mut shapes);
@@ -211,6 +227,7 @@ impl NameSet {
             by_feature,
             keys,
             copies: FastMap::default(),
+            direct,
         };
         set.index_terms(&mut shapes);
         set.index_copies();
@@ -260,6 +277,18 @@ impl NameSet {
         touching
             .iter()
             .map(|&other| &self.faces[other as usize].name)
+    }
+
+    /// True when an edge or vertex of the set holds a direct-generator name that extends `direct`
+    /// (section 3.12.4). Recompute's loss diagnosis asks it of each map it walks for a lost
+    /// direct-generator query.
+    pub fn carries(&self, direct: &ElementName) -> bool {
+        self.direct.carries(direct)
+    }
+
+    /// The direct-generator names the edges and vertices hold.
+    pub(crate) fn direct(&self) -> &DirectIndex {
+        &self.direct
     }
 
     /// The family of a face name without merged names, as face ids.

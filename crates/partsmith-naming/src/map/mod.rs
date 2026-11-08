@@ -2,6 +2,7 @@
 //! motions (naming.md sections 2.6, 3.3 to 3.5 and 3.8).
 
 mod build;
+mod direct;
 mod motions;
 mod serial;
 
@@ -18,6 +19,8 @@ use crate::motion::Motion;
 use crate::name::{ElementName, Instance, invalid_name};
 use crate::topology::{TopologyInfo, element_count, indices};
 
+use direct::DirectNames;
+pub(crate) use direct::check_direct;
 use motions::Motions;
 
 /// Names of every face, edge and vertex of one output shape, indexed like the kernel.
@@ -35,6 +38,8 @@ pub struct NamingMap {
     successions: Successions,
     /// How far the faces moved since they, or the geometry they were built on, were built.
     motions: Motions,
+    /// The direct-generator names the edges and vertices hold (section 3.12.2).
+    direct: DirectNames,
     /// Indices of the named elements of each kind, sorted by name, derived from the names.
     sorted: SortedIndices,
 }
@@ -61,8 +66,19 @@ impl NamingMap {
         }
     }
 
-    /// The 1-based index of the element with this exact name, searched among elements of the name's kind.
+    /// The direct-generator names element `index` (1-based) of `kind` holds, sorted and distinct
+    /// (section 3.12.2); empty for a face, an index out of range and an element that holds none.
+    pub fn direct(&self, kind: ElementKind, index: u32) -> &[ElementName] {
+        self.direct.of(kind, index)
+    }
+
+    /// The 1-based index of the element with this exact name, searched among elements of the name's
+    /// kind; for a direct-generator name, the edge or vertex that holds it, whether or not it is the
+    /// element's name (section 3.12.2).
     pub fn index(&self, name: &ElementName) -> Option<u32> {
+        if name.is_direct() {
+            return self.direct.holder(name);
+        }
         let kind = name.kind();
         let sorted = self.sorted.of(kind);
         let position = sorted.partition_point(|&candidate| self.name(kind, candidate) < Some(name));
@@ -120,18 +136,21 @@ impl NamingMap {
     ) -> Result<NamingMap, NamingError> {
         let suffix = instance.suffix(feature)?;
         let rename = |name: &ElementName| name.with_instance_suffix(&suffix);
-        let rename_slot = |slot: &Option<ElementName>| slot.as_ref().map(rename).transpose();
         let faces = self.faces.iter().map(rename).collect::<Result<_, _>>()?;
-        let edges = self
-            .edges
-            .iter()
-            .map(rename_slot)
-            .collect::<Result<_, _>>()?;
-        let vertices = self
-            .vertices
-            .iter()
-            .map(rename_slot)
-            .collect::<Result<_, _>>()?;
+        // Appending a suffix can change the byte order of names. Each list of direct-generator
+        // names is sorted again, and an element named by one takes the first of its renamed list.
+        let direct = self.direct.renamed(rename)?;
+        let rename_slots = |slots: &[Option<ElementName>], kind: ElementKind| {
+            (1..)
+                .zip(slots)
+                .map(|(index, slot)| match slot {
+                    Some(name) if name.is_direct() => Ok(direct.of(kind, index).first().cloned()),
+                    _ => slot.as_ref().map(rename).transpose(),
+                })
+                .collect::<Result<Vec<_>, NamingError>>()
+        };
+        let edges = rename_slots(&self.edges, ElementKind::Edge)?;
+        let vertices = rename_slots(&self.vertices, ElementKind::Vertex)?;
         let mut aliases = renamed_lists(&self.aliases.0, rename)?;
         // Appending a suffix can change the byte order of names, so alias targets are sorted again;
         // successions keep their profile order.
@@ -147,6 +166,7 @@ impl NamingMap {
             Aliases(aliases),
             Successions(successions),
             motions,
+            direct,
         )
     }
 
@@ -175,6 +195,7 @@ impl NamingMap {
         let edge_names = pick(ElementKind::Edge, edges)?;
         let vertex_names = pick(ElementKind::Vertex, vertices)?;
         let aliases = build::pruned(self.aliases.0.clone(), &face_names);
+        let direct = self.direct.projected(edges, vertices)?;
         NamingMap::from_parts(
             face_names,
             edge_names,
@@ -182,6 +203,7 @@ impl NamingMap {
             aliases,
             self.successions.clone(),
             self.motions.clone(),
+            direct,
         )
     }
 
@@ -215,6 +237,7 @@ impl NamingMap {
                     fingerprint: fingerprint.clone().with_adjacency(counts),
                     adjacency,
                     vertices,
+                    direct: self.direct(kind, index).to_vec(),
                 });
             }
         }
@@ -240,6 +263,7 @@ impl NamingMap {
         aliases: Aliases,
         successions: Successions,
         motions: Motions,
+        direct: DirectNames,
     ) -> Result<NamingMap, NamingError> {
         let listed = aliases
             .0
@@ -261,6 +285,7 @@ impl NamingMap {
             aliases,
             successions,
             motions,
+            direct,
             sorted,
         })
     }
@@ -384,6 +409,7 @@ mod tests {
             Aliases::default(),
             Successions([(name("f-b/y"), vec![name("edge(f-a/x)")])].into()),
             Motions::default(),
+            DirectNames::default(),
         );
 
         assert!(

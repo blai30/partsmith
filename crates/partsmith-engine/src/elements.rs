@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use partsmith_features::{BodyState, PlacementExt};
 use partsmith_model::Id;
-use partsmith_naming::{ElementKind, ElementName, ElementSet, Motion, Reference};
+use partsmith_naming::{ElementInfo, ElementKind, ElementName, ElementSet, Motion, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
 use partsmith_protocol::{Axis, CurveKind, ElementDescriptor, SurfaceKind, Vec3};
 use partsmith_sketch::{OriginPlane, Placement};
@@ -190,10 +190,11 @@ pub(crate) fn describe(
     Ok(descriptors)
 }
 
-/// Builds the descriptor of the displayed element of `kind` with display id `display_id`, equal
-/// to its entry in `describe`. It queries the kernel for that element only and reads only the
-/// topology around it.
-pub(crate) fn describe_element(
+/// Builds the descriptor a pick of the displayed element of `kind` with display id `display_id`
+/// gets: its entry in `describe` with the full reference of the element named in the table
+/// (section 3.9). It queries the kernel for that element only and reads only the topology around
+/// it.
+pub(crate) fn describe_pick(
     table: &ElementTable,
     state: &BodyState,
     body: &Id,
@@ -208,7 +209,13 @@ pub(crate) fn describe_element(
     let geometry = shape_of(state)?
         .element(sub_shape_kind(kind), entry.index)
         .map_err(EngineError::unexpected)?;
-    Describer::for_one_element(table, state, body, timeline).descriptor(kind, entry, &geometry)
+    let mut descriptor = Describer::for_one_element(table, state, body, timeline)
+        .descriptor(kind, entry, &geometry)?;
+    // The listed query can be a direct-generator name, which is no element's name (naming.md
+    // section 3.12.5). The element is found by its name in the table.
+    descriptor.reference = full_reference(table.element_set(), &entry.name)
+        .ok_or_else(|| EngineError::internal("a displayed element is not in its element set"))?;
+    Ok(descriptor)
 }
 
 /// The full reference a pick of the element named `name` stores: `Reference::from_element`
@@ -293,7 +300,7 @@ impl<'a> Describer<'a> {
     }
 
     /// The descriptor of one displayed element from its kernel geometry; its reference is its
-    /// name with its fingerprint at this state, and its `fallback` and `axis_direction` are in
+    /// reference name with its fingerprint at this state, and its `fallback` and `axis_direction` are in
     /// body coordinates (section 3.9).
     fn descriptor(
         &self,
@@ -317,8 +324,14 @@ impl<'a> Describer<'a> {
         let fields = element_fields(kind, geometry);
         let (fallback, axis_direction) =
             self.body_frames(kind, entry, faces, &fields, fingerprint.direction);
+        // The listed query is the name a pick writes (naming.md section 3.12.5).
+        let query = self
+            .table
+            .element_set()
+            .element(&entry.name)
+            .map_or(&entry.name, ElementInfo::reference_name);
         let reference =
-            Reference::new(entry.name.clone(), fingerprint).map_err(EngineError::unexpected)?;
+            Reference::new(query.clone(), fingerprint).map_err(EngineError::unexpected)?;
         Ok(ElementDescriptor {
             name: entry.name.as_str().to_owned(),
             kind,
@@ -460,9 +473,16 @@ impl<'a> Describer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_occt_sys::{Point, Vector};
+    use std::sync::Arc;
+
+    use partsmith_features::topology_info;
+    use partsmith_naming::{
+        DirectSource, DirectSources, FaceSource, NamingMap, Successions, TopologyInfo,
+    };
+    use partsmith_occt_sys::{Plane, Point, Vector, make_box};
 
     use super::*;
+    use crate::test_support::id;
 
     fn geometry(kind: GeometryKind) -> ElementGeometry {
         ElementGeometry {
@@ -584,5 +604,157 @@ mod tests {
             surface_kind(GeometryKind::BsplineSurface),
             SurfaceKind::Bspline
         );
+    }
+
+    /// Parses an element name the test knows to be valid.
+    fn element_name(text: &str) -> ElementName {
+        ElementName::parse(text).expect("a valid name")
+    }
+
+    /// `build_with_direct` on `inherited`, without successions and with the identity as the new motion.
+    fn build_with_direct(
+        faces: Vec<FaceSource>,
+        direct: DirectSources,
+        topology: &TopologyInfo,
+        inherited: &[&NamingMap],
+    ) -> NamingMap {
+        NamingMap::build_with_direct(
+            faces,
+            direct,
+            topology,
+            inherited,
+            &Successions::default(),
+            &Motion::IDENTITY,
+        )
+        .expect("the map builds")
+    }
+
+    /// A kernel box whose six faces descend from faces all named `f-t/side`. The face rule numbers
+    /// them, and every edge name is order dependent. Its edges carry, by `From` direct sources, the
+    /// direct-generator names `edge:f-t/rail/e-<index>` that an inherited map gave them (naming.md
+    /// section 3.12).
+    fn box_with_rail_names() -> BodyState {
+        let shape = make_box(&Plane::XY, 10.0, 20.0, 30.0)
+            .expect("the box builds")
+            .shape;
+        let topology = topology_info(&shape).expect("the topology is read");
+        let edge_count = u32::try_from(topology.edges.len()).expect("edge counts fit in u32");
+        let sides = vec![FaceSource::New(element_name("f-t/side")); topology.faces.len()];
+        let rails = (1..=edge_count)
+            .map(|index| DirectSource::New(element_name(&format!("edge:f-t/rail/e-{index}"))))
+            .collect();
+        let source = build_with_direct(
+            sides,
+            DirectSources {
+                edges: rails,
+                vertices: Vec::new(),
+            },
+            &topology,
+            &[],
+        );
+        let faces = source
+            .names(ElementKind::Face)
+            .map(|(_, face)| FaceSource::From(vec![(0, face.clone())]))
+            .collect();
+        let carried = (1..=edge_count)
+            .map(|index| DirectSource::From(vec![(0, index)]))
+            .collect();
+        let naming = build_with_direct(
+            faces,
+            DirectSources {
+                edges: carried,
+                vertices: Vec::new(),
+            },
+            &topology,
+            &[&source],
+        );
+        BodyState::new(shape, Arc::new(naming))
+    }
+
+    #[test]
+    fn engine_3_9_descriptors_send_the_reference_name_as_q() {
+        // engine.md section 3.9: the short reference of list_elements has the element's reference name as q.
+        let state = box_with_rail_names();
+        let table = ElementTable::build(&state).expect("the table builds");
+
+        let descriptors =
+            describe(&table, &state, &id("b-1"), &BTreeMap::new()).expect("the descriptors build");
+
+        let edges = table.entries(ElementKind::Edge);
+        assert_eq!(edges.len(), 12);
+        for entry in edges {
+            let descriptor = descriptors
+                .iter()
+                .find(|descriptor| descriptor.name == entry.name.as_str())
+                .expect("every displayed edge has a descriptor");
+            assert!(entry.name.is_order_dependent(), "{}", entry.name);
+            assert_eq!(
+                descriptor.reference.query,
+                element_name(&format!("edge:f-t/rail/e-{}", entry.index))
+            );
+        }
+        for descriptor in descriptors
+            .iter()
+            .filter(|descriptor| descriptor.kind != ElementKind::Edge)
+        {
+            assert_eq!(descriptor.reference.query.as_str(), descriptor.name);
+        }
+    }
+
+    /// The descriptor `pick_reference` gives each displayed element of `table`, in table order.
+    fn picks(table: &ElementTable, state: &BodyState) -> Vec<ElementDescriptor> {
+        [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex]
+            .into_iter()
+            .flat_map(|kind| (0..table.count(kind)).map(move |display_id| (kind, display_id)))
+            .map(|(kind, display_id)| {
+                describe_pick(table, state, &id("b-1"), &BTreeMap::new(), kind, display_id)
+                    .expect("every displayed element can be picked")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn descriptors_send_the_short_form_of_the_full_reference() {
+        // engine.md section 3.9: the listed reference equals Reference::short of what a pick stores.
+        let state = box_with_rail_names();
+        let table = ElementTable::build(&state).expect("the table builds");
+
+        let descriptors =
+            describe(&table, &state, &id("b-1"), &BTreeMap::new()).expect("the descriptors build");
+
+        let picks = picks(&table, &state);
+        assert_eq!(picks.len(), descriptors.len());
+        for (descriptor, pick) in descriptors.iter().zip(&picks) {
+            assert_eq!(descriptor.name, pick.name);
+            assert_eq!(
+                descriptor.reference,
+                pick.reference.short(),
+                "{}",
+                descriptor.name
+            );
+        }
+    }
+
+    #[test]
+    fn picks_find_an_element_whose_q_is_a_direct_generator_name() {
+        // engine.md section 3.9: a pick stores Reference::from_element of the element it names, also
+        // when its q is a direct-generator name rather than the element's name (naming.md section 3.12.5).
+        let state = box_with_rail_names();
+        let table = ElementTable::build(&state).expect("the table builds");
+
+        let picks = picks(&table, &state);
+
+        let edges: Vec<_> = picks
+            .iter()
+            .filter(|pick| pick.kind == ElementKind::Edge)
+            .collect();
+        assert_eq!(edges.len(), 12);
+        for (pick, entry) in edges.iter().zip(table.entries(ElementKind::Edge)) {
+            assert_eq!(pick.name, entry.name.as_str());
+            assert_eq!(
+                pick.reference.query,
+                element_name(&format!("edge:f-t/rail/e-{}", entry.index))
+            );
+        }
     }
 }

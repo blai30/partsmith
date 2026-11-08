@@ -1,7 +1,7 @@
 //! The `import` feature: puts the solids of a STEP asset into a body (docs/spec/features/import.md).
 
 use partsmith_model::{Category, FeatureManifest, Id, is_asset_name};
-use partsmith_naming::{FaceSource, Motion, Successions, roles};
+use partsmith_naming::{DirectSources, FaceSource, Motion, Successions, roles};
 use partsmith_occt_sys::{Interrupt, Operation, Shape, StepImport, SubShapeKind, read_step};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,7 @@ fn imported_tool(context: &BuildContext<'_>, solids: Vec<Shape>) -> Result<Tool,
     let naming = name_shape(
         &shape,
         faces,
+        DirectSources::default(),
         &[],
         &Successions::default(),
         &Motion::IDENTITY,

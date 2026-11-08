@@ -22,6 +22,12 @@ const LIST_PREFIXES: [(ElementKind, &str); 2] = [
     (ElementKind::Vertex, "vertex("),
 ];
 
+/// The kinds of direct-generator names, with the text each starts with (section 3.1 rule 7).
+const DIRECT_PREFIXES: [(ElementKind, &str); 2] = [
+    (ElementKind::Edge, "edge:"),
+    (ElementKind::Vertex, "vertex:"),
+];
+
 /// Most digits a number in a name can have: `u32::MAX` has 10.
 const MAX_NUMBER_DIGITS: usize = 10;
 
@@ -59,6 +65,10 @@ pub(crate) enum NameDefect {
     UnbalancedParentheses,
     /// A valid name, but not of the kind the context needs.
     WrongKind(ElementKind),
+    /// A face name where only an edge or vertex name can be built (`ElementName::direct`).
+    NotEdgeOrVertex,
+    /// An edge or vertex name of the right kind, but not a direct-generator name.
+    NotDirect,
 }
 
 impl NameDefect {
@@ -106,6 +116,8 @@ impl fmt::Display for NameDefect {
                 ElementKind::Edge => "it is not an edge name",
                 ElementKind::Vertex => "it is not a vertex name",
             }),
+            NameDefect::NotEdgeOrVertex => formatter.write_str("it is not an edge or vertex name"),
+            NameDefect::NotDirect => formatter.write_str("it is not a direct-generator name"),
         }
     }
 }
@@ -186,6 +198,20 @@ pub(crate) fn list_prefix_of(kind: ElementKind) -> Option<&'static str> {
     LIST_PREFIXES
         .into_iter()
         .find_map(|(listed, prefix)| (listed == kind).then_some(prefix))
+}
+
+/// The kind and prefix of the direct-generator name `text` starts with; `None` for any other name.
+pub(crate) fn leading_direct_prefix(text: &[u8]) -> Option<(ElementKind, &'static str)> {
+    DIRECT_PREFIXES
+        .into_iter()
+        .find(|(_, prefix)| text.starts_with(prefix.as_bytes()))
+}
+
+/// The prefix of direct-generator names of `kind`; `None` for faces, which have none.
+pub(crate) fn direct_prefix_of(kind: ElementKind) -> Option<&'static str> {
+    DIRECT_PREFIXES
+        .into_iter()
+        .find_map(|(direct, prefix)| (direct == kind).then_some(prefix))
 }
 
 /// Number of bytes before the face list of an edge or vertex name; `None` for a face name.
@@ -280,7 +306,10 @@ impl<'a> Parser<'a> {
 
     /// `element-name` with its trailing suffixes.
     fn element_name(&mut self) -> Result<(), NameDefect> {
-        if self.at_list_name() {
+        if let Some((_, prefix)) = leading_direct_prefix(self.rest()) {
+            self.position += prefix.len();
+            self.direct_body()
+        } else if self.at_list_name() {
             self.list_name()?;
             while self.peek() == Some(b'#') {
                 self.split()?;
@@ -289,6 +318,17 @@ impl<'a> Parser<'a> {
         } else {
             self.face_name()
         }
+    }
+
+    /// `direct-body`: a feature id, a role, an optional sketch reference and suffix groups.
+    fn direct_body(&mut self) -> Result<(), NameDefect> {
+        self.id()?;
+        self.expect(b'/')?;
+        self.word()?;
+        if self.eat(b'/') {
+            self.sketch_reference()?;
+        }
+        self.suffix_groups()
     }
 
     /// `face-name`, walking the generator chain iteratively.
@@ -314,6 +354,11 @@ impl<'a> Parser<'a> {
             }
             break;
         }
+        self.suffix_groups()
+    }
+
+    /// The `#n` and `@<feature>:<instance>` groups after a face name or a direct-generator body.
+    fn suffix_groups(&mut self) -> Result<(), NameDefect> {
         while let Some(marker) = self.peek() {
             match marker {
                 b'#' => self.split()?,
@@ -768,6 +813,45 @@ mod tests {
             NameDefect::InvalidId.to_string(),
             "a feature id must be 1 to 64 letters, digits, '_' or '-'"
         );
+        assert_eq!(
+            NameDefect::NotEdgeOrVertex.to_string(),
+            "it is not an edge or vertex name"
+        );
+        assert_eq!(
+            NameDefect::NotDirect.to_string(),
+            "it is not a direct-generator name"
+        );
+    }
+
+    #[test]
+    fn accepts_direct_generator_names() {
+        assert_eq!(validate("edge:f-hel1/helix"), Ok(()));
+        assert_eq!(validate("vertex:f-swp1/start/e-1.end#2@f-lp1:1"), Ok(()));
+    }
+
+    #[test]
+    fn rejects_an_element_name_as_direct_generator() {
+        assert_eq!(
+            validate("edge:f-x/rail/f-a/top"),
+            Err(NameDefect::UnexpectedCharacter {
+                character: '/',
+                position: 17
+            })
+        );
+    }
+
+    #[test]
+    fn leading_direct_prefix_names_the_kind_of_direct_names() {
+        assert_eq!(
+            leading_direct_prefix(b"edge:f-a/x"),
+            Some((ElementKind::Edge, "edge:"))
+        );
+        assert_eq!(
+            leading_direct_prefix(b"vertex:f-a/x"),
+            Some((ElementKind::Vertex, "vertex:"))
+        );
+        assert_eq!(leading_direct_prefix(b"edge(f-a/x)"), None);
+        assert_eq!(direct_prefix_of(ElementKind::Face), None);
     }
 
     #[test]

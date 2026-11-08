@@ -5,10 +5,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::aliases::{Aliases, Successions};
+use crate::direct::DirectIndex;
 use crate::element_info::ElementInfo;
 use crate::error::NamingError;
 use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
+use crate::map::check_direct;
 use crate::name::ElementName;
 use crate::name_set::{NameSet, ids_by_name};
 use crate::shape::pairs_one_to_one;
@@ -135,7 +137,9 @@ impl Lists {
 
 impl ElementSet {
     /// Builds the set and its name indexes; two faces touch when one lists the other in its
-    /// adjacency.
+    /// adjacency. Fails with `DuplicateName` when two elements of one kind share a name or hold the
+    /// same direct-generator name, and with `InvalidName` when an entry of an info's `direct` list
+    /// is not a direct-generator name of the info's kind.
     pub fn new(
         elements: Arc<[ElementInfo]>,
         aliases: Aliases,
@@ -176,8 +180,9 @@ impl ElementSet {
         let adjacent = adjacency.tail(edges_start);
         let incident = incidence(&adjacent, names.len(), edges_start);
         let by_name = edge_and_vertex_positions(&elements, edges_start)?;
+        let direct = held_direct_names(&elements)?;
         let face_by_name = ids_by_name(&names);
-        let names = NameSet::build(names, face_by_name, touching, aliases, successions);
+        let names = NameSet::build(names, face_by_name, touching, aliases, successions, direct);
         Ok(ElementSet {
             elements,
             edges_start,
@@ -371,6 +376,20 @@ fn edge_and_vertex_positions(
     Ok(by_name)
 }
 
+/// The direct-generator names the elements hold, each with its holder's position, after checking
+/// that each is a direct-generator name of its holder's kind.
+fn held_direct_names(elements: &[ElementInfo]) -> Result<DirectIndex, NamingError> {
+    for info in elements {
+        for name in &info.direct {
+            check_direct(name, info.kind)?;
+        }
+    }
+    let held = (0_u32..)
+        .zip(elements)
+        .flat_map(|(position, info)| info.direct.iter().map(move |name| (name, position)));
+    DirectIndex::new(held)
+}
+
 /// Face names numbered in the order they are met.
 #[derive(Default)]
 struct ProvisionalIds<'a> {
@@ -437,6 +456,7 @@ mod tests {
             fingerprint: Fingerprint::parse(fingerprint).expect("valid fingerprint"),
             adjacency: adjacency.iter().map(|face| name(face)).collect(),
             vertices: Vec::new(),
+            direct: Vec::new(),
         }
     }
 

@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Fingerprint, Motion, Reference, Successions,
+    DirectSources, ElementKind, ElementName, FaceSource, Fingerprint, Motion, Reference,
+    Successions,
 };
 use partsmith_sketch::{OriginPlane, Placement, SketchEntity, build_profile};
 use serde_json::json;
@@ -41,6 +42,7 @@ pub(super) fn imported_box_fixture() -> Fixture {
     let named = crate::naming::name_shape(
         &block.shape,
         faces,
+        DirectSources::default(),
         &[],
         &Successions::default(),
         &Motion::IDENTITY,

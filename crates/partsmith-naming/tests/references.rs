@@ -6,9 +6,8 @@ use crate::common;
 use common::{
     ScopeElement, TOP_FINGERPRINT, TOP_FRONT_EDGE_FINGERPRINT, aliases, anchored_pieces_infos,
     assert_follow, assert_invalid_reference, assert_resolved, box_scope, element_named,
-    element_set, element_set_with,
-    fingerprint, id, merged, merged_name, name, names, reference, resolved, scope_element,
-    successions, with_anchors, with_merged,
+    element_set, element_set_with, fingerprint, id, merged, merged_name, name, names, reference,
+    resolved, scope_element, successions, with_anchors, with_merged,
 };
 use partsmith_naming::{
     ANCHOR_LIMIT, Aliases, Anchors, ElementInfo, ElementKind, ElementSet, GeometryKind,

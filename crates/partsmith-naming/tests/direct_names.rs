@@ -7,13 +7,12 @@ use crate::common;
 use std::sync::Arc;
 
 use common::{
-    ScopeElement, assert_resolved, box_infos, box_map, box_sources, box_topology,
-    build, build_direct, cylinder_map, cylinder_sources, cylinder_topology, direct_of,
-    direct_sources, element_named, element_set_of_map, from_direct, id,
-    merged_wire_map, name, names_of, new_direct, new_source, numbered_pair_map, pair_map,
-    pair_sources, pair_topology, scope_element, single_pair_edge_map, sphere_topology,
-    split_wire_map, split_wire_topology, translation, try_build_direct, wire_map,
-    wire_map_holding, wire_topology,
+    ScopeElement, assert_resolved, box_infos, box_map, box_sources, box_topology, build,
+    build_direct, cylinder_map, cylinder_sources, cylinder_topology, direct_of, direct_sources,
+    element_named, element_set_of_map, from_direct, id, merged_wire_map, name, names_of,
+    new_direct, new_source, numbered_pair_map, pair_map, pair_sources, pair_topology,
+    scope_element, single_pair_edge_map, sphere_topology, split_wire_map, split_wire_topology,
+    translation, try_build_direct, wire_map, wire_map_holding, wire_topology,
 };
 use partsmith_naming::{
     Aliases, CopyGroup, DirectSource, DirectSources, ElementInfo, ElementKind, ElementName,
@@ -40,7 +39,13 @@ const DIRECT_EXAMPLES: [(&str, ElementKind); 6] = [
 ];
 
 /// The names the schema of spec test 153 must not change.
-const SCHEMA_NAMES: [&str; 5] = ["ElementName", "Reference", "Anchors", "Merged", "MergedName"];
+const SCHEMA_NAMES: [&str; 5] = [
+    "ElementName",
+    "Reference",
+    "Anchors",
+    "Merged",
+    "MergedName",
+];
 
 /// Asserts that parsing `text` fails with `InvalidName`.
 fn assert_invalid_name(text: &str) {
@@ -208,7 +213,10 @@ fn t144_face_names_and_face_rule_names_are_not_direct() {
         "vertex(f-a/x)",
         "edge/x",
     ] {
-        assert!(!name(text).is_direct(), "{text} is not a direct-generator name");
+        assert!(
+            !name(text).is_direct(),
+            "{text} is not a direct-generator name"
+        );
     }
 }
 
@@ -252,12 +260,7 @@ fn t146_direct_builds_an_edge_name_without_generator() {
 #[test]
 fn t146_direct_builds_a_vertex_name_with_a_sketch_generator() {
     assert_eq!(
-        ElementName::direct(
-            ElementKind::Vertex,
-            &id("f-swp1"),
-            "start",
-            Some("e-1.end")
-        ),
+        ElementName::direct(ElementKind::Vertex, &id("f-swp1"), "start", Some("e-1.end")),
         Ok(name("vertex:f-swp1/start/e-1.end"))
     );
 }
@@ -309,7 +312,7 @@ fn direct_builds_a_vertex_name_without_generator_and_an_edge_name_with_one() {
 fn t147_split_base_of_a_direct_generator_name() {
     assert_eq!(
         name("edge:f-h/helix#2#1").split_base(),
-        name("edge:f-h/helix#2")
+        name("edge:f-h/helix")
     );
 }
 
@@ -486,10 +489,7 @@ fn t154_the_wire_map_names_its_edge_and_vertices_by_their_direct_generator_names
 fn t154_the_wire_edge_holds_its_name_and_index_finds_it() {
     let map = wire_map();
 
-    assert_eq!(
-        direct_of(&map, ElementKind::Edge, 1),
-        ["edge:f-hel1/helix"]
-    );
+    assert_eq!(direct_of(&map, ElementKind::Edge, 1), ["edge:f-hel1/helix"]);
     assert_eq!(map.index(&name("edge:f-hel1/helix")), Some(1));
 }
 
@@ -828,7 +828,10 @@ fn t167_a_new_face_name_on_a_vertex_fails() {
         &[],
     );
 
-    assert_eq!(result, Err(invalid_name("f-a/x", "it is not a vertex name")));
+    assert_eq!(
+        result,
+        Err(invalid_name("f-a/x", "it is not a vertex name"))
+    );
 }
 
 #[test]
@@ -874,7 +877,9 @@ fn t169_the_direct_key_comes_after_the_motions() {
     let json = serde_json::to_string(&moved).expect("a naming map serializes");
 
     let motions = json.find(r#""motions""#).expect("a moved map has motions");
-    let direct = json.find(r#""direct""#).expect("the WIRE map has direct lists");
+    let direct = json
+        .find(r#""direct""#)
+        .expect("the WIRE map has direct lists");
     assert!(motions < direct, "{json}");
 }
 
@@ -930,6 +935,27 @@ fn t170_an_element_named_by_a_direct_generator_name_holds_it_first() {
         read_map(&value).is_err(),
         "{value} must not deserialize as a naming map"
     );
+}
+
+#[test]
+fn t170_an_element_named_by_a_direct_generator_name_needs_a_list_of_its_kind() {
+    // Section 2.6: the element must hold its name first, also when its kind has no written lists.
+    let mut without_direct = serde_json::to_value(wire_map()).expect("a naming map serializes");
+    without_direct
+        .as_object_mut()
+        .expect("a naming map is a JSON object")
+        .remove("direct");
+    let vertices_only = json_with_direct(
+        &wire_map(),
+        json!({"vertices": [["vertex:f-hel1/start"], ["vertex:f-hel1/end"]]}),
+    );
+
+    for value in [without_direct, vertices_only] {
+        assert!(
+            read_map(&value).is_err(),
+            "{value} must not deserialize as a naming map"
+        );
+    }
 }
 
 #[test]
@@ -1221,7 +1247,8 @@ fn the_reference_name_stays_the_name_when_every_direct_generator_name_is_order_d
 
 #[test]
 fn the_reference_name_takes_the_smallest_direct_generator_name() {
-    let edge = scope_element("edge(f-a/x|f-b/y)#1").with_direct(&["edge:f-z/rail", "edge:f-a/rail"]);
+    let edge =
+        scope_element("edge(f-a/x|f-b/y)#1").with_direct(&["edge:f-z/rail", "edge:f-a/rail"]);
 
     assert_eq!(edge.reference_name(), &name("edge:f-a/rail"));
 }
@@ -1247,7 +1274,10 @@ fn t198_a_vertex_name_in_the_direct_list_of_an_edge_fails() {
 
     assert_eq!(
         result.err(),
-        Some(invalid_name("vertex:f-hel1/middle", "it is not an edge name"))
+        Some(invalid_name(
+            "vertex:f-hel1/middle",
+            "it is not an edge name"
+        ))
     );
 }
 

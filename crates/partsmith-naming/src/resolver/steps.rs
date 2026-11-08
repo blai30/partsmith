@@ -265,25 +265,12 @@ impl<'a> Resolver<'a> {
 
     /// The score of the element at `element` against the stored fingerprint.
     pub(super) fn score_of(&self, element: usize) -> f64 {
-        score(
-            &self.reference.fingerprint,
-            &self.set.element_at(element).fingerprint,
-            self.kind,
-        )
+        score_of(self.reference, self.set, element)
     }
 
     /// The members with their scores, best first, then by name.
     pub(super) fn scored(&self, members: &[usize]) -> Vec<(f64, usize)> {
-        let mut scored: Vec<(f64, usize)> = members
-            .iter()
-            .map(|&member| (self.score_of(member), member))
-            .collect();
-        scored.sort_by(|first, second| {
-            second.0.total_cmp(&first.0).then_with(|| {
-                element_name(self.set, first.1).cmp(&element_name(self.set, second.1))
-            })
-        });
-        scored
+        scored(self.reference, self.set, members)
     }
 
     /// Candidates for these elements, in candidate order, at most `limit`.
@@ -339,6 +326,34 @@ impl<'a> Resolver<'a> {
         }
         meaningful
     }
+}
+
+/// The score of the element at `element` against the reference's fingerprint.
+pub(super) fn score_of(reference: &Reference, set: &ElementSet, element: usize) -> f64 {
+    score(
+        &reference.fingerprint,
+        &set.element_at(element).fingerprint,
+        reference.query.kind(),
+    )
+}
+
+/// The members with their scores against the reference's fingerprint, best first, then by name.
+pub(super) fn scored(
+    reference: &Reference,
+    set: &ElementSet,
+    members: &[usize],
+) -> Vec<(f64, usize)> {
+    let mut scored: Vec<(f64, usize)> = members
+        .iter()
+        .map(|&member| (score_of(reference, set, member), member))
+        .collect();
+    scored.sort_by(|first, second| {
+        second
+            .0
+            .total_cmp(&first.0)
+            .then_with(|| element_name(set, first.1).cmp(&element_name(set, second.1)))
+    });
+    scored
 }
 
 /// The family of each face part.

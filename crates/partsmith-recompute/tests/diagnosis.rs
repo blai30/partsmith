@@ -21,16 +21,18 @@
 //! last test can render every explanation clause of section 3.10 again and check each against the message lint of the
 //! error guidelines (`lint_failures` of `partsmith-message-lint`).
 
-use crate::{feature_support, stability_common};
+use crate::{common, feature_support, stability_common};
 
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
+use std::sync::Arc;
 
+use common::features::register_runner_features;
 use feature_support::{
     Assets, Run, assert_sketch_on_top_plane, assert_volume, body_before, element_names,
     face_names_with_prefix, keep_match, message, pick, remove_entry, sketch_result, use_reference,
 };
-use partsmith_features::{Absence, FieldRef, Fix, Place, Placed, Repair};
+use partsmith_features::{Absence, FieldRef, Fix, Place, Placed, Registry, Repair};
 use partsmith_message_lint::lint_failures;
 use partsmith_model::{Document, EmptyContext};
 use partsmith_naming::{ElementKind, ElementName, Instance};
@@ -3447,4 +3449,170 @@ fn every_explanation_clause_passes_the_message_lint() {
         "Followed",
     ]);
     assert_eq!(rendered, every_clause);
+}
+
+// Direct-generator queries (recompute.md section 3.10, naming.md section 3.12).
+
+/// A fillet of `b-1` on the edge stored by the direct-generator name `query`.
+fn direct_fillet(feature: &str, query: &str) -> Value {
+    fillet(
+        feature,
+        "b-1",
+        vec![reference(query, "line|n=0,1,0|c=0,0,10|l=20")],
+        "1",
+    )
+}
+
+/// `test_block` `f-cube` in `body`: a 20 mm kernel cube whose edges also hold the
+/// direct-generator names `edge:f-cube/<a>-<b>` (`tests/common/features.rs`).
+fn cube_holding_direct_names(body: &str) -> Value {
+    json!({
+        "id": "f-cube", "type": "test_block", "body": body, "size": "20", "op": "new",
+        "direct": true
+    })
+}
+
+/// Runs a document of these test bodies and feature records with the built-in features and the
+/// runner's test features, which `test_block` belongs to.
+fn run_with_test_block(bodies: &[&str], features: &[Value]) -> Report {
+    let mut registry = Registry::with_builtins();
+    register_runner_features(&mut registry);
+    let mut recompute = Recompute::new(Arc::new(registry));
+    feature_support::run_document(
+        &mut recompute,
+        &document_of(bodies, features),
+        &Assets::new(),
+    )
+}
+
+#[test]
+fn a_direct_generator_name_of_a_feature_that_is_not_in_the_document_is_gone() {
+    // The description already says that the feature is not in the document (features.md section
+    // 3.12). The reason reads `is gone`.
+    let session = run(
+        &["b-1"],
+        &[cube20(), direct_fillet("f-fil1", "edge:f-hel1/helix")],
+    );
+
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::NotInDocument {
+            feature: id("f-hel1")
+        })
+    );
+    assert_eq!(
+        error.text,
+        "An edge of a feature that is not in this document selected for Edges is gone."
+    );
+}
+
+#[test]
+fn a_direct_generator_name_carried_by_another_body_is_there() {
+    // Rule 3 tests the other body's map with `NameSet::carries`.
+    let report = run_with_test_block(
+        &["b-1", "b-2"],
+        &[
+            cube10(),
+            cube_holding_direct_names("b-2"),
+            direct_fillet("f-fil1", "edge:f-cube/front-top"),
+        ],
+    );
+
+    let error = report_message(&report, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::OtherBody {
+            body: id("b-2"),
+            by: None,
+            by_suppressed: false,
+            present: true
+        })
+    );
+    assert_ends_with(&error.text, " is now in body 'Body 2'.");
+}
+
+#[test]
+fn a_direct_generator_name_of_a_copy_the_pattern_no_longer_makes() {
+    // Rule 4 reads the copy group from `ElementName::direct_parts`.
+    let session = run(
+        &["b-1"],
+        &patterned_cubes(
+            "2",
+            vec![reference(
+                "edge:f-box1/rail@f-lp1:2",
+                "line|n=0,1,0|c=45,0,10|l=10",
+            )],
+        ),
+    );
+
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(error.reason, Some(third_copy_gone()));
+}
+
+#[test]
+fn a_direct_generator_name_of_a_deleted_sketch_entity() {
+    // Rule 5 reads the sketch generator from `ElementName::direct_parts`.
+    let mut features = pegs();
+    features.push(direct_fillet("f-fil2", "edge:f-ext1/rail/e-9"));
+    let session = run(&["b-1"], &features);
+
+    let error = error_message(&session, "f-fil2", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::EntityDeleted {
+            feature: id("f-ext1"),
+            sketch: id("f-sk1"),
+            entity: id("e-9")
+        })
+    );
+}
+
+#[test]
+fn a_direct_generator_name_its_feature_does_not_make() {
+    // Rule 7: no map carries the name, and its feature writes the body.
+    let session = run(
+        &["b-1"],
+        &[cube20(), direct_fillet("f-fil1", "edge:f-box1/rail")],
+    );
+
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::Removed {
+            by: id("f-box1"),
+            how: Removal::NoLongerMade { absence: None }
+        })
+    );
+}
+
+#[test]
+fn a_direct_generator_name_rounded_away_by_a_fillet() {
+    // Rule 7: the fillet's input carries the name and its output does not. Rule 7.2 never matches
+    // a direct-generator query. Rule 7.8 gives `Rounded`.
+    let report = run_with_test_block(
+        &["b-1"],
+        &[
+            cube_holding_direct_names("b-1"),
+            fillet(
+                "f-fil1",
+                "b-1",
+                vec![reference(
+                    "edge(f-cube/front|f-cube/top)",
+                    "line|n=1,0,0|c=10,0,20|l=20|adj=2,2",
+                )],
+                "2",
+            ),
+            direct_fillet("f-fil2", "edge:f-cube/front-top"),
+        ],
+    );
+
+    let error = report_message(&report, "f-fil2", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::Removed {
+            by: id("f-fil1"),
+            how: Removal::Rounded
+        })
+    );
 }

@@ -2,6 +2,7 @@
 
 mod candidates;
 mod continued;
+mod direct;
 mod exact;
 mod missing;
 mod parts;
@@ -140,9 +141,14 @@ pub enum Follow {
     Related,
 }
 
-/// Resolves a reference against one body state (algorithm in section 3.9).
+/// Resolves a reference against one body state: a direct-generator query by section 3.12.4, any
+/// other query by the algorithm of section 3.9. The two never meet.
 pub fn resolve(reference: &Reference, set: &ElementSet) -> Resolution {
-    steps::Resolver::new(reference, set).resolve()
+    if reference.query.is_direct() {
+        direct::DirectResolver::new(reference, set).resolve()
+    } else {
+        steps::Resolver::new(reference, set).resolve()
+    }
 }
 
 #[cfg(test)]

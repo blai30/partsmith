@@ -19,7 +19,7 @@ use partsmith_naming::{
     Reference, roles,
 };
 
-use super::face_name::{has_copy_group, maker_of};
+use super::face_name::{has_copy_group, maker_of, own_parts};
 use super::memo::Probe;
 use super::{LossReason, Removal};
 use crate::graph::NodeState;
@@ -192,7 +192,8 @@ impl<'r> Probe<'_, 'r> {
     }
 
     /// Rule 3: every part of the query is present by name in another body just before the feature
-    /// explained (and, for an edge or vertex, an element of that body joins them).
+    /// explained (and, for an edge or vertex, an element of that body joins them); a
+    /// direct-generator query is present where an element carries it.
     fn in_other_body(&mut self, loss: &Loss) -> Option<LossReason> {
         let query = &loss.reference.query;
         let parts = query.face_parts();
@@ -202,12 +203,15 @@ impl<'r> Probe<'_, 'r> {
                 continue;
             };
             let names = state.name_set();
-            let families = families(names, &parts, &loss.reference.merged);
-            if families.iter().any(BTreeSet::is_empty) {
-                continue;
-            }
-            if query.kind() != ElementKind::Face && !joins(state.naming(), query.kind(), &families)
-            {
+            let present = if query.is_direct() {
+                names.carries(query)
+            } else {
+                let families = families(names, &parts, &loss.reference.merged);
+                !families.iter().any(BTreeSet::is_empty)
+                    && (query.kind() == ElementKind::Face
+                        || joins(state.naming(), query.kind(), &families))
+            };
+            if !present {
                 continue;
             }
             let joiner = self.joiner(&loss.body, &body);
@@ -230,7 +234,7 @@ impl<'r> Probe<'_, 'r> {
             return None;
         }
         let feature = self.view.id(maker);
-        let copy = *lost_name.face_name()?.copies().last()?;
+        let copy = *own_parts(lost_name)?.copies().last()?;
         if copy.feature != feature.as_str() {
             return None;
         }
@@ -252,7 +256,7 @@ impl<'r> Probe<'_, 'r> {
         maker: usize,
         lost_name: &ElementName,
     ) -> Option<LossReason> {
-        let generator = lost_name.face_name()?.sketch_generator()?;
+        let generator = own_parts(lost_name)?.sketch_generator()?;
         let sketch = self.view.first_sketch(maker)?.clone();
         let sketch_position = self.position(&sketch)?;
         let result = self.view.sketch_result(sketch_position)?;
@@ -419,6 +423,10 @@ impl<'r> Probe<'_, 'r> {
     fn blends_query(&self, loss: &Loss, blend: usize) -> bool {
         let body = &loss.body;
         let query = &loss.reference.query;
+        // A fillet or chamfer names its faces after face-rule names only (naming.md section 3.6.5).
+        if query.is_direct() {
+            return false;
+        }
         let feature = self.view.id(blend).as_str();
         let (Some(output), Some(input)) = (
             self.output_of(body, blend),
@@ -556,9 +564,13 @@ impl<'l> Presence<'l> {
         }
     }
 
-    /// True when the naming map of `state` has the lost name.
+    /// True when the naming map of `state` has the lost name: for a direct-generator name, when an
+    /// edge or vertex carries it (`NameSet::carries`).
     fn has(&self, state: &BodyState) -> bool {
         let names = state.name_set();
+        if self.lost_name.is_direct() {
+            return names.carries(self.lost_name);
+        }
         if self.unmet {
             let query = &self.reference.query;
             let families = families(names, &query.face_parts(), &self.reference.merged);

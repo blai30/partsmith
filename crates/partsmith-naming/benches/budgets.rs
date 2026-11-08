@@ -16,10 +16,11 @@ use std::time::Duration;
 use partsmith_budgets::{Report, median_time_of};
 use partsmith_model::Id;
 use partsmith_naming::{
-    Aliases, EdgeInfo, ElementInfo, ElementName, ElementSet, FaceInfo, FaceSource, Fingerprint,
-    GeometryKind, Merged, MergedName, Motion, NameSet, NamingMap, Reference, Successions,
-    TopologyInfo, VertexInfo, resolve,
+    Aliases, DirectSource, DirectSources, EdgeInfo, ElementInfo, ElementKind, ElementName,
+    ElementSet, FaceInfo, FaceSource, Fingerprint, GeometryKind, Merged, MergedName, Motion,
+    NameSet, NamingMap, Reference, Successions, TopologyInfo, VertexInfo, resolve,
 };
+use serde_json::{Value, json};
 
 /// Rows of hexagonal faces on the benchmark torus; even, so row parity wraps consistently.
 const ROWS: usize = 20;
@@ -71,6 +72,22 @@ fn main() -> ExitCode {
     let (fillet_set, fillet_reference) = nested_merged_names_case(&topology, &lateral_map);
     let small_topology = hexagonal_torus(SMALL_ROWS);
     let small_map = build(face_sources(SMALL_ROWS), &small_topology, &lateral_map);
+    let held_map = holding_direct_names(&map);
+    let carried = carried_sources(&held_map);
+    let held_infos: Arc<[ElementInfo]> = Arc::from(
+        held_map
+            .element_infos(&topology)
+            .expect("the benchmark topology matches its map"),
+    );
+    let held_set = element_set(Arc::clone(&held_infos), Aliases::default());
+    // A lost query of the feature whose names every edge and vertex holds: every candidate is
+    // checked for meaning and has it.
+    let lost_rail = Reference::new(
+        name("edge:f-d/rail/e-0"),
+        Fingerprint::parse("line|n=1,0,0|c=-900,-900,-900|l=1|adj=9,9")
+            .expect("a valid fingerprint"),
+    )
+    .expect("an edge reference");
 
     report.measure(
         "NamingMap::build (1,000 faces, 3,000 edges, 2,000 vertices)",
@@ -141,6 +158,43 @@ fn main() -> ExitCode {
         || {
             median_time_of(RUNS, || {
                 black_box(NameSet::new(&small_map));
+            })
+        },
+    );
+    report.measure(
+        "NamingMap::build_with_direct (same shape, every edge and vertex From one source)",
+        Duration::from_millis(5),
+        || {
+            median_time_of(RUNS, || {
+                black_box(
+                    NamingMap::build_with_direct(
+                        sources.clone(),
+                        carried.clone(),
+                        &topology,
+                        &[&held_map],
+                        &Successions::default(),
+                        &Motion::IDENTITY,
+                    )
+                    .expect("the benchmark map builds"),
+                );
+            })
+        },
+    );
+    report.measure(
+        "ElementSet::new (same shape, one direct-generator name per edge and vertex)",
+        Duration::from_micros(4_600),
+        || {
+            median_time_of(RUNS, || {
+                black_box(element_set(Arc::clone(&held_infos), Aliases::default()));
+            })
+        },
+    );
+    report.measure(
+        "resolve a direct-generator query reaching step 4 and ranking every edge",
+        Duration::from_micros(420),
+        || {
+            median_time_of(RUNS, || {
+                black_box(resolve(&lost_rail, &held_set));
             })
         },
     );
@@ -221,6 +275,36 @@ fn lateral_faces_map() -> NamingMap {
         &Motion::IDENTITY,
     )
     .expect("the lateral faces build")
+}
+
+/// The map `map` read back from cache JSON with one direct-generator name on each edge and vertex
+/// (`edge:f-d/rail/e-<index>`, `vertex:f-d/start/e-<index>`), the inherited map of the
+/// direct-generator budgets.
+fn holding_direct_names(map: &NamingMap) -> NamingMap {
+    let lists = |prefix: &str, count: u32| -> Value {
+        (1..=count)
+            .map(|index| json!([format!("{prefix}/e-{index}")]))
+            .collect()
+    };
+    let mut value = serde_json::to_value(map).expect("a naming map serializes");
+    value["direct"] = json!({
+        "edges": lists("edge:f-d/rail", map.count(ElementKind::Edge)),
+        "vertices": lists("vertex:f-d/start", map.count(ElementKind::Vertex)),
+    });
+    serde_json::from_value(value).expect("every edge and vertex of the map is named")
+}
+
+/// Direct sources that carry every edge and vertex of `map` to the element of the same index.
+fn carried_sources(map: &NamingMap) -> DirectSources {
+    let carried = |kind| {
+        (1..=map.count(kind))
+            .map(|index| DirectSource::From(vec![(0, index)]))
+            .collect()
+    };
+    DirectSources {
+        edges: carried(ElementKind::Edge),
+        vertices: carried(ElementKind::Vertex),
+    }
 }
 
 /// Face sources of a torus with `rows` rows: every face new, except every tenth, which is one of

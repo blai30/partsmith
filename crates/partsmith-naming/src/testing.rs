@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::aliases::{Aliases, Successions};
+use crate::direct::DirectIndex;
 use crate::element_info::ElementInfo;
 use crate::fingerprint::Fingerprint;
 use crate::kind::ElementKind;
@@ -58,6 +59,7 @@ pub(crate) fn set_of(
         touches,
         Aliases(lists(aliases)),
         Successions(lists(successions)),
+        DirectIndex::default(),
     )
 }
 
@@ -95,5 +97,6 @@ pub(crate) fn element_info(text: &str) -> ElementInfo {
         fingerprint: Fingerprint::parse(fingerprint).expect("valid fingerprint"),
         name,
         vertices: Vec::new(),
+        direct: Vec::new(),
     }
 }

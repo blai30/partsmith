@@ -137,12 +137,25 @@ impl Reference {
         }
     }
 
-    /// Checks the anchors and merged names against the query (section 2.4).
+    /// Checks the anchors and merged names against the query (sections 2.4 and 3.12.5).
     fn check(&self) -> Result<(), NamingError> {
         let invalid = |reason: String| NamingError::InvalidReference {
             name: self.query.to_string(),
             reason,
         };
+        if self.query.is_direct() {
+            if !self.anchors.is_empty() {
+                return Err(invalid(
+                    "a direct-generator name takes no anchors".to_owned(),
+                ));
+            }
+            if !self.merged.is_empty() {
+                return Err(invalid(
+                    "a direct-generator name takes no merged names".to_owned(),
+                ));
+            }
+            return Ok(());
+        }
         let parts = query_parts(&self.query);
         for (part, anchor_names) in &self.anchors.0 {
             if !part.is_order_dependent() || !parts.contains(part) {

@@ -77,7 +77,10 @@ impl ElementName {
 
     /// Face, edge or vertex, from the name's form.
     pub fn kind(&self) -> ElementKind {
-        grammar::leading_list_prefix(self.0.as_bytes()).map_or(ElementKind::Face, |(kind, _)| kind)
+        let bytes = self.0.as_bytes();
+        grammar::leading_list_prefix(bytes)
+            .or_else(|| grammar::leading_direct_prefix(bytes))
+            .map_or(ElementKind::Face, |(kind, _)| kind)
     }
 
     /// True when the name contains a `#` anywhere, so its meaning depends on a geometric order.
@@ -100,7 +103,8 @@ impl ElementName {
         is_split_descendant(&self.0, &ancestor.0)
     }
 
-    /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name.
+    /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name
+    /// and for a direct-generator name (section 3.12), which has no face list.
     pub fn face_terms(&self) -> Vec<ElementName> {
         list_parts(&self.0).map_or_else(Vec::new, |parts| {
             parts
@@ -113,7 +117,7 @@ impl ElementName {
 
     /// The face parts of a name: the name itself for a face name, its face terms for an edge or
     /// vertex name. Unlike the parts of a query (section 3.1), they never include an edge or vertex
-    /// name with its own `#n`.
+    /// name with its own `#n`. Empty for a direct-generator name.
     pub fn face_parts(&self) -> Vec<ElementName> {
         match self.kind() {
             ElementKind::Face => vec![self.clone()],
@@ -172,11 +176,16 @@ impl ElementName {
     }
 
     /// Every feature and sketch generator the name depends on: those of each face term, of every
-    /// nested name and of every instance group, sorted and distinct. Engine queries use it to say
-    /// what uses a feature (engine.md section 3.24).
+    /// nested name and of every instance group, sorted and distinct; for a direct-generator name,
+    /// its feature with its sketch generator and the features of its instance groups. Engine
+    /// queries use it to say what uses a feature (engine.md section 3.24).
     pub fn generators(&self) -> Vec<GeneratorUse> {
         let mut uses = BTreeSet::new();
-        for face in self.face_shapes() {
+        let shapes = match self.direct_body() {
+            Some(body) => vec![Shape::of(Arc::from(body))],
+            None => self.face_shapes(),
+        };
+        for face in shapes {
             for (feature, generator) in face.generators() {
                 uses.insert(GeneratorUse {
                     feature: Id::new(feature).expect("a valid name holds valid feature ids"),
@@ -201,6 +210,53 @@ impl ElementName {
     /// own suffix groups; `None` for an edge or vertex name.
     pub fn face_name(&self) -> Option<FaceName<'_>> {
         (self.kind() == ElementKind::Face).then(|| FaceName::of(&self.0))
+    }
+
+    /// A direct-generator name `edge:<feature>/<role>[/<generator>]` or
+    /// `vertex:<feature>/<role>[/<generator>]` (section 3.12) for an edge or vertex a feature made
+    /// from a sketch point or entity, or from its own construction when `generator` is `None`.
+    /// `kind` must be `Edge` or `Vertex`; `generator` must match `sketch-ref`.
+    pub fn direct(
+        kind: ElementKind,
+        feature: &Id,
+        role: &str,
+        generator: Option<&str>,
+    ) -> Result<ElementName, NamingError> {
+        let body = ElementName::generated(feature, role, generator.map(Generator::Sketch))?;
+        let Some(prefix) = grammar::direct_prefix_of(kind) else {
+            return Err(invalid_name(body.as_str(), &NameDefect::NotEdgeOrVertex));
+        };
+        ElementName::composed(format!("{prefix}{body}"))
+    }
+
+    /// True for a direct-generator name: one that starts with `edge:` or `vertex:`.
+    pub fn is_direct(&self) -> bool {
+        self.direct_body().is_some()
+    }
+
+    /// The parts of a direct-generator name after its `edge:` or `vertex:` prefix, read as a face
+    /// name is read (feature, role, sketch generator, own `#n` and `@` groups, copies and maker);
+    /// `None` for any other name.
+    pub fn direct_parts(&self) -> Option<FaceName<'_>> {
+        self.direct_body().map(FaceName::of)
+    }
+
+    /// True when `self` and `other` are direct-generator names of one kind and the body of `self`
+    /// extends the body of `other` as one face name extends another (section 3.1).
+    pub(crate) fn direct_extends(&self, other: &ElementName) -> bool {
+        match (self.direct_body(), other.direct_body()) {
+            (Some(body), Some(other_body)) if self.kind() == other.kind() => {
+                body == other_body
+                    || Shape::of(Arc::from(body)).extends(&Shape::of(Arc::from(other_body)))
+            }
+            _ => false,
+        }
+    }
+
+    /// The body of a direct-generator name, after its `edge:` or `vertex:` prefix; `None` for any
+    /// other name.
+    pub(crate) fn direct_body(&self) -> Option<&str> {
+        grammar::leading_direct_prefix(self.0.as_bytes()).map(|(_, prefix)| &self.0[prefix.len()..])
     }
 
     /// The text of the name, shared.
@@ -230,8 +286,12 @@ impl ElementName {
         list_parts(&self.0).map_or_else(Vec::new, |parts| parts.terms)
     }
 
-    /// The name of a face taken apart, or the face terms of an edge or vertex name taken apart.
+    /// The name of a face taken apart, or the face terms of an edge or vertex name taken apart;
+    /// none for a direct-generator name, which holds no face name.
     pub(crate) fn face_shapes(&self) -> Vec<Shape> {
+        if self.is_direct() {
+            return Vec::new();
+        }
         match list_parts(&self.0) {
             None => vec![self.parsed()],
             Some(parts) => parts
@@ -268,8 +328,9 @@ impl ElementName {
         ElementName::composed(text)
     }
 
-    /// The name with an instance suffix from `Instance::suffix` applied: appended to a face name,
-    /// or to every face term of an edge or vertex name, which are then sorted again.
+    /// The name with an instance suffix from `Instance::suffix` applied: appended to a face name or
+    /// a direct-generator name, or to every face term of an edge or vertex name, which are then
+    /// sorted again.
     pub(crate) fn with_instance_suffix(&self, suffix: &str) -> Result<ElementName, NamingError> {
         let Some(parts) = list_parts(&self.0) else {
             return ElementName::composed(format!("{self}{suffix}"));

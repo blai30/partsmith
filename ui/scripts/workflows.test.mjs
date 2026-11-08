@@ -604,6 +604,7 @@ printf '%s\\n' "$STUB_ANSWER"
 const KERNEL_WASM_TESTS = [
   'cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten',
   'cargo test -p partsmith-sketch --target wasm32-unknown-emscripten',
+  'cargo test -p partsmith-naming --target wasm32-unknown-emscripten',
   'cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::',
 ]
 const WEB_MODULE_TESTS = 'cargo test -p partsmith-wasm --test integration web_module::'
@@ -1769,13 +1770,20 @@ function repositoryText(path) {
   return readFile(join(repositoryRoot, path), 'utf8')
 }
 
-test('66: kernel-wasm runs the kernel, sketch and engine panic tests on WebAssembly after its Rust cache', async () => {
+test('66: kernel-wasm runs the kernel, sketch, naming and engine panic tests on WebAssembly after its Rust cache', async () => {
   const steps = jobSteps(await workflowJob('ci.yml', 'kernel-wasm'))
   let previous = usesStep(steps, 'Swatinem/rust-cache')
 
   for (const command of KERNEL_WASM_TESTS) {
     previous = commandStepFrom(steps, previous + 1, command, 'kernel-wasm')
   }
+})
+
+test('66: kernel-wasm runs no other step after its Rust cache than its four WebAssembly test steps', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'kernel-wasm'))
+  const cache = usesStep(steps, 'Swatinem/rust-cache')
+
+  assert.deepEqual(steps.slice(cache + 1).map(stepCommand), KERNEL_WASM_TESTS)
 })
 
 test('66: core-wasm runs the round trips with the module required, then the parity test, between the build and the upload', async () => {

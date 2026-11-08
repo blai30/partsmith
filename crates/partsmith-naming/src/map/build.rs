@@ -10,11 +10,12 @@ use crate::fast_hash::FastMap;
 use crate::fingerprint::Fingerprint;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
+use crate::map::direct;
 use crate::map::motions::Motions;
 use crate::motion::Motion;
 use crate::name::ElementName;
 use crate::shape::{Shape, shared_piece_free};
-use crate::topology::{FaceSource, TopologyInfo, element_count, index_of, indices};
+use crate::topology::{DirectSources, FaceSource, TopologyInfo, element_count, index_of, indices};
 
 /// Grid steps per millimeter of the order key: the inverse of `partsmith_model::LINEAR_TOLERANCE`.
 const QUANTIZATION_SCALE: f64 = 1e6;
@@ -48,6 +49,26 @@ impl NamingMap {
     /// the feature builds its new faces on (section 3.6).
     pub fn build(
         faces: Vec<FaceSource>,
+        topology: &TopologyInfo,
+        inherited: &[&NamingMap],
+        added_successions: &Successions,
+        new_motion: &Motion,
+    ) -> Result<NamingMap, NamingError> {
+        NamingMap::build_with_direct(
+            faces,
+            DirectSources::default(),
+            topology,
+            inherited,
+            added_successions,
+            new_motion,
+        )
+    }
+
+    /// `build` with the direct sources of the shape's edges and vertices (section 3.12.2, step 9
+    /// of section 3.3). `build` is this with `DirectSources::default()`.
+    pub fn build_with_direct(
+        faces: Vec<FaceSource>,
+        direct: DirectSources,
         topology: &TopologyInfo,
         inherited: &[&NamingMap],
         added_successions: &Successions,
@@ -89,6 +110,13 @@ impl NamingMap {
             );
         }
         number_duplicates(&mut vertex_names, ElementKind::Vertex, topology)?;
+        let direct = direct::build(
+            &direct,
+            topology,
+            inherited,
+            &mut edge_names,
+            &mut vertex_names,
+        )?;
 
         let aliases = combined_aliases(inherited, &bases, &face_names);
         let successions = combined_successions(inherited, added_successions);
@@ -100,6 +128,7 @@ impl NamingMap {
             aliases,
             successions,
             motions,
+            direct,
         )
     }
 }
@@ -377,7 +406,7 @@ fn number_duplicates(
 }
 
 /// The order key of element `index` of `kind` (section 3.4).
-fn order_key(
+pub(super) fn order_key(
     fingerprint: &Fingerprint,
     kind: ElementKind,
     index: u32,

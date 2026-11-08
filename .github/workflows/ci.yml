@@ -82,6 +82,8 @@ jobs:
       - run: cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten
       # The sketch suite under Node, held to native values (sketch.md 3.12, test 255).
       - run: cargo test -p partsmith-sketch --target wasm32-unknown-emscripten
+      # The naming suite under Node, held to native values (naming.md test 197).
+      - run: cargo test -p partsmith-naming --target wasm32-unknown-emscripten
       # The engine's panic containment under Node (protocol.md test 84).
       # A block scalar, since a plain YAML value cannot end in a colon.
       - run: |

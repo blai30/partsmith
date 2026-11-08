@@ -12,6 +12,7 @@
 mod aliases;
 mod canon;
 mod chase;
+mod direct;
 mod element_info;
 mod element_set;
 mod error;
@@ -52,7 +53,9 @@ pub use resolver::{
 };
 pub use score::score;
 pub use shape::piece_free_text;
-pub use topology::{EdgeInfo, FaceInfo, FaceSource, TopologyInfo, VertexInfo};
+pub use topology::{
+    DirectSource, DirectSources, EdgeInfo, FaceInfo, FaceSource, TopologyInfo, VertexInfo,
+};
 
 /// True when `items` is non-empty and strictly ascending: a sorted list of distinct items, as alias
 /// targets, anchors and merged names are stored.

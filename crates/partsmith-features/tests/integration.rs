@@ -20,6 +20,7 @@ mod error_messages;
 mod followed_messages;
 mod import_messages;
 mod messages;
+mod naming_bridge;
 mod output_helpers;
 mod python_references;
 mod registry_params;

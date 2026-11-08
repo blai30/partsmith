@@ -14,7 +14,7 @@ use partsmith_protocol::{
 
 use crate::display::ElementTable;
 use crate::document::OpenDocument;
-use crate::elements::{describe, describe_element, element_fields, full_reference, sub_shape_kind};
+use crate::elements::{describe, describe_pick, element_fields, sub_shape_kind};
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{BodyView, display_body};
@@ -70,19 +70,14 @@ impl Session {
         }
         // Only the picked element is described, so a pick in a new body state does not query
         // the geometry of every element (section 5).
-        let mut descriptor = describe_element(
+        describe_pick(
             &table,
             &view.state,
             &view.body,
             &timeline,
             pick.kind,
             pick.index,
-        )?;
-        descriptor.reference = full_reference(table.element_set(), &descriptor.reference.query)
-            .ok_or_else(|| {
-                EngineError::internal("a displayed element is not in its element set")
-            })?;
-        Ok(descriptor)
+        )
     }
 
     /// Resolves references, each within its body, against the display state.

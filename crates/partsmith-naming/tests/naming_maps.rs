@@ -11,8 +11,8 @@ use common::{
     new_source, sphere_map, sphere_topology, successions, translation, vertex_info,
 };
 use partsmith_naming::{
-    Aliases, DirectSources, ElementKind, FaceInfo, FaceSource, Fingerprint, GeometryKind,
-    Instance, Motion, NamingError, NamingMap, Successions, TopologyInfo,
+    Aliases, DirectSources, ElementKind, FaceInfo, FaceSource, Fingerprint, GeometryKind, Instance,
+    Motion, NamingError, NamingMap, Successions, TopologyInfo,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -315,7 +315,11 @@ fn shared_face_pair_inputs() -> MapInputs {
         ],
         vertices: Vec::new(),
     };
-    MapInputs::new(vec![new_source("f-a/x"), new_source("f-b/y")], topology, &[])
+    MapInputs::new(
+        vec![new_source("f-a/x"), new_source("f-b/y")],
+        topology,
+        &[],
+    )
 }
 
 /// The inputs of every map built by tests 33 to 46.

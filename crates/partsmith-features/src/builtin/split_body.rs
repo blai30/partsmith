@@ -17,10 +17,10 @@ use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FieldRef};
 use crate::feature::Feature;
-use crate::modified_sources;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements, VOLUME_TOLERANCE};
 use crate::params::{PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
+use crate::{direct_sources, modified_sources};
 
 /// Cuts a body in two with a plane.
 #[derive(Clone, Copy, Debug, Default)]
@@ -219,7 +219,8 @@ fn name_pieces(
             })
         })
         .collect();
-    Ok(name_on_body(feature, &pieces.result.shape, faces, input)?.naming)
+    let direct = direct_sources(&pieces.result, &[input])?;
+    Ok(name_on_body(feature, &pieces.result.shape, faces, direct, input)?.naming)
 }
 
 /// The update giving `body` these solids of the split `result`: one solid as it is, several as

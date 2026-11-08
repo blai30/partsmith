@@ -19,7 +19,8 @@ use common::{ContextFixture, Probe, ScriptNames, Slab, built_body, id, record, s
 use partsmith_features::{BodyState, Registry, describe_elements, name_shape};
 use partsmith_model::{FieldUnit, Units};
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Fingerprint, Motion, NamingMap, Successions,
+    DirectSources, ElementKind, ElementName, FaceSource, Fingerprint, Motion, NamingMap,
+    Successions,
 };
 use partsmith_occt_sys::{
     Interrupt, Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder,
@@ -259,6 +260,7 @@ fn named_plate() -> (Shape, Arc<NamingMap>) {
     let naming = name_shape(
         &plate,
         faces,
+        DirectSources::default(),
         &[],
         &Successions::default(),
         &Motion::IDENTITY,

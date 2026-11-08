@@ -19,7 +19,7 @@ use super::common::{bodies, check_canceled, face_name, name_on_body, unchanged};
 use crate::params::angle_between;
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
-    IgnoredReason, Limit, Measurements, Named, NoEffectHow, too_large_search,
+    IgnoredReason, Limit, Measurements, Named, NoEffectHow, direct_sources, too_large_search,
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
@@ -431,7 +431,13 @@ fn name_blend(
             new_face(feature, roles::FACE, None)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_on_body(feature, &result.shape, faces, input)
+    name_on_body(
+        feature,
+        &result.shape,
+        faces,
+        direct_sources(result, &[input])?,
+        input,
+    )
 }
 
 /// The output of a dress-up feature that changed `body` into `shape` named by `named`, with the
