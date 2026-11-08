@@ -1,8 +1,10 @@
 //! Cache keys (recompute.md section 3.4): the exact hashed byte sequence and its consequences,
 //! checked over test-only features. Recompute tests 6 to 16 and 35 check keys on the built-in
-//! features (`runs_and_cache.rs`).
+//! features (`runs_and_cache.rs`). Test 80 (a missing asset changes the keys, item 9) runs the
+//! built-in import and move_body here, with the fixtures of `feature_support::import`.
 
 use crate::common;
+use crate::feature_support;
 
 use std::sync::Arc;
 
@@ -11,6 +13,8 @@ use common::{
     keys, load, owned, parameter, parameter_record, record, step, suppressed, test_block,
     test_datum, test_datum_on, test_node, test_probe, upstream, with_action,
 };
+use feature_support::Run;
+use feature_support::import::{assets, block_bytes, import_record};
 use partsmith_model::Quantity;
 use partsmith_recompute::{CacheKey, Plan};
 use proptest::prelude::*;
@@ -400,6 +404,84 @@ fn different_asset_names_give_different_keys() {
     );
 
     assert_ne!(first, second);
+}
+
+#[test]
+fn key_ends_with_the_asset_item_of_an_asset_the_input_holds() {
+    let mut harness = Harness::test_features();
+    harness
+        .assets
+        .insert("a.step".to_string(), Arc::from(&b"abcd"[..]));
+    let document = document_json(
+        json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "a.step"}]}),
+    );
+
+    let key = run_key(&mut harness, &document, "f-a1");
+
+    let mut items = header("test_asset", "f-a1");
+    items.push(r#"params {"asset":"a.step"}"#.to_string());
+    items.push("asset a.step present".to_string());
+    assert_eq!(key.0, hash(&items));
+}
+
+#[test]
+fn key_writes_missing_for_an_asset_the_input_lacks() {
+    let mut harness = Harness::test_features();
+    let document = document_json(
+        json!({"features": [{"id": "f-a1", "type": "test_asset", "asset": "a.step"}]}),
+    );
+
+    let key = run_key(&mut harness, &document, "f-a1");
+
+    let mut items = header("test_asset", "f-a1");
+    items.push(r#"params {"asset":"a.step"}"#.to_string());
+    items.push("asset a.step missing".to_string());
+    assert_eq!(key.0, hash(&items));
+}
+
+#[test]
+fn an_asset_that_arrives_is_built_and_not_reused() {
+    let mut harness = Harness::test_features();
+    let document = document(json!({
+        "features": [{"id": "f-a1", "type": "test_asset", "asset": "a.step"}]
+    }));
+    let missing = harness.run(&document);
+    assert_eq!(error_code(&missing, "f-a1"), "asset_missing");
+
+    harness
+        .assets
+        .insert("a.step".to_string(), Arc::from(&b"abcd"[..]));
+    let plan = harness.plan(&document);
+    let present = harness.run(&document);
+
+    assert!(with_action(&plan, "reuse").is_empty(), "nothing is reused");
+    assert_ne!(key(&missing, "f-a1"), key(&present, "f-a1"));
+    assert_eq!(datum_height(&present, "f-a1"), 4.0);
+}
+
+#[test]
+fn t080_a_missing_asset_changes_the_keys() {
+    let move_body =
+        r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["5", "0", "0"]}"#;
+    let mut run = Run::new(feature_support::document(
+        &["b-1"],
+        &[&import_record("new"), move_body],
+    ));
+    run.assert_error("f-imp1", "asset_missing");
+    let missing_keys = [run.feature("f-imp1").key, run.feature("f-mv1").key];
+
+    run.rerun(&assets(block_bytes()));
+
+    for (feature, missing_key) in ["f-imp1", "f-mv1"].into_iter().zip(missing_keys) {
+        let report = run.feature(feature);
+        assert_ne!(report.key, missing_key, "{feature} has another key");
+        assert!(
+            !report.timing.from_cache,
+            "{feature} is built again, not taken from the cache"
+        );
+    }
+    run.assert_all_ok();
+    feature_support::assert_bounding_box(run.shape("b-1"), [5.0, 0.0, 0.0], [15.0, 20.0, 30.0]);
 }
 
 #[test]

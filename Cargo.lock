@@ -2510,6 +2510,7 @@ dependencies = [
  "partsmith-features",
  "partsmith-io",
  "partsmith-mesh",
+ "partsmith-message-lint",
  "partsmith-model",
  "partsmith-naming",
  "partsmith-occt-sys",

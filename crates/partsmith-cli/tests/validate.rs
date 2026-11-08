@@ -296,3 +296,76 @@ fn t018_validate_rebuild_reports_feature_errors() {
     );
     loaded.assert_code(0);
 }
+
+// Assets (cli.md section 6, tests 86 and 87, ADR 0064).
+
+/// The asset name of `examples/import/step-block.ptsm`.
+const STEP_BLOCK_ASSET: &str =
+    "b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step";
+
+/// The words of `asset_mismatch` for the STEP file of `step-block.ptsm` (engine.md section 4).
+const STEP_BLOCK_MISMATCH: &str = "The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.";
+
+/// The folder `step-block` of cli.md section 6: a copy of `examples/import/step-block.ptsm` and an `assets/` folder
+/// whose file under the document's asset name holds the bytes `hello`.
+fn step_block_with_a_wrong_asset() -> Workspace {
+    let workspace = Workspace::new();
+    let document = common::repository_root().join("examples/import/step-block.ptsm");
+    workspace.write(
+        "step-block.ptsm",
+        fs::read(&document).expect("the step-block example is readable"),
+    );
+    workspace.write(&format!("assets/{STEP_BLOCK_ASSET}"), "hello");
+    workspace
+}
+
+/// The 64 hex digits of the asset's name.
+fn asset_hash() -> &'static str {
+    STEP_BLOCK_ASSET
+        .strip_suffix(".step")
+        .expect("the asset name ends in .step")
+}
+
+#[test]
+fn t086_validate_words_a_wrong_asset_by_the_feature_that_reads_it() {
+    let workspace = step_block_with_a_wrong_asset();
+
+    let run = workspace.run(&["validate", "step-block.ptsm"]);
+
+    run.assert_code(1);
+    let expected = format!(
+        "step-block.ptsm: error[asset_mismatch] at /features/0/asset: {STEP_BLOCK_MISMATCH}"
+    );
+    assert!(
+        run.stdout_lines().contains(&expected.as_str()),
+        "standard output has no line {expected:?}\n--- standard output ---\n{}",
+        run.stdout
+    );
+    for line in run.stdout_lines().into_iter().chain(run.stderr_lines()) {
+        assert!(
+            !line.contains(asset_hash()),
+            "a line holds the asset's hash: {line:?}"
+        );
+    }
+}
+
+#[test]
+fn t087_rebuild_words_a_wrong_asset_by_the_feature_that_reads_it() {
+    let workspace = step_block_with_a_wrong_asset();
+
+    let run = workspace.run(&["rebuild", "step-block.ptsm"]);
+
+    run.assert_code(1);
+    let expected = format!("step-block.ptsm: error[asset_mismatch]: {STEP_BLOCK_MISMATCH}");
+    let lines: Vec<&str> = run
+        .stdout_lines()
+        .into_iter()
+        .chain(run.stderr_lines())
+        .collect();
+    assert!(
+        lines.contains(&expected.as_str()),
+        "no line {expected:?}\n--- standard output ---\n{}\n--- standard error ---\n{}",
+        run.stdout,
+        run.stderr
+    );
+}

@@ -173,8 +173,38 @@ const CASES: readonly Case[] = [
   ],
   [
     'assets_mismatch',
-    () => MESSAGES.assets_mismatch('block.ptsm'),
-    'Some files in the assets folder next to block.ptsm are not the files it imported, so Partsmith opened it without them and its imported geometry is missing.',
+    () => MESSAGES.assets_mismatch('Import 1', 'block.ptsm'),
+    "The geometry of 'Import 1' is missing, because the assets folder next to block.ptsm holds another file in place of the one it uses. Copy the assets folder that came with block.ptsm next to it.",
+  ],
+  [
+    'assets_mismatch_more',
+    () => MESSAGES.assets_mismatch_more('Import 1', 2, 'two-imports.ptsm'),
+    "The geometry of 'Import 1' and 2 other features is missing, because the assets folder next to two-imports.ptsm holds other files in place of the ones they use. Copy the assets folder that came with two-imports.ptsm next to it.",
+  ],
+  [
+    'assets_stopped',
+    () => MESSAGES.assets_stopped('block.ptsm'),
+    'The geometry that block.ptsm reads from its assets folder is still missing, because the geometry core stopped before it took the files. Choose the folder again.',
+  ],
+  [
+    'asset_not_step',
+    () => MESSAGES.asset_not_step('notes.txt'),
+    'notes.txt is not a STEP file. Partsmith imports .step and .stp files.',
+  ],
+  [
+    'asset_not_font',
+    () => MESSAGES.asset_not_font('part.step'),
+    'part.step is not a font file. Partsmith uses .ttf and .otf fonts.',
+  ],
+  [
+    'asset_add_failed',
+    () => MESSAGES.asset_add_failed('part.STEP', 'The document is broken.'),
+    'Could not add part.STEP. The document is broken.',
+  ],
+  [
+    'asset_add_stopped',
+    () => MESSAGES.asset_add_stopped('part.STEP'),
+    'part.STEP was not added, because the geometry core stopped before adding it. Add it again.',
   ],
   [
     'stashed',
@@ -541,7 +571,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(128)
+    expect(CASES).toHaveLength(134)
   })
 
   it.each([
@@ -556,6 +586,28 @@ describe('MESSAGES', () => {
     for (const pattern of MESSAGE_LINT) {
       expect(text).not.toMatch(pattern)
     }
+  })
+
+  it.each([
+    'assets_mismatch',
+    'assets_mismatch_more',
+    'assets_stopped',
+    'asset_not_step',
+    'asset_not_font',
+    'asset_add_failed',
+    'asset_add_stopped',
+  ])('U-279 %s passes the message lint of the error guidelines', (id) => {
+    const text = CASES.find(([caseId]) => caseId === id)?.[2]
+    expect(text).toBeDefined()
+    for (const pattern of MESSAGE_LINT) {
+      expect(text).not.toMatch(pattern)
+    }
+  })
+
+  it('U-279 assets_mismatch_more counts one other feature in the singular', () => {
+    expect(MESSAGES.assets_mismatch_more('Import 1', 1, 'two-imports.ptsm')).toBe(
+      "The geometry of 'Import 1' and 1 other feature is missing, because the assets folder next to two-imports.ptsm holds other files in place of the ones they use. Copy the assets folder that came with two-imports.ptsm next to it.",
+    )
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {

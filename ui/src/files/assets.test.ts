@@ -1,52 +1,68 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { assetName } from '../test/fakes/assets'
-import { ASSET_NAME, referencedAssetNames } from './assets'
+import * as assets from './assets'
+import { assetKindOf } from './assets'
 
-// The asset names a document's text references, which Open reads from its assets folder (ui.md
-// 2.15, 3.19 step 3, ADR 0037 decision 2).
+// The asset kinds of file names (ui.md 2.15, since M2) and the check that no module reads `.ptsm`
+// text (U-276, m2-plan.md gate 13, ADR 0064). U-217 retired with `referencedAssetNames`.
 
-const A = assetName('a')
-const B = assetName('b')
+/** The folder `ui/src`. */
+const SOURCE = fileURLToPath(new URL('..', import.meta.url))
 
-describe('referencedAssetNames (2.15)', () => {
-  it('U-217 collects each asset name among the string values once, sorted', () => {
-    const text = JSON.stringify({
-      features: [{ asset: B }, { asset: A, name: A }],
-      [A]: 1,
-      list: [`${'a'.repeat(64)}.STEP`, 'x.step', `${'a'.repeat(63)}.step`, 7],
-    })
-    expect(referencedAssetNames(text)).toEqual([A, B])
+/** Every `.ts` and `.tsx` file under `folder`, as paths relative to `ui/src` with `/` separators. */
+function sourceFiles(folder: string): readonly string[] {
+  return readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(folder, entry.name)
+    if (entry.isDirectory()) {
+      return sourceFiles(path)
+    }
+    return /\.tsx?$/.test(entry.name) ? [relative(SOURCE, path).replaceAll('\\', '/')] : []
+  })
+}
+
+/** Whether a source file is a test file or part of the test support, which U-276 leaves out. */
+function isTestCode(path: string): boolean {
+  return /\.test\.tsx?$/.test(path) || path.startsWith('test/')
+}
+
+describe('no module parses .ptsm text (since M2)', () => {
+  it('U-276 only the frame codec and the settings store call JSON.parse', () => {
+    const parsers = sourceFiles(SOURCE)
+      .filter((path) => !isTestCode(path))
+      .filter((path) => readFileSync(join(SOURCE, path), 'utf8').includes('JSON.parse'))
+
+    expect(parsers.toSorted()).toEqual(['core/frame.ts', 'settings/settings.ts'])
   })
 
-  it('U-217 a text that is not JSON names no asset', () => {
-    expect(referencedAssetNames('not json')).toEqual([])
+  it('U-276 assets.ts exports neither ASSET_NAME nor referencedAssetNames', () => {
+    expect(Object.keys(assets)).not.toContain('ASSET_NAME')
+    expect(Object.keys(assets)).not.toContain('referencedAssetNames')
   })
 
-  it('U-217 an object key that is an asset name is not a value', () => {
-    expect(referencedAssetNames(JSON.stringify({ [A]: { [B]: true } }))).toEqual([])
-  })
+  it('the walk finds the modules it checks', () => {
+    const files = sourceFiles(SOURCE)
 
-  it('finds names at any depth and in the nested lists of a document', () => {
-    const text = JSON.stringify({ a: { b: [[{ c: A }]] }, d: [B, B] })
-    expect(referencedAssetNames(text)).toEqual([A, B])
-  })
-
-  it('a JSON text that is a single string names that asset', () => {
-    expect(referencedAssetNames(JSON.stringify(A))).toEqual([A])
+    expect(files).toContain('core/frame.ts')
+    expect(files).toContain('files/assets.ts')
+    expect(files).toContain('files/assets.test.ts')
   })
 })
 
-describe('ASSET_NAME (2.15)', () => {
-  it('U-217 matches an asset name and not one followed by a line feed', () => {
-    expect(ASSET_NAME.test(A)).toBe(true)
-    expect(ASSET_NAME.test(`${A}\n`)).toBe(false)
+describe('assetKindOf (since M2, 2.15)', () => {
+  it.each([
+    ['a.step', 'step'],
+    ['a.STEP', 'step'],
+    ['a.stp', 'step'],
+    [`${'c'.repeat(64)}.ttf`, 'ttf'],
+    ['font.TTF', 'ttf'],
+    ['font.otf', 'otf'],
+  ])('U-277 %s is a %s file', (name, kind) => {
+    expect(assetKindOf(name)).toBe(kind)
   })
 
-  it('is the pattern of python-api.md 3.1: 64 lowercase hex digits, a dot, a lowercase extension', () => {
-    expect(ASSET_NAME.source).toBe('^[0-9a-f]{64}\\.[a-z0-9]+$')
-    expect(ASSET_NAME.test(`${'0'.repeat(64)}.3mf`)).toBe(true)
-    expect(ASSET_NAME.test(`${'0'.repeat(64)}.`)).toBe(false)
-    expect(ASSET_NAME.test(`${'0'.repeat(63)}A.step`)).toBe(false)
-    expect(ASSET_NAME.test(`../${A}`)).toBe(false)
+  it.each(['a.woff2', 'a.ptsm', 'step', 'a.step.txt'])('U-277 %s has no asset kind', (name) => {
+    expect(assetKindOf(name)).toBeNull()
   })
 })

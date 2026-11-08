@@ -51,6 +51,48 @@ describe('createDesktopFileService', () => {
     expect(invocations[1]?.payload).toEqual({ grant: 'g1' })
   })
 
+  it('desktop test 83: pickToOpen picks a font by its kind and reads it through its grant', async () => {
+    const glyphs = new TextEncoder().encode('glyphs')
+    const { service, invocations } = serviceAnswering({
+      pick_open_file: [resolves({ name: 'logo.ttf', grant: 'g2' })],
+      read_file: [resolves(arrayBufferOf(glyphs))],
+    })
+
+    const opened = await service.pickToOpen('font')
+
+    expect(opened).toEqual({
+      name: 'logo.ttf',
+      bytes: glyphs,
+      handle: { kind: 'desktop', name: 'logo.ttf', grant: 'g2' },
+    })
+    expect(invocations.map(({ command, payload }) => [command, payload])).toEqual([
+      ['pick_open_file', { kind: 'font' }],
+      ['read_file', { grant: 'g2' }],
+    ])
+  })
+
+  it('desktop test 83: pickToOpen of a STEP file names its kind', async () => {
+    const { service, invocations } = serviceAnswering({ pick_open_file: [resolves(null)] })
+
+    await service.pickToOpen('step')
+
+    expect(invocations.map(({ command, payload }) => [command, payload])).toEqual([
+      ['pick_open_file', { kind: 'step' }],
+    ])
+  })
+
+  it('desktop test 83: pickToOpen of a Partsmith model sends no kind', async () => {
+    for (const kind of [undefined, 'ptsm'] as const) {
+      const { service, invocations } = serviceAnswering({ pick_open_file: [resolves(null)] })
+
+      await service.pickToOpen(kind)
+
+      expect(invocations).toHaveLength(1)
+      expect(invocations[0]?.command).toBe('pick_open_file')
+      expect(invocations[0]?.payload).toBeUndefined()
+    }
+  })
+
   it('desktop test 37: pickToOpen resolves null when the user cancels, without reading', async () => {
     const { service, invocations } = serviceAnswering({ pick_open_file: [resolves(null)] })
 

@@ -94,8 +94,11 @@ pub fn error_info(frame: &ResponseFrame) -> &ErrorInfo {
 /// One question the host asked through the native dialogs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogCall {
-    /// `Dialogs::pick_open`.
-    Open,
+    /// `Dialogs::pick_open` with the kind it asks for.
+    Open {
+        /// The file kind of the filter.
+        kind: FileKind,
+    },
     /// `Dialogs::pick_save` with its arguments.
     Save {
         /// The proposed file name.
@@ -144,8 +147,8 @@ impl FakeDialogs {
 }
 
 impl Dialogs for FakeDialogs {
-    fn pick_open(&self) -> Option<PathBuf> {
-        self.calls.borrow_mut().push(DialogCall::Open);
+    fn pick_open(&self, kind: FileKind) -> Option<PathBuf> {
+        self.calls.borrow_mut().push(DialogCall::Open { kind });
         self.next_answer()
     }
 
@@ -166,7 +169,7 @@ pub fn path_text(path: &Path) -> &str {
 /// Grants `path` as if the user had chosen it in the open dialog.
 pub fn grant_by_open(files: &Files, path: &Path) -> Granted {
     files
-        .pick_open(&FakeDialogs::choosing(path))
+        .pick_open(&FakeDialogs::choosing(path), FileKind::Ptsm)
         .expect("picking a valid UTF-8 path succeeds")
         .expect("the fake dialog chose a path")
 }

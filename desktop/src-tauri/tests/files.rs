@@ -1,4 +1,4 @@
-//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32, 51, 52 and 72, and the Windows tests 68 and 70), with a fake for the native dialogs.
+//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32, 51, 52, 72 and 79 to 81, and the Windows tests 68 and 70), with a fake for the native dialogs.
 
 use crate::common;
 
@@ -59,7 +59,7 @@ fn t014_canceling_the_open_dialog_grants_nothing_and_creates_no_store() {
     let store = store_path(folder.path());
     let files = Files::load(store.clone());
 
-    let picked = files.pick_open(&FakeDialogs::canceling());
+    let picked = files.pick_open(&FakeDialogs::canceling(), FileKind::Ptsm);
 
     assert_eq!(picked, Ok(None));
     assert!(!store.exists(), "a cancel saves no grant store");
@@ -71,7 +71,7 @@ fn t015_a_picked_file_is_granted_by_name_and_readable() {
     let path = file_with(folder.path(), "part.ptsm", b"hello");
     let files = Files::load(store_path(folder.path()));
 
-    let picked = files.pick_open(&FakeDialogs::choosing(&path));
+    let picked = files.pick_open(&FakeDialogs::choosing(&path), FileKind::Ptsm);
 
     let expected = Granted {
         name: "part.ptsm".to_owned(),
@@ -431,9 +431,9 @@ fn pick_open_asks_the_open_dialog_once() {
     let files = Files::in_memory();
     let dialogs = FakeDialogs::canceling();
 
-    files.pick_open(&dialogs).expect("a cancel is not an error");
+    files.pick_open(&dialogs, FileKind::Ptsm).expect("a cancel is not an error");
 
-    assert_eq!(dialogs.calls(), vec![DialogCall::Open]);
+    assert_eq!(dialogs.calls(), vec![DialogCall::Open { kind: FileKind::Ptsm }]);
 }
 
 #[test]
@@ -460,7 +460,7 @@ fn t023_a_chosen_path_that_is_not_valid_unicode_fails_with_not_unicode() {
         .join(OsStr::from_bytes(&[0xff, 0x2e, 0x70, 0x74, 0x73, 0x6d]));
     let files = Files::in_memory();
 
-    let picked = files.pick_open(&FakeDialogs::choosing(&path));
+    let picked = files.pick_open(&FakeDialogs::choosing(&path), FileKind::Ptsm);
 
     assert_eq!(picked, Err(FileError::NotUnicode));
 }
@@ -714,7 +714,7 @@ fn t028_a_store_that_cannot_be_saved_does_not_fail_the_pick_or_the_read() {
     let path = file_with(folder.path(), "part.ptsm", b"hello");
     let files = Files::load(not_a_folder.join("file-grants.json"));
 
-    let picked = files.pick_open(&FakeDialogs::choosing(&path));
+    let picked = files.pick_open(&FakeDialogs::choosing(&path), FileKind::Ptsm);
 
     let grant = picked
         .expect("the pick succeeds although the store cannot be saved")
@@ -851,6 +851,100 @@ fn t030_file_kinds_describe_their_dialog_filters_as_the_ui_does() {
         );
         assert_eq!(kind.extensions(), extensions, "the extensions of {kind:?}");
     }
+}
+
+// Font files and font assets (desktop.md section 6, tests 79 to 81, ADR 0037's amendment of 2026-11-07 on font
+// assets, ADR 0064).
+
+/// `F` of desktop.md section 6 with `extension`: the BLAKE3 hash of `font` followed by `.ttf` or `.otf`.
+fn font_name(extension: &str) -> String {
+    format!("{}.{extension}", blake3::hash(b"font").to_hex())
+}
+
+#[test]
+fn t079_the_font_kind_is_a_ttf_or_otf_file() {
+    assert_eq!(
+        serde_json::from_value::<FileKind>(json!("font")).ok(),
+        Some(FileKind::Font)
+    );
+    assert_eq!(FileKind::Font.description(), "Font");
+    assert_eq!(FileKind::Font.extensions(), ["ttf", "otf"]);
+    for name in ["Font", "woff"] {
+        assert!(
+            serde_json::from_value::<FileKind>(json!(name)).is_err(),
+            "{name} is not a file kind"
+        );
+    }
+}
+
+#[test]
+fn t080_pick_open_hands_its_kind_to_the_dialog() {
+    let folder = temporary_folder();
+    let path = file_with(folder.path(), "logo.ttf", b"glyphs");
+    let files = Files::in_memory();
+    let dialogs = FakeDialogs::choosing(&path);
+
+    let picked = files.pick_open(&dialogs, FileKind::Font);
+
+    assert_eq!(
+        dialogs.calls(),
+        vec![DialogCall::Open {
+            kind: FileKind::Font
+        }]
+    );
+    let grant = grant_of(path_text(&path));
+    assert_eq!(
+        picked,
+        Ok(Some(Granted {
+            name: "logo.ttf".to_owned(),
+            grant: grant.clone(),
+        }))
+    );
+    assert_eq!(files.read(&grant), Ok(b"glyphs".to_vec()));
+    assert_eq!(
+        files.read_asset(&grant, &font_name("ttf")),
+        Err(FileError::UnknownGrant)
+    );
+}
+
+#[test]
+fn t081_font_assets_next_to_a_document() {
+    let folder = temporary_folder();
+    let document = file_with(folder.path(), "part.ptsm", b"{}");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &document).grant;
+
+    for extension in ["ttf", "otf"] {
+        let name = font_name(extension);
+        assert_eq!(files.write_asset(&grant, &name, b"font"), Ok(()), "{name}");
+        assert_eq!(
+            fs::read(folder.path().join("assets").join(&name)).expect("the asset was written"),
+            b"font"
+        );
+        assert_eq!(files.read_asset(&grant, &name), Ok(b"font".to_vec()));
+    }
+}
+
+#[test]
+fn t081_a_font_whose_bytes_are_not_its_name_is_refused() {
+    let folder = temporary_folder();
+    let document = file_with(folder.path(), "part.ptsm", b"{}");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &document).grant;
+    let name = font_name("ttf");
+
+    let written = files.write_asset(&grant, &name, b"other");
+
+    assert_eq!(written, Err(FileError::AssetMismatch { name: name.clone() }));
+    assert!(
+        !folder.path().join("assets").join(&name).exists(),
+        "nothing is written"
+    );
+    let woff2 = format!("{}.woff2", "0".repeat(64));
+    assert_eq!(
+        files.read_asset(&grant, &woff2),
+        Err(FileError::NotAnAssetName { name: woff2.clone() })
+    );
 }
 
 #[test]

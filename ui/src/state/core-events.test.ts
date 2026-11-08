@@ -3,7 +3,12 @@ import type { BodyMeshData, CoreEvent } from '../core/events'
 import type { Document } from '../generated/protocol'
 import { CUBE_DOCUMENT, CUBE_SKETCH_SOLUTION, emptyDocument } from '../test/fakes/documents'
 import { checkResult, documentStateFor, finding, printReport } from '../test/fakes/state'
-import { adoptDocument, applyCoreEvent, releaseDocuments } from './core-events'
+import {
+  adoptDocument,
+  applyCoreEvent,
+  pendingMissingAssets,
+  releaseDocuments,
+} from './core-events'
 import { createAppStore, type AppStore } from './store'
 
 const DETAILS = { name: 'cube', file: null, localUnsaved: false } as const
@@ -40,6 +45,7 @@ function documentChanged(
     transactionOpen: false,
     transaction: null,
     focus: null,
+    missingAssets: [],
     bareNumbers,
   }
 }
@@ -315,5 +321,44 @@ describe('ps:apply-events (2.18)', () => {
     releaseDocuments(store)
     applyCoreEvent(store, recomputed(4))
     expect(applyMeasures()).toHaveLength(0)
+  })
+})
+
+describe('missing assets (since M2, 2.8, ADR 0064)', () => {
+  const A = `${'a'.repeat(64)}.step`
+  const MISSING = [{ name: A, features: ['f-imp1'] }]
+
+  /** A document_changed of handle `handle` at revision 0 that reports `A` missing. */
+  function missingA(handle: number): CoreEvent {
+    return { ...documentChanged(0, CUBE_DOCUMENT, handle), missingAssets: MISSING }
+  }
+
+  it('U-278 a document no action has adopted yet reports its missing assets', () => {
+    const store = createAppStore()
+
+    applyCoreEvent(store, missingA(1))
+
+    expect(pendingMissingAssets(store, 1)).toEqual(MISSING)
+    expect(pendingMissingAssets(store, 2)).toEqual([])
+  })
+
+  it('U-278 the shown document keeps them as DocumentState.missingAssets', () => {
+    const store = shownCube()
+
+    applyCoreEvent(store, missingA(1))
+
+    expect(store.getState().document?.missingAssets).toEqual(MISSING)
+    expect(pendingMissingAssets(store, 1)).toEqual(MISSING)
+    expect(pendingMissingAssets(store, 2)).toEqual([])
+  })
+
+  it('a later document_changed without missing assets clears them', () => {
+    const store = shownCube()
+    applyCoreEvent(store, missingA(1))
+
+    applyCoreEvent(store, documentChanged(4))
+
+    expect(store.getState().document?.missingAssets).toEqual([])
+    expect(pendingMissingAssets(store, 1)).toEqual([])
   })
 })

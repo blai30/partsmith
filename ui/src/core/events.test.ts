@@ -129,6 +129,7 @@ describe('decodeEvent', () => {
       transaction_open: true,
       transaction: 'Fillet',
       focus: 'f-fil1',
+      missing_assets: [],
       bare_numbers: 4,
     })
     expect(decodeEvent(event, buffers)).toEqual({
@@ -142,7 +143,26 @@ describe('decodeEvent', () => {
       transactionOpen: true,
       transaction: 'Fillet',
       focus: 'f-fil1',
+      missingAssets: [],
       bareNumbers: 4,
+    })
+  })
+
+  it('U-278 document_changed maps missing_assets as missingAssets', () => {
+    const missing = [{ name: `${'a'.repeat(64)}.step`, features: ['f-imp1'] }]
+    const { event, buffers } = received({
+      type: 'document_changed',
+      doc: 1,
+      revision: 0,
+      document: emptyDocument('mm'),
+      dirty: false,
+      transaction_open: false,
+      missing_assets: missing,
+      bare_numbers: 0,
+    })
+    expect(decodeEvent(event, buffers)).toMatchObject({
+      type: 'document_changed',
+      missingAssets: missing,
     })
   })
 

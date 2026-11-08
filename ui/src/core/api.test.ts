@@ -663,3 +663,51 @@ describe('asset plumbing (2.6, 3.19)', () => {
     expect(assetValues(saved.assets)).toEqual([{ name: ASSET_A.name, bytes: [1, 2, 3] }])
   })
 })
+
+describe('addAssets (since M2, 2.6, ADR 0064)', () => {
+  const C = `${'c'.repeat(64)}.ttf`
+
+  it('U-278 sends add_assets with each entry kind, buffer index and name, leaving out a null name', async () => {
+    const { transport, frames } = recordingTransport((id) =>
+      responseFrame({
+        id,
+        result: {
+          type: 'add_assets',
+          assets: [
+            { name: ASSET_A.name, stored: true },
+            { name: C, stored: false },
+          ],
+        },
+      }),
+    )
+    const api = createCoreApi(createCoreClient(transport))
+
+    const added = await api.addAssets(1, [
+      { kind: 'step', bytes: Uint8Array.of(1, 2, 3), name: ASSET_A.name },
+      { kind: 'ttf', bytes: Uint8Array.of(4, 5), name: null },
+    ])
+
+    const [frame] = frames
+    if (frame === undefined) {
+      throw new Error('addAssets sent no frame.')
+    }
+    const { request, buffers } = readRequestFrame(frame)
+    expect(request.command).toEqual({
+      type: 'add_assets',
+      doc: 1,
+      assets: [
+        { kind: 'step', data: 0, name: ASSET_A.name },
+        { kind: 'ttf', data: 1 },
+      ],
+    })
+    expect(buffers.map((buffer) => buffer instanceof Uint8Array)).toEqual([true, true])
+    expect(buffers.map((buffer) => Array.from(buffer))).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ])
+    expect(added).toEqual([
+      { name: ASSET_A.name, stored: true },
+      { name: C, stored: false },
+    ])
+  })
+})

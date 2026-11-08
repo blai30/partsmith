@@ -46,6 +46,7 @@ function documentChanged(doc: number, revision: number, document: Document): Pro
     document,
     dirty: true,
     transaction_open: false,
+    missing_assets: [],
     bare_numbers: 0,
   }
 }
@@ -71,6 +72,7 @@ async function deliverChange(fake: FakeApp, change: Change): Promise<void> {
     dirty: change.dirty,
     transaction_open: change.transactionOpen,
     transaction: change.transactionOpen ? 'Box' : null,
+    missing_assets: [],
     bare_numbers: 0,
   }
   fake.transport.handle('evaluate', (command, core) => ({

@@ -61,6 +61,7 @@ export function documentStateFor(
     localUnsaved: false,
     recoveryId: 'session-1',
     assets: [],
+    missingAssets: [],
     undoLabel: null,
     redoLabel: null,
     transactionOpen: false,

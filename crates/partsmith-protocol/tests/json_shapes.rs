@@ -166,7 +166,7 @@ fn t033_absent_option_is_omitted_and_empty_vec_is_written() {
 }
 
 #[test]
-fn t034_command_types_are_exactly_the_commands_built_so_far() {
+fn t034_command_types_are_exactly_the_commands_of_section_2_5() {
     // Every listed type has a request that deserializes and serializes back with that type.
     let commands = all_commands();
     for command_type in COMMAND_TYPES {

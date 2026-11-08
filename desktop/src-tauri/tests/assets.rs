@@ -1,4 +1,4 @@
-//! Acceptance tests for the assets next to a granted document (desktop.md section 6, tests 54 to 62 and 69, ADR 0037): `read_asset` and `write_asset` reach only the asset-named entries of `assets/` in the folder of a granted `.ptsm` path, check the bytes against the name, run the entry check of file-format.md 3.11 and follow no link.
+//! Acceptance tests for the assets next to a granted document (desktop.md section 6, tests 54 to 62 and 69, ADR 0037 and its amendment of 2026-11-07 on font assets): `read_asset` and `write_asset` reach only the asset-named entries of `assets/` in the folder of a granted `.ptsm` path, check the bytes against the name, run the entry check of file-format.md 3.11 and follow no link.
 
 use crate::common;
 
@@ -78,14 +78,16 @@ fn export_grant(files: &Files, folder: &Path) -> String {
 }
 
 #[test]
-fn t054_asset_extensions_are_the_step_files_the_engine_names() {
-    assert_eq!(ASSET_EXTENSIONS, ["step"]);
+fn t054_asset_extensions_are_the_step_and_font_files_the_engine_names() {
+    assert_eq!(ASSET_EXTENSIONS, ["step", "ttf", "otf"]);
 }
 
 #[test]
 fn t054_is_asset_name_accepts_64_lowercase_hex_digits_and_an_asset_extension() {
     assert!(is_asset_name(&solid_name()));
-    assert!(is_asset_name(&zeros_name("step")));
+    for extension in ["step", "ttf", "otf"] {
+        assert!(is_asset_name(&zeros_name(extension)), "{extension}");
+    }
 }
 
 #[test]
@@ -100,6 +102,9 @@ fn t054_is_asset_name_rejects_everything_else() {
         format!("{}.", "0".repeat(64)),
         "0".repeat(64),
         zeros_name("STEP"),
+        zeros_name("TTF"),
+        zeros_name("woff"),
+        zeros_name("woff2"),
         format!("{solid}.tmp"),
         format!(".{solid}"),
         format!("/{solid}"),

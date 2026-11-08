@@ -1,6 +1,8 @@
 import type { BufferView } from '../../core/frame'
 import {
   PROTOCOL_VERSION,
+  type AddedAsset,
+  type AssetUse,
   type BoundingBox,
   type CatalogEntry,
   type Command,
@@ -36,7 +38,8 @@ import { meshParts, responseFrame, type ErrorReply } from './protocol'
 
 // An in-memory engine that answers protocol commands the way engine.md describes, closely enough for
 // UI tests: documents with revisions, labeled edits, transactions with a focus, undo and redo, the dirty
-// baseline of save and mark_saved, the assets open_document supplies (engine.md 3.14), and the events
+// baseline of save and mark_saved, the assets open_document supplies and add_assets adds (engine.md 3.14),
+// the missing assets every document_changed carries, and the events
 // every change emits. Geometry is not computed: a body has geometry when an active feature names it as
 // its `body` (an import only when the document holds its asset), and its mesh is a single triangle.
 
@@ -138,7 +141,8 @@ export type FakeCoreOptions = {
   readonly uses?: readonly Use[]
   /**
    * Asset names whose supplied bytes the core takes as not hashing to the name: an `open_document`
-   * that supplies one that a feature references fails with `asset_mismatch` (engine.md 3.14).
+   * that supplies one that a feature references fails with `asset_mismatch`, and `add_assets` stores
+   * no named entry of one (`stored: false`, engine.md 3.14).
    */
   readonly mismatchedAssets?: readonly string[]
 }
@@ -157,7 +161,7 @@ export type FakeDocumentState = {
   readonly focus: string | null
   /** Model-layer mesh id by body id, for bodies with geometry. */
   readonly meshIds: Readonly<Record<string, number>>
-  /** The names of the assets `open_document` supplied, sorted. */
+  /** The names of the assets the core holds for the document (from `open_document` and `add_assets`), sorted. */
   readonly assets: readonly string[]
 }
 
@@ -187,8 +191,8 @@ type DocumentEntry = {
   transaction: { readonly label: string; readonly before: Document } | null
   focus: string | null
   meshIds: Record<string, number>
-  /** The asset files open_document supplied, by name. */
-  readonly assets: ReadonlyMap<string, Uint8Array>
+  /** The asset files open_document supplied and add_assets stored, by name. */
+  readonly assets: Map<string, Uint8Array>
 }
 
 class Rejection extends Error {
@@ -583,8 +587,24 @@ function documentChanged(entry: DocumentEntry): ProtocolEvent {
     transaction_open: entry.transaction !== null,
     ...(entry.transaction === null ? {} : { transaction: entry.transaction.label }),
     ...(entry.focus === null ? {} : { focus: entry.focus }),
+    missing_assets: missingAssets(entry),
     bare_numbers: bareNumbers(entry.recipe),
   }
+}
+
+/**
+ * The asset names the import records of the recipe read and the document does not hold, sorted, each with the ids of
+ * those records in timeline order (engine.md 3.14).
+ */
+function missingAssets(entry: DocumentEntry): AssetUse[] {
+  const readers = new Map<string, string[]>()
+  for (const feature of featuresOf(entry.recipe)) {
+    const asset = importedAsset(feature)
+    if (asset !== null && !entry.assets.has(asset)) {
+      readers.set(asset, [...(readers.get(asset) ?? []), feature.id])
+    }
+  }
+  return [...readers.keys()].toSorted().map((name) => ({ name, features: readers.get(name) ?? [] }))
 }
 
 function applyAll(recipe: Document, edits: readonly Edit[]): Document {
@@ -863,10 +883,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return { result, events, buffers }
   }
 
-  function open(
-    recipe: Document,
-    assets: ReadonlyMap<string, Uint8Array> = new Map(),
-  ): DocumentEntry {
+  function open(recipe: Document, assets = new Map<string, Uint8Array>()): DocumentEntry {
     const entry: DocumentEntry = {
       handle: nextHandle++,
       recipe,
@@ -1304,6 +1321,25 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
           },
           buffers: [Uint8Array.of(0x50, 0x4b, 0x03, 0x04)],
         }
+      }
+      case 'add_assets': {
+        const entry = entryFor(command.doc)
+        const read = new Set(featuresOf(entry.recipe).map(importedAsset))
+        let found = false
+        const added: AddedAsset[] = (command.assets ?? []).map(({ kind, data, name }) => {
+          // The stand-ins for BLAKE3: a named entry matches unless `mismatchedAssets` lists it, and an entry without a
+          // name is named by 64 `c` digits and its kind (ui.md 6.4).
+          const named = name ?? null
+          const assetName = named ?? `${'c'.repeat(64)}.${kind}`
+          const stored = named === null || !(options.mismatchedAssets ?? []).includes(named)
+          if (stored && !entry.assets.has(assetName)) {
+            entry.assets.set(assetName, assetBytes(buffers[data], assetName))
+            found ||= read.has(assetName)
+          }
+          return { name: assetName, stored }
+        })
+        const result: CommandResult = { type: 'add_assets', assets: added }
+        return found ? changed(entry, result) : { result, events: [], buffers: [] }
       }
       case 'rebuild': {
         // A rebuild changes nothing and sends no document_changed (engine.md 3.26).

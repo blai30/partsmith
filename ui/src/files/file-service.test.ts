@@ -194,6 +194,7 @@ describe('FILE_TYPES', () => {
       stl: { description: 'STL mesh', mediaType: 'model/stl', extensions: ['.stl'] },
       obj: { description: 'OBJ mesh', mediaType: 'model/obj', extensions: ['.obj'] },
       step: { description: 'STEP model', mediaType: 'model/step', extensions: ['.step', '.stp'] },
+      font: { description: 'Font', mediaType: 'font/sfnt', extensions: ['.ttf', '.otf'] },
     })
   })
 })
@@ -229,6 +230,17 @@ describe('web file service with the File System Access API', () => {
     await createWebFileService(window).pickToOpen()
     expect(open).toHaveBeenCalledWith({
       types: [PTSM_PICKER_TYPE],
+      excludeAcceptAllOption: false,
+      multiple: false,
+    })
+  })
+
+  it('U-284 pickToOpen of a font asks for one .ttf or .otf file and keeps the all-files option', async () => {
+    const open = vi.fn<() => Promise<FileSystemFileHandle[]>>(async () => [fakeHandle().handle])
+    provideFileSystemAccess(open, unusedPicker())
+    await createWebFileService(window).pickToOpen('font')
+    expect(open).toHaveBeenCalledWith({
+      types: [{ description: 'Font', accept: { 'font/sfnt': ['.ttf', '.otf'] } }],
       excludeAcceptAllOption: false,
       multiple: false,
     })
@@ -493,6 +505,22 @@ describe('web file service without the File System Access API', () => {
     expect(opened?.name).toBe('bracket.ptsm')
     expect(opened?.bytes).toEqual(BYTES)
     expect(opened?.handle).toBeNull()
+  })
+
+  it.each([
+    ['font', '.ttf,.otf'],
+    ['step', '.step,.stp'],
+    [undefined, '.ptsm'],
+  ] as const)('U-284 pickToOpen(%s) gives the file input the accept %s', async (kind, accept) => {
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined)
+    const opening = createWebFileService(window).pickToOpen(kind)
+    await vi.waitFor(() => {
+      expect(click).toHaveBeenCalledTimes(1)
+    })
+    const input = asInput(click.mock.contexts[0])
+    expect(input.accept).toBe(accept)
+    fireEvent.change(input, { target: { files: fileList([]) } })
+    await opening
   })
 
   it('pickToOpen resolves null when the input reports no file', async () => {

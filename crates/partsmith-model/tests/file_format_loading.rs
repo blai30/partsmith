@@ -440,3 +440,31 @@ fn t031_unregistered_feature_types_load() {
 
     assert_eq!(document.features[0].kind, "gear_demo");
 }
+
+/// E1 with one `text` feature whose `font` is the asset name `<64 a digits>.<extension>` (test 70).
+fn e1_with_font(extension: &str) -> (String, String) {
+    let font = format!("{}.{extension}", "a".repeat(64));
+    let text = e1_with_list(
+        "features",
+        &format!(r#"[{{"id": "f-txt1", "type": "text", "font": "{font}"}}]"#),
+    );
+    (text, font)
+}
+
+#[test]
+fn t070_the_model_takes_any_asset_kind() {
+    for extension in ["ttf", "otf"] {
+        let (text, font) = e1_with_font(extension);
+
+        let document = load_document(&text);
+
+        assert_eq!(document.features[0].params["font"], json!(font));
+        let canonical = partsmith_model::canonical::to_string(
+            &serde_json::to_value(&document).expect("a document serializes"),
+        );
+        assert!(
+            canonical.contains(&format!("\"font\": \"{font}\"")),
+            "{canonical}"
+        );
+    }
+}

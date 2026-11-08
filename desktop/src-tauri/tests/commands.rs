@@ -1,4 +1,4 @@
-//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13, 63, 77 and 78).
+//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13, 63, 77, 78 and 82).
 //!
 //! The app is `configure(tauri::test::mock_builder())` with `Arc<Files>` managed and the real configuration and capability compiled in by `tauri::generate_context!(test = true)`, so Tauri's mock runtime enforces the ACL as the app does (2.7). No window system is needed.
 
@@ -294,6 +294,23 @@ fn t013_the_dialog_plugin_commands_are_not_allowed_from_the_main_window() {
             "the ACL rejects {command}: {message}"
         );
     }
+}
+
+#[test]
+fn t082_a_wrong_kind_rejects_the_pick() {
+    let app = app();
+    let main = window(&app, "main");
+
+    // The arguments are read before the command runs, so a wrong kind shows no dialog.
+    let answer = invoke(
+        &main,
+        "pick_open_file",
+        InvokeBody::Json(json!({ "kind": "woff" })),
+        HeaderMap::new(),
+    );
+
+    let message = rejection_text(answer);
+    assert!(message.contains("kind"), "the rejection names the kind: {message}");
 }
 
 #[test]

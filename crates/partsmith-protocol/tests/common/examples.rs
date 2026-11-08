@@ -2,7 +2,7 @@
 //! The last group, `ENGINE_EXAMPLES`, holds engine-filled records: compact uses, causes, messages and repairs as the engine writes them (engine.md and the corpora), which are not spec examples of this crate.
 
 /// Every command type of section 2.5, in the order of test 34.
-pub const COMMAND_TYPES: [&str; 37] = [
+pub const COMMAND_TYPES: [&str; 38] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -40,6 +40,7 @@ pub const COMMAND_TYPES: [&str; 37] = [
     "attach_plane",
     "remove_printer_profile",
     "rebuild",
+    "add_assets",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -221,6 +222,19 @@ pub const REBUILD_REQUEST: &str = r#"{"type": "rebuild", "doc": 1}"#;
 /// The `rebuild` result example of section 2.5.
 pub const REBUILD_RESULT: &str = r#"{"type": "rebuild"}"#;
 
+/// The first `add_assets` request example of section 2.5 (command 38, ADR 0064): a file read from the assets folder.
+pub const ADD_ASSETS_REQUEST: &str = r#"{"type": "add_assets", "doc": 1, "assets": [{"kind": "step", "data": 0, "name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step"}]}"#;
+
+/// The first `add_assets` result example of section 2.5: the named file was stored.
+pub const ADD_ASSETS_RESULT: &str = r#"{"type": "add_assets", "assets": [{"name": "9f2c0e5b7a1d4e3f8a6b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f.step", "stored": true}]}"#;
+
+/// The second `add_assets` request example of section 2.5: a font the user picked, without a name.
+pub const ADD_PICKED_FONT_REQUEST: &str =
+    r#"{"type": "add_assets", "doc": 1, "assets": [{"kind": "ttf", "data": 0}]}"#;
+
+/// The second `add_assets` result example of section 2.5: the name the engine gave the picked font.
+pub const ADD_PICKED_FONT_RESULT: &str = r#"{"type": "add_assets", "assets": [{"name": "4c1f8e2a9b7d6c5e3f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6.ttf", "stored": true}]}"#;
+
 /// The `list_printer_profiles` result example of section 2.5: `generic-fdm` in the written form.
 pub const LIST_PRINTER_PROFILES_RESULT: &str = r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#;
 
@@ -257,8 +271,9 @@ pub const LIST_USES_REQUEST: &str = r#"{"type": "list_uses", "doc": 1}"#;
 /// The `list_uses` result example of section 2.5: a link, then a use of a feature and of its sketch entity.
 pub const LIST_USES_RESULT: &str = r#"{"type": "list_uses", "uses": [{"user": "f-ext1", "field": "/profile/sketch", "feature": "f-sk1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"}]}"#;
 
-/// The `document_changed` event example of section 2.7: a dirty document after an edit, with `bare_numbers` last.
-pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#;
+/// The `document_changed` event example of section 2.7: a dirty document after an edit, with `missing_assets` and then
+/// `bare_numbers` last.
+pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "missing_assets": [], "bare_numbers": 0}"#;
 
 /// The mesh of the first `body_mesh` event example in section 2.7.
 pub const BOX_MESH: &str = r#"{"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "vertex_ids": 7, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}"#;
@@ -299,7 +314,7 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
     r#"{"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}"#,
     r#"{"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}"#,
     r#"{"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}"#,
-    r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}"#,
+    r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "missing_assets": [], "bare_numbers": 0}"#,
     DOCUMENT_CHANGED_EVENT,
     r#"{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}"#,
     SKETCH_SOLVED_EVENT,
@@ -310,7 +325,7 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
 ];
 
 /// The command examples of section 2.5 (request side), in spec order.
-pub const COMMAND_EXAMPLES: [&str; 36] = [
+pub const COMMAND_EXAMPLES: [&str; 38] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
@@ -321,6 +336,8 @@ pub const COMMAND_EXAMPLES: [&str; 36] = [
     r#"{"type": "save_document", "doc": 1}"#,
     r#"{"type": "get_document", "doc": 1}"#,
     r#"{"type": "mark_saved", "doc": 1, "revision": 4}"#,
+    ADD_ASSETS_REQUEST,
+    ADD_PICKED_FONT_REQUEST,
     r#"{"type": "apply_edits", "doc": 1, "label": "Change height", "edits": [{"type": "update_parameter", "parameter": {"id": "p-h", "name": "height", "expr": "50 mm"}}]}"#,
     r#"{"type": "apply_edits", "doc": 1, "label": "Roll back", "edits": [{"type": "set_rollback", "rollback": "f-fil1"}]}"#,
     r#"{"type": "rename_parameter", "doc": 1, "parameter": "p-h", "name": "h"}"#,
@@ -350,7 +367,7 @@ pub const COMMAND_EXAMPLES: [&str; 36] = [
 ];
 
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
-pub const RESULT_EXAMPLES: [&str; 29] = [
+pub const RESULT_EXAMPLES: [&str; 31] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 3, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     LIST_PRINTER_PROFILES_RESULT,
@@ -360,6 +377,8 @@ pub const RESULT_EXAMPLES: [&str; 29] = [
     r#"{"type": "save_document", "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 3,\n  \"units\": \"mm\"\n}\n", "assets": [], "revision": 0}"#,
     r#"{"type": "get_document", "revision": 3, "document": {"format": "partsmith", "format_version": 3, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "40 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}}"#,
     r#"{"type": "mark_saved"}"#,
+    ADD_ASSETS_RESULT,
+    ADD_PICKED_FONT_RESULT,
     r#"{"type": "apply_edits", "revision": 4}"#,
     r#"{"type": "rename_parameter", "revision": 5}"#,
     APPLY_FIX_RESULT,

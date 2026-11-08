@@ -123,3 +123,97 @@ describe('the fake core keeps the assets of a document', () => {
     expect(transport.buffersOf(command).map((buffer) => Array.from(buffer))).toEqual([[1, 2, 3]])
   })
 })
+
+/** The `document_changed` event of a response; fails the test when there is none. */
+function documentChanged(events: readonly ProtocolEvent[]): ProtocolEvent & { type: 'document_changed' } {
+  const changed = events.find((event) => event.type === 'document_changed')
+  if (changed?.type !== 'document_changed') {
+    throw new Error('The response has no document_changed.')
+  }
+  return changed
+}
+
+/** Opens `block.ptsm` without assets and returns the transport. */
+async function blockOpenedBare(
+  options: { readonly mismatchedAssets?: readonly string[] } = {},
+): Promise<FakeTransport> {
+  const transport = await started(options)
+  await send(transport, { type: 'open_document', text: documentText(BLOCK_DOCUMENT), assets: [] })
+  return transport
+}
+
+describe('the fake core adds assets as the engine does (since M2, ADR 0064)', () => {
+  it('reports the asset an import reads and it lacks in document_changed', async () => {
+    const transport = await started()
+
+    const opened = await send(transport, {
+      type: 'open_document',
+      text: documentText(BLOCK_DOCUMENT),
+      assets: [],
+    })
+
+    expect(documentChanged(opened.events).missing_assets).toEqual([{ name: A, features: ['f-imp1'] }])
+  })
+
+  it('stores a named file, then emits document_changed and recomputed', async () => {
+    const transport = await blockOpenedBare()
+
+    const added = await send(
+      transport,
+      { type: 'add_assets', doc: 1, assets: [{ kind: 'step', data: 0, name: A }] },
+      [ASSET_A.bytes],
+    )
+
+    expect(added.response.result).toMatchObject({
+      kind: 'ok',
+      type: 'add_assets',
+      assets: [{ name: A, stored: true }],
+    })
+    expect(added.events.map((event) => event.type).slice(0, 2)).toEqual([
+      'document_changed',
+      'recomputed',
+    ])
+    expect(documentChanged(added.events).missing_assets).toEqual([])
+    expect(importStatus(added.events)).toMatchObject({ status: 'ok', messages: [] })
+    expect(transport.core.document(1).assets).toEqual([A])
+  })
+
+  it('stores no named file its mismatchedAssets option lists, and emits nothing', async () => {
+    const transport = await blockOpenedBare({ mismatchedAssets: [A] })
+
+    const added = await send(
+      transport,
+      { type: 'add_assets', doc: 1, assets: [{ kind: 'step', data: 0, name: A }] },
+      [ASSET_A.bytes],
+    )
+
+    expect(added.response.result).toMatchObject({ assets: [{ name: A, stored: false }] })
+    expect(added.events).toEqual([])
+    expect(transport.core.document(1).assets).toEqual([])
+  })
+
+  it('names a file without a name by 64 c digits and its kind, and emits nothing when no record reads it', async () => {
+    const transport = await blockOpenedBare()
+
+    const added = await send(
+      transport,
+      {
+        type: 'add_assets',
+        doc: 1,
+        assets: [
+          { kind: 'step', data: 0 },
+          { kind: 'ttf', data: 1 },
+        ],
+      },
+      [Uint8Array.of(7, 8), Uint8Array.of(9)],
+    )
+
+    expect(added.response.result).toMatchObject({
+      assets: [
+        { name: `${'c'.repeat(64)}.step`, stored: true },
+        { name: `${'c'.repeat(64)}.ttf`, stored: true },
+      ],
+    })
+    expect(added.events).toEqual([])
+  })
+})

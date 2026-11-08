@@ -29,6 +29,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 partsmith-budgets.workspace = true
+partsmith-message-lint.workspace = true
 pretty_assertions.workspace = true
 zip.workspace = true
 
