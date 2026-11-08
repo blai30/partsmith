@@ -27,8 +27,9 @@ SOFTWARE.
 
 // The shim's copy of src/BRepMesh/delabella.cpp of OCCT 7.9.3, changed as ADR 0039 lists: in the
 // shim's namespace, with double-double arithmetic where OCCT's copy has long double (kernel spec
-// section 3.7 item 2), checks that throw where OCCT's copy asserts, without the deprecated
-// function, the C interface and the platform headers they needed, comments on their own lines.
+// section 3.7 item 2), checks that throw where OCCT's copy asserts or reads a broken hull,
+// without the deprecated function, the C interface and the platform headers they needed,
+// comments on their own lines.
 
 #include <cstdlib>
 #include <stdexcept>
@@ -123,6 +124,9 @@ struct CDelaBella : IDelaBella
   {
     Unsigned28 z;
     Face*      sew;
+    // The index of the point whose silhouette last set sew and next (this copy's check of the
+    // sewing).
+    int        sewn;
 
     // diff
     Vect operator-(const Vert& v) const
@@ -169,6 +173,7 @@ struct CDelaBella : IDelaBella
     static Face* Alloc(Face** from)
     {
       Face* f = *from;
+      require(f != 0, "Delabella's hull needed more faces than it can have");
       *from   = (Face*)f->next;
       f->next = 0;
       return f;
@@ -655,7 +660,8 @@ struct CDelaBella : IDelaBella
       //    (we also build silhouette (vertex loop) between visible & invisible faces)
 
       // push first visible face onto stack (of visible faces)
-      Face* stack = _f;
+      int   silhouette = 0;
+      Face* stack      = _f;
       // old trick to use list pointers as 'on-stack' markers
       _f->next    = _f;
       while (stack)
@@ -714,6 +720,8 @@ struct CDelaBella : IDelaBella
               // build silhouette needed for sewing sides in the second pass
               a->sew  = s;
               a->next = b;
+              a->sewn = i;
+              silhouette++;
             }
             else
             {
@@ -737,6 +745,12 @@ struct CDelaBella : IDelaBella
         }
       }
 
+      // A point adds two faces to the hull. Rounding on cocircular points can make the faces it
+      // sees a region that is not a disk, and then the hull would lose faces or the silhouette
+      // would not be one loop. This copy checks both where OCCT's copy reads stale vertices.
+      require(cache == (2 * i - 2 < hull_faces ? face_alloc + 2 * i - 2 : 0),
+              "Delabella's new point did not add two faces to the hull");
+
       // 3. SEW SIDES OF CONE BUILT ON SLIHOUTTE SEGMENTS
 
       // last added face
@@ -746,15 +760,22 @@ struct CDelaBella : IDelaBella
       // (edge between its v[0] and v[1])
       Vert* entry = (Vert*)hull->v[0];
 
-      Vert* pr = entry;
+      Vert* pr    = entry;
+      int   sewed = 0;
       do
       {
+        require(pr->sewn == i && sewed < silhouette,
+                "Delabella's silhouette is not one loop of the new point's edges");
         // sew pr<->nx
-        Vert* nx      = (Vert*)pr->next;
+        Vert* nx = (Vert*)pr->next;
+        require(nx->sewn == i, "Delabella's silhouette is not one loop of the new point's edges");
         pr->sew->f[0] = nx->sew;
         nx->sew->f[1] = pr->sew;
         pr            = nx;
+        sewed++;
       } while (pr != entry);
+      require(sewed == silhouette,
+              "Delabella's silhouette is not one loop of the new point's edges");
     }
 
     require(2 * i - 4 == hull_faces, "Delabella built another number of faces than expected");
@@ -865,6 +886,7 @@ struct CDelaBella : IDelaBella
       v->x    = (Signed14) * (const float*)((const char*)x + i * advance_bytes);
       v->y    = (Signed14) * (const float*)((const char*)y + i * advance_bytes);
       v->z    = s14sqr(v->x) + s14sqr(v->y);
+      v->sewn = 0;
     }
 
     out_verts = Triangulate();
@@ -892,6 +914,7 @@ struct CDelaBella : IDelaBella
       v->x    = (Signed14) * (const double*)((const char*)x + i * advance_bytes);
       v->y    = (Signed14) * (const double*)((const char*)y + i * advance_bytes);
       v->z    = s14sqr(v->x) + s14sqr(v->y);
+      v->sewn = 0;
     }
 
     out_verts = Triangulate();

@@ -13,6 +13,7 @@
 #include <BRepMesh_CustomDelaunayBaseMeshAlgo.hxx>
 #include <BRepMesh_CylinderRangeSplitter.hxx>
 #include <BRepMesh_DefaultRangeSplitter.hxx>
+#include <BRepMesh_Delaun.hxx>
 #include <BRepMesh_DelaunayBaseMeshAlgo.hxx>
 #include <BRepMesh_DelaunayDeflectionControlMeshAlgo.hxx>
 #include <BRepMesh_DelaunayNodeInsertionMeshAlgo.hxx>
@@ -21,7 +22,6 @@
 #include <BRepMesh_TorusRangeSplitter.hxx>
 #include <Bnd_B2d.hxx>
 #include <IMeshTools_MeshAlgoFactory.hxx>
-#include <Standard_Failure.hxx>
 
 #include "partsmith-occt-sys/cpp/delabella/delabella.h"
 #include "partsmith-occt-sys/cpp/internal.h"
@@ -37,9 +37,10 @@ struct DestroyTriangulator {
   void operator()(delabella::IDelaBella *triangulator) const { triangulator->Destroy(); }
 };
 
-// Triangulates the nodes of a face at once with the shim's copy of Delabella. The OCCT code it
-// derives from then recovers the face's boundary edges and removes the auxiliary nodes with their
-// triangles and the triangles outside the face.
+// Triangulates the nodes of a face at once with the shim's copy of Delabella, or with OCCT's
+// Watson algorithm where a check of the copy fails. The OCCT code it derives from then recovers
+// the face's boundary edges and removes the auxiliary nodes with their triangles and the
+// triangles outside the face.
 class DelabellaBaseAlgorithm : public BRepMesh_CustomBaseMeshAlgo {
  protected:
   void buildBaseTriangulation() override;
@@ -84,10 +85,15 @@ void DelabellaBaseAlgorithm::buildBaseTriangulation() {
     hull_vertices =
         triangulator->Triangulate(static_cast<int>(positions.size()), &points[0], &points[1],
                                   static_cast<int>(2 * sizeof(double)));
-  } catch (const std::exception &exception) {
-    // A check of the copy failed. OCCT's mesher gives a face whose algorithm raises
-    // Standard_Failure no triangulation (kernel spec sections 3.7 item 7 and 3.9 item 7).
-    throw Standard_Failure(exception.what());
+  } catch (const std::exception &) {
+    // A check of the copy failed: rounding broke its hull, as it can on cocircular nodes (kernel
+    // spec section 3.9 item 7). OCCT's Watson algorithm triangulates the nodes instead.
+    IMeshData::VectorOfInteger nodes(structure->NbNodes(), getAllocator());
+    for (int node = 1; node <= structure->NbNodes(); ++node) {
+      nodes.Append(node);
+    }
+    BRepMesh_Delaun watson(structure, nodes);
+    return;
   }
   // The count of hull vertices is 0 when the copy gives no output (also when it cannot allocate)
   // and negative when all nodes lie on one line. Either gives no triangles, and the face then no

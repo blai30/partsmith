@@ -1,5 +1,5 @@
 //! Acceptance tests for tessellation into `partsmith_mesh::Mesh` and the display geometry of one
-//! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113, 122 to 126, 137 and 138).
+//! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113, 122 to 126, 137, 138 and 172).
 
 use crate::common;
 
@@ -7,12 +7,12 @@ use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
 
 use common::{
-    OPT, ORIGIN, POINT_TOLERANCE, UP, assert_argument_error, assert_closed, assert_invalid_input,
-    assert_near, assert_point_near, assert_relative, assert_same_points, assert_vector_near,
-    box_corners, box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses,
-    edge_between, face_with_role, fully_rounded_box, generated_faces, geometry, hollow_box, line,
-    mesh_face_ids, rectangle, rectangle_profile, region, seam_edge, sphere_primitive,
-    top_front_edge, unbounded_face, weld_exactly, z_axis,
+    OPT, ORIGIN, POINT_TOLERANCE, UP, arc, assert_argument_error, assert_closed,
+    assert_invalid_input, assert_near, assert_point_near, assert_relative, assert_same_points,
+    assert_vector_near, box_corners, box_primitive, cylinder_primitive, degenerated_edges,
+    directed_edge_uses, edge_between, face_with_role, fully_rounded_box, generated_faces, geometry,
+    hollow_box, line, mesh_face_ids, rectangle, rectangle_profile, region, seam_edge,
+    sphere_primitive, top_front_edge, unbounded_face, weld_exactly, z_axis,
 };
 use partsmith_mesh::{Mesh, TessellationTolerance, WELD_TOLERANCE};
 use partsmith_occt_sys::{
@@ -1120,4 +1120,61 @@ fn t138_quarter_revolution_mesh_is_closed() {
 #[test]
 fn t138_fully_rounded_box_mesh_is_closed() {
     assert_closed_when_welded(&fully_rounded_box());
+}
+
+/// Test 172's face: a 20 mm square about the origin on `Plane::XY` with corners rounded to 3 mm,
+/// counterclockwise from the bottom side.
+fn rounded_square() -> Shape {
+    let (half, radius) = (10.0, 3.0);
+    let inner = half - radius;
+    let curves = vec![
+        line(1, (-inner, -half), (inner, -half)),
+        arc(2, (inner, -inner), radius, (inner, -half), (half, -inner)),
+        line(3, (half, -inner), (half, inner)),
+        arc(4, (inner, inner), radius, (half, inner), (inner, half)),
+        line(5, (inner, half), (-inner, half)),
+        arc(6, (-inner, inner), radius, (-inner, half), (-half, inner)),
+        line(7, (-half, inner), (-half, -inner)),
+        arc(
+            8,
+            (-inner, -inner),
+            radius,
+            (-half, -inner),
+            (-inner, -half),
+        ),
+    ];
+    make_profile(&Plane::XY, &[region(curves)])
+        .expect("the rounded square builds")
+        .shape
+}
+
+#[test]
+fn t172_rounded_square_tessellates_where_delabella_breaks() {
+    let mesh = rounded_square()
+        .tessellate(&FINE, &Interrupt::new())
+        .expect("the rounded square tessellates");
+
+    let positions = mesh.positions();
+    let areas: Vec<f64> = mesh
+        .triangles()
+        .iter()
+        .map(|triangle| {
+            let [first, second, third] = triangle.map(|vertex| positions[vertex as usize]);
+            0.5 * ((second[0] - first[0]) * (third[1] - first[1])
+                - (second[1] - first[1]) * (third[0] - first[0]))
+        })
+        .collect();
+    assert!(
+        areas.iter().all(|&area| area > 0.0),
+        "every triangle is counterclockwise seen from +Z"
+    );
+    // The chords of the four quarter circles cut off at most their length times the chord
+    // deviation from the face's area.
+    let face_area = 400.0 - (4.0 - std::f64::consts::PI) * 9.0;
+    let arcs_length = 2.0 * std::f64::consts::PI * 3.0;
+    let mesh_area: f64 = areas.iter().sum();
+    assert!(
+        mesh_area <= face_area && face_area - mesh_area <= arcs_length * FINE.chord_deviation,
+        "the triangles cover the face once: {mesh_area} mm2 of {face_area} mm2"
+    );
 }
