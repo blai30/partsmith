@@ -12,6 +12,7 @@ use partsmith_occt_sys::Shape;
 use partsmith_print::PrinterValues;
 use partsmith_recompute::{CacheKey, FeatureReport, Input, Recompute, Report, Status};
 
+use crate::cancel::stopped_token;
 use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::profiles::ResolvedProfile;
@@ -40,7 +41,9 @@ impl Computed {
     }
 }
 
-/// Runs recompute on `document` with the `printer.*` values of `profile`, stopping after `focus`.
+/// Runs recompute on `document` with the `printer.*` values of `profile`, stopping after `focus`,
+/// with the request's token `cancel`. A run that stops leaves `cancel` canceled for every later
+/// check of the request (engine.md section 3.26).
 pub(crate) fn run(
     recompute: &mut Recompute,
     document: &Document,
@@ -48,6 +51,7 @@ pub(crate) fn run(
     profile: ResolvedProfile,
     focus: Option<Id>,
     previous_run: u64,
+    cancel: &mut CancelToken,
 ) -> Computed {
     let context = PrinterValues::new(&profile.profile);
     let input = Input {
@@ -56,7 +60,10 @@ pub(crate) fn run(
         stop_at: focus.as_ref(),
         assets,
     };
-    let report = recompute.run(&input, &CancelToken::new());
+    let report = recompute.run(&input, cancel);
+    if report.canceled {
+        *cancel = stopped_token();
+    }
     Computed {
         report: Arc::new(report),
         focus,
@@ -66,7 +73,8 @@ pub(crate) fn run(
 }
 
 /// A recompute of the recipe of `open` without its stop point and rollback marker, and the recipe
-/// it ran. Every feature that is not suppressed runs in it.
+/// it ran. Every feature that is not suppressed runs in it. It never stops: the commands that make
+/// it read every later feature (engine.md section 3.26).
 pub(crate) fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Document, Computed) {
     let mut document = Document::clone(&open.document);
     document.rollback = None;
@@ -77,6 +85,7 @@ pub(crate) fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Docu
         open.computed.profile.clone(),
         None,
         open.computed.run,
+        &mut CancelToken::new(),
     );
     (document, computed)
 }

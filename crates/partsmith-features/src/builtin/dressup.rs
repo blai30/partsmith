@@ -156,11 +156,11 @@ fn meets_without_corner(
 }
 
 /// Runs a fillet, chamfer or shell `operation` at the `requested` value. When the kernel fails for
-/// any reason other than invalid input or an internal error, searches for the largest value that
-/// works (features.md section 4.3) and returns the error `too_large` makes from that value and the
-/// first failure, measuring what limits it on this failure path only. Invalid input and internal
-/// errors are reported as the kernel's error: the input was checked first, so they are not about
-/// size.
+/// any reason other than invalid input, an internal error or a stop, searches for the largest
+/// value that works (features.md section 4.3) and returns the error `too_large` makes from that
+/// value and the first failure, measuring what limits it on this failure path only. Invalid input
+/// and internal errors are reported as the kernel's error. The input was checked first, and they
+/// are not about size. A stop is `Canceled`, also when it comes during the search.
 pub(super) fn run_or_search<T>(
     context: &BuildContext<'_>,
     requested: f64,
@@ -173,14 +173,19 @@ pub(super) fn run_or_search<T>(
         Err(error)
             if matches!(
                 error.kind,
-                KernelErrorKind::InvalidInput | KernelErrorKind::Internal
+                KernelErrorKind::InvalidInput
+                    | KernelErrorKind::Internal
+                    | KernelErrorKind::Canceled
             ) =>
         {
             Err(FeatureError::from(error))
         }
         Err(cause) => {
             let max = too_large_search(context, requested, |value| operation(value).is_ok())?;
-            Err(too_large(max, cause)?)
+            let error = too_large(max, cause)?;
+            // A kernel call that stopped while the error was measured reads as a failure there.
+            check_canceled(context)?;
+            Err(error)
         }
     }
 }

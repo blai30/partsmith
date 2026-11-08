@@ -36,6 +36,7 @@ function PrintCheckPanel() {
   const missing = useAppState(missingReport)
   const focused = useAppState((state) => state.print.focusedFinding)
   const orientationBody = useAppState(selectOrientationBody)
+  const stopMessage = useAppState((state) => state.print.stopped?.message ?? null)
   return (
     <section aria-labelledby={headingId} className="flex min-h-0 flex-1 flex-col">
       <HealthList
@@ -55,6 +56,7 @@ function PrintCheckPanel() {
           closeSidePanel(app)
         }}
         orientationBody={orientationBody}
+        stopMessage={stopMessage}
         onPrintAsModeled={() => {
           setPrintOrientation(app, null)
         }}

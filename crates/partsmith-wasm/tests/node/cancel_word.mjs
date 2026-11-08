@@ -36,7 +36,7 @@ assert.equal('_partsmith_cancel_word' in core, false, 'the module does not expor
 assert.ok(core.HEAPU8.buffer instanceof ArrayBuffer, 'the memory is an ArrayBuffer')
 assert.equal(core.HEAPU8.buffer instanceof SharedArrayBuffer, false, 'the memory is not shared')
 
-// Test 101: the word holds 7n before request 7 starts, so request 7 stops at its first check and request 8 does not.
+// Test 101: the word holds 7n before request 7 starts. Request 7 stops at its first check and request 8 does not.
 const word = new BigInt64Array(new SharedArrayBuffer(8))
 Atomics.store(word, 0, 7n)
 useCancelWord(core, word)

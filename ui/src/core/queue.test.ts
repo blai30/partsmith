@@ -304,7 +304,7 @@ describe('createLatestOnly', () => {
     await settle()
     const first = signals.get('a')
     expect(first?.aborted).toBe(false)
-    const aborts = vi.fn()
+    const aborts = vi.fn<() => void>()
     first?.addEventListener('abort', aborts)
     latest.submit('b')
     expect(first?.aborted).toBe(true)

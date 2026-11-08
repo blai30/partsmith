@@ -24,9 +24,9 @@ describe('createWorkerTransport restarts', () => {
     workers[0]?.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.1.0' })
     await first
     workers[0]?.emit({ type: 'fatal', message: 'The core trapped.' })
-    await expect(transport.send(requestFrame(1, { type: 'engine_info' }), 1)).rejects.toBeInstanceOf(
-      CoreFatalError,
-    )
+    await expect(
+      transport.send(requestFrame(1, { type: 'engine_info' }), 1),
+    ).rejects.toBeInstanceOf(CoreFatalError)
     expect(workers[0]?.terminated).toBe(true)
 
     const second = transport.start()
@@ -66,7 +66,11 @@ describe('createTauriTransport restarts', () => {
   it('rejects sends after stop() and accepts them again after start()', async () => {
     const tauri = {
       core: {
-        invoke: async (_command: string, payload: ArrayBuffer) => {
+        invoke: async (command: string, payload: ArrayBuffer | { readonly request: number }) => {
+          // The start's clear of the host's cancel flag answers nothing (ui.md 2.4).
+          if (!(payload instanceof ArrayBuffer)) {
+            return command === 'cancel_call' ? null : Promise.reject(new Error(command))
+          }
           const request = readRequest(payload)
           return request.command.type === 'engine_info'
             ? responseFrame({
@@ -89,9 +93,9 @@ describe('createTauriTransport restarts', () => {
     const transport = createTauriTransport(tauri)
     await transport.start()
     transport.stop()
-    await expect(transport.send(requestFrame(1, { type: 'undo', doc: 1 }), 1)).rejects.toBeInstanceOf(
-      CoreFatalError,
-    )
+    await expect(
+      transport.send(requestFrame(1, { type: 'undo', doc: 1 }), 1),
+    ).rejects.toBeInstanceOf(CoreFatalError)
     await transport.start()
     const answer = await transport.send(requestFrame(2, { type: 'undo', doc: 1 }), 2)
     expect(answer.byteLength).toBeGreaterThan(0)
@@ -112,6 +116,8 @@ describe('createCoreClient close', () => {
       stop: () => {
         stopped = true
       },
+      cancel: () => false,
+      canCancel: false,
       onFatal: () => () => undefined,
     })
     client.close()
@@ -129,6 +135,8 @@ describe('createCoreClient close', () => {
         return responseFrame({ id: 99, result: { type: 'undo', revision: 1, label: 'Edit' } })
       },
       stop: () => undefined,
+      cancel: () => false,
+      canCancel: false,
       onFatal: () => () => undefined,
     })
     await expect(client.request({ type: 'undo', doc: 1 })).rejects.toBeInstanceOf(CoreFatalError)

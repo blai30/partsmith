@@ -214,6 +214,45 @@ test('P-4 full rebuild of 50 features: ps:rebuild at most 3,000 ms @perf', async
   ])
 })
 
+/**
+ * One run of P-13: sets `base` to `length`, a length it has not had, clicks Stop as soon as it
+ * shows and returns that stop's ps:stop, then sets `base` back to 240 mm and waits for its full
+ * rebuild. A length built before would start from the features its stopped run cached.
+ */
+async function stopOnce(page: Page, base: Locator, length: string): Promise<number> {
+  const since = await pageTime(page)
+  await base.fill(length)
+  await base.press('Enter')
+  // Stop shows once the change has been pending for 300 ms (ui.md 3.21).
+  await page.getByTestId('core-stop').click()
+  await expect
+    .poll(() => measureCount(page, 'ps:stop', since), { timeout: REBUILD_TIMEOUT_MILLISECONDS })
+    .toBeGreaterThan(0)
+  const [stop] = await measures(page, 'ps:stop', since)
+  const back = await pageTime(page)
+  await base.fill('240 mm')
+  await base.press('Enter')
+  await expect
+    .poll(() => measureCount(page, 'ps:rebuild', back), { timeout: REBUILD_TIMEOUT_MILLISECONDS })
+    .toBeGreaterThan(0)
+  return stop ?? Number.NaN
+}
+
+test('P-13 stop on the web: median ps:stop at most 600 ms over 7 runs @perf', async ({ page }) => {
+  test.setTimeout(240_000)
+  await openApp(page)
+  await dropFile(page, 'part-50.ptsm')
+  const base = await parameterExpression(page, 'base')
+  const stops: number[] = []
+  for (let i = 0; i < 7; i++) {
+    // oxlint-disable-next-line no-await-in-loop
+    stops.push(await stopOnce(page, base, `${String(250 + i)} mm`))
+  }
+  expectWithinBudgets('P-13', [
+    { statistic: 'ps:stop median', value: measuredPercentile(stops, 0.5), budget: 600 },
+  ])
+})
+
 test('P-5 warm open of 50 features: the second ps:open at most 1,000 ms @perf', async ({
   page,
 }) => {

@@ -15,6 +15,7 @@ import { findingPoint } from '../../print/health'
 import { sameProfile } from '../../print/library'
 import { orientationToSend, sameOrientation } from '../../print/orientation'
 import { findPrinter } from '../../print/printer'
+import { selectRebuildStopped } from '../../state/selectors'
 import type { AppState, AppStore, FindingKey, SelectionItem } from '../../state/store'
 import type { App } from '../createApp'
 import { commitEdits, refusedDuringCommand, showCoreError } from './edits'
@@ -57,11 +58,14 @@ function sameAnalysis(first: AnalysisInput, second: AnalysisInput): boolean {
 
 /**
  * The print analyses of each app: one at a time, newest waiting input only (2.5), and none sent
- * again while the one in flight or waiting already checks the same revision.
+ * again while the one in flight or waiting already checks the same revision. `asked` is true when
+ * the user asked for the check on its way, whose stop the print check panel tells (4.4).
  */
-const analysesByStore = new WeakMap<AppStore, LatestOnly<AnalysisInput>>()
+type PrintAnalyses = { readonly latest: LatestOnly<AnalysisInput>; asked: boolean }
 
-function analysesOf(app: App): LatestOnly<AnalysisInput> {
+const analysesByStore = new WeakMap<AppStore, PrintAnalyses>()
+
+function analysesOf(app: App): PrintAnalyses {
   const existing = analysesByStore.get(app.store)
   if (existing !== undefined) {
     return existing
@@ -73,10 +77,11 @@ function analysesOf(app: App): LatestOnly<AnalysisInput> {
   }
   const latest = createLatestOnly<AnalysisInput, Health | null>(
     ({ documentHandle, orientation }) => {
-      running(true)
+      app.store.setState((state) => ({ print: { ...state.print, running: true, stopped: null } }))
       return app.core.analyzePrint(documentHandle, { orientation: orientationToSend(orientation) })
     },
     (health, { orientation }) => {
+      analyses.asked = false
       // The report itself arrived as a print_health event before this answer; a superseded (null)
       // answer changes nothing.
       if (health === null) {
@@ -88,15 +93,34 @@ function analysesOf(app: App): LatestOnly<AnalysisInput> {
       }))
     },
     (error, { orientation }) => {
+      const asked = analyses.asked
+      analyses.asked = false
       running(false)
+      // A Stop answers `canceled`, which is no error: the badge stays out of date, and only a
+      // check the user asked for says so, in the print check panel (4.4).
+      if (error instanceof CoreError && error.code === 'canceled') {
+        const message = asked ? error.message : null
+        app.store.setState((state) => ({ print: { ...state.print, stopped: { message } } }))
+        return
+      }
       if (!showOrientationError(app, error, orientation)) {
         showCoreError(app, error)
       }
     },
   )
-  const analyses = skipRepeats(latest, sameAnalysis)
+  const analyses: PrintAnalyses = { latest: skipRepeats(latest, sameAnalysis), asked: false }
   analysesByStore.set(app.store, analyses)
   return analyses
+}
+
+/**
+ * Whether the automatic print check runs: no transaction is open, the report is stale and, since
+ * M2, no feature waits for a rebuild that was stopped (3.21).
+ */
+function automatic(state: AppState): boolean {
+  return (
+    state.document?.transactionOpen === false && reportStale(state) && !selectRebuildStopped(state)
+  )
 }
 
 /** Whether the open document has no report of its current revision and print orientation. */
@@ -188,21 +212,28 @@ export function setCheckHidden(app: App, check: string, hidden: boolean): void {
 /**
  * Analyzes the open document in the session print orientation (as modeled without one), outside
  * the mutation queue; resolves when no analysis is left. An analysis of the current revision and
- * orientation that is already in flight or waiting is not sent again.
+ * orientation that is already in flight or waiting is not sent again. `asked` is false for the
+ * automatic check (3.17).
  */
-export async function runPrintAnalysis(app: App): Promise<void> {
+async function analyze(app: App, asked: boolean): Promise<void> {
   const state = app.store.getState()
   const document = state.document
   if (document === null) {
     return
   }
   const analyses = analysesOf(app)
-  analyses.submit({
+  analyses.asked ||= asked
+  analyses.latest.submit({
     documentHandle: document.documentHandle,
     revision: document.revision,
     orientation: state.print.orientation,
   })
-  await analyses.flush()
+  await analyses.latest.flush()
+}
+
+/** The print check the user asks for, from the badge, the Print toolbar or Check again (3.17). */
+export function runPrintAnalysis(app: App): Promise<void> {
+  return analyze(app, true)
 }
 
 /** Starts the Lay on face pick (3.17): the next flat face clicked rests on the bed. */
@@ -343,7 +374,7 @@ export function installPrintAnalysis(app: App): () => void {
   }
 
   function run(): void {
-    void runPrintAnalysis(app)
+    void analyze(app, false)
   }
 
   function schedule(state: AppState, previous: AppState): void {
@@ -352,9 +383,11 @@ export function installPrintAnalysis(app: App): () => void {
       cancelTimer()
       return
     }
-    if (previous.context !== 'print') {
+    // A full rebuild after a stop checks at once, as entering the Print context does (3.21).
+    const stopEnded = selectRebuildStopped(previous) && !selectRebuildStopped(state)
+    if (previous.context !== 'print' || stopEnded) {
       cancelTimer()
-      if (reportStale(state) && !document.transactionOpen) {
+      if (automatic(state)) {
         run()
       }
       return
@@ -369,7 +402,7 @@ export function installPrintAnalysis(app: App): () => void {
       return
     }
     cancelTimer()
-    if (!document.transactionOpen && reportStale(state)) {
+    if (automatic(state)) {
       timer = setTimeout(() => {
         timer = null
         run()

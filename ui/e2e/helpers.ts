@@ -344,6 +344,59 @@ export async function longTasks(page: Page, since = 0): Promise<number[]> {
   return durations
 }
 
+/** The `window` property where `watchCancelWord` keeps the cancel words and the stored ids. */
+const CANCEL_WORD_KEY = 'partsmithCancelWord'
+
+/**
+ * Watches the cancel word (ui.md 6.3, protocol.md 2.11 rule 8): an init script that, on every load
+ * and before the page's own scripts run, keeps the `word` of each `cancel_word` message the page
+ * posts to a worker, and records each nonzero id that `Atomics.store` writes into a kept word.
+ * Called before `openApp`.
+ */
+export async function watchCancelWord(page: Page): Promise<void> {
+  await page.addInitScript((key) => {
+    const words: SharedArrayBuffer[] = []
+    const stores: number[] = []
+    Reflect.set(window, key, { words, stores })
+    const postMessage = Worker.prototype.postMessage
+    Reflect.set(Worker.prototype, 'postMessage', function (this: Worker, ...args: unknown[]) {
+      const [message] = args
+      if (typeof message === 'object' && message !== null) {
+        const word: unknown = Reflect.get(message, 'word')
+        if (Reflect.get(message, 'type') === 'cancel_word' && word instanceof SharedArrayBuffer) {
+          words.push(word)
+        }
+      }
+      Reflect.apply(postMessage, this, args)
+    })
+    const store = Atomics.store
+    Reflect.set(Atomics, 'store', (...args: Parameters<typeof Atomics.store>) => {
+      const [array, , value] = args
+      if (
+        array instanceof BigInt64Array &&
+        array.buffer instanceof SharedArrayBuffer &&
+        words.includes(array.buffer) &&
+        value !== 0n
+      ) {
+        stores.push(Number(value))
+      }
+      return Reflect.apply(store, Atomics, args)
+    })
+  }, CANCEL_WORD_KEY)
+}
+
+/** The request ids stored in a cancel word that `watchCancelWord` kept, oldest first. */
+export function cancelWordStores(page: Page): Promise<number[]> {
+  return page.evaluate((key) => {
+    const watched: unknown = Reflect.get(window, key)
+    if (typeof watched !== 'object' || watched === null) {
+      throw new Error('watchCancelWord was not called before the page loaded.')
+    }
+    const stores: unknown = Reflect.get(watched, 'stores')
+    return Array.isArray(stores) ? stores.map(Number) : []
+  }, CANCEL_WORD_KEY)
+}
+
 /**
  * Drops a fixture on the app root (ui.md 6.3): `dragenter`, `dragover` and `drop` with a
  * `DataTransfer` holding the file. For a `.ptsm` file it waits for the document name and for the

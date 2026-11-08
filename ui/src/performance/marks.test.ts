@@ -53,7 +53,7 @@ function measures(timeline: { readonly entries: readonly Entry[] }, name: string
 }
 
 describe('TIMING_NAMES', () => {
-  it('U-152 holds exactly the eleven names of the ui.md 2.18 table', () => {
+  it('U-152 holds exactly the thirteen names of the ui.md 2.18 table', () => {
     expect(Object.values(TIMING_NAMES).toSorted()).toEqual(
       [
         'ps:usable',
@@ -67,6 +67,8 @@ describe('TIMING_NAMES', () => {
         'ps:drop-check',
         'ps:apply-events',
         'ps:expression',
+        'ps:stop-start',
+        'ps:stop',
       ].toSorted(),
     )
   })

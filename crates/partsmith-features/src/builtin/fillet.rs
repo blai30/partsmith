@@ -2,7 +2,7 @@
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{Reference, roles};
-use partsmith_occt_sys::{EdgeRadius, Interrupt, fillet};
+use partsmith_occt_sys::{EdgeRadius, fillet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -87,7 +87,7 @@ impl Feature for Fillet {
                     radius,
                 })
                 .collect();
-            fillet(shape, &requests, &Interrupt::new())
+            fillet(shape, &requests, context.interrupt())
         };
         let result = run_or_search(
             context,

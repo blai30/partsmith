@@ -7,6 +7,8 @@ export type CoreModule = {
   call(request: number, requestLength: number, responseLengthOut: number): number
   /** The current HEAPU8; re-read after every call. */
   memory(): Uint8Array
+  /** Since M2: gives the module the page's cancel word, which the core only reads (protocol.md 2.11 rule 8). */
+  useCancelWord(word: BigInt64Array): void
 }
 
 /** The parts of the instantiated Emscripten module `createPartsmithCore` resolves with. */
@@ -16,6 +18,8 @@ export type EmscriptenCoreModule = {
   _ps_call(request: number, requestLength: number, responseLengthOut: number): number
   /** Replaced by Emscripten whenever the memory grows. */
   readonly HEAPU8: Uint8Array
+  /** The page's cancel word, which partsmith-occt-sys's import `partsmith_cancel_word` reads. */
+  partsmithCancelWord?: BigInt64Array
 }
 
 /** The core could not allocate memory for a request or its response. */
@@ -70,5 +74,8 @@ export function wrapEmscriptenModule(module: EmscriptenCoreModule): CoreModule {
     call: (request, requestLength, responseLengthOut) =>
       module['_ps_call'](request, requestLength, responseLengthOut) >>> 0,
     memory: () => module.HEAPU8,
+    useCancelWord: (word) => {
+      module.partsmithCancelWord = word
+    },
   }
 }

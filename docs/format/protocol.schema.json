@@ -563,6 +563,25 @@
           ]
         },
         {
+          "description": "Recomputes the document with its recipe, focus and printer profile; changes nothing else.",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "rebuild"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
           "description": "Solves the stored sketch, or `candidate` params in its place, without recording anything.",
           "type": "object",
           "properties": {
@@ -6278,6 +6297,19 @@
           ]
         },
         {
+          "description": "Result of `rebuild`.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rebuild"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
           "description": "Result of `solve_sketch`.",
           "type": "object",
           "properties": {
@@ -6606,6 +6638,11 @@
           "description": "The worker dropped a queued request because a newer one replaced it.",
           "type": "string",
           "const": "superseded"
+        },
+        {
+          "description": "The host stopped an `export` or `analyze_print`, or an `import_step` before its edit.",
+          "type": "string",
+          "const": "canceled"
         },
         {
           "description": "A panic or an engine invariant failure.",
@@ -6945,6 +6982,11 @@
           "description": "Skipped because it is at or after the rollback marker (or after the focused feature).",
           "type": "string",
           "const": "rolled_back"
+        },
+        {
+          "description": "Not built because the host stopped the request first; it has no messages and no repairs.",
+          "type": "string",
+          "const": "not_run"
         }
       ]
     },

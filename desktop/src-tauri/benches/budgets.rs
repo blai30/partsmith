@@ -10,6 +10,10 @@ use std::fs;
 use std::hint::black_box;
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use partsmith_desktop::{Files, Host, MAX_GRANTS};
@@ -77,6 +81,49 @@ fn full_store(folder: &Path) -> std::path::PathBuf {
     store
 }
 
+/// The median duration of one `Host::cancel` of an id no call has, while another thread's
+/// `Host::call` of `open_document` of the reference part holds the session mutex.
+fn cancel_during_call() -> Duration {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/bench/fifty-features/model.ptsm");
+    let text = fs::read_to_string(&path).expect("the reference part is readable");
+    let open = encode_request_frame(
+        &Request {
+            id: 1,
+            command: Command::OpenDocument {
+                text,
+                assets: Vec::new(),
+            },
+        },
+        &[],
+    )
+    .expect("a request without buffers always encodes");
+    let host = Arc::new(Host::new(SessionOptions::headless()));
+    let done = Arc::new(AtomicBool::new(false));
+    let (calling, called) = mpsc::channel();
+    let caller = {
+        let host = Arc::clone(&host);
+        let done = Arc::clone(&done);
+        thread::spawn(move || {
+            while !done.load(Ordering::Relaxed) {
+                calling.send(()).ok();
+                black_box(host.call(&open));
+            }
+        })
+    };
+    called.recv().expect("the calling thread starts");
+    // The call takes the mutex at once and holds it for far longer than the measurement.
+    thread::sleep(Duration::from_millis(20));
+    let cancel = median(|| {
+        for _ in 0..CALLS_PER_REPETITION {
+            host.cancel(black_box(2));
+        }
+    }) / CALLS_PER_REPETITION;
+    done.store(true, Ordering::Relaxed);
+    caller.join().expect("the calling thread finishes");
+    cancel
+}
+
 fn milliseconds(duration: Duration) -> String {
     format!("{:.4} ms", duration.as_secs_f64() * 1e3)
 }
@@ -116,6 +163,11 @@ fn main() -> ExitCode {
             name: "Files::load of a store with 100 paths",
             median: load,
             budget: Duration::from_millis(5),
+        },
+        Scenario {
+            name: "Host::cancel while another thread's Host::call holds the session mutex",
+            median: cancel_during_call(),
+            budget: Duration::from_micros(50),
         },
     ];
     let mut over_budget = Vec::new();

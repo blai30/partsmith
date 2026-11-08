@@ -1752,6 +1752,7 @@ describe('clicks while Lay on face picks a face (3.17)', () => {
     const state = fixture.app.store.getState()
     expect(state.print).toMatchObject({
       pickingFace: false,
+      stopped: null,
       orientation: { kind: 'face_down', body: 'b-cube', face: CUBE_TOP_FACE.reference },
     })
     expect(state.selection).toEqual([])

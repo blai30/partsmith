@@ -72,10 +72,12 @@ export type CoreApi = {
   ): Promise<{ text: string; assets: readonly AssetFile[]; revision: number }>
   markSaved(documentHandle: DocHandle, revision: number): Promise<void>
   closeDocument(documentHandle: DocHandle): Promise<void>
+  /** An abort of `signal` asks the core to stop the edit's rebuild (2.5), as a newer preview value does (3.7). */
   applyEdits(
     documentHandle: DocHandle,
     label: string | null,
     edits: readonly Edit[],
+    signal?: AbortSignal,
   ): Promise<number>
   /** `apply_fix`: applies one fix a diagnostic offered (engine.md 3.22); resolves with the new revision. */
   applyFix(documentHandle: DocHandle, fix: FixRef): Promise<number>
@@ -92,7 +94,8 @@ export type CoreApi = {
   listUses(documentHandle: DocHandle): Promise<readonly Use[]>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
-  setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
+  /** An abort of `signal` asks the core to stop the focus's rebuild (2.5), as for `applyEdits`. */
+  setFocus(documentHandle: DocHandle, feature: string | null, signal?: AbortSignal): Promise<void>
   commitTransaction(documentHandle: DocHandle): Promise<{ revision: number; recorded: boolean }>
   cancelTransaction(documentHandle: DocHandle): Promise<number>
   undo(documentHandle: DocHandle): Promise<{ revision: number; label: string }>
@@ -145,6 +148,8 @@ export type CoreApi = {
     bodies?: readonly string[],
     orientation?: Orientation,
   ): Promise<{ files: readonly ExportedFile[]; warnings: readonly Diagnostic[] }>
+  /** Since M2: `rebuild` (command 37), which builds a document whose recompute was stopped (3.26 of engine.md). */
+  rebuild(documentHandle: DocHandle): Promise<void>
 }
 
 /**
@@ -164,6 +169,7 @@ const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'undo',
   'redo',
   'end_sketch_drag',
+  'rebuild',
 ])
 
 /** Whether the core rebuilds a document for this command (ui.md 2.8 `pendingMutations`, 3.21). */
@@ -215,8 +221,9 @@ export function createCoreApi(client: CoreClient): CoreApi {
   async function call<Type extends Command['type']>(
     command: CommandOfType<Type>,
     buffers?: readonly Uint8Array[],
+    signal?: AbortSignal,
   ): Promise<TypedReply<Type>> {
-    const reply = await client.request(command, buffers)
+    const reply = await client.request(command, buffers, signal)
     const { result } = reply
     if (!isResultOf(result, command.type)) {
       throw new CoreFatalError(
@@ -296,14 +303,14 @@ export function createCoreApi(client: CoreClient): CoreApi {
     async closeDocument(documentHandle) {
       await call({ type: 'close_document', doc: documentHandle })
     },
-    async applyEdits(documentHandle, label, edits) {
+    async applyEdits(documentHandle, label, edits, signal) {
       const command: CommandOfType<'apply_edits'> = {
         type: 'apply_edits',
         doc: documentHandle,
         ...(label === null ? {} : { label }),
         edits: [...edits],
       }
-      return (await call(command)).result.revision
+      return (await call(command, [], signal)).result.revision
     },
     async applyFix(documentHandle, fix) {
       return (await call({ type: 'apply_fix', doc: documentHandle, fix })).result.revision
@@ -332,12 +339,16 @@ export function createCoreApi(client: CoreClient): CoreApi {
     async beginTransaction(documentHandle, label) {
       await call({ type: 'begin_transaction', doc: documentHandle, label })
     },
-    async setFocus(documentHandle, feature) {
-      await call({
-        type: 'set_focus',
-        doc: documentHandle,
-        ...(feature === null ? {} : { feature }),
-      })
+    async setFocus(documentHandle, feature, signal) {
+      await call(
+        {
+          type: 'set_focus',
+          doc: documentHandle,
+          ...(feature === null ? {} : { feature }),
+        },
+        [],
+        signal,
+      )
     },
     async commitTransaction(documentHandle) {
       const { result } = await call({ type: 'commit_transaction', doc: documentHandle })
@@ -353,6 +364,9 @@ export function createCoreApi(client: CoreClient): CoreApi {
     async redo(documentHandle) {
       const { result } = await call({ type: 'redo', doc: documentHandle })
       return { revision: result.revision, label: result.label }
+    },
+    async rebuild(documentHandle) {
+      await call({ type: 'rebuild', doc: documentHandle })
     },
     solveSketch(documentHandle, feature, candidate) {
       return unlessSuperseded(

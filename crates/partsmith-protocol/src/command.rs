@@ -155,6 +155,11 @@ pub enum Command {
         /// The document.
         doc: DocHandle,
     },
+    /// Recomputes the document with its recipe, focus and printer profile; changes nothing else.
+    Rebuild {
+        /// The document.
+        doc: DocHandle,
+    },
     /// Solves the stored sketch, or `candidate` params in its place, without recording anything.
     SolveSketch {
         /// The document.
@@ -331,6 +336,7 @@ impl Command {
             Command::CancelTransaction { .. } => "cancel_transaction",
             Command::Undo { .. } => "undo",
             Command::Redo { .. } => "redo",
+            Command::Rebuild { .. } => "rebuild",
             Command::SolveSketch { .. } => "solve_sketch",
             Command::DragSketch { .. } => "drag_sketch",
             Command::EndSketchDrag { .. } => "end_sketch_drag",
@@ -469,6 +475,8 @@ pub enum CommandResult {
         /// Label of the reapplied entry.
         label: String,
     },
+    /// Result of `rebuild`.
+    Rebuild,
     /// Result of `solve_sketch`.
     SolveSketch {
         /// The solved sketch.

@@ -9,7 +9,7 @@ Spec: `docs/spec/io.md` (the definition of done). Acceptance tests in `tests/` c
 - Constants: `STL_HEADER` (80 bytes), `APPLICATION` (`"Partsmith"`), `DEFAULT_DISPLAY_COLOR` (`#9f9fa9`), `DEFLATE_LEVEL` (6).
 - Mesh export: `ExportBody { name, color, material, role, mesh }` (`ExportBody::new(&Body, &Mesh)`), `ThreeMfOptions { title }`, `ExportOutput { bytes, warnings }`, `ExportWarning { body, code, message }`, `WarningCode` (`as_str`: `open_edges`, `non_manifold_edges`, `misoriented_edges`, `inside_out`, `modifier_omitted`).
 - Writers: `write_stl_binary(&[ExportBody])`, `write_stl_ascii`, `write_obj`, `write_3mf(&[ExportBody], &ThreeMfOptions)`, each returning `Result<ExportOutput, IoError>`. One call writes one file holding every body it is given.
-- STEP: `write_step(&[StepExportBody { name, color, shape }]) -> Result<Vec<u8>, IoError>`, `read_step(&[u8]) -> Result<ImportedStep { solids: Vec<ImportedSolid { name, color, shape }>, warnings }, IoError>`.
+- STEP: `write_step(&[StepExportBody { name, color, shape }], &Interrupt) -> Result<Vec<u8>, IoError>`, `read_step(&[u8], &Interrupt) -> Result<ImportedStep { solids: Vec<ImportedSolid { name, color, shape }>, warnings }, IoError>`. Since M2 both pass the interrupt to the kernel; a stop comes back as `IoError::Kernel` of kind `Canceled`, and a caller that never stops passes `&Interrupt::new()`.
 - Errors: `IoError` (thiserror, messages in spec section 4); `Kernel(KernelError)` displays the kernel's user message.
 
 ## Internals

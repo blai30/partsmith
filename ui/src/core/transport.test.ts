@@ -215,10 +215,22 @@ describe('createWorkerTransport', () => {
   })
 })
 
+/** Starts `transport` on `worker`, which reports ready. */
+async function startOn(transport: Transport, worker: FakeWorker): Promise<void> {
+  const ready = transport.start()
+  await settle()
+  worker.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.1.0' })
+  await ready
+}
+
 /** The cancel word the transport posted to `worker` (protocol.md 2.11 rule 8), or null. */
 function postedWord(worker: FakeWorker): SharedArrayBuffer | null {
   for (const { message } of worker.posted) {
-    if (typeof message === 'object' && message !== null && Reflect.get(message, 'type') === 'cancel_word') {
+    if (
+      typeof message === 'object' &&
+      message !== null &&
+      Reflect.get(message, 'type') === 'cancel_word'
+    ) {
       const word: unknown = Reflect.get(message, 'word')
       return word instanceof SharedArrayBuffer ? word : null
     }
@@ -236,7 +248,10 @@ describe('the worker transport cancel (ui.md 2.4 item 5, protocol.md 2.11 rule 8
     vi.stubGlobal('crossOriginIsolated', true)
     const { transport, worker } = await started()
     expect(transport.canCancel).toBe(true)
-    expect(worker.posted[0]?.message).toEqual({ type: 'cancel_word', word: expect.any(SharedArrayBuffer) })
+    expect(worker.posted[0]?.message).toEqual({
+      type: 'cancel_word',
+      word: expect.any(SharedArrayBuffer),
+    })
     const word = postedWord(worker)
     expect(word?.byteLength).toBe(8)
     if (word === null) {
@@ -273,7 +288,9 @@ describe('the worker transport cancel (ui.md 2.4 item 5, protocol.md 2.11 rule 8
     expect(postedWord(worker)).toBeNull()
     const reply = transport.send(engineInfoFrame(7), 7)
     expect(transport.cancel(7)).toBe(false)
-    expect(worker.posted.map(({ message }) => Reflect.get(Object(message), 'type'))).toEqual(['call'])
+    expect(worker.posted.map(({ message }) => Reflect.get(Object(message), 'type'))).toEqual([
+      'call',
+    ])
     worker.emit({ type: 'frame', frame: undoResponse(7) })
     await expect(reply).resolves.toBeInstanceOf(ArrayBuffer)
   })
@@ -321,10 +338,8 @@ describe('the worker transport cancel (ui.md 2.4 item 5, protocol.md 2.11 rule 8
       },
     })
     for (const worker of workers) {
-      const ready = transport.start()
-      await settle()
-      worker.emit({ type: 'ready', protocolVersion: 1, engineVersion: '0.1.0' })
-      await ready
+      // oxlint-disable-next-line no-await-in-loop
+      await startOn(transport, worker)
       transport.stop()
     }
     const [firstWord, secondWord] = workers.map(postedWord)

@@ -85,6 +85,10 @@ export type CoreState = {
   readonly pendingMutations: number
   /** True while the core has answered nothing for `STILL_WORKING_SECONDS` with a waited-on request waiting (4.4; background requests never count); false at start. */
   readonly stillWorking: boolean
+  /** Since M2: true from a Stop (`app.stopCore()`) until the next request is sent (3.21, 4.4). */
+  readonly stopRequested: boolean
+  /** Since M2: true from a Stop until the core's next response, which answers the stopped request, or until the core stops (4.4). */
+  readonly stopPending: boolean
 }
 
 export type Catalog = {
@@ -285,6 +289,12 @@ export type PrintState = {
   readonly orientation: Orientation | null
   /** True while Lay on face waits for a face. */
   readonly pickingFace: boolean
+  /**
+   * Since M2: set when the core stopped the latest print check (4.4), null once a check starts.
+   * The badge is out of date meanwhile. `message` is the core's text when the user asked for the
+   * check, which the print check panel shows, and null for an automatic check.
+   */
+  readonly stopped: { readonly message: string | null } | null
 }
 
 /** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
@@ -388,6 +398,8 @@ export const INITIAL_STATE: AppState = {
     fatal: null,
     pendingMutations: 0,
     stillWorking: false,
+    stopRequested: false,
+    stopPending: false,
   },
   catalog: null,
   printers: [],
@@ -408,6 +420,7 @@ export const INITIAL_STATE: AppState = {
     focusedFinding: null,
     orientation: null,
     pickingFace: false,
+    stopped: null,
   },
   view: {
     projection: 'perspective',

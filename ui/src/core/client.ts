@@ -50,9 +50,13 @@ export class CoreError extends Error {
 export type CoreClient = {
   /**
    * Sends one command with its `u8` buffers (protocol.md 2.2; none unless given). Events in the
-   * response frame are dispatched before the promise settles.
+   * response frame are dispatched before the promise settles. Since M2, an abort of `signal`
+   * before the response asks the core to stop the request, which still settles with the core's
+   * response.
    */
-  request(command: Command, buffers?: readonly Uint8Array[]): Promise<Reply>
+  request(command: Command, buffers?: readonly Uint8Array[], signal?: AbortSignal): Promise<Reply>
+  /** Since M2: asks the core to stop the oldest request with no response; false when there is none or the transport cannot stop a running call. */
+  stop(): boolean
   onEvent(listener: (event: CoreEvent) => void): () => void
   onFatal(listener: (error: CoreFatalError) => void): () => void
   close(): void
@@ -104,6 +108,8 @@ export function createCoreClient(transport: Transport): CoreClient {
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
   let nextId = 1
   let broken: CoreFatalError | null = null
+  /** The ids of the requests that have no response yet, oldest first. */
+  const unanswered = new Set<number>()
 
   function reportFatal(error: CoreFatalError): void {
     if (broken !== null) {
@@ -134,7 +140,7 @@ export function createCoreClient(transport: Transport): CoreClient {
   }
 
   return {
-    async request(command, buffers = []) {
+    async request(command, buffers = [], signal) {
       if (broken !== null) {
         throw broken
       }
@@ -143,7 +149,23 @@ export function createCoreClient(transport: Transport): CoreClient {
         { protocol_version: PROTOCOL_VERSION, messages: [{ kind: 'request', id, command }] },
         buffers,
       )
-      const responseFrame = await transport.send(frame)
+      const sent = transport.send(frame, id)
+      unanswered.add(id)
+      const cancel = (): void => {
+        transport.cancel(id)
+      }
+      if (signal?.aborted === true) {
+        cancel()
+      } else {
+        signal?.addEventListener('abort', cancel, { once: true })
+      }
+      let responseFrame: ArrayBuffer
+      try {
+        responseFrame = await sent
+      } finally {
+        unanswered.delete(id)
+        signal?.removeEventListener('abort', cancel)
+      }
       let decoded: { readonly response: DecodedResponse; readonly events: (CoreEvent | null)[] }
       try {
         const response = readResponse(responseFrame, id)
@@ -168,6 +190,10 @@ export function createCoreClient(transport: Transport): CoreClient {
         throw new CoreError(result)
       }
       return { result: commandResultOf(result), buffers: decoded.response.buffers }
+    },
+    stop() {
+      const [oldest] = unanswered
+      return oldest !== undefined && transport.cancel(oldest)
     },
     onEvent(listener) {
       eventListeners.add(listener)

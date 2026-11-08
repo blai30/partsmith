@@ -290,6 +290,8 @@ describe('the top bar (3.2)', () => {
         fatal: 'HTTP 404',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.getByRole('button', { name: 'Extrude' })).toHaveAttribute('aria-disabled', 'true')
@@ -430,7 +432,8 @@ describe('feature commands from the toolbar (3.7)', () => {
         op: 'new',
       }),
     })
-    expect(core.callsTo('setFocus')).toEqual([[1, addFeature.feature.id]])
+    // The preview's signal goes with the focus too (2.5).
+    expect(core.callsTo('setFocus')).toEqual([[1, addFeature.feature.id, expect.any(AbortSignal)]])
     expect(Object.keys(addFeature.feature)).not.toContain('name')
   })
 

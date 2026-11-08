@@ -117,6 +117,7 @@ pub(super) fn hole_tool(
     frame: &Frame,
     section: &[(Role, [f64; 2])],
     motion: &Motion,
+    interrupt: &Interrupt,
 ) -> Result<Tool, FeatureError> {
     let mut curves = Vec::with_capacity(section.len());
     let mut start = [0.0, 0.0];
@@ -135,7 +136,7 @@ pub(super) fn hole_tool(
         holes: Vec::new(),
     };
     let profile = make_profile(&frame.plane(), &[region])?;
-    let sweep = revolve(&profile, &frame.axis(), TAU, &Interrupt::new())?;
+    let sweep = revolve(&profile, &frame.axis(), TAU, interrupt)?;
     let point_text = point.to_string();
     let faces = sweep
         .faces

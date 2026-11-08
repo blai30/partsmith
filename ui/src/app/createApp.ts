@@ -12,7 +12,7 @@ import type { RecoveryStore } from '../files/recovery'
 import type { PrinterLibrary } from '../print/library'
 import type { Command, DocHandle, Document } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import { TIMING_NAMES } from '../performance/marks'
+import { markTiming, measureTiming, TIMING_NAMES } from '../performance/marks'
 import {
   adoptDocument,
   applyCoreEvent,
@@ -25,6 +25,7 @@ import { initialSessionVisibility } from '../state/visibility'
 import type { ViewportHandle } from '../viewport/controller'
 import { installFailureDismissal, notify } from './actions/notifications'
 import { installPrintAnalysis } from './actions/print'
+import { noteRebuildStops } from './rebuild-stops'
 import { connectApp } from './connection'
 import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from './core-data'
 import { continueRecoverySession, installRecoveryCopy } from './recovery-copy'
@@ -60,6 +61,8 @@ export type App = {
   attachViewport(handle: ViewportHandle | null): void
   /** Restarts the core after a fatal error, or stops and restarts one that is still working, and reopens the settled recipe (4.4). */
   restartCore(): Promise<void>
+  /** Since M2: asks the core to stop the oldest request with no response (`client.stop()`) and records `ps:stop-start` (3.21); false when there is none or the transport cannot stop a running call. */
+  stopCore(): boolean
   /**
    * Counts `work`, background requests that a user action waits on before it goes on, as a
    * waited-on request sent now, for the still-working state (4.4); settles as `work` does.
@@ -222,8 +225,15 @@ export function createApp(options: CreateAppOptions): App {
   let reopening: Reopening | null = null
   /** Set when a stop dropped changes the core had not finished, until a restart has reopened the document. */
   let changesDropped = false
+  /** The time of the latest Stop, where `ps:stop` starts (2.18). */
+  let stoppedAt = 0
+  /** The `recomputed` event of the response being read, if it has one. */
+  let recomputed: Extract<CoreEvent, { type: 'recomputed' }> | null = null
 
   function dispatch(event: CoreEvent): void {
+    if (event.type === 'recomputed') {
+      recomputed = event
+    }
     applyCoreEvent(store, event)
     for (const listener of Array.from(eventListeners)) {
       try {
@@ -260,16 +270,31 @@ export function createApp(options: CreateAppOptions): App {
    * in `pendingMutations` until it is answered, and its time from sending to the applied response
    * is the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
    */
-  async function request(command: Command, buffers?: readonly Uint8Array[]): Promise<Reply> {
+  async function request(
+    command: Command,
+    buffers?: readonly Uint8Array[],
+    signal?: AbortSignal,
+  ): Promise<Reply> {
     const ended = responses.sent(isWaitedOn(command))
     const rebuilds = rebuildsDocument(command)
     const started = performance.now()
+    if (store.getState().core.stopRequested) {
+      store.setState((state) => ({ core: { ...state.core, stopRequested: false } }))
+    }
     if (rebuilds) {
       changePending(1)
     }
     try {
-      const reply = await client.request(command, buffers)
+      const reply = await client.request(command, buffers, signal)
+      // The events of this response were dispatched just before it settled. Store subscribers may
+      // have sent requests meanwhile. The event is taken here, not cleared when a request starts.
+      const event = recomputed
+      recomputed = null
+      answered()
       ended(true)
+      if (event !== null) {
+        noteRebuildStops(app, event, signal?.aborted === true)
+      }
       const documentHandle = rebuiltDocument(command, reply.result)
       if (documentHandle !== null) {
         recordRebuildTime(store, documentHandle, performance.now() - started)
@@ -280,7 +305,11 @@ export function createApp(options: CreateAppOptions): App {
       return reply
     } catch (error) {
       // A refusal is a response; a core that stopped gave none.
-      ended(!(error instanceof CoreFatalError))
+      const response = !(error instanceof CoreFatalError)
+      if (response) {
+        answered()
+      }
+      ended(response)
       throw error
     } finally {
       if (rebuilds) {
@@ -289,9 +318,18 @@ export function createApp(options: CreateAppOptions): App {
     }
   }
 
+  /** Notes a response: the first after a Stop answers the stopped request (`ps:stop`, 2.18, 4.4). */
+  function answered(): void {
+    if (store.getState().core.stopPending) {
+      store.setState((state) => ({ core: { ...state.core, stopPending: false } }))
+      measureTiming(TIMING_NAMES.stop, stoppedAt)
+    }
+  }
+
   // The API's client follows restarts: each request goes to the client of the running core.
   const core = createCoreApi({
     request,
+    stop: () => client.stop(),
     onEvent: (listener) => client.onEvent(listener),
     onFatal: (listener) => client.onFatal(listener),
     close: () => {
@@ -366,6 +404,17 @@ export function createApp(options: CreateAppOptions): App {
     attachViewport(handle) {
       viewport = handle
     },
+    stopCore() {
+      if (!client.stop()) {
+        return false
+      }
+      stoppedAt = performance.now()
+      markTiming(TIMING_NAMES.stopStart)
+      store.setState((state) => ({
+        core: { ...state.core, stopRequested: true, stopPending: true },
+      }))
+      return true
+    },
     async restartCore() {
       changesDropped ||= dropsChanges()
       // None of the waiting mutations reaches the new core.
@@ -374,7 +423,7 @@ export function createApp(options: CreateAppOptions): App {
       reopening = reopeningOf()
       responses.reset()
       store.setState((state) => ({
-        core: { ...state.core, status: 'loading', fatal: null },
+        core: { ...state.core, status: 'loading', fatal: null, stopPending: false },
         context: state.context === 'sketch' ? 'model' : state.context,
         selection: [],
         hover: null,

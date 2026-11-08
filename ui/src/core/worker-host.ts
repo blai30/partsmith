@@ -7,8 +7,10 @@ import { headIsSuperseded, requestOf, supersededFrame } from './superseding'
 // The logic of the core worker (protocol.md 2.11), kept apart from the worker global so tests drive
 // it with a fake module and a manual scheduler.
 
-/** Main thread to worker. The frame's ArrayBuffer is transferred. */
-export type ToWorker = { readonly type: 'call'; readonly frame: ArrayBuffer }
+/** Main thread to worker. The frame's ArrayBuffer is transferred; the cancel word is shared. */
+export type ToWorker =
+  | { readonly type: 'call'; readonly frame: ArrayBuffer }
+  | { readonly type: 'cancel_word'; readonly word: SharedArrayBuffer }
 
 /** Worker to main thread. Frames are transferred. */
 export type FromWorker =
@@ -54,6 +56,7 @@ function engineVersion(core: CoreModule): string {
 export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
   const queue: QueuedCall[] = []
   let core: CoreModule | null = null
+  let cancelWord: BigInt64Array | null = null
   let fatal: string | null = null
   let stepScheduled = false
 
@@ -108,6 +111,9 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
     (loaded) => {
       let version: string
       try {
+        if (cancelWord !== null) {
+          loaded.useCancelWord(cancelWord)
+        }
         version = engineVersion(loaded)
       } catch (error) {
         fail(errorMessage(error))
@@ -124,6 +130,12 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
 
   return {
     receive(message) {
+      if (message.type === 'cancel_word') {
+        // The host never writes the word (protocol.md 2.11 rule 8).
+        cancelWord = new BigInt64Array(message.word)
+        core?.useCancelWord(cancelWord)
+        return
+      }
       if (fatal !== null) {
         postFatal(fatal)
         return

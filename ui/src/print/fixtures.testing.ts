@@ -104,6 +104,7 @@ export function printState(overrides: Partial<PrintState> = {}): PrintState {
     focusedFinding: null,
     orientation: null,
     pickingFace: false,
+    stopped: null,
     ...overrides,
   }
 }

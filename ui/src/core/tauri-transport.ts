@@ -10,14 +10,21 @@ import { headIsSuperseded, requestOf, supersededFrame } from './superseding'
 import { CoreFatalError, type Transport } from './transport'
 
 // The desktop transport (ui.md 2.4, protocol.md 2.12): every frame goes through the host's `call`
-// command, one at a time and in order, with the worker host's superseding rules.
+// command, one at a time and in order, with the worker host's superseding rules. `cancel_call`
+// stops the running call without waiting for it.
 
 /** The part of `window.__TAURI__` the UI uses (requires `app.withGlobalTauri` in the desktop config). */
 export type TauriGlobal = {
-  readonly core: { invoke(command: string, payload: ArrayBuffer): Promise<ArrayBuffer> }
+  readonly core: {
+    invoke(
+      command: string,
+      payload: ArrayBuffer | { readonly request: number },
+    ): Promise<ArrayBuffer | null>
+  }
 }
 
 type QueuedSend = {
+  readonly id: number
   readonly frame: ArrayBuffer
   readonly request: Request | null
   readonly resolve: (frame: ArrayBuffer) => void
@@ -37,8 +44,12 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
   let running = false
   let stopped: CoreFatalError | null = null
 
-  function invoke(frame: ArrayBuffer): Promise<ArrayBuffer> {
-    return tauri.core.invoke('call', frame)
+  async function invoke(frame: ArrayBuffer): Promise<ArrayBuffer> {
+    const response = await tauri.core.invoke('call', frame)
+    if (response === null) {
+      throw new Error('the desktop host answered a call without a frame')
+    }
+    return response
   }
 
   /** Answers the head of the queue when nothing is in flight: superseded at once, else through the host. */
@@ -95,6 +106,8 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
       stopped = null
       let result
       try {
+        // The host's flag outlives this client, whose ids start again at 1: request 0 clears it.
+        await tauri.core.invoke('cancel_call', { request: 0 })
         const response = decodeFrame(await invoke(engineInfoRequestFrame())).header.messages.at(-1)
         result = response?.kind === 'response' ? response.result : null
       } catch (error) {
@@ -114,15 +127,26 @@ export function createTauriTransport(tauri: TauriGlobal): Transport {
       }
       return { protocolVersion: result.protocol_version, engineVersion: result.engine_version }
     },
-    send(frame) {
+    send(frame, id) {
       if (stopped !== null) {
         return Promise.reject(stopped)
       }
       return new Promise<ArrayBuffer>((resolve, reject) => {
-        queue.push({ frame, request: requestOf(frame), resolve, reject })
+        queue.push({ id, frame, request: requestOf(frame), resolve, reject })
         runNext()
       })
     },
+    cancel(id) {
+      if (!queue.some((send) => send.id === id)) {
+        return false
+      }
+      // A queued request stops at its first check once it runs (desktop.md 3.10).
+      tauri.core.invoke('cancel_call', { request: id }).catch((error: unknown) => {
+        console.error('The desktop host could not stop a request.', error)
+      })
+      return true
+    },
+    canCancel: true,
     stop() {
       if (stopped !== null) {
         return

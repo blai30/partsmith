@@ -1,4 +1,5 @@
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
+import { MESSAGES } from '../messages'
 
 // The timeline strip's arithmetic (ui.md 3.9): the rollback marker's wording, item status wording,
 // and the gaps a drag drops into. The marker's position is core/recipe.ts markerPosition.
@@ -20,6 +21,8 @@ export function statusText(status: FeatureStatus | undefined, suppressed: boolea
       return 'Suppressed'
     case 'rolled_back':
       return 'Rolled back'
+    case 'not_run':
+      return MESSAGES.timeline_not_built()
     default:
       return suppressed ? 'Suppressed' : null
   }

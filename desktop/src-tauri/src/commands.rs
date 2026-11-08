@@ -1,4 +1,4 @@
-//! The eight host commands the webview may invoke (desktop.md 2.6, 3.1 and 3.4).
+//! The nine host commands the webview may invoke (desktop.md 2.6, 3.1, 3.4 and 3.10).
 
 use std::sync::Arc;
 
@@ -113,6 +113,13 @@ pub(crate) async fn write_asset(
 #[tauri::command]
 pub(crate) fn set_unsaved(unsaved: bool, state: State<'_, Unsaved>) {
     state.set(unsaved);
+}
+
+/// Asks the running `call` to stop when its request id is `request`. It runs on the main thread
+/// and never waits for the session (desktop.md 3.10).
+#[tauri::command]
+pub(crate) fn cancel_call(request: u64, host: State<'_, Arc<Host>>) {
+    host.cancel(request);
 }
 
 /// A request header's value; None when it is missing or not visible ASCII.

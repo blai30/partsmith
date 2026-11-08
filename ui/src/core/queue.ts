@@ -93,7 +93,7 @@ export function createOneAtATime<Key extends object>(): OneAtATime<Key> {
 /** Sends at most one input at a time; while one is in flight, newer inputs replace the waiting one. */
 export type LatestOnly<Input> = {
   submit(input: Input): void
-  /** Drops the waiting input and ignores the result of the one in flight. */
+  /** Drops the waiting input, ignores the result of the one in flight and aborts its signal. */
   cancel(): void
   /** Sends a waiting input now if idle and resolves when nothing is waiting or in flight. */
   flush(): Promise<void>
@@ -105,13 +105,15 @@ type Outcome<Output> =
   | { readonly ok: false; readonly error: unknown }
 
 export function createLatestOnly<Input, Output>(
-  send: (input: Input) => Promise<Output>,
+  send: (input: Input, signal: AbortSignal) => Promise<Output>,
   onResult: (output: Output, input: Input) => void,
   onError: (error: unknown, input: Input) => void,
 ): LatestOnly<Input> {
   let waiting: { readonly input: Input } | null = null
   let inFlight = false
   let ignoreInFlight = false
+  /** Aborts the signal of the input in flight, whose result a newer input or `cancel` replaces. */
+  let abortInFlight: AbortController | null = null
   let idleWaiters: (() => void)[] = []
 
   function settleIdle(): void {
@@ -140,9 +142,11 @@ export function createLatestOnly<Input, Output>(
   function start(input: Input): void {
     inFlight = true
     ignoreInFlight = false
+    const controller = new AbortController()
+    abortInFlight = controller
     let request: Promise<Output>
     try {
-      request = send(input)
+      request = send(input, controller.signal)
     } catch (error) {
       request = Promise.reject(error)
     }
@@ -158,6 +162,7 @@ export function createLatestOnly<Input, Output>(
 
   function finish(outcome: Outcome<Output>, input: Input): void {
     inFlight = false
+    abortInFlight = null
     const ignored = ignoreInFlight
     ignoreInFlight = false
     if (waiting !== null) {
@@ -177,6 +182,8 @@ export function createLatestOnly<Input, Output>(
     submit(input) {
       if (inFlight) {
         waiting = { input }
+        // The answer to the input in flight is replaced. The core may stop it (ui.md 3.7).
+        abortInFlight?.abort()
         return
       }
       start(input)
@@ -185,6 +192,7 @@ export function createLatestOnly<Input, Output>(
       waiting = null
       if (inFlight) {
         ignoreInFlight = true
+        abortInFlight?.abort()
       }
     },
     flush() {

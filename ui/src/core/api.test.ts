@@ -186,6 +186,22 @@ describe('createCoreApi', () => {
     expect(lastCommand(transport)).toEqual({ type: 'list_uses', doc: 1 })
   })
 
+  it('rebuild sends rebuild and resolves once its recompute events are dispatched (2.6, ADR 0063)', async () => {
+    const transport = createFakeTransport()
+    await transport.start()
+    const client = createCoreClient(transport)
+    const api = createCoreApi(client)
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    const types: string[] = []
+    client.onEvent((event) => {
+      types.push(event.type)
+    })
+    await expect(api.rebuild(documentHandle)).resolves.toBeUndefined()
+    expect(lastCommand(transport)).toEqual({ type: 'rebuild', doc: 1 })
+    expect(types).toContain('recomputed')
+    expect(types).not.toContain('document_changed')
+  })
+
   it('U-250 (f) attachPlane sends attach_plane and resolves its plane, or null without one (2.6)', async () => {
     const { api, transport } = await setUp()
     const { documentHandle } = await api.openDocument(documentText(RECT_SKETCH_DOCUMENT))
@@ -543,6 +559,8 @@ function recordingTransport(answer: (id: number) => ArrayBuffer): {
       responses.push(response)
       return response
     },
+    cancel: () => false,
+    canCancel: false,
     stop: () => undefined,
     onFatal: () => () => undefined,
   }

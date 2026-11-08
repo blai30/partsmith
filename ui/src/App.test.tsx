@@ -146,6 +146,8 @@ describe('the app shell (3.2)', () => {
         fatal: null,
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'loading')
@@ -157,6 +159,8 @@ describe('the app shell (3.2)', () => {
         fatal: 'HTTP 404',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.getByTestId('app')).toHaveAttribute('data-core-status', 'failed')

@@ -322,6 +322,8 @@ describe('overlays', () => {
         fatal: null,
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.getByTestId('core-overlay')).toHaveTextContent('Loading the geometry core')
@@ -340,6 +342,8 @@ describe('overlays', () => {
         fatal: 'HTTP 404',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     const panel = screen.getByTestId('core-fatal')
@@ -356,6 +360,8 @@ describe('overlays', () => {
         fatal: 'out of memory',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     const restart = vi.spyOn(app, 'restartCore')

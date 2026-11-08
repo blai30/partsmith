@@ -23,9 +23,9 @@ use crate::corpus;
 use common::{
     GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_fallback,
     assert_near, assert_placement, assert_point2, assert_point3, assert_relative, begin, commit,
-    doc_handle, drag_sketch, element_named, fixture, focus, get_document, headless_session,
-    measure_body, number, open_text, point2, point3, replace_once, revision, saved_text, send,
-    session, set_rollback, typed_handle,
+    display_options, doc_handle, drag_sketch, element_named, fixture, focus, get_document,
+    headless_session, measure_body, number, open_text, point2, point3, replace_once, revision,
+    saved_text, send, session, set_rollback, typed_handle,
 };
 use corpus::{
     EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
@@ -42,7 +42,7 @@ use corpus::{
     reference, repairs, right_side_redrawn_in_two, send_fix, shell_with_a_misspelled_key, sketch,
     solution_messages, statuses, through_all, two_areas, volume, with, without_keys,
 };
-use partsmith_engine::Session;
+use partsmith_engine::{CancelFlag, Session, SessionOptions};
 use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -1507,6 +1507,27 @@ fn t129_keep_these_regions_rewrites_the_references_of_features_after_the_rollbac
     );
     assert_eq!(rolled_forward.feature_status("f-fil1")["status"], "ok");
     assert_eq!(messages(&rolled_forward, "f-fil1"), Vec::<Value>::new());
+}
+
+#[test]
+fn a_stopped_keep_these_regions_still_rewrites_the_references_after_the_rollback_marker() {
+    let flag = CancelFlag::word();
+    let mut session = Session::new(SessionOptions {
+        cancel: flag.clone(),
+        ..display_options()
+    });
+    let (doc, _) = after_edit(&mut session, &redrawn_beside_a_split());
+    let before = saved_text(&mut session, doc);
+    let rolled_back = apply(
+        &mut session,
+        doc,
+        Some("Roll back"),
+        json!([set_rollback(Some("f-fil1"))]),
+    );
+    // Every later request goes out as request 1, which the flag now stops (engine.md section 3.26).
+    flag.cancel(1);
+
+    assert_kept_with_the_fillet_edge(&mut session, doc, &rolled_back, &before);
 }
 
 #[test]

@@ -1,5 +1,13 @@
 import { clsx } from 'clsx/lite'
-import { ChevronDown, ChevronUp, CircleX, Info, Shapes, TriangleAlert } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  CircleDashed,
+  CircleX,
+  Info,
+  Shapes,
+  TriangleAlert,
+} from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -24,6 +32,7 @@ import { markerPosition } from '../core/recipe'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
 import { Tooltip } from '../components/Tooltip'
+import { MESSAGES } from '../messages'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
 import { featureKey, featureSelectionItem, parseSelectionKey } from '../inspector/selection-values'
@@ -112,7 +121,11 @@ function TimelineItem({
   const iconName = catalog?.byType[record.type]?.manifest.icon
   const Icon = iconName === undefined ? Shapes : (FEATURE_ICONS[iconName] ?? Shapes)
   const state = status?.status
-  const messages = status?.messages.map((message) => message.message) ?? []
+  // A feature a stopped rebuild did not build says so in its tooltip (3.9).
+  const messages =
+    state === 'not_run'
+      ? [MESSAGES.timeline_not_built()]
+      : (status?.messages.map((message) => message.message) ?? [])
   // Info notices leave the status ok and show a small mark (3.9).
   const notes = status?.messages.filter((message) => message.severity === 'info').length ?? 0
   // On Linux and macOS the browser fires `contextmenu` on the right button's press. A menu opened
@@ -201,7 +214,10 @@ function TimelineItem({
           <Icon
             aria-hidden="true"
             strokeWidth={1.75}
-            className={clsx('size-5', (suppressed || dimmed) && 'opacity-40')}
+            className={clsx(
+              'size-5',
+              (suppressed || dimmed || state === 'not_run') && 'opacity-40',
+            )}
           />
           {suppressed ? (
             <span
@@ -212,7 +228,17 @@ function TimelineItem({
               )}
             />
           ) : null}
-          {state === 'error' ? (
+          {state === 'not_run' ? (
+            <CircleDashed
+              aria-hidden="true"
+              strokeWidth={1.75}
+              className={clsx(
+                'absolute right-0 bottom-0 size-3.5 rounded-full',
+                COLOR_CLASSES.surface.background,
+                COLOR_CLASSES.textMuted.foreground,
+              )}
+            />
+          ) : state === 'error' ? (
             <CircleX
               aria-hidden="true"
               strokeWidth={1.75}

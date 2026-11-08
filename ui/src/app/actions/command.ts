@@ -412,18 +412,30 @@ function previewEdits(
 }
 
 /** Applies the params as the focused feature inside the transaction. */
-async function applyPreview(app: App, session: CommandSession, params: Params): Promise<void> {
+async function applyPreview(
+  app: App,
+  session: CommandSession,
+  params: Params,
+  signal: AbortSignal,
+): Promise<void> {
   const command = commandOf(app)
   const document = documentOf(app)
-  if (command === null || command.featureId !== session.featureId || document === null) {
+  // A preview that a newer value or Esc replaced while it waited for the queue is never sent.
+  if (
+    signal.aborted ||
+    command === null ||
+    command.featureId !== session.featureId ||
+    document === null
+  ) {
     return
   }
   const plan = previewEdits(app, session, command, document, params)
-  await app.core.applyEdits(document.documentHandle, null, plan.edits)
+  // A newer value or Esc aborts `signal`, which stops the preview's rebuild (3.7).
+  await app.core.applyEdits(document.documentHandle, null, plan.edits, signal)
   session.addedBody = plan.addedBody
   session.appliedHelper = plan.appliedHelper
   if (!command.applied) {
-    await app.core.setFocus(document.documentHandle, session.featureId)
+    await app.core.setFocus(document.documentHandle, session.featureId, signal)
   }
   const latest = sameValue(commandOf(app)?.params, params)
   if (latest) {
@@ -466,7 +478,8 @@ function createSession(app: App, input: SessionInput): CommandSession {
     typingField: null,
     confirming: null,
     preview: createLatestOnly<PreviewRequest, void>(
-      (request) => app.mutations.run(() => applyPreview(app, session, request.params)),
+      (request, signal) =>
+        app.mutations.run(() => applyPreview(app, session, request.params, signal)),
       (_output, request) => {
         session.failed = false
         if (request.changedAt !== null) {
@@ -501,6 +514,18 @@ function submitPreview(session: CommandSession, params: Params): void {
   session.submitted = params
   session.preview.submit({ params, changedAt: session.changedAt })
   session.changedAt = null
+}
+
+/**
+ * Stops the preview on its way, for a newer value typed while it runs (3.7). The field's evaluation
+ * waits behind that preview in the core. The newer params cannot replace it in the `LatestOnly`
+ * before it ends. Nothing is then applied or on its way.
+ */
+function stopPreview(session: CommandSession): void {
+  if (session.preview.busy) {
+    session.preview.cancel()
+    session.submitted = null
+  }
 }
 
 /** Whether the command's helper sketch differs from what the transaction holds. */
@@ -1058,6 +1083,7 @@ export function setCommandField(
     // A changed text is pending until its field reports it; an unchanged one renders nothing new,
     // so its field would never report it.
     session.pendingFields.add(path)
+    stopPreview(session)
   }
   const written = setParam(session.feature, command.params, path, value)
   const operation =

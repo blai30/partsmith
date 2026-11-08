@@ -8,4 +8,5 @@ pub const COMMAND_NAMES: &[&str] = &[
     "read_asset",
     "write_asset",
     "set_unsaved",
+    "cancel_call",
 ];

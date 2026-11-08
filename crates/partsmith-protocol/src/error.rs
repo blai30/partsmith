@@ -72,6 +72,8 @@ pub enum ErrorCode {
     ProtocolVersionMismatch,
     /// The worker dropped a queued request because a newer one replaced it.
     Superseded,
+    /// The host stopped an `export` or `analyze_print`, or an `import_step` before its edit.
+    Canceled,
     /// A panic or an engine invariant failure.
     InternalError,
     /// The `doc` handle is not open.

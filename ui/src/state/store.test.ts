@@ -11,6 +11,8 @@ describe('INITIAL_STATE', () => {
       fatal: null,
       pendingMutations: 0,
       stillWorking: false,
+      stopRequested: false,
+      stopPending: false,
     })
     expect(INITIAL_STATE.catalog).toBeNull()
     expect(INITIAL_STATE.printers).toEqual([])
@@ -35,6 +37,7 @@ describe('INITIAL_STATE', () => {
       focusedFinding: null,
       orientation: null,
       pickingFace: false,
+      stopped: null,
     })
   })
 

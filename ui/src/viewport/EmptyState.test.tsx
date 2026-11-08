@@ -116,6 +116,8 @@ describe('the empty-document first step (3.2)', () => {
         fatal: null,
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.queryByTestId('empty-state')).toBeNull()

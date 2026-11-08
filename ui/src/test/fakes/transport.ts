@@ -14,7 +14,8 @@ import { readRequestFrame } from './protocol'
 // for the Tauri kind. Every start() boots a fresh
 // core (new documents, handles from 1), the way restarting the geometry core does. Requests are
 // answered one at a time in arrival order, with promises only (no timers), so tests may use fake
-// timers freely.
+// timers freely. Since M2 it records every cancel (ui.md 2.4); a test that wants a stopped request
+// to answer with `not_run` statuses says so in its handler (`notRunReply` of ./core).
 
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 
@@ -33,6 +34,8 @@ export type FakeTransportOptions = FakeCoreOptions & {
   readonly journal?: string[]
   /** The transport's kind; default 'worker'. */
   readonly kind?: Transport['kind']
+  /** Whether `cancel` can stop a running call (since M2, ui.md 2.4); default false. */
+  readonly canCancel?: boolean
 }
 
 export type FakeTransport = Transport & {
@@ -64,6 +67,8 @@ export type FakeTransport = Transport & {
   resume(): void
   /** Forgets the recorded requests. */
   clearRequests(): void
+  /** The id of every `cancel` call, oldest first, across restarts (since M2); `journal` gets "cancel:<id>". */
+  readonly cancels: readonly number[]
 }
 
 function isCommandOfType<Type extends Command['type']>(
@@ -76,6 +81,9 @@ function isCommandOfType<Type extends Command['type']>(
 export function createFakeTransport(options: FakeTransportOptions = {}): FakeTransport {
   const requests: Request[] = []
   const requestBuffers: (readonly BufferView[])[] = []
+  const cancels: number[] = []
+  // Requests sent and not answered yet.
+  const pending = new Set<number>()
   const handlers = new Map<
     Command['type'],
     (
@@ -132,6 +140,10 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
 
   const transport: FakeTransport = {
     kind: options.kind ?? 'worker',
+    canCancel: options.canCancel ?? false,
+    get cancels() {
+      return cancels
+    },
     get requests() {
       return requests
     },
@@ -186,9 +198,17 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
       requests.push(request)
       requestBuffers.push(buffers)
       options.journal?.push(`command:${request.command.type}`)
+      pending.add(request.id)
       const response = chain.then(() => answer(request, buffers))
       chain = response.catch(() => undefined)
-      return response
+      return response.finally(() => {
+        pending.delete(request.id)
+      })
+    },
+    cancel(id: number) {
+      cancels.push(id)
+      options.journal?.push(`cancel:${String(id)}`)
+      return transport.canCancel && pending.has(id)
     },
     stop() {
       fatal = new CoreFatalError('The geometry core was stopped.')

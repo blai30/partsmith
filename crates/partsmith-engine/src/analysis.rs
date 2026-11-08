@@ -15,6 +15,9 @@ use partsmith_protocol::{
     BodyPrint, Buffer, DocHandle, Event, Orientation, PrintReport, TessellationQuality,
 };
 
+use crate::cancel::Stoppable;
+#[cfg(test)]
+use crate::cancel::{StopPoint, stopped_token};
 use crate::display::{DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
@@ -32,8 +35,21 @@ const NOT_A_ROTATION: &str = "The orientation is not a rotation.";
 const NOT_FLAT: &str = "Only flat faces can be laid on the bed.";
 
 impl Session {
-    /// Runs the printability checks.
+    /// Runs the printability checks, on a complete document (section 3.26).
     pub fn analyze_print(
+        &mut self,
+        doc: DocHandle,
+        request: &PrintRequest,
+    ) -> Result<PrintAnalysis, EngineError> {
+        self.on_complete(doc, Stoppable::AnalyzePrint, |session| {
+            session.analyzed(doc, request)
+        })
+    }
+
+    /// The printability checks of the document's latest recompute. They stop before each body
+    /// and inside the tessellation of a mesh the cache lacks; the checks of one body run to their
+    /// end (section 3.26).
+    fn analyzed(
         &mut self,
         doc: DocHandle,
         request: &PrintRequest,
@@ -56,14 +72,24 @@ impl Session {
         let mesh_tolerance = tolerance(&open.computed.profile.profile, quality);
         let mut meshes: Vec<(BodyView, Arc<DisplayMesh>)> = Vec::with_capacity(views.len());
         for view in views {
+            self.check_stop(Stoppable::AnalyzePrint)?;
             let identity = view
                 .identity
                 .clone()
                 .ok_or_else(|| EngineError::internal("an analyzed body has no geometry"))?;
             let mesh = self
                 .cache
-                .mesh(&MeshKey::new(identity, &mesh_tolerance), &view.state)?;
+                .mesh(
+                    &MeshKey::new(identity, &mesh_tolerance),
+                    &view.state,
+                    self.request.interrupt(),
+                )
+                .map_err(|error| Stoppable::AnalyzePrint.mesh_error(error))?;
             meshes.push((view, mesh));
+        }
+        #[cfg(test)]
+        if self.stop_after == Some(StopPoint::Meshes) {
+            self.request = stopped_token();
         }
         let transforms = bed_transforms(
             &meshes
@@ -80,6 +106,7 @@ impl Session {
         let mut bodies = Vec::with_capacity(meshes.len());
         let mut overhang = Vec::with_capacity(meshes.len());
         for ((view, mesh), transform) in meshes.iter().zip(transforms) {
+            self.check_stop(Stoppable::AnalyzePrint)?;
             let analysis =
                 analyze(&mesh.mesh, &profile, &options).map_err(EngineError::unexpected)?;
             let map = if self.display {
@@ -108,15 +135,15 @@ impl Session {
         })
     }
 
-    /// `analyze_print` for the protocol: emits the report as a `print_health` event, with each
-    /// body's displayed model mesh id and its overhang buffer, and returns the overall health.
-    pub(crate) fn analyze_print_command(
-        &mut self,
+    /// `analyze_print` for the protocol: emits the report of `analysis` as a `print_health` event,
+    /// with each body's displayed model mesh id and its overhang buffer, and returns the overall
+    /// health.
+    pub(crate) fn print_health(
+        &self,
         doc: DocHandle,
-        request: &PrintRequest,
+        analysis: PrintAnalysis,
         output: &mut Output,
     ) -> Result<Health, EngineError> {
-        let analysis = self.analyze_print(doc, request)?;
         let open = self.open(doc)?;
         let mut report = analysis.report;
         for (body, overhang) in report.bodies.iter_mut().zip(analysis.overhang) {
@@ -288,6 +315,7 @@ mod tests {
     use partsmith_print::generic_fdm;
 
     use super::*;
+    use crate::test_support::box_session;
 
     fn cube(offset: [f64; 3], size: f64) -> Mesh {
         let corner = |x: f64, y: f64, z: f64| {
@@ -356,5 +384,23 @@ mod tests {
         let transforms = bed_transforms(&[&mesh], &flipped, &generic_fdm());
 
         assert_eq!(transforms[0].translation[2], 10.0);
+    }
+
+    #[test]
+    fn a_stop_after_cached_meshes_stops_before_the_first_body() {
+        let (mut session, doc) = box_session(true);
+        let request = PrintRequest {
+            profile: None,
+            orientation: Orientation::AsModeled,
+            bodies: None,
+        };
+        session
+            .analyze_print(doc, &request)
+            .expect("the first check runs to its end and caches the mesh");
+        session.stop_after = Some(StopPoint::Meshes);
+
+        let stopped = session.analyze_print(doc, &request);
+
+        assert_eq!(stopped, Err(Stoppable::AnalyzePrint.error()));
     }
 }

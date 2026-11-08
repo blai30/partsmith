@@ -96,7 +96,7 @@ function heldTransport(): HeldTransport {
   return transport
 }
 
-/** Sends `count` undo requests through `client` and answers each, so the next request id is `count + 1`. */
+/** Sends `count` undo requests through `client` and answers each. The next request id is then `count + 1`. */
 async function answerRequests(
   transport: HeldTransport,
   client: ReturnType<typeof createCoreClient>,
@@ -105,6 +105,7 @@ async function answerRequests(
   for (let id = 1; id <= count; id += 1) {
     const reply = client.request(UNDO)
     transport.answer(id)
+    // oxlint-disable-next-line no-await-in-loop
     await reply
   }
   transport.calls.length = 0

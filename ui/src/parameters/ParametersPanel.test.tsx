@@ -9,6 +9,7 @@ import { MESSAGES } from '../messages'
 import { requestUi } from '../layout/requests'
 import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
+import { deferred } from '../test/fakes/deferred'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -211,6 +212,25 @@ describe('the Parameters panel (3.11)', () => {
         [{ type: 'update_parameter', parameter: { ...SIZE_PARAMETER, expr: '25 mm' } }],
       ],
     ])
+  })
+
+  it('commits an expression once when the field loses focus while the commit runs', async () => {
+    const { core, user } = renderPanel()
+    const answer = deferred<number>()
+    core.stub('applyEdits', () => answer.promise)
+    const expression = within(sizeRow()).getByRole('combobox', { name: 'Expression of size' })
+    await user.clear(expression)
+    await user.type(expression, '25 mm')
+    await waitFor(() => {
+      expect(within(sizeRow()).getByTestId('expression-result')).toHaveTextContent('= 25 mm')
+    })
+    await user.keyboard('{Enter}')
+    await user.tab()
+    await settle()
+    expect(core.callsTo('applyEdits')).toHaveLength(1)
+    answer.resolve(1)
+    await settle()
+    expect(core.callsTo('applyEdits')).toHaveLength(1)
   })
 
   it('reverts the expression with Esc', async () => {

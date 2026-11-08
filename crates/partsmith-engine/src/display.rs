@@ -11,7 +11,7 @@ use partsmith_mesh::{
 use partsmith_naming::{
     EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet, FaceInfo, TopologyInfo, VertexInfo,
 };
-use partsmith_occt_sys::{Interrupt, KernelError, Shape, SubShapeKind};
+use partsmith_occt_sys::{Interrupt, KernelError, KernelErrorKind, Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
 use crate::counts::saturating_u32;
@@ -243,14 +243,16 @@ pub(crate) struct DisplayMesh {
 }
 
 impl DisplayMesh {
-    /// Tessellates `shape` with `tolerance` and maps its kernel ids to the display ids of
-    /// `table`: seam polylines are dropped, and every displayed vertex gets one marker.
+    /// Tessellates `shape` with `tolerance`, stopping at `interrupt`, and maps its kernel ids to
+    /// the display ids of `table`: seam polylines are dropped, and every displayed vertex gets one
+    /// marker.
     pub(crate) fn build(
         shape: &Shape,
         table: Arc<ElementTable>,
         tolerance: &TessellationTolerance,
+        interrupt: &Interrupt,
     ) -> Result<DisplayMesh, DisplayError> {
-        let kernel = shape.tessellate(tolerance, &Interrupt::new())?;
+        let kernel = shape.tessellate(tolerance, interrupt)?;
         let face_ids = kernel
             .face_ids()
             .iter()
@@ -454,19 +456,27 @@ impl<K: Ord + Clone, T> Store<K, T> {
 pub(crate) struct DisplayError {
     /// The technical text.
     pub(crate) text: String,
+    /// True when the tessellation stopped at its interrupt (engine.md section 3.26).
+    pub(crate) stopped: bool,
 }
 
 impl DisplayError {
     /// A failure the engine words itself.
     pub(crate) fn new(text: impl Into<String>) -> DisplayError {
-        DisplayError { text: text.into() }
+        DisplayError {
+            text: text.into(),
+            stopped: false,
+        }
     }
 }
 
 impl From<KernelError> for DisplayError {
     /// A kernel failure, with the kernel's technical text.
     fn from(error: KernelError) -> DisplayError {
-        DisplayError::new(error.detail())
+        DisplayError {
+            stopped: error.kind == KernelErrorKind::Canceled,
+            ..DisplayError::new(error.detail())
+        }
     }
 }
 
@@ -527,11 +537,14 @@ impl DisplayCache {
         Ok(table)
     }
 
-    /// The display mesh of a body state with geometry at the key's tolerance.
+    /// The display mesh of a body state with geometry at the key's tolerance. A tessellation
+    /// stopped at `interrupt` caches nothing; the display passes `&Interrupt::new()` and never
+    /// stops (section 3.26).
     pub(crate) fn mesh(
         &mut self,
         key: &MeshKey,
         state: &BodyState,
+        interrupt: &Interrupt,
     ) -> Result<Arc<DisplayMesh>, DisplayError> {
         self.tick += 1;
         if let Some(mesh) = self.meshes.get(key, self.tick) {
@@ -541,7 +554,12 @@ impl DisplayCache {
             .shape()
             .ok_or_else(|| DisplayError::new("a display mesh needs a shape"))?;
         let table = self.table(&key.state, state)?;
-        let mesh = Arc::new(DisplayMesh::build(shape, table, &key.tolerance())?);
+        let mesh = Arc::new(DisplayMesh::build(
+            shape,
+            table,
+            &key.tolerance(),
+            interrupt,
+        )?);
         self.meshes
             .insert(key.clone(), Arc::clone(&mesh), mesh.size(), self.tick);
         // The caller holds the new mesh, so trimming keeps it.

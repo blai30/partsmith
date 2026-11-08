@@ -1,7 +1,7 @@
 //! STEP export and import through the kernel (spec section 3.8).
 
 use partsmith_model::Color;
-use partsmith_occt_sys::{self as kernel, Shape, StepBody};
+use partsmith_occt_sys::{self as kernel, Interrupt, Shape, StepBody};
 
 use crate::IoError;
 use crate::checks::check_not_empty;
@@ -43,8 +43,12 @@ pub struct ImportedStep {
 /// Writes bodies to a STEP file through the kernel.
 ///
 /// The kernel writes AP214 in millimeters with one product per body, named with the body's
-/// display name and colored with its color, deterministically.
-pub fn write_step(bodies: &[StepExportBody<'_>]) -> Result<Vec<u8>, IoError> {
+/// display name and colored with its color, deterministically. The kernel polls `interrupt` and
+/// stops with an error of kind `Canceled` once it is requested.
+pub fn write_step(
+    bodies: &[StepExportBody<'_>],
+    interrupt: &Interrupt,
+) -> Result<Vec<u8>, IoError> {
     check_not_empty(bodies)?;
     let kernel_bodies: Vec<StepBody> = bodies
         .iter()
@@ -55,17 +59,15 @@ pub fn write_step(bodies: &[StepExportBody<'_>]) -> Result<Vec<u8>, IoError> {
             color: body.color.map(to_kernel_color),
         })
         .collect();
-    Ok(kernel::write_step(
-        &kernel_bodies,
-        &kernel::Interrupt::new(),
-    )?)
+    Ok(kernel::write_step(&kernel_bodies, interrupt)?)
 }
 
 /// Reads the solids, names and colors of a STEP file through the kernel.
 ///
-/// Shapes are in millimeters whatever unit the file uses, in the kernel's order.
-pub fn read_step(bytes: &[u8]) -> Result<ImportedStep, IoError> {
-    let import = kernel::read_step(bytes, &kernel::Interrupt::new())?;
+/// Shapes are in millimeters whatever unit the file uses, in the kernel's order. The kernel polls
+/// `interrupt` and stops with an error of kind `Canceled` once it is requested.
+pub fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<ImportedStep, IoError> {
+    let import = kernel::read_step(bytes, interrupt)?;
     let solids = import
         .bodies
         .into_iter()

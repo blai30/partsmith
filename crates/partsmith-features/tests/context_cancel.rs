@@ -2,13 +2,6 @@
 //! small tests of `CancelToken::from_interrupt`, `CancelToken::interrupt`, `BuildContext::interrupt` and the canceled
 //! kernel error of section 2.6 those tests do not reach.
 
-// `FeatureError` keeps the payload types the spec gives, so test helpers that return it are larger
-// than clippy's threshold, as in the crate itself (see `lib.rs`).
-#![expect(
-    clippy::result_large_err,
-    reason = "FeatureError keeps the payload types the spec gives"
-)]
-
 use crate::common;
 
 use std::sync::Arc;

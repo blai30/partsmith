@@ -78,9 +78,11 @@ export function markCoreReady(store: AppStore, engineVersion: string): void {
   }))
 }
 
-/** Marks the core failed with the message its fatal state shows (4.4). */
+/** Marks the core failed with the message its fatal state shows (4.4). A stopped core answers no Stop. */
 export function markCoreFailed(store: AppStore, message: string): void {
-  store.setState((state) => ({ core: { ...state.core, status: 'failed', fatal: message } }))
+  store.setState((state) => ({
+    core: { ...state.core, status: 'failed', fatal: message, stopPending: false },
+  }))
 }
 
 /** Opens a new empty mm document named "Untitled". */

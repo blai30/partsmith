@@ -7,7 +7,7 @@ Spec: `docs/spec/protocol.md` sections 2.10 and 2.11. Build with `scripts/build-
 ## Public interface
 
 - `call(&[u8]) -> Vec<u8>`: the safe core of the bridge. Hands one request frame to the current thread's `Session` (`Session::call`) and returns one response frame; never panics.
-- `initialize_session()`: creates the current thread's session if it does not exist yet (display on, random ids). `main` calls it; `call` also creates the session on first use, so native tests need no setup.
+- `initialize_session()`: creates the current thread's session if it does not exist yet (display on, random ids, and on the web `CancelFlag::page()`, which reads the page's cancel word through partsmith-occt-sys's import; native builds keep `never()`). `main` calls it; `call` also creates the session on first use, so native tests need no setup.
 - C ABI exports (`#[unsafe(no_mangle)]`, in `src/exports.rs`):
   - `ps_alloc(length) -> *mut u8`: 8-aligned block, null for 0 or when allocation fails. Safe to call.
   - `unsafe ps_free(pointer, length)`: frees a block from `ps_alloc` or `ps_call`; null does nothing.

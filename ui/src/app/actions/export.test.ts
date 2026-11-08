@@ -238,6 +238,18 @@ describe('exportModel saving', () => {
   })
 })
 
+describe('exportModel stopped by the user (4.4, ADR 0063)', () => {
+  it('U-297 an export the core stopped shows its message as an info notification and writes nothing', async () => {
+    const harness = exportApp()
+    const message = 'The export was stopped before it finished. No file was made.'
+    const error = await coreErrorFor({ code: 'canceled', message })
+    harness.core.stub('exportBodies', () => Promise.reject(error))
+    await exportModel(harness.app, THREE_MF)
+    expect(harness.files.writes).toEqual([])
+    expect(notifications(harness)).toEqual([{ severity: 'info', message }])
+  })
+})
+
 describe('exportModel body roles', () => {
   const BLOCKER: Body = { id: 'b-blocker', name: 'Blocker', role: 'support_blocker' }
 

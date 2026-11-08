@@ -314,7 +314,7 @@ Tauri transport behavior (protocol.md 2.12):
 1. `start()` sends an `engine_info` request frame (request id 0) through `invoke('call', frame)`, checks that `protocol_version` equals the generated `PROTOCOL_VERSION`, and resolves with the versions. A mismatch rejects with `CoreFatalError('This app and its core speak different protocol versions. Reinstall Partsmith.')`.
 2. `send(request, id)` queues the frame and applies the same FIFO, one-at-a-time and superseding rules as the worker host (protocol.md 2.11 rules 3 and 4), deciding superseding with the shared `isSuperseded` (protocol.md 2.11); a superseded request resolves with the synthesized `superseded` error frame. Each step calls `invoke('call', frame)` with the frame as the raw body and resolves with the returned `ArrayBuffer`.
 3. An `invoke` rejection resolves the pending send with an error response frame for that request (`internal_error`, the rejection message), built with the same encoder; the desktop core lives in the app process, so `onFatal` is never called.
-4. Since M2, `canCancel` is true. `cancel(id)` with request `id` pending, sent or still queued, invokes `cancel_call` with `{ request: id }` (desktop.md section 3.10) and returns true. A queued request then stops at its first check once it runs. A rejection of that invoke goes to `console.error` and changes nothing else.
+4. Since M2, `canCancel` is true. `cancel(id)` with request `id` pending, sent or still queued, invokes `cancel_call` with `{ request: id }` (desktop.md section 3.10) and returns true. A queued request then stops at its first check once it runs. A rejection of that invoke goes to `console.error` and changes nothing else. `start()` first invokes `cancel_call` with `{ request: 0 }`, before its `engine_info` call. The host's flag outlives the client, whose ids start again at 1 after a restart or a reload.
 
 `chooseTransport` returns `createTauriTransport(environment.__TAURI__)` when `environment.__TAURI__?.core.invoke` is a function, else `createWorkerTransport()`.
 
@@ -436,7 +436,8 @@ export type CoreApi = {
   saveDocument(documentHandle: DocHandle): Promise<{ text: string; assets: readonly AssetFile[]; revision: number }>
   markSaved(documentHandle: DocHandle, revision: number): Promise<void>
   closeDocument(documentHandle: DocHandle): Promise<void>
-  applyEdits(documentHandle: DocHandle, label: string | null, edits: readonly Edit[]): Promise<number>
+  /** Since M2: an abort of `signal` asks the core to stop the edit's rebuild (2.5). */
+  applyEdits(documentHandle: DocHandle, label: string | null, edits: readonly Edit[], signal?: AbortSignal): Promise<number>
   /** `apply_fix`: resolves with the new revision. */
   applyFix(documentHandle: DocHandle, fix: FixRef): Promise<number>
   /** `set_document_units`: `kept` is how many numbers without a unit got the old unit. */
@@ -445,7 +446,8 @@ export type CoreApi = {
   listUses(documentHandle: DocHandle): Promise<readonly Use[]>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
-  setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
+  /** Since M2: an abort of `signal` asks the core to stop the focus's rebuild (2.5). */
+  setFocus(documentHandle: DocHandle, feature: string | null, signal?: AbortSignal): Promise<void>
   commitTransaction(documentHandle: DocHandle): Promise<{ revision: number; recorded: boolean }>
   cancelTransaction(documentHandle: DocHandle): Promise<number>
   undo(documentHandle: DocHandle): Promise<{ revision: number; label: string }>
@@ -592,6 +594,10 @@ export type CoreState = {
   readonly pendingMutations: number
   /** True while the core has answered nothing for `STILL_WORKING_SECONDS` with a waited-on request waiting (4.4; background requests never count); false at start. */
   readonly stillWorking: boolean
+  /** Since M2: true from a Stop (`app.stopCore()`) until the next request is sent (3.21, 4.4). */
+  readonly stopRequested: boolean
+  /** Since M2: true from a Stop until the core's next response, which answers the stopped request, or until the core stops (4.4). */
+  readonly stopPending: boolean
 }
 
 export type Catalog = {
@@ -754,6 +760,8 @@ export type PrintState = {
   readonly orientation: Orientation | null
   /** True while Lay on face waits for a face. */
   readonly pickingFace: boolean
+  /** Since M2: set when the core stopped the latest print check (4.4), null once a check starts. The badge is out of date meanwhile. `message` is the core's text when the user asked for the check, which the print check panel shows, and null for an automatic check. */
+  readonly stopped: { readonly message: string | null } | null
 }
 
 /** A finding of the print report: the `BodyPrint.body` id, the check, and the finding's index in that check's `findings`. */
@@ -2614,14 +2622,14 @@ New features are created without a `name`; their label comes from `featureLabel`
 | `ps:drop-check` | measure | Timeline drag pointer move | `dropWarning` of the nearest gap returned (3.9) |
 | `ps:apply-events` | measure | `applyCoreEvent` (`src/state/core-events.ts`) called with a `document_changed` | `applyCoreEvent` returns for the `recomputed` of the same document when that is the next event it receives |
 | `ps:expression` | measure | `useExpression` (2.13) submits a text other than the last one it submitted | The field renders that text's result (its state leaves `pending`) |
+| `ps:stop-start` | mark | | Stop clicked (`app.stopCore()`, 3.21), since M2 |
+| `ps:stop` | measure | `ps:stop-start` | The response of the stopped request, since M2 |
 
 Each measure name keeps at most the last 500 entries (`performance.clearMeasures` drops older ones).
 
 `ps:frame` is recorded by the viewport controller for a frame that renders while the camera moves (its camera differs from the previous rendered frame's) or a drag runs (a press past the gesture threshold, 3.13), when the animation frame the controller ran before it also rendered so. It runs between the two frames' `requestAnimationFrame` timestamps, which fall on display refreshes, so a frame that keeps up measures one refresh interval, however late in the frame its callback started. After such a frame the controller asks for the next animation frame: one with nothing to draw, or one that renders while nothing moves (a hover highlight), ends the motion, and the next moving frame records none, so a pause between pointer moves is never timed. A frame rendered outside an animation frame, for a pick, takes `performance.now()` as its time.
 
 `ps:apply-events` spans everything that runs between its two ends: both store updates, the store subscribers they call and the app's other handlers of the `document_changed`. It is recorded for every document, shown or not adopted yet; a `document_changed` followed by any other event, or by the `recomputed` of another document, records none. `ps:expression` starts in the task of the keystroke that changed the text (React runs the effects of a discrete input event before that task ends), or for the first text of a newly shown field. A new evaluation of the same text at a newer revision starts none, and neither does a text whose result the field already shows when it is submitted (a text changed back to one whose result is still kept); a text replaced before its result shows (latest-only, 2.13) records none.
-
-Since M2, `ps:stop` measures from `ps:stop-start`, when Stop is clicked (3.21), to the response of the stopped request (ADR 0063).
 
 ## 3. Behavior
 
@@ -4139,7 +4147,7 @@ Performance marks (2.18):
 
 150. U-150. `ps:apply-events`: on a store showing a document with handle 1, `applyCoreEvent` of a `document_changed` and then of a `recomputed` of handle 1 records one `ps:apply-events` measure; with `performance.now()` read before the first call (t0), between the calls (t1) and after the second (t2), the measure starts in [t0, t1] and ends in [t1, t2]. None is recorded for a `recomputed` alone, for a `document_changed` followed by a `body_mesh` and then a `recomputed`, or for a `document_changed` of handle 1 followed by a `recomputed` of handle 2. Two `document_changed` events of handle 1 and then its `recomputed` record one measure, which starts after the first call returned. The pair for handle 2, which no action has adopted, records one too.
 151. U-151. `ps:expression`: an `ExpressionInput` (unit `length`, starting empty) whose `evaluate` calls return deferred promises. Changing the text to `2` records no `ps:expression` measure while its evaluation is pending, and one once it resolves and the field shows its result. Changing the text to `23` and then to `234` before the `23` evaluation resolves, then resolving both, records one more measure, which starts between `performance.now()` read before and after the change to `234`; none is recorded for `23`. A new document revision that evaluates `234` again records none. Changing the text to `2345` and back to `234` before the `2345` evaluation resolves shows the `234` result at once, and resolving `2345` and the new `234` evaluation records none. Mounting a second field with the text `10 mm` records one once its result shows.
-152. U-152. `TIMING_NAMES` holds exactly the eleven names of the 2.18 table, from `ps:usable` to `ps:expression`.
+152. U-152. `TIMING_NAMES` holds exactly the thirteen names of the 2.18 table, from `ps:usable` to `ps:stop` (M2 added `ps:stop-start` and `ps:stop`).
 
 Recovery copies and a core that is still working (2.5, 2.15, 3.19, 4.4):
 
@@ -4312,7 +4320,7 @@ Stopping a request (since M2, [ADR 0063](../adr/0063-cancel-through-a-host-flag-
 268. U-268. `createLatestOnly` aborts the in-flight input's signal when a newer input is submitted, once, and passes a fresh signal to the next send. `cancel()` aborts the in-flight signal too.
 269. U-269. Esc on an open feature command whose preview request is pending: the fake transport records `cancel(id)` of that preview before the `cancel_transaction` frame is sent.
 270. U-270. The Stop button: with a fake transport whose `canCancel` is true and a mutating request pending for 400 ms, `status-core` reads "Rebuilding" and holds `core-stop`. Clicking it calls `stop()` once and hides the button. With `canCancel` false, `core-stop` never shows.
-271. U-271. The still-working panel since M2: with `canCancel` true and the worker transport, `core-working` shows the `core_still_working_stoppable` text with the buttons "Stop" and "Stop and restart core", in that order. With the Tauri transport it shows "Stop" alone. 10 s after Stop with no response, the Tauri panel shows `core_stop_waiting_desktop` with no button. With `canCancel` false, the panel is M1's (`core_still_working`).
+271. U-271. The still-working panel since M2: with `canCancel` true and the worker transport, `core-working` shows the `core_still_working_stoppable` text with the buttons "Stop" and "Stop and restart core", in that order. With the Tauri transport it shows "Stop" alone. 10 s after Stop with no response, the Tauri panel shows `core_stop_waiting_desktop` with no button, also when a background request (`evaluate`) was sent after Stop. With `canCancel` false, the panel is M1's (`core_still_working`).
 272. U-272. A `not_run` feature in the timeline: a `recomputed` with `f-ext1` `not_run` gives its item `data-status="not_run"`, the `circle-dashed` badge and the hidden status text of `timeline_not_built`.
 273. U-273. The stopped notification: a response whose `recomputed` holds `f-ext1`, `f-fil1` and `f-cha1` `not_run`, in that order, shows an info notification with the text `The rebuild stopped before 'Extrude 1' was built. 3 features are not built.` and the action "Rebuild", which sends `{"type": "rebuild", "doc": 1}`. With only `f-ext1` it reads `The rebuild stopped before 'Extrude 1' was built.`. A later `recomputed` with no `not_run` dismisses it. A preview that `createLatestOnly` superseded shows none.
 274. U-274. The status bar after a stop: when the latest mutating response holds a `not_run`, `status-recompute` reads "Stopped after {n} ms". The print badge stays `data-stale="true"`, and no `analyze_print` is sent in Print context until a `recomputed` with no `not_run` arrives.
@@ -4545,7 +4553,7 @@ Recovery copies and a core that is still working (3.19, 4.4):
 
 127. E-127. Replaced, then autosave, then save. `openApp(page, {fileSystemAccess: false})`, drop `cube.ptsm`, rename the body "Cube" to "Box" (click its row, press F2, type, Enter) and wait 3 s. Drop `two-bodies.ptsm`: a notification reads "cube had unsaved changes. They are kept for you." Rename the body "Peg" to "Pin", wait 3 s and press ControlOrMeta+S: the download `two-bodies.ptsm` contains `"name": "Pin"`, and `data-dirty="false"`. Reload: exactly one notification starts with "Partsmith kept unsaved changes", it starts with "Partsmith kept unsaved changes to cube from" and does not contain "other document"; click "Open": `document-name` "cube", a body row "Box" and `data-dirty="true"`.
 128. E-128. Two tabs, in one browser context (so one IndexedDB and one lock manager). In tab A drop `cube.ptsm`, rename the body to "Box" and wait 3 s. Open tab B (`context.newPage()`, then `openApp`): no notification starts with "Partsmith kept unsaved changes", because A's copy is live. In B drop `two-bodies.ptsm`, rename "Peg" to "Pin" and wait 3 s. Close tab A (`page.close()`, which runs no `beforeunload`) and open tab C: exactly one notification starts with "Partsmith kept unsaved changes", it starts with "Partsmith kept unsaved changes to cube from" and does not contain "other document"; click "Discard". Close tab B (again without `beforeunload`) and open tab D: exactly one such notification, starting with "Partsmith kept unsaved changes to two-bodies from"; click "Open": body rows "Cube" and "Pin", and `data-dirty="true"`.
-129. E-129. A stuck core (test timeout 60 s). Call `stallCore(page, 'Stall here')`, then `openApp`. Drop `cube.ptsm`, rename the body to "Box" and wait 3 s. Rename it to "Stall here" (the core never answers) and click "Hide Box" in its row, so a change waits behind the rename. `status-core` reads "Rebuilding" within 1 s. 8 s after the second rename `core-working` is not shown; within 14 s of it, it is, with the `core_still_working` text for 10 seconds and the button "Stop and restart core", and `status-core` reads "Still working". Click the button: `core-working` disappears, `data-core-status="ready"` returns with no `core-fatal`, `document-name` is "cube", the body row reads "Box" with the button "Hide Box", `data-dirty="true"`, and a `notification[data-severity=warning]` has the `changes_not_applied` text. Rename "Box" to "Lid" (the new core answers) and wait 3 s. Reload, accepting the `beforeunload` dialog: exactly one notification starts with "Partsmith kept unsaved changes", and it starts with "Partsmith kept unsaved changes to cube from" (the restart continued the session's entry); click "Open": a body row "Lid".
+129. E-129. A stuck core (test timeout 60 s). Call `stallCore(page, 'Stall here')`, then `openApp`. Drop `cube.ptsm`, rename the body to "Box" and wait 3 s. Rename it to "Stall here" (the core never answers) and click "Hide Box" in its row, so a change waits behind the rename. `status-core` reads "Rebuilding" within 1 s. 8 s after the second rename `core-working` is not shown; within 14 s of it, it is, with the `core_still_working_stoppable` text for 10 seconds and the buttons "Stop" and "Stop and restart core" (4.4, the web transport can cancel since M2), and `status-core` reads "Still working". Click "Stop and restart core": `core-working` disappears, `data-core-status="ready"` returns with no `core-fatal`, `document-name` is "cube", the body row reads "Box" with the button "Hide Box", `data-dirty="true"`, and a `notification[data-severity=warning]` has the `changes_not_applied` text. Rename "Box" to "Lid" (the new core answers) and wait 3 s. Reload, accepting the `beforeunload` dialog: exactly one notification starts with "Partsmith kept unsaved changes", and it starts with "Partsmith kept unsaved changes to cube from" (the restart continued the session's entry); click "Open": a body row "Lid".
 
 A core that is still working, continued (3.17, 4.4):
 
@@ -4714,7 +4722,7 @@ The tests live in `ui/e2e/perf.spec.ts`. Each title starts with its id and ends 
 10. P-10. `part-50.ptsm`: in the Parameters panel, set the expression of `base` 20 times, alternating `250 mm` and `240 mm`, each with Enter once the previous change's `ps:rebuild` is recorded: 20 `ps:apply-events` measures (one per change, each applying the recipe and statuses of 50 features), 95th percentile at most 8 ms.
 11. P-11. `part-50.ptsm`: in the Parameters panel, select the whole expression of `base` and type the digit 2 twenty times, each keystroke once the previous text's `ps:expression` is recorded: 20 `ps:expression` measures, median at most 50 ms.
 12. P-12. Worker transfer (protocol.md 5). A test page in `ui/e2e/pages/`, served by a Vite dev server as `viewport.spec.ts` serves its page, starts a module worker. 20 times, the page asks the worker for a frame and waits for it, so one frame is in flight at a time. The worker encodes with `encodeFrame` a new response frame (one `undo` response with id 1 to 20 in turn, and one `u8` buffer of 50,000,000 bytes), reads `performance.timeOrigin + performance.now()`, posts `{type: 'frame', frame}` (protocol.md 2.11) with `[frame]` as the transfer list, and then reports the time it read and the state of `frame` in a second message. A transfer's time runs from the worker's reading to `performance.timeOrigin + performance.now()` read first in the page's `message` handler for the frame (HR-Time makes the two comparable across contexts): median at most 2 ms. After every `postMessage` the worker's `frame` is detached (`detached` true, `byteLength` 0), and every frame the page receives decodes with `decodeFrame` to its response and a `Uint8Array` of 50,000,000 bytes.
-13. P-13. Stop on the web (since M2, engine.md section 5's cancel row). `part-50.ptsm`: in the Parameters panel set `base` to `250 mm`, and click `core-stop` as soon as it shows: `ps:stop` at most 600 ms, over 7 runs (the median), each after setting `base` back and waiting for its `ps:rebuild`.
+13. P-13. Stop on the web (since M2, engine.md section 5's cancel row). `part-50.ptsm`: in the Parameters panel set `base` to a length it has not had in the test (`250 mm` in the first run, `251 mm` in the second, and so on), and click `core-stop` as soon as it shows: `ps:stop` at most 600 ms, over 7 runs (the median), each after setting `base` back to `240 mm` and waiting for its `ps:rebuild`. A stopped rebuild caches the features it finished (recompute.md section 3.7). A length built before would start from them, and its rebuild could end before Stop shows.
 
 The engine's web-column benchmark (engine.md section 5, tests 155 to 157) shares this harness from a file of its own, `ui/e2e/engine-budgets.spec.ts`: its rows are tagged `@perf`, run with `PARTSMITH_PERF=1 pnpm -C ui e2e engine-budgets.spec.ts`, and write their `perf` annotations as these tests do. Rows 2 to 18 go through `expectWithinBudgets` (`expectWithinBudgets(id, measured)`, which adds `{id} {statistic}: {value} ms (budget {budget} ms)` for each measured value and then holds each to at most its budget), moved from `perf.spec.ts` to `ui/e2e/support/perf.ts`, which both files import, with the statistic `median`; row 1 adds its bytes annotation and checks that its bytes are below 4294967296 itself. Run one of the two files at a time: each file runs its tests one after another in one worker (`mode: 'default'`), but Playwright runs two files in two workers at once, so the two side by side slow each other down. A local run reports through the `list` reporter, which prints no annotations, so a run that records its numbers adds the JSON reporter, as engine.md section 5 gives it for its file: `PARTSMITH_PERF=1 PLAYWRIGHT_JSON_OUTPUT_FILE=playwright-report/perf.json pnpm -C ui e2e perf.spec.ts --reporter=list,json` writes the annotations of every test to `ui/playwright-report/perf.json`.
 

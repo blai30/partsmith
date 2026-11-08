@@ -23,7 +23,7 @@ pub use host::Host;
 /// The file in the app data directory that keeps the file grants across restarts.
 const GRANT_STORE: &str = "file-grants.json";
 
-/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the eight commands to a builder.
+/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the nine commands to a builder.
 /// `run` and the command tests share it; the caller manages `Arc<Files>`.
 pub fn configure<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
@@ -39,6 +39,7 @@ pub fn configure<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             commands::read_asset,
             commands::write_asset,
             commands::set_unsaved,
+            commands::cancel_call,
         ])
 }
 

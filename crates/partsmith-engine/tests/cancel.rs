@@ -120,13 +120,9 @@ fn base_change(label: Option<&str>) -> Value {
     command
 }
 
-/// `apply_edits` of document 1 that sets the box fixture's height to `height`, with `label` when given.
-fn box_height(height: &str, label: Option<&str>) -> Value {
-    let mut command = json!({"type": "apply_edits", "doc": 1, "edits": [set_height(height)]});
-    if let Some(label) = label {
-        command["label"] = json!(label);
-    }
-    command
+/// `apply_edits` of document 1, labeled `label`, that sets the box fixture's height to `height`.
+fn box_height(height: &str, label: &str) -> Value {
+    json!({"type": "apply_edits", "doc": 1, "label": label, "edits": [set_height(height)]})
 }
 
 /// `export` of every body of document 1 to binary STL at standard quality.
@@ -464,10 +460,10 @@ fn t202_a_late_cancel_stops_nothing_later() {
     let flag = CancelFlag::word();
     let mut session = display_session_with(&flag);
     send_as(&mut session, 1, open_command(&fixture("box.ptsm"))).ok();
-    send_as(&mut session, 2, box_height("45 mm", None)).ok();
+    send_as(&mut session, 2, box_height("45 mm", "Resize")).ok();
     flag.cancel(2);
 
-    let changed = send_as(&mut session, 3, box_height("50 mm", None));
+    let changed = send_as(&mut session, 3, box_height("50 mm", "Resize"));
 
     assert!(!has_not_run(&changed), "request 3 is not request 2");
     let mesh = changed.body_mesh("b-1", "model");
@@ -485,7 +481,7 @@ fn t203_a_cancel_before_the_request_stops_it_at_its_first_check() {
     send_as(&mut session, 1, open_command(&fixture("box.ptsm"))).ok();
     flag.cancel(3);
 
-    let grown = send_as(&mut session, 3, box_height("50 mm", Some("Grow")));
+    let grown = send_as(&mut session, 3, box_height("50 mm", "Grow"));
 
     assert_eq!(grown.ok()["revision"], 1);
     assert_eq!(grown.event("document_changed")["undo"], "Grow");
@@ -514,7 +510,7 @@ fn t204_typed_methods_and_request_0_never_stop() {
         serde_json::from_value(json!([set_height("45 mm")])).expect("the edit deserializes");
 
     session
-        .apply_edits(doc, None, edits)
+        .apply_edits(doc, Some("Resize"), edits)
         .expect("the typed edit applies");
 
     let typed = session
@@ -528,7 +524,7 @@ fn t204_typed_methods_and_request_0_never_stop() {
     );
 
     flag.cancel(0);
-    let changed = send_as(&mut session, 0, box_height("50 mm", None));
+    let changed = send_as(&mut session, 0, box_height("50 mm", "Resize"));
 
     assert!(!has_not_run(&changed), "request 0 never stops");
 }
@@ -655,9 +651,9 @@ fn a_word_flag_starts_at_0_and_holds_the_last_request_canceled() {
     let mut session = headless_session_with(&clone);
     send_as(&mut session, 1, open_command(&fixture("box.ptsm"))).ok();
 
-    let first = send_as(&mut session, 1, box_height("45 mm", None));
+    let first = send_as(&mut session, 1, box_height("45 mm", "Resize"));
     flag.cancel(2);
-    let second = send_as(&mut session, 2, box_height("50 mm", None));
+    let second = send_as(&mut session, 2, box_height("50 mm", "Resize"));
 
     assert!(!has_not_run(&first), "the word starts at 0");
     assert!(has_not_run(&second), "a clone shares the word");
@@ -670,7 +666,7 @@ fn a_never_flag_stops_nothing() {
     send_as(&mut session, 1, open_command(&fixture("box.ptsm"))).ok();
     flag.cancel(2);
 
-    let changed = send_as(&mut session, 2, box_height("50 mm", None));
+    let changed = send_as(&mut session, 2, box_height("50 mm", "Resize"));
 
     assert!(!has_not_run(&changed));
 }
@@ -685,7 +681,7 @@ fn the_default_options_never_stop() {
     send_as(&mut session, 1, open_command(&fixture("box.ptsm"))).ok();
     flag.cancel(2);
 
-    let changed = send_as(&mut session, 2, box_height("50 mm", None));
+    let changed = send_as(&mut session, 2, box_height("50 mm", "Resize"));
 
     assert!(!has_not_run(&changed), "CancelFlag::default() is never()");
 }

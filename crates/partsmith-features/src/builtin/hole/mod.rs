@@ -230,6 +230,7 @@ impl Feature for Hole {
                         &frame,
                         &size.section(length),
                         &sketch.motion,
+                        context.interrupt(),
                     )
                 })
                 .transpose()

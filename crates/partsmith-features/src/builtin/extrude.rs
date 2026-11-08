@@ -3,7 +3,7 @@
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{ElementKind, ElementName, NamingMap, roles};
-use partsmith_occt_sys::{Interrupt, Point, Vector, extrude};
+use partsmith_occt_sys::{Point, Vector, extrude};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -151,7 +151,7 @@ impl Feature for Extrude {
         };
         let (start, end) = interval(params, context, &profile, plane.origin, direction)?;
         let tool = swept_tool(context, &profile, |faces| {
-            extrude(faces, direction, start, end, &Interrupt::new())
+            extrude(faces, direction, start, end, context.interrupt())
         })?;
         let caps = match params.op {
             BodyOp::Cut => Some(CutCaps::of(context.feature(), &tool.naming)?),
@@ -170,7 +170,7 @@ impl Feature for Extrude {
                 reverse_checked(context, &params.body, op_warnings, params.reverse, || {
                     let back = direction.scaled(-1.0);
                     Ok(vec![swept_tool(context, &profile, |faces| {
-                        extrude(faces, back, start, end, &Interrupt::new())
+                        extrude(faces, back, start, end, context.interrupt())
                     })?])
                 })?;
         }
@@ -286,7 +286,7 @@ fn interval(
                             back,
                             0.0,
                             back_reach + THROUGH_ALL_MARGIN,
-                            &Interrupt::new(),
+                            context.interrupt(),
                         )
                     })?;
                     reverse_hits(context, &params.body, &[tool])?

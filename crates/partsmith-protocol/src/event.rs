@@ -133,6 +133,8 @@ pub enum FeatureState {
     Suppressed,
     /// Skipped because it is at or after the rollback marker (or after the focused feature).
     RolledBack,
+    /// Not built because the host stopped the request first; it has no messages and no repairs.
+    NotRun,
 }
 
 /// A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).

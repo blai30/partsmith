@@ -341,6 +341,8 @@ describe('availability', () => {
         fatal: 'HTTP 404',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     for (const id of ['file.save', 'file.open', 'feature.extrude', 'print.check_now']) {

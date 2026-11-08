@@ -203,6 +203,27 @@ describe('timeline items (3.9)', () => {
     expect(lines[0]).toHaveTextContent(/^Extrude 1$/)
   })
 
+  it('U-272 a not_run feature shows the circle-dashed badge and says it is not built (3.9)', () => {
+    renderTimeline(
+      withStatus(cubeDocumentState(), {
+        id: 'f-ext1',
+        status: 'not_run',
+        messages: [],
+        repairs: [],
+      }),
+    )
+    const item = timelineItem('f-ext1')
+    expect(item).toHaveAttribute('data-status', 'not_run')
+    const badge = item.querySelector('.lucide-circle-dashed')
+    expect(badge).not.toBeNull()
+    expect(badge).toHaveClass(COLOR_CLASSES.textMuted.foreground)
+    expect(describedText(itemButton('Extrude 1'))).toContain(MESSAGES.timeline_not_built())
+    const [title, description] = tooltipLines(itemButton('Extrude 1'))
+    expect(title).toHaveTextContent(/^Extrude 1$/)
+    expect(description).toHaveTextContent(/^Not built: the rebuild was stopped before it\.$/)
+    expect(timelineItem('f-sk1').querySelector('.lucide-circle-dashed')).toBeNull()
+  })
+
   it('marks suppressed features', () => {
     const suppressed: Document = {
       ...CUBE_DOCUMENT,

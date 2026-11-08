@@ -765,7 +765,7 @@ Since M2 ([ADR 0063](../adr/0063-cancel-through-a-host-flag-outside-the-session.
 
 1. `Host::new(options)` makes a `CancelFlag::word()`, keeps a clone in the `Host` beside the mutex, and creates the session with `SessionOptions { cancel: that flag, ..options }`. A flag in `options` is replaced. `Host::default()` does the same.
 2. `cancel_call` is a synchronous command: Tauri runs it on the main thread, while `call` runs on the blocking pool (3.1 step 2). It calls `Host::cancel(request)`, which calls `CancelFlag::cancel(request)`: one atomic store, with no lock. It never waits for the session mutex. It returns `null` whether or not a call with that id is running.
-3. The running `Session::call` stops at its next check when its request id is `request`. It answers with its usual response frame (engine.md section 3.26), which `call` returns as usual. A later call is never stopped by an earlier `cancel_call`: its id differs.
+3. The running `Session::call` stops at its next check when its request id is `request`. It answers with its usual response frame (engine.md section 3.26), which `call` returns as usual. A later call is never stopped by an earlier `cancel_call`: its id differs. The flag outlives the webview's client, whose ids start again at 1 after a core restart or a reload. The Tauri transport clears the flag with `cancel_call` of request 0 at every start (ui.md section 2.4).
 4. A `cancel_call` whose `request` is not a whole number from 0 to 18446744073709551615 is rejected by Tauri's argument check, with a message that names `request`, and stores nothing.
 
 ## 4. Errors

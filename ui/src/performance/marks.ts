@@ -12,12 +12,14 @@ export const TIMING_NAMES = {
   dropCheck: 'ps:drop-check',
   applyEvents: 'ps:apply-events',
   expression: 'ps:expression',
+  stopStart: 'ps:stop-start',
+  stop: 'ps:stop',
 } as const
 
 export type TimingName = (typeof TIMING_NAMES)[keyof typeof TIMING_NAMES]
 
-/** The one timing recorded as a mark; every other timing is a measure. */
-export type MarkName = typeof TIMING_NAMES.usable
+/** The timings recorded as marks: `ps:usable`, and since M2 `ps:stop-start` (3.21). Every other timing is a measure. */
+export type MarkName = typeof TIMING_NAMES.usable | typeof TIMING_NAMES.stopStart
 export type MeasureName = Exclude<TimingName, MarkName>
 
 /** The most entries one measure name keeps. */

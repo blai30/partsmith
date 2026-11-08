@@ -1,10 +1,11 @@
 import { clsx } from 'clsx/lite'
-import { LoaderCircle } from 'lucide-react'
+import { LoaderCircle, Square } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { setKeepSizes, setUnits } from '../app/actions/document'
 import { openPrintHealth } from '../app/actions/print'
 import { setPrinterMenuOpen } from '../app/actions/printers'
 import { useApp, useAppState } from '../app/AppProvider'
+import { canCancelCore } from '../app/connection'
 import { reportFailure } from '../app/report'
 import { explainDisabled, type DisabledAvailability } from '../commands/registry'
 import { Menu, type MenuEntry } from '../components/Menu'
@@ -14,7 +15,12 @@ import { MESSAGES } from '../messages'
 import { HealthBadge } from '../print/HealthBadge'
 import { DocumentPrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
-import { selectDocumentUnits, selectHealthBadge, selectSketchDof } from '../state/selectors'
+import {
+  selectDocumentUnits,
+  selectHealthBadge,
+  selectRebuildStopped,
+  selectSketchDof,
+} from '../state/selectors'
 import type { AppState, CoreState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { useCommandViews } from './use-commands'
@@ -69,6 +75,35 @@ function busyText(
   return rebuilding ? 'Rebuilding' : null
 }
 
+/** Stop (since M2): stops the oldest request with no response, then hides until the next request (3.21). */
+function StopButton() {
+  const app = useApp()
+  const stopRequested = useAppState((state) => state.core.stopRequested)
+  if (stopRequested || !canCancelCore(app)) {
+    return null
+  }
+  return (
+    <Tooltip label="Stop this step. Your changes and your undo history stay.">
+      <button
+        type="button"
+        data-testid="core-stop"
+        onClick={() => {
+          app.stopCore()
+        }}
+        className={clsx(
+          'inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-150 motion-reduce:transition-none',
+          COLOR_CLASSES.focusRing.inset,
+          COLOR_CLASSES.text.foreground,
+          COLOR_CLASSES.hover.background,
+        )}
+      >
+        <Square aria-hidden="true" strokeWidth={1.75} className="size-3" />
+        Stop
+      </button>
+    </Tooltip>
+  )
+}
+
 function CoreStatus() {
   const status = useAppState((state) => state.core.status)
   const stillWorking = useAppState((state) => state.core.stillWorking)
@@ -88,6 +123,7 @@ function CoreStatus() {
     <span data-testid="status-core" className="flex items-center gap-1.5">
       <Spinner />
       {text}
+      {status === 'ready' && <StopButton />}
     </span>
   )
 }
@@ -137,14 +173,19 @@ function rebuildTime(milliseconds: number): { readonly value: string; readonly u
 
 function RebuildTime() {
   const milliseconds = useAppState((state) => state.document?.lastRebuildMilliseconds ?? null)
+  const stopped = useAppState(selectRebuildStopped)
   if (milliseconds === null) {
     return null
   }
   const time = rebuildTime(milliseconds)
   return (
-    <Tooltip label="Time the last change took to rebuild">
+    <Tooltip
+      label={
+        stopped ? 'Time until the last rebuild stopped' : 'Time the last change took to rebuild'
+      }
+    >
       <span data-testid="status-recompute" className="whitespace-nowrap tabular-nums">
-        Rebuilt in {time.value} {time.unit}
+        {stopped ? 'Stopped after' : 'Rebuilt in'} {time.value} {time.unit}
       </span>
     </Tooltip>
   )

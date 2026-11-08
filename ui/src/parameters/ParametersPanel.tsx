@@ -37,6 +37,25 @@ function expressionId(parameterId: string): string {
   return `parameter-expression-${parameterId}`
 }
 
+/**
+ * Runs a field's commit unless the same text is still on its way to the core. Enter commits, and
+ * the blur that follows while the core works (a click on Stop, say) must not commit it again.
+ */
+function useCommitOnce(): (text: string, commit: () => Promise<void>) => void {
+  const sending = useRef<string | null>(null)
+  return (text, commit) => {
+    if (sending.current === text) {
+      return
+    }
+    sending.current = text
+    void commit().finally(() => {
+      if (sending.current === text) {
+        sending.current = null
+      }
+    })
+  }
+}
+
 function ParameterValueText({
   value,
   units,
@@ -80,6 +99,9 @@ function ParameterRow({
   const [expression, setExpression] = useState<string | null>(null)
   const [comment, setComment] = useState<string | null>(null)
   const storedComment = parameter.comment ?? ''
+  const commitNameOnce = useCommitOnce()
+  const commitExpressionOnce = useCommitOnce()
+  const commitCommentOnce = useCommitOnce()
 
   function commitName(): void {
     const next = (name ?? parameter.name).trim()
@@ -93,24 +115,28 @@ function ParameterRow({
       return
     }
     setNameError(null)
-    renameParameter(app, parameter.id, next, { onRefused: setNameError })
-      .then((renamed) => {
-        if (renamed) {
-          setName(null)
-        }
-      })
-      .catch(reportFailure('A parameter change'))
+    commitNameOnce(next, () =>
+      renameParameter(app, parameter.id, next, { onRefused: setNameError })
+        .then((renamed) => {
+          if (renamed) {
+            setName(null)
+          }
+        })
+        .catch(reportFailure('A parameter change')),
+    )
   }
 
   function commitExpression(text: string, state: ExpressionState): void {
     if (state.state !== 'valid' || text === parameter.expr) {
       return
     }
-    updateParameter(app, parameter.id, { expression: text })
-      .then(() => {
-        setExpression(null)
-      })
-      .catch(reportFailure('A parameter change'))
+    commitExpressionOnce(text, () =>
+      updateParameter(app, parameter.id, { expression: text })
+        .then(() => {
+          setExpression(null)
+        })
+        .catch(reportFailure('A parameter change')),
+    )
   }
 
   function commitComment(): void {
@@ -119,11 +145,13 @@ function ParameterRow({
       setComment(null)
       return
     }
-    updateParameter(app, parameter.id, { comment: next })
-      .then(() => {
-        setComment(null)
-      })
-      .catch(reportFailure('A parameter change'))
+    commitCommentOnce(next, () =>
+      updateParameter(app, parameter.id, { comment: next })
+        .then(() => {
+          setComment(null)
+        })
+        .catch(reportFailure('A parameter change')),
+    )
   }
 
   return (

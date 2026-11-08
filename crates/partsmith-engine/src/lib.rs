@@ -11,6 +11,7 @@
 
 mod analysis;
 mod assets;
+mod cancel;
 mod causes;
 mod counts;
 mod datum_base;
@@ -49,6 +50,7 @@ mod uses;
 mod validate;
 mod words;
 
+pub use cancel::CancelFlag;
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
 pub use partsmith_model::{SequentialIds, is_asset_name};

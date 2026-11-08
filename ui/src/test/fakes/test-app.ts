@@ -56,6 +56,7 @@ export function createTestApp(options: TestAppOptions = {}): App {
       viewport = handle
     },
     restartCore: () => Promise.resolve(),
+    stopCore: () => false,
     waitOn: (work) => work,
   }
 }

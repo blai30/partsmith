@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::Registry;
+use partsmith_features::{CancelToken, Registry};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::{
     Document, Expr, FORMAT_VERSION, IdGenerator, Loaded, Quantity, Scope, Units, load,
@@ -18,6 +18,9 @@ use partsmith_recompute::Recompute;
 
 use crate::ENGINE_VERSION;
 use crate::assets::{referenced_assets, stored_assets};
+#[cfg(test)]
+use crate::cancel::StopPoint;
+use crate::cancel::{CancelFlag, Stoppable};
 use crate::display::DisplayCache;
 use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
@@ -79,6 +82,15 @@ pub struct Session {
     /// The registry's inspection of the feature records of every document, memoized by content
     /// (section 3.25).
     pub(crate) inspections: Inspections,
+    /// The host's flag that stops a running request (section 3.26).
+    cancel: CancelFlag,
+    /// The token of the request `execute` handles, which every check of it reads; outside
+    /// `execute` a token that is never canceled (section 3.26).
+    pub(crate) request: CancelToken,
+    /// For tests: the step after which the request's token is canceled, as a host's Stop at
+    /// that moment would cancel it.
+    #[cfg(test)]
+    pub(crate) stop_after: Option<StopPoint>,
 }
 
 impl std::fmt::Debug for Session {
@@ -111,6 +123,29 @@ impl Session {
             next_mesh_id: 1,
             cache: DisplayCache::new(shares.display_bytes),
             inspections: Inspections::default(),
+            cancel: options.cancel,
+            request: CancelToken::new(),
+            #[cfg(test)]
+            stop_after: None,
+        }
+    }
+
+    /// Starts request `request`: its checks read the host's flag (section 3.26).
+    pub(crate) fn begin_request(&mut self, request: u64) {
+        self.request = self.cancel.token(request);
+    }
+
+    /// Ends the request `execute` handled: typed methods called directly never stop.
+    pub(crate) fn end_request(&mut self) {
+        self.request = CancelToken::new();
+    }
+
+    /// `canceled` of `command` once the request was stopped (section 3.26).
+    pub(crate) fn check_stop(&self, command: Stoppable) -> Result<(), EngineError> {
+        if self.request.is_canceled() {
+            Err(command.error())
+        } else {
+            Ok(())
         }
     }
 
@@ -266,7 +301,15 @@ impl Session {
         assets: BTreeMap<String, Arc<[u8]>>,
     ) -> Result<DocHandle, EngineError> {
         let profile = self.profiles.resolve(&document);
-        let computed = state::run(&mut self.recompute, &document, &assets, profile, None, 0);
+        let computed = state::run(
+            &mut self.recompute,
+            &document,
+            &assets,
+            profile,
+            None,
+            0,
+            &mut self.request,
+        );
         let mut open =
             OpenDocument::new(document, assets, self.undo_limit, self.quality, computed)?;
         open.observe(&self.registry, self.display);
@@ -398,24 +441,71 @@ impl Session {
             .ok_or(EngineError::UnknownDocument { doc })
     }
 
+    /// Recomputes the document with its recipe, focus and resolved profile and changes nothing
+    /// else (section 3.26).
+    pub fn rebuild(&mut self, doc: DocHandle) -> Result<(), EngineError> {
+        self.rerun(doc)
+    }
+
     /// Recomputes a document with its current recipe, focus and resolved profile.
     pub(crate) fn rerun(&mut self, doc: DocHandle) -> Result<(), EngineError> {
+        let computed = self.recomputed(doc)?;
         let open = self
             .documents
             .get_mut(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
+        open.computed = computed;
+        open.observe(&self.registry, self.display);
+        Ok(())
+    }
+
+    /// A recompute of the document with its current recipe, focus and resolved profile, which the
+    /// document does not keep yet.
+    fn recomputed(&mut self, doc: DocHandle) -> Result<Computed, EngineError> {
+        let open = self
+            .documents
+            .get(&doc)
+            .ok_or(EngineError::UnknownDocument { doc })?;
         let profile = self.profiles.resolve(&open.document);
-        let focus = open.focus().cloned();
-        open.computed = state::run(
+        Ok(state::run(
             &mut self.recompute,
             &open.document,
             &open.assets,
             profile,
-            focus,
+            open.focus().cloned(),
             open.computed.run,
-        );
-        open.observe(&self.registry, self.display);
-        Ok(())
+            &mut self.request,
+        ))
+    }
+
+    /// Runs `command`, which makes an output, on a complete document: an incomplete one, whose
+    /// latest recompute stopped, is rebuilt first. When the rebuild stops, or `command` fails,
+    /// the document keeps its latest recompute and only the results the rebuild cached remain
+    /// (section 3.26).
+    pub(crate) fn on_complete<T>(
+        &mut self,
+        doc: DocHandle,
+        stoppable: Stoppable,
+        command: impl FnOnce(&mut Session) -> Result<T, EngineError>,
+    ) -> Result<T, EngineError> {
+        if !self.open(doc)?.computed.report.canceled {
+            return command(self);
+        }
+        let rebuilt = self.recomputed(doc)?;
+        if rebuilt.report.canceled {
+            return Err(stoppable.error());
+        }
+        let latest = std::mem::replace(&mut self.open_mut(doc)?.computed, rebuilt);
+        let result = command(self);
+        let open = self
+            .documents
+            .get_mut(&doc)
+            .ok_or(EngineError::UnknownDocument { doc })?;
+        match result {
+            Ok(_) => open.observe(&self.registry, self.display),
+            Err(_) => open.computed = latest,
+        }
+        result
     }
 }
 
@@ -748,7 +838,7 @@ mod tests {
             assert_eq!(
                 action,
                 Some(partsmith_recompute::Action::Reuse),
-                "{} finished in request 4, so its result is cached",
+                "{} finished in request 4 and its result is cached",
                 status.id
             );
         }

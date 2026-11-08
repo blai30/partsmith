@@ -666,9 +666,14 @@ fn main() -> ExitCode {
                 Duration::from_millis(2_200),
                 || *cold_open_median.insert(cold_open()),
             );
-            for (operation, delay) in [
-                (reference_operations[10], Some(Duration::from_millis(100))),
-                (reference_operations[11], None),
+            // The late row's budget is its median plus 20 percent (ADR 0063 choice 20).
+            for (operation, delay, budget) in [
+                (
+                    reference_operations[10],
+                    Some(Duration::from_millis(100)),
+                    200,
+                ),
+                (reference_operations[11], None, 400),
             ] {
                 if !report.includes(operation) {
                     continue;
@@ -678,7 +683,9 @@ fn main() -> ExitCode {
                     cold_open_median.get_or_insert_with(cold_open).mul_f64(0.75)
                 });
                 match cancel_to_response(&text, delay) {
-                    Some(time) => report.record_time(operation, time, Duration::from_millis(200)),
+                    Some(time) => {
+                        report.record_time(operation, time, Duration::from_millis(budget))
+                    }
                     None => report.record_unmeasured(operation),
                 }
             }

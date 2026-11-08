@@ -160,7 +160,10 @@ impl Recompute {
             },
             &mut self.cache,
         );
-        self.cache.end_run();
+        // A canceled run evicts nothing (section 3.7).
+        if !ran.canceled {
+            self.cache.end_run();
+        }
         for (report, messages) in ran.features.iter_mut().zip(messages) {
             report.messages = messages;
         }

@@ -50,7 +50,9 @@ function fakeTauri(protocolVersion: number = PROTOCOL_VERSION): FakeTauri {
         invoke: (command, payload) => {
           if (!(payload instanceof ArrayBuffer)) {
             fake.cancels.push({ command, payload })
-            return fake.cancelError === null ? Promise.resolve(null) : Promise.reject(fake.cancelError)
+            return fake.cancelError === null
+              ? Promise.resolve(null)
+              : Promise.reject(fake.cancelError)
           }
           return new Promise<ArrayBuffer>((resolve, reject) => {
             const request = readRequest(payload)
@@ -272,10 +274,29 @@ describe('createTauriTransport', () => {
       expect(createTauriTransport(fakeTauri().tauri).canCancel).toBe(true)
     })
 
+    it('start() clears the host flag with cancel_call of request 0 before the first call (desktop.md 3.10)', async () => {
+      const fake = fakeTauri()
+      const journal: string[] = []
+      const invoke = fake.tauri.core.invoke
+      const transport = createTauriTransport({
+        core: {
+          invoke: (command, payload) => {
+            journal.push(command)
+            return invoke(command, payload)
+          },
+        },
+      })
+      await transport.start()
+      expect(fake.cancels).toEqual([{ command: 'cancel_call', payload: { request: 0 } }])
+      expect(journal).toEqual(['cancel_call', 'call'])
+    })
+
     it('protocol test 104: cancel(5) invokes cancel_call once while request 5 is pending, and nothing without it', async () => {
       const fake = fakeTauri()
       const transport = createTauriTransport(fake.tauri)
       await transport.start()
+      // The start's clear of the flag is no cancel of request 5.
+      fake.cancels.length = 0
       expect(transport.cancel(5)).toBe(false)
       expect(fake.cancels).toEqual([])
 
@@ -293,9 +314,9 @@ describe('createTauriTransport', () => {
     it('protocol test 104: a cancel_call rejection goes to console.error, and the send resolves with its own frame', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       const fake = fakeTauri()
-      fake.cancelError = new Error('The host is gone.')
       const transport = createTauriTransport(fake.tauri)
       await transport.start()
+      fake.cancelError = new Error('The host is gone.')
       const reply = transport.send(requestFrame(5, { type: 'undo', doc: 1 }), 5)
       await settle()
       expect(transport.cancel(5)).toBe(true)
@@ -311,6 +332,7 @@ describe('createTauriTransport', () => {
       const fake = fakeTauri()
       const transport = createTauriTransport(fake.tauri)
       await transport.start()
+      fake.cancels.length = 0
       const first = transport.send(requestFrame(5, { type: 'undo', doc: 1 }), 5)
       const second = transport.send(requestFrame(6, { type: 'redo', doc: 1 }), 6)
       await settle()

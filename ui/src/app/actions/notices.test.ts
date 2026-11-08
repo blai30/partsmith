@@ -25,6 +25,8 @@ const FAILED_CORE: CoreState = {
   fatal: 'HTTP 404',
   pendingMutations: 0,
   stillWorking: false,
+  stopRequested: false,
+  stopPending: false,
 }
 
 /** The message on each operating system of the desktop (4.3 `notices_installed`, the places of 3.5). */

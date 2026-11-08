@@ -29,8 +29,10 @@ export type FakeCoreApi = CoreApi & {
 export async function coreErrorFor(error: ErrorReply): Promise<CoreError> {
   const transport: Transport = {
     kind: 'worker',
+    canCancel: false,
     start: async () => ({ protocolVersion: PROTOCOL_VERSION, engineVersion: '0.1.0' }),
     send: async (frame) => responseFrame({ id: readRequest(frame).id, error }),
+    cancel: () => false,
     stop: () => undefined,
     onFatal: () => () => undefined,
   }
@@ -104,6 +106,7 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     measure: async () => ({}),
     analyzePrint: async () => null,
     exportBodies: async () => ({ files: [], warnings: [] }),
+    rebuild: async () => undefined,
   }
   const implementation: CoreApi = { ...defaults, ...stubs }
 
@@ -248,6 +251,10 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     exportBodies: (...args: Parameters<CoreApi['exportBodies']>) => {
       record('exportBodies', args)
       return implementation.exportBodies(...args)
+    },
+    rebuild: (...args: Parameters<CoreApi['rebuild']>) => {
+      record('rebuild', args)
+      return implementation.rebuild(...args)
     },
   }
 }

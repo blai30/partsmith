@@ -258,7 +258,7 @@ pub fn apply_op(
     };
     context.check_canceled()?;
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = boolean(target, &tool_shapes, &Interrupt::new())?;
+    let result = boolean(target, &tool_shapes, context.interrupt())?;
     apply_op_result(context, body, op, &tools, result, direction)
 }
 
@@ -453,7 +453,7 @@ fn combine_tools(
     }
     context.check_canceled()?;
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = fuse(&shapes[0], &shapes[1..], &Interrupt::new())?;
+    let result = fuse(&shapes[0], &shapes[1..], context.interrupt())?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();
     let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
     Ok((result.shape, named.naming, Some(named.topology)))

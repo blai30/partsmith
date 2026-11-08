@@ -102,15 +102,15 @@ fn main() -> ExitCode {
         let kernel = median_time_of(RUNS, || {
             partsmith_occt_sys::write_step(&kernel_bodies, &Interrupt::new())
         });
-        let wrapped = median_time_of(RUNS, || write_step(&io_bodies));
+        let wrapped = median_time_of(RUNS, || write_step(&io_bodies, &Interrupt::new()));
         report.record_time("write_step", wrapped, kernel + STEP_OVERHEAD);
     }
     if report.includes("read_step") {
-        let bytes = write_step(&io_bodies).expect("the block exports");
+        let bytes = write_step(&io_bodies, &Interrupt::new()).expect("the block exports");
         let kernel = median_time_of(RUNS, || {
             partsmith_occt_sys::read_step(&bytes, &Interrupt::new())
         });
-        let wrapped = median_time_of(RUNS, || read_step(&bytes));
+        let wrapped = median_time_of(RUNS, || read_step(&bytes, &Interrupt::new()));
         report.record_time("read_step", wrapped, kernel + STEP_OVERHEAD);
     }
     report.finish()

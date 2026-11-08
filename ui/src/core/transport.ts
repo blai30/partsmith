@@ -13,8 +13,12 @@ export type Transport = {
   readonly kind: 'worker' | 'tauri'
   /** Starts the core. Resolves once it accepts calls; rejects with CoreFatalError. */
   start(): Promise<CoreReady>
-  /** Sends one request frame and resolves with the response frame for it. */
-  send(request: ArrayBuffer): Promise<ArrayBuffer>
+  /** Sends one request frame with its request id and resolves with the response frame for it. */
+  send(request: ArrayBuffer, id: number): Promise<ArrayBuffer>
+  /** Since M2: asks the core to stop pending request `id` (engine.md section 3.26). False when no request `id` is pending or this transport cannot stop a running call. */
+  cancel(id: number): boolean
+  /** Since M2: whether `cancel` can stop a running call (false for a worker transport without a cancel word). */
+  readonly canCancel: boolean
   /** Stops the core; pending and later sends reject with CoreFatalError. */
   stop(): void
   /** Called at most once, when the core dies outside the caller's control. */
@@ -37,6 +41,9 @@ type Settlers<Value> = {
   readonly resolve: (value: Value) => void
   readonly reject: (error: CoreFatalError) => void
 }
+
+/** A sent request that has no response yet. */
+type PendingSend = Settlers<ArrayBuffer> & { readonly id: number }
 
 /** A promise with its settlers, for a start() that the worker's messages settle. */
 class Deferred<Value> implements Settlers<Value> {
@@ -70,7 +77,9 @@ function isFromWorker(data: unknown): data is FromWorker {
 /** One run of the core worker, from start() until it ends. */
 type WorkerSession = {
   readonly startup: Deferred<CoreReady>
-  readonly pending: Settlers<ArrayBuffer>[]
+  readonly pending: PendingSend[]
+  /** The cancel word shared with the worker, on a cross-origin isolated page only (protocol.md 2.11 rule 8). */
+  readonly word: BigInt64Array | null
   worker: Worker | null
   ready: boolean
   ended: CoreFatalError | null
@@ -138,6 +147,10 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
           )
           return
         }
+        // The word holds 0 or the id of a request whose response is not read yet.
+        if (receiving.word !== null) {
+          Atomics.compareExchange(receiving.word, 0, BigInt(oldest.id), 0n)
+        }
         oldest.resolve(data.frame)
         return
       }
@@ -185,6 +198,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
       const starting: WorkerSession = {
         startup,
         pending: [],
+        word: globalThis.crossOriginIsolated ? new BigInt64Array(new SharedArrayBuffer(8)) : null,
         worker: null,
         ready: false,
         ended: null,
@@ -194,6 +208,13 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
       try {
         starting.worker = createWorker()
         listen(starting, starting.worker)
+        if (starting.word !== null) {
+          const message: ToWorker = {
+            type: 'cancel_word',
+            word: starting.word.buffer as SharedArrayBuffer,
+          }
+          starting.worker.postMessage(message, [])
+        }
       } catch (error) {
         end(starting, new CoreFatalError(errorMessage(error)), false)
         return startup.promise
@@ -210,7 +231,7 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
       }, startTimeout)
       return startup.promise
     },
-    send(request) {
+    send(request, id) {
       if (session === null) {
         return Promise.reject(new CoreFatalError('The geometry core is not running.'))
       }
@@ -219,10 +240,21 @@ export function createWorkerTransport(options: WorkerTransportOptions = {}): Tra
         return Promise.reject(sending.ended)
       }
       return new Promise<ArrayBuffer>((resolve, reject) => {
-        sending.pending.push({ resolve, reject })
+        sending.pending.push({ id, resolve, reject })
         const message: ToWorker = { type: 'call', frame: request }
         sending.worker?.postMessage(message, [request])
       })
+    },
+    cancel(id) {
+      const word = session?.ended === null ? session.word : null
+      if (word === null || session?.pending.some((pending) => pending.id === id) !== true) {
+        return false
+      }
+      Atomics.store(word, 0, BigInt(id))
+      return true
+    },
+    get canCancel() {
+      return session !== null && session.word !== null
     },
     stop() {
       if (session !== null) {

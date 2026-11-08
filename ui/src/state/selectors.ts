@@ -255,8 +255,14 @@ export type HealthBadge = {
   readonly errors: number
   /** Warnings of shown checks, omitted findings included. */
   readonly warnings: number
-  /** Whether the report describes an older revision than the document's, or another print orientation. */
+  /** Whether the report describes an older revision than the document's, or another print orientation; since M2 also after a stopped rebuild or print check (3.21, 4.4). */
   readonly stale: boolean
+}
+
+/** Since M2: whether the latest statuses hold a `not_run` feature, which a stopped rebuild left (3.21). */
+export function selectRebuildStopped(state: AppState): boolean {
+  const statuses = state.document?.featureStatus ?? {}
+  return Object.values(statuses).some((status) => status.status === 'not_run')
 }
 
 export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
@@ -269,6 +275,7 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
       state.settings.hiddenChecks,
       state.print.reportOrientation,
       state.print.orientation,
+      state.print.stopped !== null || selectRebuildStopped(state),
     ] as const,
   (
     report,
@@ -278,6 +285,7 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
     hiddenChecks,
     reportOrientation,
     orientation,
+    stopped,
   ): HealthBadge => {
     let errors = 0
     let warnings = 0
@@ -302,8 +310,9 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
       }
     }
     const stale =
-      report !== null &&
-      (reportRevision !== revision || !sameOrientation(reportOrientation, orientation))
+      stopped ||
+      (report !== null &&
+        (reportRevision !== revision || !sameOrientation(reportOrientation, orientation)))
     if (running) {
       return { state: 'running', errors, warnings, stale }
     }

@@ -3,7 +3,7 @@ import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
-import { canStopRunningCore } from '../app/connection'
+import { canCancelCore, canStopRunningCore } from '../app/connection'
 import { STILL_WORKING_SECONDS, type App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
@@ -182,32 +182,76 @@ function Spinner() {
   )
 }
 
+/** Whether `STILL_WORKING_SECONDS` passed since a Stop that the core has not answered yet (4.4). */
+function useStopUnanswered(): boolean {
+  const stopPending = useAppState((state) => state.core.stopPending)
+  const [late, setLate] = useState(false)
+  useEffect(() => {
+    if (!stopPending) {
+      return undefined
+    }
+    const timer = setTimeout(() => {
+      setLate(true)
+    }, STILL_WORKING_SECONDS * 1_000)
+    return () => {
+      clearTimeout(timer)
+      setLate(false)
+    }
+  }, [stopPending])
+  return stopPending && late
+}
+
+/** The text of the still-working panel: since M2 a core that can stop says Stop keeps the work (4.4). */
+function stillWorkingText(restartable: boolean, cancelable: boolean, waiting: boolean): string {
+  if (!cancelable) {
+    return restartable
+      ? MESSAGES.core_still_working(STILL_WORKING_SECONDS)
+      : MESSAGES.core_still_working_desktop(STILL_WORKING_SECONDS)
+  }
+  return waiting && !restartable
+    ? MESSAGES.core_stop_waiting_desktop()
+    : MESSAGES.core_still_working_stoppable(STILL_WORKING_SECONDS)
+}
+
 /**
- * A core that has answered nothing for `STILL_WORKING_SECONDS` (4.4), over the model: on the web
- * the user can stop it, while the desktop core cannot be stopped from outside (desktop.md open
- * issue 9).
+ * A core that has answered nothing for `STILL_WORKING_SECONDS` (4.4), over the model. A core that
+ * can stop offers Stop until a Stop has waited that long. On the web the user can also restart it.
  */
 function StillWorking() {
   const app = useApp()
-  const stoppable = canStopRunningCore(app)
+  const restartable = canStopRunningCore(app)
+  const cancelable = canCancelCore(app)
+  const stopRequested = useAppState((state) => state.core.stopRequested)
+  const waiting = useStopUnanswered()
+  const stoppable = cancelable && !stopRequested && !waiting
   return (
     <OverlayCard>
       <div data-testid="core-working" role="alert" className="flex flex-col gap-3">
-        <p>
-          {stoppable
-            ? MESSAGES.core_still_working(STILL_WORKING_SECONDS)
-            : MESSAGES.core_still_working_desktop(STILL_WORKING_SECONDS)}
-        </p>
-        {stoppable && (
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              onClick={() => {
-                app.restartCore().catch(reportFailure('Stopping and restarting the geometry core'))
-              }}
-            >
-              Stop and restart core
-            </Button>
+        <p>{stillWorkingText(restartable, cancelable, waiting)}</p>
+        {(stoppable || restartable) && (
+          <div className="flex justify-end gap-2">
+            {stoppable && (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  app.stopCore()
+                }}
+              >
+                Stop
+              </Button>
+            )}
+            {restartable && (
+              <Button
+                variant={cancelable ? 'default' : 'primary'}
+                onClick={() => {
+                  app
+                    .restartCore()
+                    .catch(reportFailure('Stopping and restarting the geometry core'))
+                }}
+              >
+                Stop and restart core
+              </Button>
+            )}
           </div>
         )}
       </div>

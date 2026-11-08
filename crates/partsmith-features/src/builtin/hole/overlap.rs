@@ -57,7 +57,7 @@ pub(super) fn cut_candidates(
         .map(|candidate| candidate.tool.clone())
         .collect();
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
-    let result = cut(shape, &shapes, &Interrupt::new())?;
+    let result = cut(shape, &shapes, context.interrupt())?;
     let mut overlaps = tools_with_own_faces(&result);
     let nothing_overlaps = Decision {
         overlaps: vec![false; candidates.len()],
@@ -91,7 +91,7 @@ pub(super) fn cut_candidates(
         .iter()
         .map(|&position| &candidates[position])
         .collect();
-    let shared = shared_volumes(shape, &undecided_candidates)?;
+    let shared = shared_volumes(shape, &undecided_candidates, context.interrupt())?;
     for (&position, volume) in undecided.iter().zip(shared) {
         overlaps[position] = volume > VOLUME_TOLERANCE * before;
     }
@@ -136,7 +136,11 @@ fn tools_with_own_faces(result: &OpResult) -> Vec<bool> {
 /// `common`, each solid of the result counting for the candidate whose box is nearest to its
 /// center: the kernel's work grows with the body, so one boolean replaces one per hole.
 /// Candidates whose boxes come closer each get their own `common`.
-fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, FeatureError> {
+fn shared_volumes(
+    body: &Shape,
+    candidates: &[&Candidate],
+    interrupt: &Interrupt,
+) -> Result<Vec<f64>, FeatureError> {
     let bounds: Vec<&BoundingBox> = candidates
         .iter()
         .map(|candidate| &candidate.bounds)
@@ -145,11 +149,7 @@ fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, F
         return candidates
             .iter()
             .map(|candidate| {
-                let shared = common(
-                    body,
-                    std::slice::from_ref(&candidate.tool.shape),
-                    &Interrupt::new(),
-                )?;
+                let shared = common(body, std::slice::from_ref(&candidate.tool.shape), interrupt)?;
                 Ok(shared.shape.volume()?)
             })
             .collect();
@@ -159,7 +159,7 @@ fn shared_volumes(body: &Shape, candidates: &[&Candidate]) -> Result<Vec<f64>, F
         .map(|candidate| candidate.tool.shape.clone())
         .collect();
     let group = compound(&tools)?.shape;
-    let shared = common(body, std::slice::from_ref(&group), &Interrupt::new())?.shape;
+    let shared = common(body, std::slice::from_ref(&group), interrupt)?.shape;
     let mut volumes = vec![0.0; candidates.len()];
     for solid in shared.solids()? {
         let center = solid.bounding_box()?.center();
@@ -234,7 +234,8 @@ mod tests {
     fn shared_with_cube(candidates: &[Candidate]) -> Vec<f64> {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let candidates: Vec<&Candidate> = candidates.iter().collect();
-        shared_volumes(&cube.shape, &candidates).expect("the overlaps are measured")
+        shared_volumes(&cube.shape, &candidates, &Interrupt::new())
+            .expect("the overlaps are measured")
     }
 
     fn assert_volumes(actual: &[f64], expected: &[f64]) {

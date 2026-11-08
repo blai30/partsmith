@@ -87,6 +87,8 @@ describe('the status bar (3.21)', () => {
         fatal: null,
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     expect(screen.getByTestId('status-core')).toHaveTextContent('Loading core')
@@ -100,6 +102,8 @@ describe('the status bar (3.21)', () => {
         fatal: 'trap',
         pendingMutations: 0,
         stillWorking: false,
+        stopRequested: false,
+        stopPending: false,
       },
     })
     const status = screen.getByTestId('status-core')

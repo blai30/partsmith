@@ -17,10 +17,13 @@ thread_local! {
     static SESSION: RefCell<Session> = RefCell::new(Session::new(session_options()));
 }
 
-/// Options of the module's session: display meshes on and random ids, as an interactive host needs (protocol.md section 2.10).
+/// Options of the module's session: display meshes on and random ids, as an interactive host needs, and on the web
+/// the page's cancel word (protocol.md section 2.10, engine.md section 3.26).
 fn session_options() -> SessionOptions {
     SessionOptions {
         display: true,
+        #[cfg(target_os = "emscripten")]
+        cancel: partsmith_engine::CancelFlag::page(),
         ..SessionOptions::default()
     }
 }

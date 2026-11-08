@@ -93,15 +93,15 @@ pub(crate) fn feature_statuses(
         .collect()
 }
 
-/// The protocol state of a recompute status. Recompute's `NotRun` needs a canceled run, which
-/// the engine never asks for; it is shown as rolled back.
+/// The protocol state of a recompute status.
 fn state(status: Status) -> FeatureState {
     match status {
         Status::Ok => FeatureState::Ok,
         Status::Warning => FeatureState::Warning,
         Status::Error => FeatureState::Error,
         Status::Suppressed => FeatureState::Suppressed,
-        Status::RolledBack | Status::NotRun => FeatureState::RolledBack,
+        Status::RolledBack => FeatureState::RolledBack,
+        Status::NotRun => FeatureState::NotRun,
     }
 }
 
@@ -156,5 +156,6 @@ mod tests {
         assert_eq!(state(Status::Error), FeatureState::Error);
         assert_eq!(state(Status::Suppressed), FeatureState::Suppressed);
         assert_eq!(state(Status::RolledBack), FeatureState::RolledBack);
+        assert_eq!(state(Status::NotRun), FeatureState::NotRun);
     }
 }

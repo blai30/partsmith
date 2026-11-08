@@ -492,10 +492,46 @@ const CASES: readonly Case[] = [
     'The details could not be copied, because the browser did not allow access to the clipboard.',
   ],
   [
+    'core_still_working_stoppable',
+    () => MESSAGES.core_still_working_stoppable(10),
+    'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stop ends this step and keeps your changes and your undo history.',
+  ],
+  [
+    'core_stop_waiting_desktop',
+    () => MESSAGES.core_stop_waiting_desktop(),
+    'Partsmith asked the geometry core to stop, but it is in a step that cannot be stopped. Wait, or quit Partsmith, which keeps your changes up to the last one the core finished, except those of an open feature command.',
+  ],
+  [
+    'rebuild_stopped',
+    () => MESSAGES.rebuild_stopped('Extrude 1', 3),
+    "The rebuild stopped before 'Extrude 1' was built. 3 features are not built.",
+  ],
+  [
+    'rebuild_stopped_one',
+    () => MESSAGES.rebuild_stopped_one('Extrude 1'),
+    "The rebuild stopped before 'Extrude 1' was built.",
+  ],
+  [
+    'timeline_not_built',
+    () => MESSAGES.timeline_not_built(),
+    'Not built: the rebuild was stopped before it.',
+  ],
+  [
     'notices_installed',
     () => MESSAGES.notices_installed('/usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt'),
     'The licenses of Open CASCADE Technology and the other software in Partsmith are in /usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt.',
   ],
+]
+
+// The message lint of docs/guidelines/errors.md: what no message text may hold.
+const MESSAGE_LINT: readonly RegExp[] = [
+  /repair panel/,
+  /\bop (new|join|cut|intersect)\b/,
+  /\b[fbec]-[0-9a-z]+\b/,
+  /(Edge|Face|Vertex|Curve) [0-9]/,
+  /[0-9]+% match/,
+  /`/,
+  /os error/,
 ]
 
 describe('MESSAGES', () => {
@@ -505,7 +541,21 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(123)
+    expect(CASES).toHaveLength(128)
+  })
+
+  it.each([
+    'core_still_working_stoppable',
+    'core_stop_waiting_desktop',
+    'rebuild_stopped',
+    'rebuild_stopped_one',
+    'timeline_not_built',
+  ])('U-275 %s passes the message lint of the error guidelines', (id) => {
+    const text = CASES.find(([caseId]) => caseId === id)?.[2]
+    expect(text).toBeDefined()
+    for (const pattern of MESSAGE_LINT) {
+      expect(text).not.toMatch(pattern)
+    }
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {

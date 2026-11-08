@@ -55,6 +55,11 @@ export function canStopRunningCore(app: App): boolean {
   return connections.get(app)?.transport.kind !== 'tauri'
 }
 
+/** Since M2: whether the transport can stop a running call without ending the core (2.4, 3.21). */
+export function canCancelCore(app: App): boolean {
+  return connections.get(app)?.transport.canCancel === true
+}
+
 /**
  * Hears every core event after it reached the store, for the parts of the UI that keep data
  * outside the store, such as the scene's mesh buffers. Returns the unsubscriber.

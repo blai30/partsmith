@@ -16,6 +16,7 @@ import {
   featuresOf,
   withFeatureChanges,
 } from '../../test/fakes/documents'
+import { deferred } from '../../test/fakes/deferred'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import {
@@ -291,6 +292,28 @@ describe('startRollbackDrag (3.9)', () => {
     expect(fake.transport.commandTypes()).toContain('cancel_transaction')
     expect(fake.transport.commandTypes()).not.toContain('commit_transaction')
     expect(currentDocument(fake.app).recipe.rollback ?? null).toBeNull()
+  })
+
+  it('a newer gap stops the rebuild of the gap in flight (2.5)', async () => {
+    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT, {
+      core: { canCancel: true },
+    })
+    const answer = deferred<void>()
+    fake.transport.handle('apply_edits', async (command, core) => {
+      await answer.promise
+      return core.reply(command)
+    })
+    const drag = startRollbackDrag(fake.app, 4)
+    drag?.move(2)
+    await settle()
+    const first = fake.transport.requests.find((request) => request.command.type === 'apply_edits')
+
+    drag?.move(1)
+    await settle()
+
+    expect(fake.transport.cancels).toEqual([first?.id])
+    answer.resolve()
+    await drag?.drop()
   })
 
   it('a move after the drop sends nothing', async () => {

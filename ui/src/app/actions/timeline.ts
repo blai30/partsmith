@@ -75,10 +75,11 @@ export function startRollbackDrag(app: App, start: number): RollbackDrag | null 
       },
     )
   const rollbacks = createLatestOnly<number, void>(
-    async (gap) => {
+    async (gap, signal) => {
       if (await began) {
+        // A newer gap or Esc aborts `signal`, which stops this gap's rebuild (2.5).
         await app.mutations.run(() =>
-          app.core.applyEdits(documentHandle, null, [rollbackEdit(records, gap)]),
+          app.core.applyEdits(documentHandle, null, [rollbackEdit(records, gap)], signal),
         )
       }
     },

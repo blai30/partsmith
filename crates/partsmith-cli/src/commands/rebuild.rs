@@ -339,11 +339,12 @@ fn body_metrics(body: &Body, measurement: Measurement) -> Result<BodyMetrics, Cl
 }
 
 impl Report {
-    /// Exit 1 when a feature failed, or has warnings when warnings are denied. Print findings
-    /// never change the exit code.
+    /// Exit 1 when a feature failed or was not built, or has warnings when warnings are denied.
+    /// Print findings never change the exit code. The CLI never stops a rebuild. No feature reads
+    /// `not_run` here (cli.md section 3.6).
     fn status(&self, deny_warnings: bool) -> Status {
         let fails = |feature: &FeatureReport| match feature.status {
-            FeatureState::Error => true,
+            FeatureState::Error | FeatureState::NotRun => true,
             FeatureState::Warning => deny_warnings,
             FeatureState::Ok | FeatureState::Suppressed | FeatureState::RolledBack => false,
         };

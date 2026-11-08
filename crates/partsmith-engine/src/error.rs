@@ -262,6 +262,12 @@ pub enum EngineError {
         /// The io error's message, unchanged.
         detail: String,
     },
+    /// The host stopped an `export`, `import_step` or `analyze_print` (section 3.26).
+    #[error("{message}")]
+    Canceled {
+        /// That command's text in section 3.26.
+        message: String,
+    },
     /// A panic or an engine invariant failure.
     #[error(
         "Partsmith hit a bug while running {command}. Your document is unchanged. Save a copy, and report this with the details."
@@ -368,6 +374,7 @@ impl EngineError {
             EngineError::NothingToExport => ErrorCode::NothingToExport,
             EngineError::ExportFailed { .. } => ErrorCode::ExportFailed,
             EngineError::ImportFailed { .. } => ErrorCode::ImportFailed,
+            EngineError::Canceled { .. } => ErrorCode::Canceled,
             EngineError::Internal { .. } => ErrorCode::InternalError,
             EngineError::StaleFix => ErrorCode::StaleFix,
         }

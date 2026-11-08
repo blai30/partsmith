@@ -34,6 +34,8 @@ export type HealthListProps = {
   readonly onPrintAsModeled?: () => void
   /** Starts the Lay on face pick; without it the rows offer no "Lay on a face". */
   readonly onLayOnFace?: () => void
+  /** Since M2: the core's message when Stop stopped a check the user asked for (4.4); absent or null otherwise. */
+  readonly stopMessage?: string | null
 }
 
 /** Checks whose findings another face on the bed can fix, so their rows offer "Lay on a face" (3.17). */
@@ -126,6 +128,7 @@ export function HealthList({
   orientationBody = null,
   onPrintAsModeled,
   onLayOnFace,
+  stopMessage = null,
 }: HealthListProps) {
   const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
@@ -143,6 +146,7 @@ export function HealthList({
           <RefreshCw aria-hidden="true" strokeWidth={1.75} className="size-4" />
           Check again
         </Button>
+        {stopMessage === null ? null : <p className="text-sm">{stopMessage}</p>}
         {orientationBody === null ? null : (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <p className="min-w-0">{MESSAGES.orientation_set(orientationBody)}</p>

@@ -385,6 +385,8 @@ describe('the command inspector (3.7)', () => {
           feature: expect.objectContaining({ radius: '3' }),
         }),
       ]),
+      // The preview's signal, which a newer value aborts (3.7).
+      expect.any(AbortSignal),
     ]
     const radius = within(field).getByRole('combobox', { name: 'Radius' })
     await user.type(radius, '3', { initialSelectionStart: 0, initialSelectionEnd: 4 })
@@ -433,6 +435,7 @@ describe('the command inspector (3.7)', () => {
       expect.arrayContaining([
         expect.objectContaining({ feature: expect.objectContaining({ tip_angle: '9' }) }),
       ]),
+      expect.any(AbortSignal),
     ])
     expect(previews.at(-1)).toEqual([
       1,
@@ -443,6 +446,7 @@ describe('the command inspector (3.7)', () => {
           feature: expect.not.objectContaining({ tip_angle: expect.anything() }),
         }),
       ],
+      expect.any(AbortSignal),
     ])
   })
 

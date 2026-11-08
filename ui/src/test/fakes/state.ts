@@ -22,6 +22,8 @@ export const READY_CORE: CoreState = {
   fatal: null,
   pendingMutations: 0,
   stillWorking: false,
+  stopRequested: false,
+  stopPending: false,
 }
 
 /** The bounds of the 20 mm cube of cube.ptsm. */

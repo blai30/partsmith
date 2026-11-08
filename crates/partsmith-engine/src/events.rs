@@ -7,6 +7,7 @@ use std::sync::Arc;
 use partsmith_features::Registry;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
+use partsmith_occt_sys::Interrupt;
 use partsmith_protocol::{
     Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
     SketchSolution,
@@ -415,7 +416,7 @@ impl MeshPlanner<'_> {
             if unchanged || still_failing {
                 continue;
             }
-            match self.cache.mesh(&key, &view.state) {
+            match self.cache.mesh(&key, &view.state, &Interrupt::new()) {
                 Ok(mesh) => {
                     failures.remove(&body);
                     changes.push(MeshChange {

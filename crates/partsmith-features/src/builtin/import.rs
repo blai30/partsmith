@@ -2,7 +2,7 @@
 
 use partsmith_model::{Category, FeatureManifest, Id, is_asset_name};
 use partsmith_naming::{DirectSources, FaceSource, Motion, Successions, roles};
-use partsmith_occt_sys::{Interrupt, Operation, Shape, StepImport, SubShapeKind, read_step};
+use partsmith_occt_sys::{Operation, Shape, StepImport, SubShapeKind, read_step};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +85,7 @@ impl Feature for Import {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let bytes = context.asset("asset", &params.asset)?;
-        let imported = read_step(bytes, &Interrupt::new())?;
+        let imported = read_step(bytes, context.interrupt())?;
         let warnings = import_warnings(&imported);
         let solids: Vec<Shape> = imported.bodies.into_iter().map(|body| body.shape).collect();
         let tool = imported_tool(context, solids)?;
@@ -146,8 +146,8 @@ mod tests {
 
     use partsmith_model::FeatureRecord;
     use partsmith_occt_sys::{
-        PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, StepBody, TaggedCurve,
-        compound, make_box, make_profile, write_step,
+        Interrupt, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, StepBody,
+        TaggedCurve, compound, make_box, make_profile, write_step,
     };
     use serde_json::json;
 

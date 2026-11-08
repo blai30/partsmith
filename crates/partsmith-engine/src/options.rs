@@ -5,6 +5,8 @@ use std::fmt;
 use partsmith_model::{IdGenerator, RandomIdGenerator, SequentialIds, UndoLog};
 use partsmith_protocol::TessellationQuality;
 
+use crate::cancel::CancelFlag;
+
 /// Default soft upper bound for cached results: 512 MiB on wasm32, whose address space is 4 GiB.
 #[cfg(target_arch = "wasm32")]
 pub const DEFAULT_CACHE_BUDGET: usize = 512 << 20;
@@ -26,10 +28,14 @@ pub struct SessionOptions {
     pub undo_limit: usize,
     /// Display tessellation quality for new and opened documents.
     pub tessellation: TessellationQuality,
+    /// The flag the host holds outside the session to stop a running request (engine.md
+    /// section 3.26).
+    pub cancel: CancelFlag,
 }
 
 impl Default for SessionOptions {
-    /// Display on, random ids, 1 GiB cache (512 MiB on wasm32), 1000 undo entries, standard quality.
+    /// Display on, random ids, 1 GiB cache (512 MiB on wasm32), 1000 undo entries, standard
+    /// quality, `CancelFlag::never()`.
     fn default() -> Self {
         SessionOptions {
             display: true,
@@ -37,6 +43,7 @@ impl Default for SessionOptions {
             cache_budget: DEFAULT_CACHE_BUDGET,
             undo_limit: UndoLog::DEFAULT_MAX_DEPTH,
             tessellation: TessellationQuality::Standard,
+            cancel: CancelFlag::never(),
         }
     }
 }

@@ -22,6 +22,14 @@ export const MESSAGES = {
     `The geometry core stopped: ${reason}. Restart it to keep working; your latest changes are kept.`,
   core_still_working: (seconds: number) =>
     `The geometry core has been working for more than ${String(seconds)} seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished, and closes any open feature command without keeping it.`,
+  core_still_working_stoppable: (seconds: number) =>
+    `The geometry core has been working for more than ${String(seconds)} seconds, and Partsmith cannot tell whether it will finish. Stop ends this step and keeps your changes and your undo history.`,
+  core_stop_waiting_desktop: () =>
+    'Partsmith asked the geometry core to stop, but it is in a step that cannot be stopped. Wait, or quit Partsmith, which keeps your changes up to the last one the core finished, except those of an open feature command.',
+  rebuild_stopped: (feature: string, count: number) =>
+    `The rebuild stopped before '${feature}' was built. ${String(count)} features are not built.`,
+  rebuild_stopped_one: (feature: string) => `The rebuild stopped before '${feature}' was built.`,
+  timeline_not_built: () => 'Not built: the rebuild was stopped before it.',
   core_still_working_desktop: (seconds: number) =>
     `The geometry core has been working for more than ${String(seconds)} seconds, and Partsmith cannot tell whether it will finish. The desktop app cannot stop it yet: wait, or quit Partsmith, which keeps your changes up to the last one the core finished, except those of an open feature command.`,
   changes_not_applied: () =>

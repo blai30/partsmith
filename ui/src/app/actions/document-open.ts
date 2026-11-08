@@ -63,6 +63,7 @@ function startDocumentSession(app: App): void {
         focusedFinding: null,
         orientation: null,
         pickingFace: false,
+        stopped: null,
       },
       view: {
         ...state.view,

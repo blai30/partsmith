@@ -51,6 +51,28 @@ export type FakeReply =
     }
   | { readonly error: ErrorReply; readonly events?: readonly ProtocolEvent[] }
 
+/**
+ * `reply` with the features `stopped` reported `not_run` in its `recomputed` events, as the core
+ * answers a request whose recompute stopped before them (since M2, engine.md 3.26).
+ */
+export function notRunReply(reply: FakeReply, stopped: readonly string[]): FakeReply {
+  if (reply.events === undefined) {
+    return reply
+  }
+  const events = reply.events.map((event): ProtocolEvent => {
+    if (event.type !== 'recomputed') {
+      return event
+    }
+    const features = event.features.map((status) =>
+      stopped.includes(status.id)
+        ? { id: status.id, status: 'not_run' as const, messages: [], repairs: [] }
+        : status,
+    )
+    return { ...event, features }
+  })
+  return { ...reply, events }
+}
+
 /** The response frame that answers request `id` with a reply. */
 export function replyFrame(id: number, reply: FakeReply): ArrayBuffer {
   return 'result' in reply
@@ -1281,6 +1303,15 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             warnings: [],
           },
           buffers: [Uint8Array.of(0x50, 0x4b, 0x03, 0x04)],
+        }
+      }
+      case 'rebuild': {
+        // A rebuild changes nothing and sends no document_changed (engine.md 3.26).
+        const recompute = recomputeEvents(entryFor(command.doc))
+        return {
+          result: { type: 'rebuild' },
+          events: recompute.events.filter((event) => event.type !== 'document_changed'),
+          buffers: recompute.buffers,
         }
       }
       default:

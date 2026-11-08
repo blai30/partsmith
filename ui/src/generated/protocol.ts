@@ -190,6 +190,12 @@ type: "redo"
  * The document.
  */
 doc: DocHandle
+type: "rebuild"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
 /**
  * The sketch feature.
  */
@@ -1193,6 +1199,8 @@ revision: number
 label: string
 type: "redo"
 } | {
+type: "rebuild"
+} | {
 /**
  * The solved sketch.
  */
@@ -1777,7 +1785,7 @@ export type Health = ("ok" | "warning" | "error")
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "ErrorCode".
  */
-export type ErrorCode = ("malformed_frame" | "malformed_request" | "protocol_version_mismatch" | "superseded" | "internal_error" | "unknown_document" | "document_poisoned" | "parse_error" | "unsupported_format_version" | "asset_mismatch" | "transaction_open" | "no_transaction" | "label_required" | "label_not_allowed" | "edit_rejected" | "invalid_params" | "nothing_to_undo" | "nothing_to_redo" | "unknown_feature" | "focus_inactive" | "not_a_sketch" | "unknown_point" | "no_drag" | "stale_pick" | "preview_not_pickable" | "invalid_pick" | "unknown_body" | "body_empty" | "reference_unresolved" | "invalid_measure" | "expression_error" | "unknown_printer_profile" | "profile_id_reserved" | "invalid_profile" | "invalid_orientation" | "nothing_to_export" | "export_failed" | "import_failed" | "invalid_tolerance" | "stale_fix")
+export type ErrorCode = ("malformed_frame" | "malformed_request" | "protocol_version_mismatch" | "superseded" | "canceled" | "internal_error" | "unknown_document" | "document_poisoned" | "parse_error" | "unsupported_format_version" | "asset_mismatch" | "transaction_open" | "no_transaction" | "label_required" | "label_not_allowed" | "edit_rejected" | "invalid_params" | "nothing_to_undo" | "nothing_to_redo" | "unknown_feature" | "focus_inactive" | "not_a_sketch" | "unknown_point" | "no_drag" | "stale_pick" | "preview_not_pickable" | "invalid_pick" | "unknown_body" | "body_empty" | "reference_unresolved" | "invalid_measure" | "expression_error" | "unknown_printer_profile" | "profile_id_reserved" | "invalid_profile" | "invalid_orientation" | "nothing_to_export" | "export_failed" | "import_failed" | "invalid_tolerance" | "stale_fix")
 /**
  * A state change caused by the request answered in the same frame. Tagged by `type`; every event carries `doc` and the document `revision` it describes.
  * 
@@ -1927,7 +1935,7 @@ type: "print_health"
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "FeatureState".
  */
-export type FeatureState = ("ok" | "warning" | "error" | "suppressed" | "rolled_back")
+export type FeatureState = ("ok" | "warning" | "error" | "suppressed" | "rolled_back" | "not_run")
 /**
  * A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).
  * 

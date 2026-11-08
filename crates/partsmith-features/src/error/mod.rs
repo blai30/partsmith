@@ -13,7 +13,7 @@ mod warning;
 
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, LINEAR_TOLERANCE, Units};
 use partsmith_naming::{ElementKind, NamingError, Reference};
-use partsmith_occt_sys::KernelError;
+use partsmith_occt_sys::{KernelError, KernelErrorKind};
 use partsmith_sketch::{DimensionValues, SketchError, SketchFix, SolveIssue};
 use serde_json::Value;
 
@@ -342,7 +342,7 @@ pub enum FeatureError {
     /// calls.
     Kernel {
         /// The kernel's error.
-        #[from]
+        #[source]
         error: KernelError,
     },
     /// A fillet radius is too large (section 4.3).
@@ -1349,6 +1349,17 @@ impl FeatureError {
     }
 }
 
+/// A kernel failure is `Kernel { error }`, and `?` works on kernel calls. A kernel call that stopped (kind
+/// `Canceled`) is `Canceled`, never a kernel failure.
+impl From<KernelError> for FeatureError {
+    fn from(error: KernelError) -> FeatureError {
+        match error.kind {
+            KernelErrorKind::Canceled => FeatureError::Canceled,
+            _ => FeatureError::Kernel { error },
+        }
+    }
+}
+
 /// A naming failure: a name too long to build is `NameTooDeep` (section 4.1), any other failure, which valid kernel
 /// output cannot cause, `Internal`. So `?` works on naming calls.
 impl From<NamingError> for FeatureError {
@@ -1568,7 +1579,7 @@ fn out_of_range(
 #[cfg(test)]
 mod tests {
     use partsmith_naming::{Lost, Reference};
-    use partsmith_occt_sys::{KernelErrorKind, Operation};
+    use partsmith_occt_sys::Operation;
 
     use super::*;
 

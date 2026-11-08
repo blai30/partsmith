@@ -44,8 +44,9 @@ import {
 // (ui.md 3.1, 3.19 to 3.22, 4.4): the E-tests of ui.md 6.5 that exercise them, against the real
 // core.
 
+// The web transport can cancel, and the panel offers Stop (4.4).
 const STILL_WORKING =
-  'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stopping it reopens your document as it was after the last change the core finished, and closes any open feature command without keeping it.'
+  'The geometry core has been working for more than 10 seconds, and Partsmith cannot tell whether it will finish. Stop ends this step and keeps your changes and your undo history.'
 const CHANGES_NOT_APPLIED =
   'Your latest changes were not applied, because the geometry core was stopped before it finished them. Make them again if you still want them.'
 
@@ -352,8 +353,9 @@ test.describe('Recovery sessions and a stuck core', () => {
 
     // The core never answers this rename, so the row keeps its name.
     const stalledAt = await sendRename(page, 'Box', 'Stall here')
+    // The text comes before the Stop button that status-core holds (3.21).
     const status = page.getByTestId('status-core')
-    await expect(status).toHaveText('Rebuilding', { timeout: 1_000 })
+    await expect(status).toHaveText(/^Rebuilding/, { timeout: 1_000 })
     // A change that waits behind the rename.
     await bodyRow(page, 'Box').getByRole('button', { name: 'Hide Box', exact: true }).click()
 
@@ -362,7 +364,8 @@ test.describe('Recovery sessions and a stuck core', () => {
     await expect(working).toBeHidden()
     await expect(working).toBeVisible({ timeout: Math.max(0, stalledAt + 14_000 - Date.now()) })
     await expect(working).toContainText(STILL_WORKING)
-    await expect(status).toHaveText('Still working')
+    await expect(working.getByRole('button')).toHaveText(['Stop', 'Stop and restart core'])
+    await expect(status).toHaveText(/^Still working/)
 
     await working.getByRole('button', { name: 'Stop and restart core', exact: true }).click()
     await expect(working).toBeHidden()
@@ -420,7 +423,7 @@ test.describe('A core that is still working, continued', () => {
 
     // The core takes the rename only after the stuck analysis.
     const renamedAt = await sendRename(page, 'Cube', 'Box')
-    await expect(status).toHaveText('Rebuilding', { timeout: 1_000 })
+    await expect(status).toHaveText(/^Rebuilding/, { timeout: 1_000 })
     await page.waitForTimeout(Math.max(0, renamedAt + 8_000 - Date.now()))
     await expect(working).toBeHidden()
     await expect(working).toBeVisible({ timeout: Math.max(0, renamedAt + 14_000 - Date.now()) })

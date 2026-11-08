@@ -16,6 +16,9 @@ use serde_json::Value;
 
 use crate::analysis::{bed_transforms, rotation};
 use crate::assets::asset_name;
+use crate::cancel::Stoppable;
+#[cfg(test)]
+use crate::cancel::{StopPoint, stopped_token};
 use crate::display::MeshKey;
 use crate::error::EngineError;
 use crate::ids::NewIds;
@@ -39,7 +42,7 @@ struct Exportable {
 }
 
 impl Session {
-    /// Exports bodies at the model state.
+    /// Exports bodies at the model state, of a complete document (section 3.26).
     pub fn export(
         &mut self,
         doc: DocHandle,
@@ -50,6 +53,18 @@ impl Session {
         {
             return Err(EngineError::InvalidTolerance);
         }
+        self.on_complete(doc, Stoppable::Export, |session| {
+            session.exported(doc, request)
+        })
+    }
+
+    /// The export of the document's latest recompute. It stops in the recompute of the model
+    /// state, before each body, and inside each tessellation and the STEP write (section 3.26).
+    fn exported(
+        &mut self,
+        doc: DocHandle,
+        request: &ExportRequest,
+    ) -> Result<Exported, EngineError> {
         let open = self.open(doc)?;
         let document = Arc::clone(&open.document);
         let computed = open.computed.clone();
@@ -69,7 +84,11 @@ impl Session {
                 profile.clone(),
                 None,
                 0,
+                &mut self.request,
             );
+            if model.report.canceled {
+                return Err(Stoppable::Export.error());
+            }
             display_bodies(&document, &model)
         } else {
             display_bodies(&document, &computed)
@@ -107,9 +126,16 @@ impl Session {
             .documents
             .get(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
-        let step = read_step(&bytes).map_err(|error| EngineError::ImportFailed {
-            detail: error.to_string(),
+        self.check_stop(Stoppable::ImportStep)?;
+        let step = read_step(&bytes, self.request.interrupt()).map_err(|error| {
+            Stoppable::ImportStep.io_error(error, |error| EngineError::ImportFailed {
+                detail: error.to_string(),
+            })
         })?;
+        #[cfg(test)]
+        if self.stop_after == Some(StopPoint::StepRead) {
+            self.request = stopped_token();
+        }
         let first = step.solids.first();
         let body_name = name
             .map(str::to_string)
@@ -180,15 +206,20 @@ impl Session {
     ) -> Result<Vec<Mesh>, EngineError> {
         let mut meshes = Vec::with_capacity(bodies.len());
         for exportable in bodies {
+            self.check_stop(Stoppable::Export)?;
             let identity = exportable
                 .view
                 .identity
                 .clone()
                 .ok_or_else(|| EngineError::internal("an exported body has no geometry"))?;
-            let display = self.cache.mesh(
-                &MeshKey::new(identity, mesh_tolerance),
-                &exportable.view.state,
-            )?;
+            let display = self
+                .cache
+                .mesh(
+                    &MeshKey::new(identity, mesh_tolerance),
+                    &exportable.view.state,
+                    self.request.interrupt(),
+                )
+                .map_err(|error| Stoppable::Export.mesh_error(error))?;
             meshes.push(display.mesh.clone());
         }
         let Some(rotation) = rotation else {
@@ -211,6 +242,7 @@ impl Session {
     ) -> Result<Vec<ExportedFile>, EngineError> {
         let mut shapes: Vec<Shape> = Vec::with_capacity(bodies.len());
         for exportable in bodies {
+            self.check_stop(Stoppable::Export)?;
             shapes.push(
                 exportable
                     .view
@@ -243,7 +275,8 @@ impl Session {
                 shape,
             })
             .collect();
-        let bytes = write_step(&step_bodies).map_err(export_failed)?;
+        let bytes = write_step(&step_bodies, self.request.interrupt())
+            .map_err(|error| Stoppable::Export.io_error(error, export_failed))?;
         Ok(vec![file("model", "step", bytes)])
     }
 }
@@ -407,8 +440,12 @@ fn kernel_transform(placement: &Transform) -> KernelTransform {
 mod tests {
     use partsmith_features::BodyState;
 
+    use partsmith_protocol::{Buffer, CommandResult, Event, FeatureState, FeatureStatus, Outcome};
+
     use super::*;
-    use crate::test_support::id;
+    use crate::test_support::{box_session, id};
+    use crate::types::Reply;
+    use crate::{CancelFlag, SessionOptions};
 
     fn exportable(body: &str, name: &str) -> Exportable {
         let body = id(body);
@@ -468,5 +505,135 @@ mod tests {
         let result = exported_bodies(&document, Vec::new(), None, false);
 
         assert!(matches!(result, Err(EngineError::NothingToExport)));
+    }
+
+    /// The STEP file of `box.ptsm`'s one body, as test 89 imports it.
+    fn box_step_bytes() -> Vec<u8> {
+        let (mut session, doc) = box_session(false);
+        let exported = session
+            .export(
+                doc,
+                &ExportRequest {
+                    format: ExportFormat::Step,
+                    bodies: None,
+                    tolerance: None,
+                    orientation: None,
+                },
+            )
+            .expect("the box exports to STEP");
+        exported.files[0].bytes.clone()
+    }
+
+    /// Handles `command` as request `id` with `buffers` through `execute`.
+    fn execute_as(
+        session: &mut Session,
+        id: u64,
+        command: serde_json::Value,
+        buffers: Vec<Buffer>,
+    ) -> Reply {
+        let request = serde_json::from_value(serde_json::json!({"id": id, "command": command}))
+            .expect("the request deserializes");
+        session.execute(request, buffers)
+    }
+
+    /// The statuses of the reply's `recomputed` event.
+    fn recomputed(reply: &Reply) -> Vec<FeatureStatus> {
+        reply
+            .events
+            .iter()
+            .find_map(|event| match event {
+                Event::Recomputed { features, .. } => Some(features.clone()),
+                _ => None,
+            })
+            .expect("the reply has a recomputed event")
+    }
+
+    #[test]
+    fn t231_a_stop_after_the_step_read_keeps_the_import() {
+        let bytes = box_step_bytes();
+        let mut session = Session::new(SessionOptions {
+            cancel: CancelFlag::word(),
+            ..SessionOptions::headless()
+        });
+        let opened = execute_as(
+            &mut session,
+            1,
+            serde_json::json!({
+                "type": "open_document",
+                "text": include_str!("../tests/fixtures/box.ptsm"),
+                "assets": []
+            }),
+            Vec::new(),
+        );
+        assert!(
+            matches!(opened.response.result, Outcome::Ok(_)),
+            "box.ptsm opens"
+        );
+        session.stop_after = Some(StopPoint::StepRead);
+
+        let imported = execute_as(
+            &mut session,
+            3,
+            serde_json::json!({"type": "import_step", "doc": 1, "data": 0}),
+            vec![Buffer::U8(bytes.clone())],
+        );
+        session.stop_after = None;
+
+        let Outcome::Ok(CommandResult::ImportStep { feature, body }) = &imported.response.result
+        else {
+            panic!(
+                "the import answers its feature and body: {:?}",
+                imported.response.result
+            );
+        };
+        assert_eq!(feature.as_str(), "f-000000000001", "a new feature id");
+        assert_eq!(body.as_str(), "b-000000000001", "a new body id");
+        let changed = imported
+            .events
+            .iter()
+            .find_map(|event| match event {
+                Event::DocumentChanged { revision, undo, .. } => Some((*revision, undo.clone())),
+                _ => None,
+            })
+            .expect("the import emits document_changed");
+        assert_eq!(changed, (1, Some("Import STEP".to_string())));
+        let statuses = recomputed(&imported);
+        let document = session
+            .document(DocHandle(1))
+            .expect("the document is open");
+        for status in &statuses {
+            if crate::state::is_active(document, &status.id) {
+                assert_eq!(
+                    status.status,
+                    FeatureState::NotRun,
+                    "status of {}",
+                    status.id
+                );
+            }
+        }
+        assert!(
+            statuses
+                .iter()
+                .any(|status| status.id == *feature && status.status == FeatureState::NotRun),
+            "the import feature did not run"
+        );
+        let saved = session
+            .save_document(DocHandle(1))
+            .expect("the document saves");
+        assert_eq!(saved.assets.len(), 1, "the import's asset is stored");
+        assert_eq!(saved.assets[0].bytes, bytes);
+
+        let rebuilt = execute_as(
+            &mut session,
+            4,
+            serde_json::json!({"type": "rebuild", "doc": 1}),
+            Vec::new(),
+        );
+
+        let import = recomputed(&rebuilt)
+            .into_iter()
+            .find(|status| status.id == *feature)
+            .expect("the rebuild reports the import feature");
+        assert_eq!(import.status, FeatureState::Ok);
     }
 }

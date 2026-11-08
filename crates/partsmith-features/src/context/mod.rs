@@ -19,11 +19,10 @@ pub(crate) use values::expected_dimension;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, Units};
 use partsmith_naming::{ElementInfo, ElementKind, Reference};
-use partsmith_occt_sys::SubShape;
+use partsmith_occt_sys::{Interrupt, SubShape};
 use partsmith_sketch::Succession;
 
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Loss, Noun};
@@ -252,6 +251,11 @@ impl<'a> BuildContext<'a> {
         self.inputs.cancel.is_canceled()
     }
 
+    /// The run's interrupt, which a build passes to every kernel call that polls (kernel.md).
+    pub fn interrupt(&self) -> &Interrupt {
+        self.inputs.cancel.interrupt()
+    }
+
     /// `Canceled` once the run has been canceled, for the framework's own long steps.
     pub(crate) fn check_canceled(&self) -> Result<(), FeatureError> {
         if self.is_canceled() {
@@ -365,27 +369,38 @@ impl<T> WithWarnings<T> {
     }
 }
 
-/// Shared cancellation flag for one run. Cloning shares the flag.
+/// Shared cancellation flag for one run: kernel.md's `Interrupt`. Cloning shares the flag.
 #[derive(Clone, Debug, Default)]
 pub struct CancelToken {
-    /// The flag shared by every clone.
-    canceled: Arc<AtomicBool>,
+    /// The interrupt shared by every clone.
+    interrupt: Interrupt,
 }
 
 impl CancelToken {
-    /// A token that is not canceled.
+    /// A token that is not canceled: `from_interrupt(Interrupt::new())`.
     pub fn new() -> Self {
         CancelToken::default()
     }
 
-    /// Requests cancellation. Idempotent.
-    pub fn cancel(&self) {
-        self.canceled.store(true, Ordering::Relaxed);
+    /// A token that is canceled while `interrupt` is requested.
+    pub fn from_interrupt(interrupt: Interrupt) -> Self {
+        CancelToken { interrupt }
     }
 
-    /// True once `cancel` was called on this token or a clone.
+    /// Requests cancellation (`Interrupt::request`). Idempotent.
+    pub fn cancel(&self) {
+        self.interrupt.request();
+    }
+
+    /// True once `cancel` was called on this token or a clone, or once the host's flag asks for it
+    /// (`Interrupt::is_requested`).
     pub fn is_canceled(&self) -> bool {
-        self.canceled.load(Ordering::Relaxed)
+        self.interrupt.is_requested()
+    }
+
+    /// The interrupt that polling kernel calls take.
+    pub fn interrupt(&self) -> &Interrupt {
+        &self.interrupt
     }
 }
 

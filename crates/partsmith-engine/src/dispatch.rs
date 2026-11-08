@@ -66,7 +66,9 @@ impl Session {
 
     /// Handles one decoded request; never panics.
     pub fn execute(&mut self, request: Request, buffers: Vec<Buffer>) -> Reply {
+        self.begin_request(request.id);
         let reply = self.reply(request, buffers);
+        self.end_request();
         self.cache.trim();
         reply
     }
@@ -313,6 +315,11 @@ impl Session {
                     label: stepped.label,
                 }
             }
+            Command::Rebuild { doc } => {
+                self.rebuild(doc)?;
+                self.events(doc, &mut output)?;
+                CommandResult::Rebuild
+            }
             Command::SolveSketch {
                 doc,
                 feature,
@@ -388,8 +395,11 @@ impl Session {
                     orientation,
                     bodies,
                 };
+                let analysis = self.analyze_print(doc, &request)?;
+                // The events of the rebuild of an incomplete document come first.
+                self.events(doc, &mut output)?;
                 CommandResult::AnalyzePrint {
-                    health: self.analyze_print_command(doc, &request, &mut output)?,
+                    health: self.print_health(doc, analysis, &mut output)?,
                 }
             }
             Command::Export {
@@ -408,6 +418,8 @@ impl Session {
                         orientation,
                     },
                 )?;
+                // The events of the rebuild of an incomplete document.
+                self.events(doc, &mut output)?;
                 let files = exported
                     .files
                     .into_iter()
@@ -526,6 +538,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::CancelTransaction { doc }
         | Command::Undo { doc }
         | Command::Redo { doc }
+        | Command::Rebuild { doc }
         | Command::SolveSketch { doc, .. }
         | Command::DragSketch { doc, .. }
         | Command::EndSketchDrag { doc, .. }

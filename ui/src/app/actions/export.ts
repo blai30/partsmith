@@ -1,4 +1,5 @@
 import type { CoreApi, ExportedFile } from '../../core/api'
+import { CoreError } from '../../core/client'
 import { exportFailedText } from '../../export/status'
 import { FileServiceError, type FileKind, type SaveTarget } from '../../files/file-service'
 import type { Body, Diagnostic, ExportFormat, Orientation } from '../../generated/protocol'
@@ -182,7 +183,10 @@ export async function exportModel(app: App, request: ExportRequest): Promise<voi
       'other',
     )
   } catch (error) {
-    if (!showOrientationError(app, error, orientation)) {
+    if (error instanceof CoreError && error.code === 'canceled') {
+      // A Stop is not a failure: the core's message, and no file (4.4).
+      notify(app, { severity: 'info', message: error.message, actions: [] })
+    } else if (!showOrientationError(app, error, orientation)) {
       showCoreError(app, error, {
         stopped: { code: 'export_stopped', message: MESSAGES.export_stopped(target.name) },
       })

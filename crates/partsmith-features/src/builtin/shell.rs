@@ -103,7 +103,7 @@ impl Feature for Shell {
         let hollow = run_or_search(
             context,
             thickness,
-            |thickness| shell_solids(&solids, thickness),
+            |thickness| shell_solids(&solids, thickness, context.interrupt()),
             |max, cause| {
                 Ok(FeatureError::ShellTooThick {
                     field: context.field("thickness"),
@@ -270,10 +270,14 @@ struct Hollow {
 /// Shells each solid with its own faces to remove (shell.md section 3.3 step 4); a solid without
 /// any becomes a closed hollow. Several results are combined into one compound (they are
 /// disjoint).
-fn shell_solids(solids: &[BodySolid], thickness: f64) -> Result<Hollow, KernelError> {
+fn shell_solids(
+    solids: &[BodySolid],
+    thickness: f64,
+    interrupt: &Interrupt,
+) -> Result<Hollow, KernelError> {
     let results = solids
         .iter()
-        .map(|solid| shell(&solid.shape, &solid.remove, thickness, &Interrupt::new()))
+        .map(|solid| shell(&solid.shape, &solid.remove, thickness, interrupt))
         .collect::<Result<Vec<_>, _>>()?;
     if let [result] = &results[..] {
         return Ok(Hollow {
@@ -426,7 +430,7 @@ mod tests {
     /// Shells `shape` named by `naming` with `removed` faces as the feature `f-sh1` would.
     fn shelled(shape: &Shape, naming: &NamingMap, removed: &[u32]) -> (Hollow, NamingMap) {
         let solids = body_solids(shape, removed).expect("solids");
-        let hollow = shell_solids(&solids, 1.0).expect("shells");
+        let hollow = shell_solids(&solids, 1.0, &Interrupt::new()).expect("shells");
         let named = name_shell(&id("f-sh1"), naming, removed, &solids, &hollow).expect("named");
         (hollow, named.naming)
     }
