@@ -332,7 +332,10 @@ function axisOf(
 /** Extent variants in which the feature ignores Reverse (features/extrude.md open issue 1). */
 const REVERSE_IGNORED: ReadonlySet<string> = new Set(['symmetric', 'full'])
 
-/** Whether the feature's params have a top-level boolean `reverse` and a top-level tagged union `extent` (2.12). */
+/**
+ * Whether the feature's params have a top-level boolean `reverse` whose hint is essential and a
+ * top-level tagged union `extent` (2.12).
+ */
 function hasInlineReverse(feature: CatalogFeature): boolean {
   if (hintFor(feature, 'reverse')?.essential !== true) {
     return false
@@ -355,21 +358,20 @@ function hasInlineReverse(feature: CatalogFeature): boolean {
  */
 function withInlineReverse(
   essential: readonly InspectorField[],
-  more: readonly InspectorField[],
   params: Params,
-): { readonly essential: InspectorField[]; readonly more: InspectorField[] } {
+): readonly InspectorField[] {
   const reverse = essential.find((field) => field.path === 'reverse')
   const others = essential.filter((field) => field.path !== 'reverse')
   const kind = getParam(params, 'extent.kind')
   if (reverse === undefined || (typeof kind === 'string' && REVERSE_IGNORED.has(kind))) {
-    return { essential: others, more: [...more] }
+    return others
   }
   const anchor =
     others.find(
       (field) => field.control.type === 'expression' && field.path.startsWith('extent.'),
     ) ?? others.find((field) => field.path === 'extent.kind')
   if (anchor === undefined) {
-    return { essential: [...essential], more: [...more] }
+    return essential
   }
   const toggle: InspectorField = {
     ...reverse,
@@ -377,10 +379,7 @@ function withInlineReverse(
     attachedTo: anchor.path,
   }
   const index = others.indexOf(anchor)
-  return {
-    essential: [...others.slice(0, index + 1), toggle, ...others.slice(index + 1)],
-    more: [...more],
-  }
+  return [...others.slice(0, index + 1), toggle, ...others.slice(index + 1)]
 }
 
 /** Selection fields that rules fill, which never count as changed: body, sketch and target fields. */
@@ -421,7 +420,7 @@ export function buildInspectorModel(input: {
   const root = feature.paramsSchema
   const created = bodyCreatingField(feature)
   const essentialFields: InspectorField[] = []
-  const moreFields: InspectorField[] = []
+  const more: InspectorField[] = []
   for (const hint of feature.manifest.fields) {
     const segments = parsePath(hint.path)
     const located = segments === null ? null : locate(root, params, segments)
@@ -449,12 +448,12 @@ export function buildInspectorModel(input: {
     if (field.essential) {
       essentialFields.push(field)
     } else {
-      moreFields.push(field)
+      more.push(field)
     }
   }
-  const { essential, more } = hasInlineReverse(feature)
-    ? withInlineReverse(essentialFields, moreFields, params)
-    : { essential: essentialFields, more: moreFields }
+  const essential = hasInlineReverse(feature)
+    ? withInlineReverse(essentialFields, params)
+    : essentialFields
   const fields = [...essential, ...more]
   const start =
     input.startParams === undefined ? null : alignedStart(feature, input.startParams, params)

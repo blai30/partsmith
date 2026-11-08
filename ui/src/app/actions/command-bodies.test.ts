@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Document } from '../../generated/protocol'
+import type { CatalogEntry, Document } from '../../generated/protocol'
+import { isRecord } from '../../inspector/param-path'
 import { documentState, readyState } from '../../layout/fixtures.testing'
 import { createModelApp } from '../../layout/test-app.testing'
 import { activeCommand, appliedEdits, startWithDocument } from '../../test/fakes/app'
@@ -8,6 +9,7 @@ import {
   CUBE_REGION,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
+  emptyDocument,
   featuresOf,
 } from '../../test/fakes/documents'
 import { GEAR_ENTRY, TEST_CATALOG_ENTRIES } from '../../test/fakes/catalog'
@@ -19,6 +21,24 @@ import { select } from './selection'
 
 // Bodies a command creates (ui.md 2.12): new bodies for copies and split parts, and the cut
 // direction of an Extrude sketched on a face of its body (3.7).
+
+/** `GEAR_ENTRY` with its body-creating field at the path `body` instead of `destination`. */
+const BODY_GEAR_ENTRY: CatalogEntry = {
+  ...GEAR_ENTRY,
+  manifest: {
+    ...GEAR_ENTRY.manifest,
+    fields: GEAR_ENTRY.manifest.fields.map((hint) =>
+      hint.path === 'destination' ? { ...hint, path: 'body', label: 'Body' } : hint,
+    ),
+  },
+  params_schema: withBodyProperty(GEAR_ENTRY.params_schema),
+}
+
+/** A params schema with its `destination` property renamed `body`. */
+function withBodyProperty(schema: CatalogEntry['params_schema']): CatalogEntry['params_schema'] {
+  const { destination, ...others } = isRecord(schema['properties']) ? schema['properties'] : {}
+  return { ...schema, properties: { ...others, body: destination } }
+}
 
 describe('new bodies for copies and split parts (U-105)', () => {
   it('U-105 a split keeps both parts: the first application adds a body for Target', async () => {
@@ -81,6 +101,47 @@ describe('new bodies for copies and split parts (U-105)', () => {
     expect(removed.map((edit) => edit.type)).toEqual(['update_feature', 'remove_body'])
     expect(activeCommand(fake.app).params['target']).toBeUndefined()
     expect(activeCommand(fake.app).params['body']).toBe('b-cube')
+  })
+
+  it('clearing the Body of a new box keeps the body the command made (3.7)', async () => {
+    const fake = await startWithDocument('empty.ptsm', emptyDocument())
+    await startFeatureCommand(fake.app, 'box')
+    await settle()
+    const newBody = activeCommand(fake.app).newBody
+    expect(newBody).toMatchObject({ name: 'Body 1', path: 'body' })
+
+    setCommandField(fake.app, 'body', undefined)
+    await settle()
+    expect(activeCommand(fake.app).newBody).toEqual(newBody)
+    const second = appliedEdits(fake)[1] ?? []
+    expect(second.map((edit) => edit.type)).toEqual(['update_feature'])
+    expect(second[0]).toMatchObject({ feature: { body: newBody?.id } })
+  })
+
+  it('Restore gives a plugin field that creates a body at path body a fresh new body (3.7)', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
+      core: { catalog: [...TEST_CATALOG_ENTRIES, BODY_GEAR_ENTRY] },
+    })
+    await startFeatureCommand(fake.app, 'gear')
+    await settle()
+    const first = activeCommand(fake.app).newBody
+    expect(first).toMatchObject({ path: 'body' })
+    setCommandField(fake.app, 'teeth', '24')
+    await settle()
+    await startFeatureCommand(fake.app, 'box')
+    await settle()
+    const [notification] = fake.app.store.getState().notifications
+    fake.transport.clearRequests()
+    notification?.actions[0]?.run()
+    await settle()
+
+    const command = activeCommand(fake.app)
+    expect(command.featureType).toBe('gear')
+    expect(command.newBody).toMatchObject({ path: 'body' })
+    expect(command.newBody?.id).not.toBe(first?.id)
+    expect(command.params).toMatchObject({ teeth: '24', body: command.newBody?.id })
+    const [restored] = appliedEdits(fake)
+    expect(restored?.map((edit) => edit.type)).toEqual(['add_body', 'add_feature'])
   })
 
   it('U-105 an extrude with op new still creates its body in Body', async () => {

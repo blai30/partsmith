@@ -633,7 +633,8 @@ function withoutCreatedBodies(
   if (created === null || getParam(saved.params, created.path) !== created.id) {
     return { params: saved.params, newBody: null }
   }
-  if (created.path === 'body') {
+  if (bodyCreatingField(session.feature) === null) {
+    // Op new's body: the first application of the reopened command creates one again (3.7).
     return { params: setParam(session.feature, saved.params, 'body', undefined), newBody: null }
   }
   const body = allocateBody(app, session, created.path)
@@ -1092,7 +1093,8 @@ export function setCommandField(
       : { params: written, newBody: command.newBody }
   let params = operation.params
   let newBody = operation.newBody
-  if (path === newBody?.path && getParam(params, path) !== newBody.id) {
+  const created = bodyCreatingField(session.feature)
+  if (newBody !== null && path === created?.path && getParam(params, path) !== newBody.id) {
     // A cleared or replaced body-creating field no longer holds the body this command made (2.12).
     newBody = null
   }
