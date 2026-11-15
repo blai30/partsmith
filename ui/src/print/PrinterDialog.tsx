@@ -90,22 +90,24 @@ function opening(
 export function PrinterDialog() {
   const request = useAppState((state) => state.printerDialog)
   // A new request starts from its own values.
-  return request === null ? null : <PrinterDialogPanel key={dialogKey(request)} request={request} />
+  return request === null ? null : (
+    <PrinterDialogOpening key={dialogKey(request)} request={request} />
+  )
 }
 
 function dialogKey(request: PrinterDialogRequest): string {
   return request.kind === 'edit' ? `edit ${request.profile.id}` : `new ${request.id ?? ''}`
 }
 
-/** The dialog of one request, or nothing while it has no values to open with. */
-function PrinterDialogPanel({ request }: { readonly request: PrinterDialogRequest }) {
+/** Freezes the values a request opens with; nothing while it has none. */
+function PrinterDialogOpening({ request }: { readonly request: PrinterDialogRequest }) {
   const printers = useAppState((state) => state.printers)
   const [start] = useState(() => opening(request, printers))
-  return start === null ? null : <PrinterDialogForm request={request} start={start} />
+  return start === null ? null : <PrinterDialogPanel request={request} start={start} />
 }
 
 /** The dialog's panel, from the values its request opened with. */
-function PrinterDialogForm({
+function PrinterDialogPanel({
   request,
   start,
 }: {

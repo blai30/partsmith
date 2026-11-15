@@ -44,7 +44,7 @@ impl FieldRef {
             })
     }
 
-    /// The path as a JSON Pointer into the feature record, for example "edges[1]" gives "/edges/1".
+    /// The path as a JSON Pointer into the feature record, for example `edges[1]` gives `/edges/1`.
     pub fn pointer(&self) -> String {
         pointer(&self.path)
     }

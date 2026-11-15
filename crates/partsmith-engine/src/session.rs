@@ -149,9 +149,10 @@ impl Session {
         }
     }
 
-    /// The mesh of `view` at `tolerance` from the mesh cache. It is `canceled` of `command` once the
-    /// request stopped, checked before the body and inside a tessellation the cache lacks (section
-    /// 3.26). `no_geometry` is the internal error of a view without geometry.
+    /// The mesh of `view` at `tolerance` from the mesh cache. It fails with `command`'s `canceled`
+    /// error once the request stopped. The stop is checked before the body and inside a tessellation
+    /// the cache lacks (section 3.26). `no_geometry` is the internal error of a view without
+    /// geometry.
     pub(crate) fn mesh_or_stop(
         &mut self,
         view: &BodyView,

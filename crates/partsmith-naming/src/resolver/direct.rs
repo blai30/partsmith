@@ -8,9 +8,10 @@ use crate::element_set::ElementSet;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::reference::Reference;
+use crate::resolver::candidates::candidates_of;
 use crate::resolver::steps::{
-    CANDIDATE_LIMIT, candidates_of, element_name, followed, guessed, resolved_with, score_of,
-    scored, sorted_names, top_two,
+    CANDIDATE_LIMIT, element_name, followed, guessed, resolved_with, score_of, scored,
+    sorted_names, top_two,
 };
 use crate::resolver::{
     AMBIGUITY_MARGIN, CONFIDENCE_THRESHOLD, Candidate, Follow, Lost, MatchMethod, Resolution,

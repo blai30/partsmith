@@ -13,7 +13,7 @@ use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::NameSet;
 use crate::reference::{MergedName, Reference, has_own_split};
-use crate::resolver::candidates::{Ranked, in_candidate_order};
+use crate::resolver::candidates::candidates_of;
 use crate::resolver::parts::{FacePart, OwnPart};
 use crate::resolver::{Candidate, Follow, MatchMethod, Resolution};
 use crate::score::score;
@@ -343,32 +343,6 @@ pub(super) fn scored(
             .then_with(|| element_name(set, first.1).cmp(&element_name(set, second.1)))
     });
     scored
-}
-
-/// Candidates for these elements against the reference's fingerprint, in candidate order, at most
-/// `limit`. `meaning` tells whether the element at a position has `meaning`.
-pub(super) fn candidates_of(
-    reference: &Reference,
-    set: &ElementSet,
-    elements: impl IntoIterator<Item = usize>,
-    limit: Option<usize>,
-    meaning: impl Fn(usize) -> bool,
-) -> Vec<Candidate> {
-    let kind = reference.query.kind();
-    let ranked = elements
-        .into_iter()
-        .map(|element| {
-            let info = set.element_at(element);
-            Ranked::new(
-                &info.name,
-                &info.fingerprint,
-                &reference.fingerprint,
-                kind,
-                meaning(element),
-            )
-        })
-        .collect();
-    in_candidate_order(ranked, limit.unwrap_or(usize::MAX))
 }
 
 /// The family of each face part.

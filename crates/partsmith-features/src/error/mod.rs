@@ -338,8 +338,8 @@ pub enum FeatureError {
     },
     /// The sketch solver did not converge.
     SketchNotSolved,
-    /// A kernel operation failed. `From<KernelError>` gives this variant, so `?` works on kernel
-    /// calls.
+    /// A kernel operation failed. `From<KernelError>` gives this variant for every kernel error but
+    /// a stopped call, which is `Canceled`.
     Kernel {
         /// The kernel's error.
         #[source]

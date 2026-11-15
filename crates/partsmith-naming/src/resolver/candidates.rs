@@ -2,9 +2,11 @@
 
 use std::cmp::Ordering;
 
+use crate::element_set::ElementSet;
 use crate::fingerprint::Fingerprint;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
+use crate::reference::Reference;
 use crate::resolver::Candidate;
 use crate::score::{self, dot, score};
 
@@ -12,9 +14,9 @@ use crate::score::{self, dot, score};
 const DIRECTION_AGREEMENT: f64 = 1.0 - 1e-9;
 
 /// One candidate with what orders it.
-pub(super) struct Ranked {
+struct Ranked {
     /// The candidate.
-    pub(super) candidate: Candidate,
+    candidate: Candidate,
     /// True when it faces the way the stored face did (face queries with a direction only).
     agrees: bool,
 }
@@ -22,7 +24,7 @@ pub(super) struct Ranked {
 impl Ranked {
     /// The candidate named `name` with fingerprint `fingerprint` against the stored fingerprint
     /// `stored`; `meaning` says whether its name, history, anchors or relatives connect it.
-    pub(super) fn new(
+    fn new(
         name: &ElementName,
         fingerprint: &Fingerprint,
         stored: &Fingerprint,
@@ -43,7 +45,7 @@ impl Ranked {
 
     /// Candidate order: meaning first, then (for a face query with a direction) agreeing
     /// directions, then increasing distance, then name in byte order.
-    pub(super) fn order(&self, other: &Ranked) -> Ordering {
+    fn order(&self, other: &Ranked) -> Ordering {
         other
             .candidate
             .meaning
@@ -54,8 +56,35 @@ impl Ranked {
     }
 }
 
+/// Candidates for these elements against the reference's fingerprint, in candidate order, at most
+/// `limit`. `meaning` tells whether the name, history, anchors or relatives of the element at a
+/// position connect it (section 3.9 step 5).
+pub(super) fn candidates_of(
+    reference: &Reference,
+    set: &ElementSet,
+    elements: impl IntoIterator<Item = usize>,
+    limit: Option<usize>,
+    meaning: impl Fn(usize) -> bool,
+) -> Vec<Candidate> {
+    let kind = reference.query.kind();
+    let ranked = elements
+        .into_iter()
+        .map(|element| {
+            let info = set.element_at(element);
+            Ranked::new(
+                &info.name,
+                &info.fingerprint,
+                &reference.fingerprint,
+                kind,
+                meaning(element),
+            )
+        })
+        .collect();
+    in_candidate_order(ranked, limit.unwrap_or(usize::MAX))
+}
+
 /// Candidates in candidate order, at most `limit`.
-pub(super) fn in_candidate_order(mut ranked: Vec<Ranked>, limit: usize) -> Vec<Candidate> {
+fn in_candidate_order(mut ranked: Vec<Ranked>, limit: usize) -> Vec<Candidate> {
     if ranked.len() > limit {
         ranked.select_nth_unstable_by(limit, Ranked::order);
         ranked.truncate(limit);
@@ -65,7 +94,7 @@ pub(super) fn in_candidate_order(mut ranked: Vec<Ranked>, limit: usize) -> Vec<C
 }
 
 /// The distance in mm between the centroids of two fingerprints; 0 when either has none.
-pub(super) fn distance(stored: &Fingerprint, candidate: &Fingerprint) -> f64 {
+fn distance(stored: &Fingerprint, candidate: &Fingerprint) -> f64 {
     match (stored.centroid, candidate.centroid) {
         (Some(first), Some(second)) => score::distance(first, second),
         _ => 0.0,
