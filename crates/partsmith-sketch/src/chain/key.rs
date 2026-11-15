@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::SketchError;
 use crate::number::Rounded;
-use crate::profile::{KeyEdge, decimal, loop_text, parse_entries};
+use crate::profile::{KeyEdge, decimal, entries_text, parse_entries};
 
 /// The pattern of a chain key text: entries separated by ",".
 const CHAIN_KEY_PATTERN: &str = r"^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*$";
@@ -33,7 +33,7 @@ impl ChainKey {
         let mut entities = BTreeSet::new();
         if entries.is_empty() || !entries.iter().all(|entry| entities.insert(&entry.entity)) {
             return Err(SketchError::InvalidChainKey {
-                text: loop_text(&entries),
+                text: entries_text(&entries),
             });
         }
         Ok(ChainKey { entries })
@@ -62,7 +62,7 @@ impl ChainKey {
 
 impl fmt::Display for ChainKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&loop_text(&self.entries))
+        formatter.write_str(&entries_text(&self.entries))
     }
 }
 

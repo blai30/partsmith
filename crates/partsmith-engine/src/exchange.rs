@@ -19,7 +19,6 @@ use crate::assets::asset_name;
 use crate::cancel::Stoppable;
 #[cfg(test)]
 use crate::cancel::{StopPoint, stopped_token};
-use crate::display::MeshKey;
 use crate::error::EngineError;
 use crate::ids::NewIds;
 use crate::profiles::{is_valid_tolerance, tolerance};
@@ -206,20 +205,12 @@ impl Session {
     ) -> Result<Vec<Mesh>, EngineError> {
         let mut meshes = Vec::with_capacity(bodies.len());
         for exportable in bodies {
-            self.check_stop(Stoppable::Export)?;
-            let identity = exportable
-                .view
-                .identity
-                .clone()
-                .ok_or_else(|| EngineError::internal("an exported body has no geometry"))?;
-            let display = self
-                .cache
-                .mesh(
-                    &MeshKey::new(identity, mesh_tolerance),
-                    &exportable.view.state,
-                    self.request.interrupt(),
-                )
-                .map_err(|error| Stoppable::Export.mesh_error(error))?;
+            let display = self.mesh_or_stop(
+                &exportable.view,
+                mesh_tolerance,
+                Stoppable::Export,
+                "an exported body has no geometry",
+            )?;
             meshes.push(display.mesh.clone());
         }
         let Some(rotation) = rotation else {

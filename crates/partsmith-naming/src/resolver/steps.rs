@@ -279,20 +279,9 @@ impl<'a> Resolver<'a> {
         elements: impl IntoIterator<Item = usize>,
         limit: Option<usize>,
     ) -> Vec<Candidate> {
-        let ranked = elements
-            .into_iter()
-            .map(|element| {
-                let info = self.set.element_at(element);
-                Ranked::new(
-                    &info.name,
-                    &info.fingerprint,
-                    &self.reference.fingerprint,
-                    self.kind,
-                    self.has_meaning(element),
-                )
-            })
-            .collect();
-        in_candidate_order(ranked, limit.unwrap_or(usize::MAX))
+        candidates_of(self.reference, self.set, elements, limit, |element| {
+            self.has_meaning(element)
+        })
     }
 
     /// True when the element touches a face in the family of a present part, or, when no part is
@@ -354,6 +343,32 @@ pub(super) fn scored(
             .then_with(|| element_name(set, first.1).cmp(&element_name(set, second.1)))
     });
     scored
+}
+
+/// Candidates for these elements against the reference's fingerprint, in candidate order, at most
+/// `limit`. `meaning` tells whether the element at a position has `meaning`.
+pub(super) fn candidates_of(
+    reference: &Reference,
+    set: &ElementSet,
+    elements: impl IntoIterator<Item = usize>,
+    limit: Option<usize>,
+    meaning: impl Fn(usize) -> bool,
+) -> Vec<Candidate> {
+    let kind = reference.query.kind();
+    let ranked = elements
+        .into_iter()
+        .map(|element| {
+            let info = set.element_at(element);
+            Ranked::new(
+                &info.name,
+                &info.fingerprint,
+                &reference.fingerprint,
+                kind,
+                meaning(element),
+            )
+        })
+        .collect();
+    in_candidate_order(ranked, limit.unwrap_or(usize::MAX))
 }
 
 /// The family of each face part.

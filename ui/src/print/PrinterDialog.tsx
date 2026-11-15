@@ -64,11 +64,18 @@ function newPrinterName(printers: readonly PrinterProfile[]): string {
   return name
 }
 
-/** What the dialog opens with for a request: the profile its values come from, its name and its fixed id. */
+/** What the dialog opens with: the profile its values come from, its name and its fixed id. */
+type Opening = {
+  readonly profile: PrinterProfile
+  readonly name: string
+  readonly id: string | null
+}
+
+/** What a request opens with, or null for a new printer while the generic FDM profile is not listed. */
 function opening(
   request: PrinterDialogRequest,
   printers: readonly PrinterProfile[],
-): { profile: PrinterProfile; name: string; id: string | null } | null {
+): Opening | null {
   if (request.kind === 'edit') {
     return { profile: request.profile, name: request.profile.name, id: request.profile.id }
   }
@@ -90,14 +97,25 @@ function dialogKey(request: PrinterDialogRequest): string {
   return request.kind === 'edit' ? `edit ${request.profile.id}` : `new ${request.id ?? ''}`
 }
 
+/** The dialog of one request, or nothing while it has no values to open with. */
 function PrinterDialogPanel({ request }: { readonly request: PrinterDialogRequest }) {
-  const app = useApp()
   const printers = useAppState((state) => state.printers)
   const [start] = useState(() => opening(request, printers))
-  const [opened, setOpened] = useState(start?.profile ?? null)
-  const [form, setForm] = useState(() =>
-    start === null ? null : printerForm(start.profile, start.name),
-  )
+  return start === null ? null : <PrinterDialogForm request={request} start={start} />
+}
+
+/** The dialog's panel, from the values its request opened with. */
+function PrinterDialogForm({
+  request,
+  start,
+}: {
+  readonly request: PrinterDialogRequest
+  readonly start: Opening
+}) {
+  const app = useApp()
+  const printers = useAppState((state) => state.printers)
+  const [opened, setOpened] = useState(start.profile)
+  const [form, setForm] = useState(() => printerForm(start.profile, start.name))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
@@ -115,10 +133,6 @@ function PrinterDialogPanel({ request }: { readonly request: PrinterDialogReques
     }
   }, [])
 
-  if (start === null || opened === null || form === null) {
-    return null
-  }
-  const fixedId = start.id
   const problems = shownNumberFields(form).flatMap((field) => {
     const problem = numberFieldProblem(form[field])
     return problem === null ? [] : [[field, MESSAGES[problem](NUMBER_FIELDS[field].label)] as const]
@@ -130,12 +144,12 @@ function PrinterDialogPanel({ request }: { readonly request: PrinterDialogReques
   }
 
   function update(change: Partial<PrinterForm>): void {
-    setForm((current) => (current === null ? current : { ...current, ...change }))
+    setForm((current) => ({ ...current, ...change }))
   }
 
   function switchTechnology(technology: Technology): void {
     const generic = findPrinter(printers, GENERIC_PRINTER_IDS[technology])
-    if (generic === undefined || form === null) {
+    if (generic === undefined) {
       return
     }
     // Every value but Name comes from the technology's generic profile.
@@ -144,11 +158,8 @@ function PrinterDialogPanel({ request }: { readonly request: PrinterDialogReques
   }
 
   async function save(): Promise<void> {
-    if (form === null || opened === null) {
-      return
-    }
     const id =
-      fixedId ??
+      start.id ??
       printerIdFromName(
         form.name,
         printers.map((printer) => printer.id),

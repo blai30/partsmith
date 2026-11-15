@@ -128,11 +128,11 @@ pub(crate) fn canonical_loop(mut entries: Vec<KeyEdge>) -> Vec<KeyEdge> {
 /// Sorts holes into region key order, by the text of their canonical loops; holes with the same text
 /// keep their order.
 pub(crate) fn sort_holes<T>(holes: &mut [T], entries: impl Fn(&T) -> Vec<KeyEdge>) {
-    holes.sort_by_cached_key(|hole| loop_text(&canonical_loop(entries(hole))));
+    holes.sort_by_cached_key(|hole| entries_text(&canonical_loop(entries(hole))));
 }
 
-/// The text of one loop: its entries joined with ",".
-pub(crate) fn loop_text(entries: &[KeyEdge]) -> String {
+/// The text of entries: each written as `[~]id`, joined with ",".
+pub(crate) fn entries_text(entries: &[KeyEdge]) -> String {
     entries
         .iter()
         .map(ToString::to_string)
@@ -142,9 +142,9 @@ pub(crate) fn loop_text(entries: &[KeyEdge]) -> String {
 
 impl fmt::Display for RegionKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&loop_text(&self.outer))?;
+        formatter.write_str(&entries_text(&self.outer))?;
         for hole in &self.holes {
-            write!(formatter, ";{}", loop_text(hole))?;
+            write!(formatter, ";{}", entries_text(hole))?;
         }
         Ok(())
     }
@@ -177,7 +177,7 @@ fn parse_loop(text: &str) -> Option<Vec<KeyEdge>> {
     parse_entries(text).filter(|entries| entries.windows(2).all(|pair| pair[0] < pair[1]))
 }
 
-/// The entries of a loop text, separated by ",", in written order; `None` when any entry is invalid.
+/// The entries of a text like "e-1,~e-2", separated by ",", in written order; `None` when any entry is invalid.
 pub(crate) fn parse_entries(text: &str) -> Option<Vec<KeyEdge>> {
     text.split(',').map(parse_entry).collect()
 }

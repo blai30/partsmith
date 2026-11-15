@@ -1,6 +1,6 @@
 import type { CoreEvent } from '../core/events'
-import { featureLabel } from '../core/labels'
 import { MESSAGES } from '../messages'
+import { selectFeatureLabel } from '../state/selectors'
 import { dismiss, notify } from './actions/notifications'
 import { reportFailure } from './report'
 import type { App } from './createApp'
@@ -33,8 +33,7 @@ export function noteRebuildStops(
   if (stoppedByApp) {
     return
   }
-  const { catalog, document } = app.store.getState()
-  const feature = document === null ? first.id : featureLabel(document.recipe, first.id, catalog)
+  const feature = selectFeatureLabel(app.store.getState(), first.id)
   const message =
     notBuilt.length === 1
       ? MESSAGES.rebuild_stopped_one(feature)

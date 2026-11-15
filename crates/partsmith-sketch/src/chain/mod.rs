@@ -19,6 +19,7 @@ pub use loss::ChainLoss;
 pub use pick::chain_through;
 
 use crate::entity::SketchEntity;
+use crate::point_ref::PointRole;
 use crate::profile::{ProfileCurve, ProfileEdge, Succession};
 
 /// A chain built from solved entities (section 3.18.2).
@@ -158,4 +159,18 @@ pub fn match_chain(entities: &[SketchEntity], reference: &ChainRef) -> ChainMatc
         },
         Err(loss) => ChainMatch::Missing { loss },
     }
+}
+
+/// Values at an entity's own start and end, in traversal order: swapped when the chain runs against the entity.
+fn in_traversal_order<T>([first, second]: [T; 2], reversed: bool) -> [T; 2] {
+    if reversed {
+        [second, first]
+    } else {
+        [first, second]
+    }
+}
+
+/// The roles of the ends a chain entry starts and ends at.
+fn traversal_roles(reversed: bool) -> [PointRole; 2] {
+    in_traversal_order([PointRole::Start, PointRole::End], reversed)
 }

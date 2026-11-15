@@ -3,6 +3,7 @@
 import { PRINTERS_STORE, createStoreAccess, requestResult } from '../files/database'
 import { askForPersistence, type RecoveryEnvironment } from '../files/recovery'
 import type { Document, PrinterProfile } from '../generated/protocol'
+import { isRecord } from '../inspector/param-path'
 
 export type PrinterLibrary = {
   /** Every record that has the members of a written form, sorted by id; other records are skipped and kept. */
@@ -81,16 +82,12 @@ export function createIndexedDbPrinterLibrary(
   }
 }
 
-function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function areNumbers(record: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
   return keys.every((key) => typeof record[key] === 'number')
 }
 
 function isBed(value: unknown): boolean {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return false
   }
   switch (value['kind']) {
@@ -109,7 +106,7 @@ function isBed(value: unknown): boolean {
  */
 export function printerProfileFrom(record: unknown): PrinterProfile | null {
   if (
-    !isObject(record) ||
+    !isRecord(record) ||
     typeof record['id'] !== 'string' ||
     typeof record['name'] !== 'string' ||
     (record['technology'] !== 'fdm' && record['technology'] !== 'resin') ||
@@ -120,7 +117,7 @@ export function printerProfileFrom(record: unknown): PrinterProfile | null {
       typeof record['nozzle_diameter'] === 'number'
     ) ||
     !areNumbers(record, ['layer_height', 'max_overhang_angle', 'max_bridge_length']) ||
-    !isObject(record['fit']) ||
+    !isRecord(record['fit']) ||
     !areNumbers(record['fit'], ['press', 'snug', 'slip', 'loose'])
   ) {
     return null
@@ -138,7 +135,7 @@ function sameJson(first: unknown, second: unknown): boolean {
       first.every((item, index) => sameJson(item, second[index]))
     )
   }
-  if (isObject(first) && isObject(second)) {
+  if (isRecord(first) && isRecord(second)) {
     const keys = Object.keys(first)
     return (
       keys.length === Object.keys(second).length &&

@@ -5,7 +5,7 @@ use crate::error::NamingError;
 use crate::grammar::NameDefect;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
-use crate::map::build::order_key;
+use crate::map::build::in_numbering_order;
 use crate::name::{ElementName, invalid_name};
 use crate::topology::{DirectSource, DirectSources, TopologyInfo, element_count, index_of};
 
@@ -291,15 +291,10 @@ fn number_duplicates(
             if group.len() < 2 {
                 continue;
             }
-            let mut keyed = Vec::with_capacity(group.len());
-            for &(_, position) in group {
-                let index = index_of(position);
-                let fingerprint = topology.given_fingerprint(kind, index)?;
-                keyed.push((order_key(fingerprint, kind, index)?, position));
-            }
-            keyed.sort_unstable();
+            let ordered =
+                in_numbering_order(group.iter().map(|&(_, position)| position), kind, topology)?;
             let name = group[0].0;
-            for (split, (_, position)) in (1..).zip(keyed) {
+            for (split, position) in (1..).zip(ordered) {
                 renames.push((position, name.clone(), name.with_split(split)?));
             }
         }

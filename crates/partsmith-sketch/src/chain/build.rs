@@ -5,10 +5,10 @@ use std::f64::consts::{PI, TAU};
 
 use partsmith_model::{ANGULAR_TOLERANCE, Id};
 
-use super::{Chain, ChainKey, ChainLoss, Junction};
+use super::{Chain, ChainKey, ChainLoss, Junction, in_traversal_order, traversal_roles};
 use crate::PROFILE_TOLERANCE;
 use crate::entity::{EntityKind, SketchEntity};
-use crate::point_ref::{PointRef, PointRole};
+use crate::point_ref::PointRef;
 use crate::profile::{Curve, ProfileCurve, ProfileEdge, Shape, meet};
 use crate::vector::{cross, dot, norm, scale, subtract, unit};
 
@@ -32,15 +32,10 @@ struct Entry<'a> {
 impl Entry<'_> {
     /// The point references of the traversal start and end: `.start` and `.end`, swapped when reversed.
     fn end_references(&self) -> [PointRef; 2] {
-        let [first, second] = [PointRole::Start, PointRole::End].map(|role| PointRef {
+        traversal_roles(self.reversed).map(|role| PointRef {
             entity: self.entity.clone(),
             role,
-        });
-        if self.reversed {
-            [second, first]
-        } else {
-            [first, second]
-        }
+        })
     }
 }
 
@@ -130,8 +125,7 @@ fn checked_entries<'a>(
                 });
             }
             let [start, end] = match shape.endpoints() {
-                Some([start, end]) if entry.reversed => [end, start],
-                Some(ends) => ends,
+                Some(ends) => in_traversal_order(ends, entry.reversed),
                 None => [shape.point_at(0.0); 2],
             };
             Ok(Entry {
@@ -179,14 +173,10 @@ fn tangents(shape: Shape, reversed: bool) -> [[f64; 2]; 2] {
             start,
             end,
             ..
-        } => {
-            let [at_start, at_end] = [on_arc(center, radius, start), on_arc(center, radius, end)];
-            if reversed {
-                [at_end, at_start]
-            } else {
-                [at_start, at_end]
-            }
-        }
+        } => in_traversal_order(
+            [on_arc(center, radius, start), on_arc(center, radius, end)],
+            reversed,
+        ),
         Shape::Circle { .. } => [[0.0, sign]; 2],
     }
 }

@@ -18,7 +18,7 @@ use partsmith_protocol::{
 use crate::cancel::Stoppable;
 #[cfg(test)]
 use crate::cancel::{StopPoint, stopped_token};
-use crate::display::{DisplayMesh, MeshKey};
+use crate::display::DisplayMesh;
 use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::events::Output;
@@ -72,19 +72,12 @@ impl Session {
         let mesh_tolerance = tolerance(&open.computed.profile.profile, quality);
         let mut meshes: Vec<(BodyView, Arc<DisplayMesh>)> = Vec::with_capacity(views.len());
         for view in views {
-            self.check_stop(Stoppable::AnalyzePrint)?;
-            let identity = view
-                .identity
-                .clone()
-                .ok_or_else(|| EngineError::internal("an analyzed body has no geometry"))?;
-            let mesh = self
-                .cache
-                .mesh(
-                    &MeshKey::new(identity, &mesh_tolerance),
-                    &view.state,
-                    self.request.interrupt(),
-                )
-                .map_err(|error| Stoppable::AnalyzePrint.mesh_error(error))?;
+            let mesh = self.mesh_or_stop(
+                &view,
+                &mesh_tolerance,
+                Stoppable::AnalyzePrint,
+                "an analyzed body has no geometry",
+            )?;
             meshes.push((view, mesh));
         }
         #[cfg(test)]

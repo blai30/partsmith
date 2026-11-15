@@ -389,14 +389,8 @@ fn number_duplicates(
             return Ok(());
         }
         for group in groups {
-            let mut keyed = Vec::with_capacity(group.len());
-            for &position in group {
-                let index = index_of(position);
-                let fingerprint = topology.given_fingerprint(kind, index)?;
-                keyed.push((order_key(fingerprint, kind, index)?, position));
-            }
-            keyed.sort_unstable();
-            for (split, (_, position)) in indices().zip(keyed) {
+            let ordered = in_numbering_order(group.iter().copied(), kind, topology)?;
+            for (split, position) in indices().zip(ordered) {
                 if let Some(name) = names[position].as_mut() {
                     *name = name.with_split(split)?;
                 }
@@ -405,8 +399,25 @@ fn number_duplicates(
     }
 }
 
+/// The positions of elements of `kind` that share a name, in the order of section 3.4 in which
+/// numbering duplicates gives them `#1`, `#2`, ... (section 3.3).
+pub(super) fn in_numbering_order(
+    positions: impl ExactSizeIterator<Item = usize>,
+    kind: ElementKind,
+    topology: &TopologyInfo,
+) -> Result<impl Iterator<Item = usize>, NamingError> {
+    let mut keyed = Vec::with_capacity(positions.len());
+    for position in positions {
+        let index = index_of(position);
+        let fingerprint = topology.given_fingerprint(kind, index)?;
+        keyed.push((order_key(fingerprint, kind, index)?, position));
+    }
+    keyed.sort_unstable();
+    Ok(keyed.into_iter().map(|(_, position)| position))
+}
+
 /// The order key of element `index` of `kind` (section 3.4).
-pub(super) fn order_key(
+fn order_key(
     fingerprint: &Fingerprint,
     kind: ElementKind,
     index: u32,

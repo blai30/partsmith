@@ -21,13 +21,13 @@ use crate::assets::{referenced_assets, stored_assets};
 #[cfg(test)]
 use crate::cancel::StopPoint;
 use crate::cancel::{CancelFlag, Stoppable};
-use crate::display::DisplayCache;
+use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
 use crate::inspections::Inspections;
 use crate::options::SessionOptions;
 use crate::profiles::{Profiles, check_stored, invalid_profile, tolerance};
-use crate::state::{self, Computed};
+use crate::state::{self, BodyView, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
 
@@ -149,6 +149,30 @@ impl Session {
         }
     }
 
+    /// The mesh of `view` at `tolerance` from the mesh cache. It is `canceled` of `command` once the
+    /// request stopped, checked before the body and inside a tessellation the cache lacks (section
+    /// 3.26). `no_geometry` is the internal error of a view without geometry.
+    pub(crate) fn mesh_or_stop(
+        &mut self,
+        view: &BodyView,
+        tolerance: &TessellationTolerance,
+        command: Stoppable,
+        no_geometry: &'static str,
+    ) -> Result<Arc<DisplayMesh>, EngineError> {
+        self.check_stop(command)?;
+        let identity = view
+            .identity
+            .clone()
+            .ok_or_else(|| EngineError::internal(no_geometry))?;
+        self.cache
+            .mesh(
+                &MeshKey::new(identity, tolerance),
+                &view.state,
+                self.request.interrupt(),
+            )
+            .map_err(|error| command.mesh_error(error))
+    }
+
     /// The feature registry.
     pub fn registry(&self) -> &Registry {
         &self.registry
@@ -198,7 +222,7 @@ impl Session {
         profile: ProfileInput,
     ) -> Result<(PrinterProfile, Vec<DocHandle>), EngineError> {
         let profile = self.profiles.put(profile)?;
-        let affected = self.rerun_naming(profile.id.as_str())?;
+        let affected = self.rerun_users_of(profile.id.as_str())?;
         Ok((profile, affected))
     }
 
@@ -231,7 +255,7 @@ impl Session {
     /// `remove_printer_profile`, returning the documents it recomputed in handle order.
     pub(crate) fn remove_profile(&mut self, id: &str) -> Result<Vec<DocHandle>, EngineError> {
         if self.profiles.remove(id) {
-            self.rerun_naming(id)
+            self.rerun_users_of(id)
         } else {
             Ok(Vec::new())
         }
@@ -239,7 +263,7 @@ impl Session {
 
     /// Recomputes the documents whose `printer` is `id` and that store no profile: they resolve it
     /// again (section 3.3). Returns them in handle order.
-    fn rerun_naming(&mut self, id: &str) -> Result<Vec<DocHandle>, EngineError> {
+    fn rerun_users_of(&mut self, id: &str) -> Result<Vec<DocHandle>, EngineError> {
         let affected: Vec<DocHandle> = self
             .documents
             .iter()

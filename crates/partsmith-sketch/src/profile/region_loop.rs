@@ -9,7 +9,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::key::{KeyEdge, loop_text, parse_entries};
+use super::key::{KeyEdge, entries_text, parse_entries};
 use crate::error::SketchError;
 
 /// The pattern of a region loop text: entries separated by ",".
@@ -76,7 +76,7 @@ fn compare_rotations(entries: &[KeyEdge], first: usize, second: usize) -> Orderi
 
 impl fmt::Display for RegionLoop {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&loop_text(&self.entries))
+        formatter.write_str(&entries_text(&self.entries))
     }
 }
 

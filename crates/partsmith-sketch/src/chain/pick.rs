@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use partsmith_model::Id;
 
-use super::ChainKey;
+use super::{ChainKey, traversal_roles};
 use crate::PROFILE_TOLERANCE;
 use crate::entity::SketchEntity;
 use crate::point_ref::PointRole;
@@ -67,15 +67,6 @@ fn end_of(shapes: &[Shape], curve: usize, role: PointRole) -> End {
     End { curve, role, point }
 }
 
-/// The roles of the ends a chain entry starts and ends at.
-fn roles(reversed: bool) -> [PointRole; 2] {
-    if reversed {
-        [PointRole::End, PointRole::Start]
-    } else {
-        [PointRole::Start, PointRole::End]
-    }
-}
-
 /// The chain a pick of `seed` stands for (section 3.18.4); None when `seed` is not a non-construction line, arc or
 /// circle of `entities` with a length. The chain runs in the seed's own direction and extends through every point
 /// where exactly two curve ends meet.
@@ -113,7 +104,7 @@ fn extend(shapes: &[Shape], chain: &mut VecDeque<(usize, bool)>) {
     in_chain[seed] = true;
     loop {
         let (last, reversed) = chain[chain.len() - 1];
-        let [found] = ends.at(end_of(shapes, last, roles(reversed)[1]))[..] else {
+        let [found] = ends.at(end_of(shapes, last, traversal_roles(reversed)[1]))[..] else {
             break;
         };
         if found == seed_start {
@@ -127,7 +118,7 @@ fn extend(shapes: &[Shape], chain: &mut VecDeque<(usize, bool)>) {
     }
     loop {
         let (first, reversed) = chain[0];
-        let [found] = ends.at(end_of(shapes, first, roles(reversed)[0]))[..] else {
+        let [found] = ends.at(end_of(shapes, first, traversal_roles(reversed)[0]))[..] else {
             break;
         };
         if in_chain[found.curve] {
