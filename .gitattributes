@@ -6,3 +6,4 @@
 *.stl -text
 *.step -text
 *.ptsz binary
+fuzz/corpus/** -text

@@ -1,0 +1,46 @@
+[package]
+name = "partsmith-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+partsmith-model = { path = "../crates/partsmith-model" }
+partsmith-protocol = { path = "../crates/partsmith-protocol" }
+partsmith-occt-sys = { path = "../crates/partsmith-occt-sys" }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[[bin]]
+name = "ptsm_load"
+path = "fuzz_targets/ptsm_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "protocol_frame"
+path = "fuzz_targets/protocol_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "step_read"
+path = "fuzz_targets/step_read.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

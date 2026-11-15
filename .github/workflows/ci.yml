@@ -152,7 +152,12 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --all --check
+      # The fuzz crate is outside the workspace (delivery.md 2.15). Its checks run here on the stable toolchain. Its
+      # build folder, fuzz/target, is not cached.
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # With --locked the check fails when fuzz/Cargo.lock lacks a package or holds one too many (ADR 0067 choice 14).
+      - run: cargo clippy --manifest-path fuzz/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Disk space after the tests
         if: always()
@@ -165,6 +170,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@v2.1.1
+      # The fuzz crate's own lock file, against the same deny.toml (delivery.md 2.15).
+      - uses: EmbarkStudios/cargo-deny-action@v2.1.1
+        with:
+          manifest-path: fuzz/Cargo.toml
 
   ui:
     name: UI

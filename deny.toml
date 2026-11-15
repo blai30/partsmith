@@ -21,6 +21,10 @@ allow = [
   "Python-2.0",
   "BlueOak-1.0.0",
 ]
+exceptions = [
+  # libFuzzer, which libfuzzer-sys bundles, is under NCSA. Only the fuzz crate uses it, and no build ships it (ADR 0067).
+  { allow = ["NCSA"], crate = "libfuzzer-sys" },
+]
 
 [bans]
 multiple-versions = "allow"

@@ -57,3 +57,78 @@ jobs:
           cargo test -p partsmith-sketch --release --test integration properties::
         env:
           PROPTEST_CASES: "4096"
+
+  fuzz:
+    name: Fuzz ${{ matrix.target }} (10 minutes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: ptsm_load
+            detect_leaks: 1
+          - target: protocol_frame
+            detect_leaks: 1
+          - target: step_read
+            detect_leaks: 0
+    env:
+      OCCT_ROOT: ${{ github.workspace }}/.occt/native
+    steps:
+      # No step reads the skip check of properties. A fuzzer finds new inputs on a commit it has fuzzed before.
+      - uses: actions/checkout@v7.0.1
+      # Every row runs the build script of partsmith-occt-sys, which needs OCCT. ci.yml saves this cache on main.
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: .occt/native
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          fail-on-cache-miss: true
+      # In fuzz/, rustup installs the nightly of fuzz/rust-toolchain.toml.
+      - run: rustup show active-toolchain || rustup toolchain install
+        working-directory: fuzz
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: fuzz -> target
+      - id: cargo-fuzz
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-0.13.2-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+        working-directory: fuzz
+      - name: Build the fuzz target
+        run: cargo fuzz build ${{ matrix.target }}
+        working-directory: fuzz
+      # The newest saved corpus of the target joins its committed files.
+      - name: Restore the corpus
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      # libFuzzer adds its new inputs to the first folder and only reads examples/. The limits for one input and for
+      # the process are OSS-Fuzz's (ADR 0067 choice 7). The env stops LeakSanitizer's check at exit too (choice 6).
+      - name: Fuzz for 10 minutes
+        id: fuzz
+        run: cargo fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} ../examples -- -max_total_time=600 -timeout=25 -rss_limit_mb=2560 -detect_leaks=${{ matrix.detect_leaks }} -print_final_stats=1
+        working-directory: fuzz
+        env:
+          ASAN_OPTIONS: detect_leaks=${{ matrix.detect_leaks }}
+      # It runs after a finding too. The inputs found before the finding stay. It does not run after an earlier failure.
+      # The folder then holds the committed seeds alone, which would become the newest entry (ADR 0067 choice 13).
+      - name: Save the corpus
+        if: ${{ !cancelled() && steps.fuzz.outcome != 'skipped' }}
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      # cargo-fuzz writes each failing input into fuzz/artifacts/<target>/.
+      - name: Upload the failing input
+        if: ${{ failure() && steps.fuzz.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          retention-days: 7
+          if-no-files-found: warn

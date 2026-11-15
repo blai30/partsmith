@@ -1,6 +1,6 @@
 // Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
-// 120, 122 to 124, 128 and 130 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
-// scripts/check-source-archive.sh and scripts/check-windows-imports.sh.
+// 120, 122 to 124, 128, 130, 132 to 140, 147, 149 and 150 of docs/spec/delivery.md section 6 for the workflow files,
+// the copies of section 3.6, scripts/check-source-archive.sh and scripts/check-windows-imports.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -171,7 +171,8 @@ const SKIP_CHECK_ARGUMENTS = [
   '.[0].headSha // ""',
 ]
 
-// The timeout-minutes of every job of each workflow file, in the order of its jobs (sections 2.4, 2.5, 2.11 and 2.14).
+// The timeout-minutes of every job of each workflow file, in the order of its jobs (sections 2.4, 2.5, 2.11, 2.14 and
+// 2.15).
 const EXPECTED_TIMEOUTS = {
   'ci.yml': {
     'occt-native': 150,
@@ -193,12 +194,13 @@ const EXPECTED_TIMEOUTS = {
     deploy: 60,
   },
   'release.yml': { verify: 60, sources: 60, bundle: 150, draft: 60 },
-  'nightly.yml': { properties: 20 },
+  'nightly.yml': { properties: 20, fuzz: 60 },
   'platforms.yml': { 'occt-platforms': 150, 'full-rebuild': 60 },
 }
 
-// The artifacts each workflow file uploads, in the order of its steps (sections 2.4, 2.5 and 2.14): its source artifact
-// first, kept 8 days, and the others, kept 7 (section 2.13). platforms.yml uploads none since the move (section 2.14).
+// The artifacts each workflow file uploads, in the order of its steps (sections 2.4, 2.5, 2.14 and 2.15): its source
+// artifact first, kept 8 days, and the others, kept 7 (section 2.13). nightly.yml uploads the failing input of a fuzz
+// row (section 2.15), and platforms.yml uploads none since the move (section 2.14).
 const EXPECTED_UPLOADS = {
   'ci.yml': [
     'sources-web',
@@ -208,6 +210,7 @@ const EXPECTED_UPLOADS = {
     'playwright-report-${{ matrix.browser }}',
   ],
   'release.yml': ['sources-desktop', 'bundle-${{ runner.os }}'],
+  'nightly.yml': ['fuzz-artifacts-${{ matrix.target }}'],
   'platforms.yml': [],
 }
 
@@ -472,6 +475,124 @@ const OCCT_BUILD = 'scripts/build-occt.sh native "$OCCT_ROOT"'
 // start of the promotion rule's exception in that file (test 135).
 const AGENTS_CHANGES_START = '`.github/workflows/AGENTS.md` changes in'
 const INSTALL_EXCEPTION_START = 'The one exception is'
+
+// The fuzz job of nightly.yml (section 2.15, The job, tests 136 and 137): the job it follows, its name and runner, its
+// matrix rows in order, its env, the job keys it leaves out (it runs every night and on every dispatch), its number of
+// steps, and the steps before the fuzzing, which test 137 compares with the YAML block of section 2.15 that starts with
+// FUZZ_BLOCK_FIRST_LINE.
+const FUZZ_JOB = 'fuzz'
+const FUZZ_FOLLOWS = 'properties'
+const FUZZ_JOB_NAME = 'Fuzz ${{ matrix.target }} (10 minutes)'
+const FUZZ_RUNNER = 'ubuntu-24.04'
+const FUZZ_ROWS = [
+  { target: 'ptsm_load', detect_leaks: '1' },
+  { target: 'protocol_frame', detect_leaks: '1' },
+  { target: 'step_read', detect_leaks: '0' },
+]
+const FUZZ_JOB_ENV = { OCCT_ROOT: '${{ github.workspace }}/.occt/native' }
+const FUZZ_ABSENT_KEYS = [
+  'if',
+  'needs',
+  'permissions',
+  'defaults',
+  'services',
+  'container',
+  'continue-on-error',
+]
+const FUZZ_STEP_COUNT = 11
+const FUZZ_STEPS_BEFORE_FUZZING = 7
+const FUZZ_BUILD_NAME = 'Build the fuzz target'
+const FUZZ_BLOCK_FIRST_LINE = 'fuzz:'
+
+// The fuzzing step, the ninth (section 2.15, The run, test 138): its entries, its env, the step keys it leaves out,
+// the variable that only its env names in nightly.yml, and the texts that no line of nightly.yml holds.
+const FUZZING_STEP = {
+  name: 'Fuzz for 10 minutes',
+  id: 'fuzz',
+  run: 'cargo fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} ../examples -- -max_total_time=600 -timeout=25 -rss_limit_mb=2560 -detect_leaks=${{ matrix.detect_leaks }} -print_final_stats=1',
+  'working-directory': 'fuzz',
+}
+const FUZZING_ENV = { ASAN_OPTIONS: 'detect_leaks=${{ matrix.detect_leaks }}' }
+const FUZZING_ABSENT_KEYS = ['if', 'continue-on-error', 'timeout-minutes', 'shell']
+const LEAK_VARIABLE = 'ASAN_OPTIONS'
+const FORBIDDEN_FUZZ_TEXTS = [
+  'LSAN_OPTIONS',
+  '-max_len',
+  '-runs=',
+  '-jobs=',
+  '-workers=',
+  '-fork=',
+  '-ignore_',
+]
+
+// The corpus cache, the eighth and tenth steps (section 2.15, The corpus cache, test 139), and the folder that no other
+// step of nightly.yml names in a path.
+const CORPUS_RESTORE = {
+  name: 'Restore the corpus',
+  action: 'actions/cache/restore',
+  with: {
+    path: 'fuzz/corpus/${{ matrix.target }}',
+    key: 'fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}',
+    'restore-keys': 'fuzz-corpus-${{ matrix.target }}-',
+  },
+}
+const CORPUS_SAVE = {
+  name: 'Save the corpus',
+  if: "${{ !cancelled() && steps.fuzz.outcome != 'skipped' }}",
+  action: 'actions/cache/save',
+  with: {
+    path: 'fuzz/corpus/${{ matrix.target }}',
+    key: 'fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}',
+  },
+}
+const CORPUS_FOLDER = 'fuzz/corpus'
+
+// The upload of the failing input, the last step (section 2.15, The failing input, test 140).
+const FAILING_INPUT_UPLOAD = {
+  name: 'Upload the failing input',
+  if: "${{ failure() && steps.fuzz.outcome == 'failure' }}",
+  action: 'actions/upload-artifact',
+  with: {
+    name: 'fuzz-artifacts-${{ matrix.target }}',
+    path: 'fuzz/artifacts/${{ matrix.target }}/',
+    'retention-days': ARTIFACT_RETENTION_DAYS,
+    'if-no-files-found': 'warn',
+  },
+}
+
+// The fuzz crate's checks in ci.yml's rust job, each right after the workspace's check it follows and before the
+// workspace's tests (section 2.4, test 149); the fuzz crate's build folder, which no step of ci.yml caches; and the
+// actions that cache.
+const FUZZ_CRATE_CHECKS = [
+  {
+    workspace: 'cargo fmt --all --check',
+    fuzz: 'cargo fmt --manifest-path fuzz/Cargo.toml --all --check',
+  },
+  {
+    workspace: 'cargo clippy --workspace --all-targets -- -D warnings',
+    fuzz: 'cargo clippy --manifest-path fuzz/Cargo.toml --locked --all-targets -- -D warnings',
+  },
+]
+const WORKSPACE_TESTS = 'cargo test --workspace'
+const FUZZ_CRATE_CHECK_ABSENT_KEYS = ['if', 'working-directory', 'env']
+const FUZZ_CRATE_FOLDER = 'fuzz'
+const FUZZ_BUILD_FOLDER = 'fuzz/target'
+const CACHE_ACTIONS = [
+  'actions/cache',
+  'actions/cache/restore',
+  'actions/cache/save',
+  'Swatinem/rust-cache',
+]
+
+// The deny job's action and the `with` of its second step, which checks the fuzz crate's lock file (sections 2.4 and
+// 2.15, test 147).
+const DENY_ACTION = 'EmbarkStudios/cargo-deny-action'
+const FUZZ_DENY_WITH = { 'manifest-path': 'fuzz/Cargo.toml' }
+
+// The start of the paragraph of section 2.15 whose bullets change the workflows AGENTS.md, and the first line of the
+// block of that file's Commands that the fuzz commands follow (test 150).
+const FUZZ_AGENTS_START = '**`.github/workflows/AGENTS.md`.**'
+const PROPERTY_COMMANDS_FIRST_LINE = '# The nightly property run'
 
 /** The command that installs `browser` with its system packages (sections 2.4 and 2.14). */
 function browserInstall(browser) {
@@ -1025,7 +1146,7 @@ async function recordedCalls(path) {
     .map((call) => call.split('\0').slice(0, -1))
 }
 
-test('49: every job sets the timeout-minutes of sections 2.4, 2.5, 2.11 and 2.14', async () => {
+test('49: every job sets the timeout-minutes of sections 2.4, 2.5, 2.11, 2.14 and 2.15', async () => {
   for (const [file, text] of await workflowTexts(Object.keys(EXPECTED_TIMEOUTS))) {
     const actual = workflowJobs(text).map((job) => [job.id, timeoutMinutes(job)])
     assert.deepEqual(actual, Object.entries(EXPECTED_TIMEOUTS[file]), file)
@@ -4702,4 +4823,464 @@ test('135: rerunWindow finds the parentheses that hold the 12 hours, and none wh
     'for `e2e`, within 12 hours of the end, or later',
   )
   assert.equal(rerunWindow('`e2e` or `rust`: rerun within 12 hours of the end (2.14).'), undefined)
+})
+
+/** The job fuzz of nightly.yml and its steps; fails the test when nightly.yml has no such job. */
+async function fuzzJob() {
+  const job = await workflowJob('nightly.yml', FUZZ_JOB)
+  return { job, steps: jobSteps(job) }
+}
+
+/** Whether a line of a workflow is no comment and holds `part`. */
+function holdsOutsideComments(line, part) {
+  return !isBlankOrComment(line) && line.includes(part)
+}
+
+/** The `path` of a step's `with`, its value or the lines of its block scalar; undefined when it has none. */
+function withPath(step) {
+  const options = mappingLines(step, 'with')
+  return options === undefined ? undefined : stepValue(options, 'path')
+}
+
+/**
+ * Whether a step of a workflow caches the fuzz crate's build folder: a step of a caching action that names
+ * fuzz/target outside comments, or a Swatinem/rust-cache step whose `workspaces` names the fuzz crate's folder, whose
+ * `target` it then caches (test 149).
+ */
+function cachesFuzzTarget(step) {
+  if (!CACHE_ACTIONS.some((action) => usesAction(step, action))) {
+    return false
+  }
+  const options = mappingLines(step, 'with') ?? []
+  const workspaces = usesAction(step, 'Swatinem/rust-cache')
+    ? (stepValue(options, 'workspaces') ?? '')
+    : ''
+  return (
+    step.some((line) => holdsOutsideComments(line, FUZZ_BUILD_FOLDER)) ||
+    workspaces
+      .split('\n')
+      .some((workspace) => workspace.split('->')[0].trim() === FUZZ_CRATE_FOLDER)
+  )
+}
+
+/**
+ * The bullets of section 2.15 that change the workflows AGENTS.md: the lines that start with `- ` right below the
+ * paragraph that starts with FUZZ_AGENTS_START and the blank line after it (test 150). The indented bullets of section
+ * 2.14 and the paragraph of section 3.2 that test 135 reads are not among them.
+ */
+function fuzzAgentsBullets(spec) {
+  const lines = spec.split('\n')
+  const start = lines.findIndex((line) => line.startsWith(FUZZ_AGENTS_START))
+  assert.notEqual(start, -1, `section 2.15 has no paragraph that starts with ${FUZZ_AGENTS_START}`)
+  const first = lines.findIndex((line, i) => i > start && line !== '')
+  const end = lines.findIndex((line, i) => i >= first && !line.startsWith('- '))
+  return lines.slice(first, end === -1 ? undefined : end)
+}
+
+/**
+ * The edits that `bullets`, bullets of section 2.15, make to the workflows AGENTS.md, each read after the place the
+ * bullet names and its colon (test 150): `changes`, each `"<old>" becomes "<new>"` as `{ before, after }`;
+ * `additions`, each `after "<named>", the sentence "<added>"` or `the sentences "<added>"` as `{ named, added }`; and
+ * `commands`, each `the comment line "<comment>" and the two lines` with two code spans, as its three lines. The texts
+ * may hold double quotes, such as those around Nightly skipped. Fails the test on a bullet of another form.
+ */
+function agentsEdits(bullets) {
+  const edits = { changes: [], additions: [], commands: [] }
+  for (const bullet of bullets) {
+    const text = bullet.slice(bullet.indexOf(': ') + 2)
+    const change = /^"(.+?)" becomes "(.+)"\.?$/.exec(text)
+    const addition = /^after "(.+?)", the sentences? "(.+)"\.?$/.exec(text)
+    const commands = /^the comment line "(.+)" and the two lines `([^`]+)` and `([^`]+)`\.$/.exec(
+      text,
+    )
+    if (change !== null) {
+      edits.changes.push({ before: change[1], after: change[2] })
+    } else if (addition !== null) {
+      edits.additions.push({ named: addition[1], added: addition[2] })
+    } else if (commands !== null) {
+      edits.commands.push(commands.slice(1))
+    } else {
+      assert.fail(`test 150 cannot read this bullet of section 2.15: ${bullet}`)
+    }
+  }
+  return edits
+}
+
+/** The edits of the workflows AGENTS.md that section 2.15 of the spec text `spec` gives, as `agentsEdits` reads them. */
+function fuzzAgentsEdits(spec) {
+  return agentsEdits(fuzzAgentsBullets(spec))
+}
+
+/**
+ * Whether `text` holds `part` at a place that no occurrence of `whole` in `text` covers. The old text of a sentence
+ * can be part of its new text, as the spec line's is (test 150).
+ */
+function heldOutside(text, part, whole) {
+  const covered = []
+  for (let at = text.indexOf(whole); at !== -1; at = text.indexOf(whole, at + 1)) {
+    covered.push({ start: at, end: at + whole.length })
+  }
+  for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + 1)) {
+    if (!covered.some(({ start, end }) => start <= at && at + part.length <= end)) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * The blocks of the code block below the heading `## Commands` of the workflows AGENTS.md text `agents`: its lines,
+ * split at its blank lines (test 150).
+ */
+function commandBlocks(agents) {
+  const lines = agents.split('\n')
+  const heading = lines.indexOf('## Commands')
+  assert.notEqual(heading, -1, 'the workflows AGENTS.md has no heading ## Commands')
+  const open = lines.findIndex((line, i) => i > heading && line.startsWith('```'))
+  assert.notEqual(open, -1, 'the Commands of the workflows AGENTS.md have no code block')
+  const blocks = [[]]
+  for (const line of lines.slice(open + 1, lines.indexOf('```', open + 1))) {
+    if (line === '') {
+      blocks.push([])
+    } else {
+      blocks.at(-1).push(line)
+    }
+  }
+  return blocks.filter((block) => block.length > 0)
+}
+
+test('136: the fuzz job comes right after properties, on ubuntu-24.04 with 60 minutes, and has no skip rule', async () => {
+  const jobs = workflowJobs(await workflowText('nightly.yml'))
+  const ids = jobs.map((job) => job.id)
+  const job = findJob(jobs, 'nightly.yml', FUZZ_JOB)
+
+  assert.equal(ids.indexOf(FUZZ_JOB), ids.indexOf(FUZZ_FOLLOWS) + 1, ids.join(', '))
+  assert.equal(jobValue(job, 'name'), FUZZ_JOB_NAME)
+  assert.equal(jobValue(job, 'runs-on'), FUZZ_RUNNER)
+  assert.equal(timeoutMinutes(job), 60)
+  for (const key of FUZZ_ABSENT_KEYS) {
+    assert.equal(jobValue(job, key), undefined, `the fuzz job has ${key}`)
+  }
+})
+
+test('136: the fuzz job runs one row per target with fail-fast off, the leak detection of each row and the OCCT root', async () => {
+  const { job } = await fuzzJob()
+  const strategy = jobBlock(job, 'strategy') ?? []
+  const topLevel = (lines) => mappingEntries(lines.filter((line) => !line.startsWith(' ')))
+
+  assert.deepEqual(topLevel(strategy), { 'fail-fast': 'false', matrix: '' })
+  assert.deepEqual(Object.keys(topLevel(blockBelow(strategy, 'matrix:', 2) ?? [])), ['include'])
+  assert.deepEqual(matrixRows(job), FUZZ_ROWS)
+  assert.deepEqual(mappingEntries(jobBlock(job, 'env') ?? []), FUZZ_JOB_ENV)
+})
+
+test('136: no line of the fuzz job reads the skip check or a secret, and no run calls gh', async () => {
+  const { job, steps } = await fuzzJob()
+
+  assert.deepEqual(
+    job.lines.filter((line) => line.includes('steps.skip') || line.includes('secrets.')),
+    [],
+  )
+  assert.deepEqual(
+    steps.map((step) => stepValue(step, 'run')).filter((run) => /\bgh /.test(run ?? '')),
+    [],
+  )
+})
+
+test("137: the fuzz job's first seven steps are the YAML of section 2.15, line for line, comment and blank lines aside", async () => {
+  const [{ steps }, spec] = await Promise.all([fuzzJob(), repositoryText('docs/spec/delivery.md')])
+  const block = fencedBlock(spec, FUZZ_BLOCK_FIRST_LINE)
+  assert.ok(block, `section 2.15 has no YAML block that starts with ${FUZZ_BLOCK_FIRST_LINE}`)
+  const specSteps = jobSteps(
+    findJob(
+      workflowJobs(['jobs:', ...block.map((line) => `  ${line}`)].join('\n')),
+      'section 2.15',
+      FUZZ_JOB,
+    ),
+  )
+
+  assert.equal(steps.length, FUZZ_STEP_COUNT)
+  assert.equal(stepValue(specSteps[FUZZ_STEPS_BEFORE_FUZZING - 1], 'name'), FUZZ_BUILD_NAME)
+  assert.deepEqual(
+    writtenSteps(steps.slice(0, FUZZ_STEPS_BEFORE_FUZZING)),
+    writtenSteps(specSteps.slice(0, FUZZ_STEPS_BEFORE_FUZZING)),
+  )
+})
+
+test("137: the fuzz job restores OCCT with the key of ci.yml's rust job", async () => {
+  const [{ steps }, rust] = await Promise.all([fuzzJob(), workflowJob('ci.yml', 'rust')])
+
+  assert.equal(
+    cacheOptions(steps, 'actions/cache/restore', '.occt/native').key,
+    cacheOptions(jobSteps(rust), 'actions/cache/restore', '.occt/native').key,
+  )
+})
+
+test('138: the ninth step fuzzes for 10 minutes with the options of section 2.15 and the leak detection of its row', async () => {
+  const { steps } = await fuzzJob()
+  const step = steps[8] ?? []
+
+  for (const [key, value] of Object.entries(FUZZING_STEP)) {
+    assert.equal(stepValue(step, key), value, `the ninth step's ${key}`)
+  }
+  for (const key of FUZZING_ABSENT_KEYS) {
+    assert.equal(stepValue(step, key), undefined, `the fuzzing step has ${key}`)
+  }
+  assert.deepEqual(stepMapping(step, 'env'), FUZZING_ENV)
+})
+
+test('138: only the env of the fuzzing step names ASAN_OPTIONS, and no line of nightly.yml limits or splits the run', async () => {
+  const lines = (await workflowText('nightly.yml')).split('\n')
+
+  assert.equal(
+    lines.filter((line) => line.includes(LEAK_VARIABLE)).length,
+    1,
+    `nightly.yml names ${LEAK_VARIABLE} outside the env of the fuzzing step`,
+  )
+  for (const text of FORBIDDEN_FUZZ_TEXTS) {
+    assert.deepEqual(
+      lines.filter((line) => line.includes(text)),
+      [],
+      `nightly.yml holds ${text}`,
+    )
+  }
+})
+
+test('139: the eighth step restores the corpus of the row and the tenth saves it once the fuzzing step has run', async () => {
+  const { steps } = await fuzzJob()
+
+  for (const [i, expected] of [
+    [7, CORPUS_RESTORE],
+    [9, CORPUS_SAVE],
+  ]) {
+    const step = steps[i] ?? []
+    assert.equal(stepValue(step, 'name'), expected.name, `step ${i + 1}`)
+    assert.equal(stepValue(step, 'if'), expected.if, `${expected.name}'s if`)
+    assert.equal(stepValue(step, 'uses'), pinned(expected.action), `${expected.name}'s action`)
+    assert.deepEqual(stepMapping(step, 'with'), expected.with, `${expected.name}'s with`)
+  }
+})
+
+test('139: no other step of nightly.yml names fuzz/corpus in a path', async () => {
+  const naming = workflowJobs(await workflowText('nightly.yml')).flatMap((job) =>
+    jobSteps(job)
+      .map((step, i) => [job.id, i, withPath(step)])
+      .filter(([, , path]) => path?.includes(CORPUS_FOLDER) === true)
+      .map(([id, i]) => `${id} step ${i + 1}`),
+  )
+
+  assert.deepEqual(naming, [`${FUZZ_JOB} step 8`, `${FUZZ_JOB} step 10`])
+})
+
+test('140: the last step uploads the failing input after a failed fuzzing step, and is the one upload of nightly.yml', async () => {
+  const [{ steps }, text] = await Promise.all([fuzzJob(), workflowText('nightly.yml')])
+  const step = steps.at(-1) ?? []
+
+  assert.equal(steps.length, FUZZ_STEP_COUNT)
+  assert.equal(stepValue(step, 'name'), FAILING_INPUT_UPLOAD.name)
+  assert.equal(stepValue(step, 'if'), FAILING_INPUT_UPLOAD.if)
+  assert.equal(stepValue(step, 'uses'), pinned(FAILING_INPUT_UPLOAD.action))
+  assert.deepEqual(stepMapping(step, 'with'), FAILING_INPUT_UPLOAD.with)
+  assert.equal(actionSteps(text, FAILING_INPUT_UPLOAD.action).length, 1)
+})
+
+test("147: ci.yml's deny job checks out, then checks the workspace and the fuzz crate with cargo-deny", async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'deny'))
+
+  assert.equal(steps.length, 3)
+  assert.equal(stepValue(steps[0], 'uses'), pinned('actions/checkout'))
+  for (const step of steps.slice(1)) {
+    assert.equal(stepValue(step, 'uses'), pinned(DENY_ACTION))
+  }
+  assert.equal(stepMapping(steps[1], 'with'), undefined, 'the first cargo-deny step has a with')
+  assert.deepEqual(stepMapping(steps[2], 'with'), FUZZ_DENY_WITH)
+})
+
+test("149: ci.yml's rust job checks the fuzz crate's format and lints right after the workspace's, before its tests", async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'rust'))
+  const tests = commandStep(steps, WORKSPACE_TESTS)
+
+  for (const { workspace, fuzz } of FUZZ_CRATE_CHECKS) {
+    const check = commandStep(steps, fuzz)
+    assert.equal(check, commandStep(steps, workspace) + 1, `${fuzz} does not follow ${workspace}`)
+    assert.ok(check < tests, `${fuzz} runs after ${WORKSPACE_TESTS}`)
+    for (const key of FUZZ_CRATE_CHECK_ABSENT_KEYS) {
+      assert.equal(stepValue(steps[check], key), undefined, `${fuzz} has ${key}`)
+    }
+  }
+})
+
+test('149: no step of ci.yml caches fuzz/target', async () => {
+  const caching = workflowJobs(await workflowText('ci.yml')).flatMap((job) =>
+    jobSteps(job)
+      .map((step, i) => [job.id, i, step])
+      .filter(([, , step]) => cachesFuzzTarget(step))
+      .map(([id, i]) => `${id} step ${i + 1}`),
+  )
+
+  assert.deepEqual(caching, [])
+})
+
+test('149: cachesFuzzTarget finds a cache of fuzz/target and a Rust cache of the fuzz crate, and nothing else', () => {
+  assert.equal(cachesFuzzTarget(['uses: Swatinem/rust-cache@v2.9.2']), false)
+  assert.equal(
+    cachesFuzzTarget(['uses: Swatinem/rust-cache@v2.9.2', 'with:', '  workspaces: fuzz -> target']),
+    true,
+  )
+  assert.equal(
+    cachesFuzzTarget([
+      'uses: Swatinem/rust-cache@v2.9.2',
+      'with:',
+      '  workspaces: |',
+      '    . -> target',
+      '    fuzz',
+    ]),
+    true,
+  )
+  assert.equal(
+    cachesFuzzTarget(['uses: actions/cache@v6.1.0', 'with:', '  path: fuzz/target', '  key: k']),
+    true,
+  )
+  assert.equal(
+    cachesFuzzTarget(['uses: actions/cache@v6.1.0', 'with:', '  path: .occt/native', '  key: k']),
+    false,
+  )
+  assert.equal(cachesFuzzTarget(['run: cargo clippy --manifest-path fuzz/Cargo.toml']), false)
+  assert.equal(cachesFuzzTarget(['run: rm -rf fuzz/target']), false)
+})
+
+test('150: the workflows AGENTS.md holds the new text of each sentence that section 2.15 changes, and outside it not the old', async () => {
+  const [spec, agents] = await Promise.all([
+    repositoryText('docs/spec/delivery.md'),
+    repositoryText('.github/workflows/AGENTS.md'),
+  ])
+  const { changes } = fuzzAgentsEdits(spec)
+
+  assert.equal(changes.length, 4)
+  for (const { before, after } of changes) {
+    assert.ok(agents.includes(after), `the workflows AGENTS.md lacks: ${after}`)
+    assert.ok(!heldOutside(agents, before, after), `the workflows AGENTS.md still holds: ${before}`)
+  }
+})
+
+test('150: each sentence that section 2.15 adds to the workflows AGENTS.md follows the sentence it names', async () => {
+  const [spec, agents] = await Promise.all([
+    repositoryText('docs/spec/delivery.md'),
+    repositoryText('.github/workflows/AGENTS.md'),
+  ])
+  const { additions } = fuzzAgentsEdits(spec)
+
+  assert.equal(additions.length, 2)
+  for (const { named, added } of additions) {
+    assert.ok(
+      agents.includes(`${named} ${added}`),
+      `the workflows AGENTS.md lacks, right after "${named}": ${added}`,
+    )
+  }
+})
+
+test('150: the Commands block holds the fuzz lines of section 2.15 right after the block of the nightly property run', async () => {
+  const [spec, agents] = await Promise.all([
+    repositoryText('docs/spec/delivery.md'),
+    repositoryText('.github/workflows/AGENTS.md'),
+  ])
+  const { commands } = fuzzAgentsEdits(spec)
+  const blocks = commandBlocks(agents)
+  const properties = blocks.findIndex((block) => block[0] === PROPERTY_COMMANDS_FIRST_LINE)
+
+  assert.equal(commands.length, 1)
+  assert.notEqual(
+    properties,
+    -1,
+    `the Commands have no block that starts with ${PROPERTY_COMMANDS_FIRST_LINE}`,
+  )
+  assert.deepEqual(blocks[properties + 1], commands[0])
+})
+
+test('150: agentsEdits reads changes with inner quotes, additions and commands after the place each bullet names', () => {
+  const edits = agentsEdits([
+    '- The spec line: "the run of 2.11," becomes "the run of 2.11, the job of 2.15,".',
+    '- Interface, the `x` line: "it stops with a "Skipped" notice; it tests." becomes "On a run, it stops with a "Skipped" notice; it tests."',
+    '- Interface, the `x` line: after "A run tests.", the sentences "The job runs. It "uploads" (2.15)."',
+    '- Rules, the rule: after "the jobs take it.", the sentence "`fuzz` takes both (2.15)."',
+    '- Commands, after the block of the run: the comment line "# A night\'s run (in fuzz/; -x=0)" and the two lines `cargo fuzz run a -- -x=1` and `cargo fuzz run a <file>`.',
+  ])
+
+  assert.deepEqual(edits, {
+    changes: [
+      { before: 'the run of 2.11,', after: 'the run of 2.11, the job of 2.15,' },
+      {
+        before: 'it stops with a "Skipped" notice; it tests.',
+        after: 'On a run, it stops with a "Skipped" notice; it tests.',
+      },
+    ],
+    additions: [
+      { named: 'A run tests.', added: 'The job runs. It "uploads" (2.15).' },
+      { named: 'the jobs take it.', added: '`fuzz` takes both (2.15).' },
+    ],
+    commands: [
+      ["# A night's run (in fuzz/; -x=0)", 'cargo fuzz run a -- -x=1', 'cargo fuzz run a <file>'],
+    ],
+  })
+})
+
+test('150: agentsEdits fails on a bullet of a form it does not read', () => {
+  assert.throws(() => agentsEdits(['- Rules, the rule: it changes.']), /cannot read this bullet/)
+})
+
+test('150: fuzzAgentsBullets takes the bullets right below the paragraph of section 2.15, and no other', () => {
+  const spec = [
+    '  - Rules: "a" becomes "b".',
+    '',
+    '**`.github/workflows/AGENTS.md`.** The file changes in these sentences:',
+    '',
+    '- First: "c" becomes "d".',
+    '- Second: "e" becomes "f".',
+    '',
+    'The timeout values stay.',
+    '- Third: "g" becomes "h".',
+  ].join('\n')
+
+  assert.deepEqual(fuzzAgentsBullets(spec), [
+    '- First: "c" becomes "d".',
+    '- Second: "e" becomes "f".',
+  ])
+})
+
+test('150: heldOutside finds the old text only where no new text covers it', () => {
+  const before = 'the run of 2.11,'
+  const after = 'the run of 2.11, the job of 2.15,'
+
+  assert.equal(heldOutside(`(${after} the platforms run)`, before, after), false)
+  assert.equal(heldOutside(`(${before} the platforms run)`, before, after), true)
+  assert.equal(heldOutside(`(${after} and ${before} the platforms run)`, before, after), true)
+  assert.equal(heldOutside('(the platforms run)', before, after), false)
+})
+
+test('150: commandBlocks splits the code block of the Commands at its blank lines', () => {
+  const agents = [
+    '# .github/workflows',
+    '',
+    '```sh',
+    'not = "these"',
+    '```',
+    '',
+    '## Commands',
+    '',
+    '```sh',
+    '# First',
+    'first',
+    '',
+    '# Second',
+    'second',
+    'again',
+    '```',
+    '',
+    '## Rules',
+  ].join('\n')
+
+  assert.deepEqual(commandBlocks(agents), [
+    ['# First', 'first'],
+    ['# Second', 'second', 'again'],
+  ])
 })
