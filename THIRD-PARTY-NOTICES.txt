@@ -17,10 +17,11 @@ version 2.1 with the Open CASCADE exception version 1.0. It includes code from
 the other projects listed after it, under their own notices. All these texts are
 below.
 
-OCCT is linked statically into the app. It is the unmodified source of the tag
-V7_9_3 of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by
-the script scripts/build-occt.sh in the Partsmith source, which lists the
-toolkits and options used.
+OCCT is linked statically into the app. It is the source of the tag V7_9_3 of
+https://github.com/Open-Cascade-SAS/OCCT with Partsmith's patch
+scripts/occt-7.9.3.patch applied, built as static libraries by the script
+scripts/build-occt.sh in the Partsmith source, which lists the toolkits and
+options used.
 
 You may modify OCCT and use your version with Partsmith. The source of each
 release is on its page under https://github.com/blai30/partsmith/releases: the
@@ -29,9 +30,11 @@ example v0.1.0), with every script, tool version and lock file the build uses,
 also as the release's asset partsmith-source.tar.gz, which
 scripts/partsmith-source-archive.sh makes from that tag; the OCCT source the
 build reads is the release's asset occt-7.9.3-source.tar.gz, which
-scripts/occt-source-archive.sh makes from the tag V7_9_3. To relink: put your
-OCCT source in <work>/src (from the asset: mkdir -p <work>/src &&
-tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run
+scripts/occt-source-archive.sh makes from the tag V7_9_3 and the patch, which it
+holds as occt-7.9.3.patch. To relink: put your OCCT source in <work>/src (from
+the asset: mkdir -p <work>/src &&
+tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src &&
+patch -d <work>/src -p1 -i occt-7.9.3.patch), run
 OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app
 with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then
 cargo tauri build in desktop/src-tauri). The exact commands for each platform,

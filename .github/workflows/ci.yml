@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update && sudo apt-get install -y ninja-build
@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/wasm
-          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
+          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch', 'scripts/emsdk-version.sh') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: mymindstorm/setup-emsdk@v16
         with:
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/wasm
-          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
+          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch', 'scripts/emsdk-version.sh') }}
           fail-on-cache-miss: true
       - uses: mymindstorm/setup-emsdk@v16
         with:
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       # Margin for the workspace build and its OCCT-linked test binaries; df shows what is left (delivery.md 3.2).
       - name: Free disk space
@@ -209,7 +209,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
@@ -257,7 +257,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/source
-          key: occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}
+          key: occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
       - if: steps.occt-source.outputs.cache-hit != 'true'
         run: |
           mkdir -p .occt/source
@@ -271,7 +271,7 @@ jobs:
       # the runner's git or gzip wrote other bytes than the ones 2.13 measured.
       - name: Write the OCCT source archive
         env:
-          OCCT_SOURCE_SHA256: bb71bf7473f9a278648f3ff96e28bd50afe49bf8d6e53ab55e883b54d0220155
+          OCCT_SOURCE_SHA256: 528dab4a1aedf600a716ccffeec1b888c7e9a19568b364f065d84d177aa1572b
         run: |
           source scripts/occt-version.sh
           archive="occt-$OCCT_VERSION-source.tar.gz"
@@ -320,12 +320,12 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/wasm
-          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/emsdk-version.sh') }}
+          key: occt-wasm-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch', 'scripts/emsdk-version.sh') }}
           fail-on-cache-miss: true
       - uses: mymindstorm/setup-emsdk@v16
         with:
@@ -507,7 +507,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
@@ -544,7 +544,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       # The apt cache of delivery.md 3.2, as in rust. Both jobs restore and save one entry of the Tauri Linux packages.
       # The second save of a run logs that its key is reserved. That save still passes.
@@ -665,7 +665,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
       # MSVC, CMake and Ninja from Visual Studio on PATH, needed only for a build.
       - if: runner.os == 'Windows' && steps.occt.outputs.cache-hit != 'true'
         uses: ilammy/msvc-dev-cmd@v1.13.0
@@ -720,7 +720,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       # Saved on main alone, where every later run can restore it. Also saved when the tests fail, since its post step

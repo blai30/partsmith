@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
       # MSVC, CMake and Ninja from Visual Studio on PATH, needed only for a build.
       - if: runner.os == 'Windows' && steps.occt.outputs.cache-hit != 'true'
         uses: ilammy/msvc-dev-cmd@v1.13.0
@@ -93,7 +93,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       # Release builds of the benchmark's dependencies, kept apart from the debug builds of ci.yml's rust-platforms by

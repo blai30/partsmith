@@ -4,6 +4,7 @@ use crate::error::{KernelError, Operation, call};
 use crate::ffi::bridge as sys;
 use crate::interrupt::Interrupt;
 use crate::shape::{Shape, SubShapeKind};
+use crate::step_check::check_step_bytes;
 use crate::values::{Color, check_finite};
 
 /// One body in a STEP file.
@@ -109,8 +110,13 @@ fn owned_bytes(
 }
 
 /// Reads solids, names and colors from a STEP file, converted to millimeters.
+///
+/// Before OCCT reads the bytes, a file whose parameter lists break STEP's syntax, whose instance
+/// numbers OCCT cannot hold, or whose instance references form a cycle or too long a chain is
+/// refused with `ReadFailed` (section 3.8.1 read items 6 and 7).
 pub fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImport, KernelError> {
     let operation = Operation::ReadStep;
+    check_step_bytes(bytes).map_err(|message| KernelError::read_failed(operation, message))?;
     let data = call(operation, || sys::read_step(bytes, interrupt))?;
     let bodies = data
         .bodies

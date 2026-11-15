@@ -1,6 +1,7 @@
-// Acceptance tests 55, 58 and 99 of docs/spec/delivery.md section 6 for scripts/occt-source-archive.sh, the commit
-// check of scripts/build-occt.sh (section 2.13), the arguments that script gives CMake on Windows and the Windows
-// rustflags and rustdocflags of .cargo/config.toml (section 3.6, The C runtime on Windows).
+// Acceptance tests 55, 58, 99, 156 and 157 of docs/spec/delivery.md section 6 for scripts/occt-source-archive.sh, the
+// commit check of scripts/build-occt.sh (section 2.13), the patch both scripts read (ADR 0073), the arguments
+// build-occt.sh gives CMake on Windows and the Windows rustflags and rustdocflags of .cargo/config.toml (section 3.6,
+// The C runtime on Windows).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, copyFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -49,10 +50,29 @@ const TAGGED_FILES = {
   '.gitattributes': '*.bat eol=crlf\n*.cmake text\n',
 }
 
+// The stand-in for Partsmith's patch that each copy of the scripts finds next to it as occt-{v}.patch (tests 156 and
+// 157): a header line, then the change of src/Standard/Standard.cxx from the tagged text to PATCHED_STANDARD.
+const PATCHED_STANDARD = '// Standard, patched\n'
+const FIXTURE_PATCH = `A stand-in for Partsmith's patch to OCCT.
+
+diff --git a/src/Standard/Standard.cxx b/src/Standard/Standard.cxx
+--- a/src/Standard/Standard.cxx
++++ b/src/Standard/Standard.cxx
+@@ -1 +1 @@
+-// Standard, as tagged
++${PATCHED_STANDARD}`
+
+// A patch that does not apply to the fixture's tagged tree: the line it removes is not there.
+const STALE_PATCH = FIXTURE_PATCH.replace(
+  '-// Standard, as tagged',
+  '-// Standard, of another release',
+)
+
 // The uncommitted change of the working tree, after the second commit.
 const CMAKE_UNCOMMITTED = 'project (Changed)\n'
 
-// The files the archive holds, in the order git archive writes them (section 2.13).
+// The files of the tagged tree that the archive holds, in the order git archive writes them, before the patch (section
+// 2.13).
 const ARCHIVED_FILES = [
   '.clang-format',
   'CMakeLists.txt',
@@ -131,10 +151,17 @@ const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }
 
 const { version, tag, commit: pinnedCommit } = await readOcctPins()
 const archiveName = sourceArchiveName(version)
+// The patch of the pinned version, as both scripts name it next to them and as the archive holds it (ADR 0073).
+const patchName = `occt-${version}.patch`
 
 /** The no-tag message of section 4. */
 function noTagMessage(src) {
   return `${src} holds no tag ${tag}. Point OCCT_WORK_DIR at a folder whose src is a clone that scripts/build-occt.sh made, or at one without src, where the script clones the tag (docs/spec/delivery.md section 2.13).`
+}
+
+/** The message of section 4 for the patch at `patch` that does not apply to `src`. */
+function patchMessage(patch, src) {
+  return `${patch} does not apply to the tag ${tag} in ${src}; nothing was built from it (docs/adr/0073-a-check-of-step-bytes-and-a-patch-to-occt-7-9-3.md).`
 }
 
 /** The tag-commit message of section 4. */
@@ -178,9 +205,9 @@ function emptyFolder() {
 
 /**
  * A copy of the script at `scriptPath` in a new folder, next to an occt-version.sh that pins `{v}`, `{tag}` and
- * `pinned`.
+ * `pinned` and to `occt-{v}.patch` holding `patch`.
  */
-async function scriptCopy(scriptPath, pinned) {
+async function scriptCopy(scriptPath, pinned, patch) {
   const folder = await mkdtemp(join(fixture.root, 'scripts-'))
   const copy = join(folder, basename(scriptPath))
   await copyFile(scriptPath, copy)
@@ -188,22 +215,26 @@ async function scriptCopy(scriptPath, pinned) {
     join(folder, 'occt-version.sh'),
     occtVersionText({ version, tag, commit: pinned }),
   )
+  await writeFile(join(folder, patchName), patch)
   return copy
 }
 
 /**
  * Runs a copy of the script at `scriptPath` with `bash`, `scriptArguments` and `OCCT_WORK_DIR` (the fixture's by
- * default) in the isolated environment plus `environment`.
+ * default) in the isolated environment plus `environment`, next to the patch `patch` (FIXTURE_PATCH by default).
+ * Returns the result of the run and `scripts`, the folder of the copy.
  */
 async function runScript(
   scriptPath,
   scriptArguments,
-  { pinned, work = fixture.work, environment = {} },
+  { pinned, work = fixture.work, environment = {}, patch = FIXTURE_PATCH },
 ) {
-  return spawnSync('bash', [await scriptCopy(scriptPath, pinned), ...scriptArguments], {
+  const copy = await scriptCopy(scriptPath, pinned, patch)
+  const result = spawnSync('bash', [copy, ...scriptArguments], {
     encoding: 'utf8',
     env: { ...fixture.environment, OCCT_WORK_DIR: work, ...environment },
   })
+  return { ...result, scripts: dirname(copy) }
 }
 
 /** Runs a copy of scripts/occt-source-archive.sh as `runScript` does. */
@@ -346,10 +377,33 @@ test('55: the archive holds the files the build reads, from the tagged commit', 
   assert.equal(listing.status, 0, listing.stderr)
   assert.deepEqual(
     listing.stdout.split('\n').filter((entry) => entry !== '' && !entry.endsWith('/')),
-    ARCHIVED_FILES.map((path) => `occt-${version}/${path}`),
+    [...ARCHIVED_FILES, patchName].map((path) => `occt-${version}/${path}`),
   )
   assert.equal(extract('CMakeLists.txt'), TAGGED_FILES['CMakeLists.txt'])
   assert.equal(extract('src/Standard/Standard.cxx'), TAGGED_FILES['src/Standard/Standard.cxx'])
+})
+
+test('157: the archive holds the patch next to the scripts, byte for byte, after the tagged files', () => {
+  const archive = join(fixture.first.out, archiveName)
+  const patch = spawnSync('tar', ['-xzOf', archive, `occt-${version}/${patchName}`], {
+    encoding: 'utf8',
+  })
+
+  assert.equal(patch.status, 0, patch.stderr)
+  assert.equal(patch.stdout, FIXTURE_PATCH)
+})
+
+test('157: a run without the patch next to the script fails and leaves the folder empty', async () => {
+  const out = await emptyFolder()
+  const copy = await scriptCopy(archiveScriptPath, fixture.tagged, FIXTURE_PATCH)
+  await rm(join(dirname(copy), patchName))
+
+  const result = spawnSync('bash', [copy, out], {
+    encoding: 'utf8',
+    env: { ...fixture.environment, OCCT_WORK_DIR: fixture.work },
+  })
+
+  await assertFailed(result, out)
 })
 
 test('55: the gzip header holds no file name and no time, and the tar names the tagged commit', () => {
@@ -514,6 +568,149 @@ test('58: build-occt.sh without src clones the tag, finds the pinned commit and 
     join(work, 'build-native'),
   ])
   assert.ok(await exists(join(work, 'src', '.git')), 'the clone is gone')
+})
+
+test('156: build-occt.sh applies the patch to its clone before it builds', async () => {
+  const work = await mkdtemp(join(fixture.root, 'work-'))
+  const stub = await stubs()
+
+  const result = await runBuild({ pinned: fixture.tagged, work, environment: stub.environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(
+    await readFile(join(work, 'src', 'src/Standard/Standard.cxx'), 'utf8'),
+    PATCHED_STANDARD,
+  )
+})
+
+test('156: build-occt.sh exits 1 before building when the patch does not apply to its clone, and removes the clone', async () => {
+  const work = await mkdtemp(join(fixture.root, 'work-'))
+  const stub = await stubs()
+
+  const result = await runBuild({
+    pinned: fixture.tagged,
+    work,
+    environment: stub.environment,
+    patch: STALE_PATCH,
+  })
+
+  assert.equal(result.status, 1)
+  // The message is the last line, below the lines of git clone and git apply.
+  assert.ok(
+    result.stderr.endsWith(
+      `\n${patchMessage(join(result.scripts, patchName), join(work, 'src'))}\n`,
+    ),
+    result.stderr,
+  )
+  assert.deepEqual(await stub.cmakeCalls(), [])
+  assert.equal(
+    await exists(join(work, 'src')),
+    false,
+    'the clone the patch did not apply to is still there',
+  )
+})
+
+/** A new folder whose src is a clone of the fixture's tag, as scripts/occt-source-archive.sh leaves one. */
+async function clonedWork() {
+  const work = await mkdtemp(join(fixture.root, 'work-'))
+  const url = pathToFileURL(join(fixture.work, 'src')).href
+  git(
+    fixture.environment,
+    fixture.root,
+    'clone',
+    '--quiet',
+    '--depth',
+    '1',
+    '--branch',
+    tag,
+    url,
+    join(work, 'src'),
+  )
+  return work
+}
+
+/** The text of `src/Standard/Standard.cxx` in the src of `work`. */
+function standardText(work) {
+  return readFile(join(work, 'src', 'src/Standard/Standard.cxx'), 'utf8')
+}
+
+test('156: build-occt.sh applies the patch to an unchanged clone of the pinned commit in src', async () => {
+  const work = await clonedWork()
+  const stub = await stubs()
+
+  const result = await runBuild({ pinned: fixture.tagged, work, environment: stub.environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await stub.clones(), [])
+  assert.equal(await standardText(work), PATCHED_STANDARD)
+})
+
+test('156: build-occt.sh builds a clone it patched before as it is', async () => {
+  const work = await clonedWork()
+  const stub = await stubs()
+
+  const first = await runBuild({ pinned: fixture.tagged, work, environment: stub.environment })
+  const second = await runBuild({ pinned: fixture.tagged, work, environment: stub.environment })
+
+  assert.equal(first.status, 0, first.stderr)
+  assert.equal(second.status, 0, second.stderr)
+  assert.equal(await standardText(work), PATCHED_STANDARD)
+})
+
+test('156: build-occt.sh builds a clone of the pinned commit with a changed file as it is', async () => {
+  const work = await clonedWork()
+  await writeFile(join(work, 'src', 'CMakeLists.txt'), CMAKE_UNCOMMITTED)
+  const stub = await stubs()
+
+  const result = await runBuild({ pinned: fixture.tagged, work, environment: stub.environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(await standardText(work), TAGGED_FILES['src/Standard/Standard.cxx'])
+})
+
+test('156: build-occt.sh builds a clone of another commit as it is', async () => {
+  const work = await clonedWork()
+  const stub = await stubs()
+
+  const result = await runBuild({ pinned: fixture.second, work, environment: stub.environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(await standardText(work), TAGGED_FILES['src/Standard/Standard.cxx'])
+})
+
+test('156: build-occt.sh exits 1 when the patch does not apply to an unchanged clone in src, and keeps the clone', async () => {
+  const work = await clonedWork()
+  const stub = await stubs()
+
+  const result = await runBuild({
+    pinned: fixture.tagged,
+    work,
+    environment: stub.environment,
+    patch: STALE_PATCH,
+  })
+
+  assert.equal(result.status, 1)
+  assert.ok(
+    result.stderr.endsWith(
+      `\n${patchMessage(join(result.scripts, patchName), join(work, 'src'))}\n`,
+    ),
+    result.stderr,
+  )
+  assert.deepEqual(await stub.cmakeCalls(), [])
+  assert.equal(await standardText(work), TAGGED_FILES['src/Standard/Standard.cxx'])
+})
+
+test('156: build-occt.sh applies no patch to an existing src that is not a Git clone', async () => {
+  const work = await plainWork()
+  const stub = await stubs()
+
+  const result = await runBuild({ pinned: fixture.second, work, environment: stub.environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(
+    await readFile(join(work, 'src', 'src/Standard/Standard.cxx'), 'utf8'),
+    TAGGED_FILES['src/Standard/Standard.cxx'],
+  )
 })
 
 test('58: build-occt.sh exits 1 before building when its clone names another commit, and removes the clone', async () => {

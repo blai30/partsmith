@@ -14,7 +14,9 @@ pub struct KernelError {
     pub operation: Operation,
     /// The classified failure.
     pub kind: KernelErrorKind,
-    /// The C++ exception type, such as `StdFail_NotDone`; empty when the Rust facade raised the error.
+    /// The C++ exception type, such as `StdFail_NotDone`; empty when a Rust argument check raised
+    /// the error, and `Partsmith_ReadError` when the Rust check of STEP bytes refused them (section
+    /// 4.1).
     pub exception: String,
     /// The raw message from the kernel, or the facade's own message for `InvalidInput`.
     pub message: String,
@@ -277,6 +279,17 @@ impl KernelError {
             operation,
             kind: KernelErrorKind::InvalidInput,
             exception: String::new(),
+            message: message.into(),
+        }
+    }
+
+    /// A `ReadFailed` error raised by the Rust check of STEP bytes before the shim reads them
+    /// (section 3.8.1 read items 6 and 7): exception `Partsmith_ReadError`, as the shim gives.
+    pub(crate) fn read_failed(operation: Operation, message: impl Into<String>) -> KernelError {
+        KernelError {
+            operation,
+            kind: KernelErrorKind::ReadFailed,
+            exception: READ_ERROR_EXCEPTION.to_owned(),
             message: message.into(),
         }
     }

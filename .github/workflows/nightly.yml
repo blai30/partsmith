@@ -81,7 +81,7 @@ jobs:
       - uses: actions/cache/restore@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
           fail-on-cache-miss: true
       # In fuzz/, rustup installs the nightly of fuzz/rust-toolchain.toml.
       - run: rustup show active-toolchain || rustup toolchain install

@@ -50,7 +50,7 @@ const OCCT_PINS = 'scripts/occt-version.sh'
 // every run.
 const ARCHIVE_CACHE_PATH = '.occt/source'
 const ARCHIVE_CACHE_KEY =
-  "occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}"
+  "occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}"
 const ARCHIVE_STEP_RUN = `mkdir -p .occt/source\n${ARCHIVE_SCRIPT} .occt/source\n`
 
 // The steps of section 2.13 that write the archive into the source artifact (sources) and check it before Wrangler
@@ -5283,4 +5283,34 @@ test('150: commandBlocks splits the code block of the Commands at its blank line
     ['# First', 'first'],
     ['# Second', 'second', 'again'],
   ])
+})
+
+// The folders of the OCCT installs and of the OCCT source archive, which every OCCT cache step names (section 3.2).
+const OCCT_CACHE_PATHS = new Set(['.occt/native', '.occt/wasm', '.occt/source'])
+
+/** The OCCT cache steps of the workflow `text`: those that use actions/cache or actions/cache/restore for one of them. */
+function occtCacheSteps(text) {
+  return ['actions/cache', 'actions/cache/restore'].flatMap((action) =>
+    actionSteps(text, action).filter((step) =>
+      OCCT_CACHE_PATHS.has(stepMapping(step, 'with')?.path),
+    ),
+  )
+}
+
+test('158: every OCCT cache key hashes the patch that build-occt.sh applies', async () => {
+  const { version } = await readOcctPins()
+  const patch = `'scripts/occt-${version}.patch'`
+  const counts = {}
+
+  for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
+    const steps = occtCacheSteps(text)
+    counts[file] = steps.length
+    for (const step of steps) {
+      const key = stepMapping(step, 'with').key
+      const hashed = /hashFiles\(([^)]*)\)/.exec(key)?.[1] ?? ''
+      assert.ok(hashed.split(', ').includes(patch), `${file}: ${key}`)
+    }
+  }
+
+  assert.deepEqual(counts, { 'ci.yml': 12, 'release.yml': 1, 'nightly.yml': 1, 'platforms.yml': 2 })
 })

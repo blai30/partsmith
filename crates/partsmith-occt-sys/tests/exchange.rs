@@ -1,7 +1,9 @@
 //! Acceptance tests for STEP and BRep exchange (kernel spec sections 2.12, 3.8 and tests 78 to
 //! 86, 135 and 139 to 141), for mirrors and scales of the solids that repair could not fix
-//! (section 3.5 and test 144), and for STEP files whose check list holds a fail (section 3.8.1 read
-//! item 4 and tests 169 to 171).
+//! (section 3.5 and test 144), for STEP files whose check list holds a fail (section 3.8.1 read
+//! item 4 and tests 169 to 171), and for STEP files that OCCT crashed on before `read_step`
+//! refused them (section 3.8.1 read items 6 and on, delivery.md section 3.8 findings 2 to 7, tests
+//! 173 to 190).
 
 use crate::common;
 
@@ -551,15 +553,22 @@ fn import_text() -> String {
     text(IMPORT)
 }
 
-/// Asserts a `read_step` error of kind `ReadFailed` from the check list of section 3.8.1 read
-/// item 4, with its raw message.
+/// Asserts a `read_step` error of kind `ReadFailed` that tells the user the file is not valid
+/// STEP, whatever its raw message.
 #[track_caller]
-fn assert_check_list_fail(error: &KernelError, message: &str) {
+fn assert_not_valid_step(error: &KernelError) {
     assert_eq!(error.operation, Operation::ReadStep, "{error:?}");
     assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
     assert_eq!(error.exception, "Partsmith_ReadError", "{error:?}");
-    assert_eq!(error.message, message);
     assert_eq!(error.user_message(), "The file is not a valid STEP file.");
+}
+
+/// Asserts a `read_step` error of kind `ReadFailed` with its raw message: from the check list of
+/// section 3.8.1 read item 4, or from the check of the bytes of read items 6 and 7.
+#[track_caller]
+fn assert_refused(error: &KernelError, message: &str) {
+    assert_not_valid_step(error);
+    assert_eq!(error.message, message);
 }
 
 #[test]
@@ -569,7 +578,7 @@ fn t169_the_first_fuzz_finding_is_refused() {
     let error = read_step(FIRST_FUZZ_FINDING, &Interrupt::new())
         .expect_err("the file's check list holds fails");
 
-    assert_check_list_fail(
+    assert_refused(
         &error,
         "STEPCAFControl_Reader found 54 fails in the file's check list, the first: Undefined Parsing: Line 110: Incorrect syntax: unexpected QUID, expecting ENDSEC or ENTITY",
     );
@@ -590,10 +599,31 @@ fn t170_a_reference_to_a_missing_entity_is_refused() {
     let error =
         read_step(input.as_bytes(), &Interrupt::new()).expect_err("#11 refers to the missing #13");
 
-    assert_check_list_fail(
+    assert_refused(
         &error,
         "STEPCAFControl_Reader found 2 fails in the file's check list, the first: Unresolved Reference, Ent.Id.#11 Param.n0 3 (Id.#13)",
     );
+}
+
+/// Asserts that an edit of `IMPORT` reads with `Ok` and gives what `read_step(IMPORT)` gives: one
+/// body with the same name, volume 6000 relative 1e-9, 6 faces, `skipped_shapes` 0,
+/// `invalid_solids` 0 and no warnings (tests 171, 181, 182 and 183).
+#[track_caller]
+fn assert_reads_like_import(edited: &str) {
+    assert_ne!(edited, import_text(), "the input is an edit of IMPORT");
+
+    let read = read_step(edited.as_bytes(), &Interrupt::new()).expect("the edited file reads");
+    let plain = read_step(IMPORT, &Interrupt::new()).expect("IMPORT reads");
+
+    for import in [&read, &plain] {
+        assert_eq!(import.bodies.len(), 1);
+        assert_relative(volume(&import.bodies[0].shape), 6000.0, 1e-9, "volume");
+        assert_eq!(import.bodies[0].shape.count(SubShapeKind::Face), 6);
+        assert_eq!(import.skipped_shapes, 0);
+        assert_eq!(import.invalid_solids, 0);
+        assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    }
+    assert_eq!(read.bodies[0].name, plain.bodies[0].name);
 }
 
 #[test]
@@ -603,21 +633,511 @@ fn t171_an_unknown_entity_type_without_fails_reads_as_before() {
         "DATA;\n#99999 = PARTSMITH_UNKNOWN_ENTITY('x',1.);\n",
         1,
     );
-    assert_ne!(input, import_text(), "the line is added after DATA;");
 
-    let with_unknown =
-        read_step(input.as_bytes(), &Interrupt::new()).expect("a file with no fail reads");
-    let plain = read_step(IMPORT, &Interrupt::new()).expect("IMPORT reads");
+    assert_reads_like_import(&input);
+}
 
-    for import in [&with_unknown, &plain] {
-        assert_eq!(import.bodies.len(), 1);
-        assert_relative(volume(&import.bodies[0].shape), 6000.0, 1e-9, "volume");
-        assert_eq!(import.bodies[0].shape.count(SubShapeKind::Face), 6);
-        assert_eq!(import.skipped_shapes, 0);
-        assert_eq!(import.invalid_solids, 0);
-        assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+/// The input of delivery.md section 3.8 finding 2 (test 173): an `EDGE_LOOP` of one
+/// `ORIENTED_EDGE` whose edge element is itself.
+const ORIENTED_EDGE_OF_ITSELF: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/557dee74c6f63e4dab5054ff323fe97e8e368d6b");
+
+/// The input of finding 3 (test 174): a header section whose entity lists an empty parameter and
+/// is not closed by `;`.
+const MALFORMED_HEADER: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/5e3efd711567b7d542d3a7cf9ac3b99e5adae14f");
+
+/// The input of finding 4 (test 175): `IMPORT` with a `SURFACE_CURVE` that names itself as its
+/// curve.
+const SURFACE_CURVE_OF_ITSELF: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/130f8c7ee36ea7353f94107b5848ebdbfbcfe785");
+
+/// The input of finding 5 (test 176): `IMPORT` with an `EDGE_CURVE` that ends at a plain
+/// `VERTEX`.
+const EDGE_TO_A_PLAIN_VERTEX: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/51283b77f54210609cf65b501f3c5734020dc09f");
+
+/// `IMPORT`'s line 231, the `SURFACE_CURVE` whose curve is `#198` (test 175).
+const SURFACE_CURVE_197: &str = "#197 = SURFACE_CURVE('',#198,(#202,#209),.PCURVE_S1.);\n";
+
+/// `IMPORT`'s line 229, the vertex that `#194`'s `EDGE_CURVE` ends at (test 176).
+const VERTEX_POINT_195: &str = "#195 = VERTEX_POINT('',#196);\n";
+
+/// The number of oriented edges on the cycle of test 180 and on the chain of test 187.
+const LONG_WALK: usize = 100_000;
+
+/// A STEP file in the form of finding 2's input: the lines `ISO-10303-21;`, `HEADER;`, `ENDSEC;`
+/// and `DATA;`, then one line per item of `data`, then `ENDSEC;` and `END-ISO-10303-21;`, each
+/// line ending in LF.
+fn step_file<Line: AsRef<str>>(data: impl IntoIterator<Item = Line>) -> String {
+    let mut file = String::from("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n");
+    for line in data {
+        file.push_str(line.as_ref());
+        file.push('\n');
     }
-    assert_eq!(with_unknown.bodies[0].name, plain.bodies[0].name);
+    file.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+    file
+}
+
+/// The error of `read_step` for a STEP text it refuses.
+#[track_caller]
+fn read_error(step: &str) -> KernelError {
+    read_step(step.as_bytes(), &Interrupt::new()).expect_err("the file is refused")
+}
+
+/// The raw message of section 3.8.1 read item 6 for the first cycle the walk closes: `head` is the
+/// first instance of the cycle that the walk reached, and `references` the number of references
+/// along the cycle.
+fn cycle_message(head: &str, references: &str) -> String {
+    format!(
+        "the STEP file's instance references form a cycle: {head} reaches itself through {references}"
+    )
+}
+
+/// Runs `call` on a thread whose stack is 2 MiB, the size of the threads of Rust's test harness,
+/// and returns its result. The WebAssembly build has no threads: there `call` runs on the one
+/// stack of the test binary, 4 MB (`-sSTACK_SIZE` in `.cargo/config.toml`).
+fn on_a_two_mebibyte_stack<Output: Send + 'static>(
+    call: impl FnOnce() -> Output + Send + 'static,
+) -> Output {
+    if cfg!(target_os = "emscripten") {
+        call()
+    } else {
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(call)
+            .expect("the thread starts")
+            .join()
+            .expect("the call returns on its thread")
+    }
+}
+
+#[test]
+fn t173_an_oriented_edge_whose_edge_element_is_itself_is_refused() {
+    assert_eq!(ORIENTED_EDGE_OF_ITSELF.len(), 118);
+    assert_eq!(
+        text(ORIENTED_EDGE_OF_ITSELF),
+        step_file(["#1=EDGE_LOOP('',(#2));", "#2=ORIENTED_EDGE('',*,*,#2,.F.);"])
+    );
+
+    let error = read_step(ORIENTED_EDGE_OF_ITSELF, &Interrupt::new())
+        .expect_err("#2 is its own edge element");
+
+    assert_refused(
+        &error,
+        "the STEP file's instance references form a cycle: #2 reaches itself through 1 reference",
+    );
+}
+
+#[test]
+fn t174_a_header_entity_that_is_not_closed_is_refused() {
+    assert_eq!(MALFORMED_HEADER.len(), 75);
+    assert_eq!(
+        text(MALFORMED_HEADER),
+        "ISO;\nHEADER;PT(O('ir'),(,,('')))ENDSEC;DATA;#1 =eac('i');\nENDSEC;END-ISO0;\n"
+    );
+
+    let error = read_step(MALFORMED_HEADER, &Interrupt::new())
+        .expect_err("the header entity is not closed");
+
+    assert_refused(
+        &error,
+        "the STEP file breaks STEP's syntax inside a parameter list on line 2",
+    );
+}
+
+#[test]
+fn t175_a_surface_curve_whose_curve_is_itself_is_refused() {
+    assert_eq!(SURFACE_CURVE_OF_ITSELF.len(), 15_303);
+    let full = import_text();
+    assert_eq!(full.lines().nth(230), SURFACE_CURVE_197.lines().next());
+    assert_eq!(
+        text(SURFACE_CURVE_OF_ITSELF),
+        full.replacen(
+            SURFACE_CURVE_197,
+            "#197 = SURFACE_CURVE('',#197,(#202,#209),.PCURVE_S1.);\n",
+            1
+        )
+    );
+
+    let error =
+        read_step(SURFACE_CURVE_OF_ITSELF, &Interrupt::new()).expect_err("#197 is its own curve");
+
+    assert_refused(
+        &error,
+        "the STEP file's instance references form a cycle: #197 reaches itself through 1 reference",
+    );
+}
+
+#[test]
+fn t176_an_edge_curve_that_ends_at_a_plain_vertex_is_refused() {
+    assert_eq!(EDGE_TO_A_PLAIN_VERTEX.len(), 15_292);
+    let full = import_text();
+    assert_eq!(full.lines().nth(228), VERTEX_POINT_195.lines().next());
+    assert!(full.contains("#194 = EDGE_CURVE('',#172,#195,#197,.T.);"));
+    assert_eq!(
+        text(EDGE_TO_A_PLAIN_VERTEX),
+        full.replacen(VERTEX_POINT_195, "#195 = VERTEX('');\n", 1)
+    );
+
+    let error = read_step(EDGE_TO_A_PLAIN_VERTEX, &Interrupt::new())
+        .expect_err("the edge ends at a vertex without a point");
+
+    assert_refused(
+        &error,
+        "STEPCAFControl_Reader found 3 fails in the file's check list, the first: Parameter n0.3 (edge_end) : Entity has illegal type",
+    );
+}
+
+#[test]
+fn t177_a_cycle_of_two_instances_is_refused() {
+    // Blanks and a tab before `=` still define an instance, as OCCT's lexer reads them.
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2 = ORIENTED_EDGE('',*,*,#3,.F.);",
+        "#3\t=ORIENTED_EDGE('',*,*,#2,.T.);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "2 references"));
+}
+
+#[test]
+fn t178_a_cycle_through_an_unknown_entity_type_is_refused() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#3,.F.);",
+        "#3=PARTSMITH_UNKNOWN_ENTITY(#2);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "2 references"));
+}
+
+#[test]
+fn t178_a_cycle_through_a_complex_instance_is_refused() {
+    // The references of every part of a complex instance belong to that one instance.
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#3,.F.);",
+        "#3=(PARTSMITH_FIRST(#4) PARTSMITH_SECOND(#2));",
+        "#4=VERTEX('');",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "2 references"));
+}
+
+#[test]
+fn t179_the_first_cycle_in_file_order_is_named() {
+    // The cycle of #6 and #7 comes first in the file, the cycle of #2 first by number.
+    let step = step_file([
+        "#5=EDGE_LOOP('',(#6));",
+        "#6=ORIENTED_EDGE('',*,*,#7,.F.);",
+        "#7=ORIENTED_EDGE('',*,*,#6,.T.);",
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#2,.F.);",
+    ]);
+
+    let first = read_error(&step);
+    let second = read_error(&step);
+
+    assert_refused(&first, &cycle_message("#6", "2 references"));
+    assert_eq!(second, first, "the same file gives the same error");
+}
+
+#[test]
+fn t179_references_are_followed_in_the_order_of_the_text() {
+    // #1 refers to #3 before #2: the walk reaches the cycle of #3 and #4 first.
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#3,#2));",
+        "#2=ORIENTED_EDGE('',*,*,#2,.F.);",
+        "#3=ORIENTED_EDGE('',*,*,#4,.F.);",
+        "#4=ORIENTED_EDGE('',*,*,#3,.T.);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#3", "2 references"));
+}
+
+#[test]
+fn t180_a_cycle_of_100000_instances_is_refused_on_a_small_stack() {
+    let last = LONG_WALK + 1;
+    let edges = (2..=last).map(|number| {
+        let next = if number == last { 2 } else { number + 1 };
+        format!("#{number}=ORIENTED_EDGE('',*,*,#{next},.F.);")
+    });
+    let step = step_file(std::iter::once("#1=EDGE_LOOP('',(#2));".to_owned()).chain(edges));
+
+    let result = on_a_two_mebibyte_stack(move || read_step(step.as_bytes(), &Interrupt::new()));
+
+    assert_refused(
+        &result.expect_err("the oriented edges form a cycle"),
+        &cycle_message("#2", "100000 references"),
+    );
+}
+
+#[test]
+fn t181_a_back_reference_inside_a_comment_reads_as_before() {
+    let input = import_text().replacen(
+        DIRECTION_13,
+        "#13 = DIRECTION('',(0.,0.,1.)) /* it's #11 */;\n",
+        1,
+    );
+
+    assert_reads_like_import(&input);
+}
+
+#[test]
+fn t181_an_apostrophe_inside_a_comment_hides_no_cycle() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "/* it's #2's edge */",
+        "#2=ORIENTED_EDGE('',*,*,#2,.F.);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "1 reference"));
+}
+
+#[test]
+fn t182_a_back_reference_inside_a_string_reads_as_before() {
+    // A doubled apostrophe, and a lone one before a letter, do not end a string.
+    for name in ["'#11'", "'it''s #11'", "'it's #11'"] {
+        let input = import_text().replacen(
+            DIRECTION_13,
+            &format!("#13 = DIRECTION({name},(0.,0.,1.));\n"),
+            1,
+        );
+
+        assert_reads_like_import(&input);
+    }
+}
+
+#[test]
+fn t182_a_comment_opener_inside_a_string_hides_no_cycle() {
+    let step = step_file([
+        "#1=EDGE_LOOP('/*',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#2,.F.);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "1 reference"));
+}
+
+#[test]
+fn t182_a_string_ends_at_an_apostrophe_before_blanks_and_a_comma_or_parenthesis() {
+    for label in [
+        "#1=PARTSMITH_LABEL('x' \r\n ,1.);",
+        "#1=PARTSMITH_LABEL('x' \r\n );",
+    ] {
+        let step = step_file([
+            label,
+            "#2=ORIENTED_EDGE('',*,*,#2,.F.);",
+            "#3=EDGE_LOOP('',(#2));",
+        ]);
+
+        assert_refused(&read_error(&step), &cycle_message("#2", "1 reference"));
+    }
+}
+
+#[test]
+fn t183_text_after_the_end_line_reads_as_before() {
+    let mut input = import_text();
+    assert!(input.ends_with("END-ISO-10303-21;\n"));
+    input.push_str("#999999 = ORIENTED_EDGE('',*,*,#999999,.F.);\n");
+
+    assert_reads_like_import(&input);
+}
+
+#[test]
+fn t184_a_reference_with_leading_zeros_names_the_same_instance() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#0002,.F.);",
+    ]);
+
+    assert_refused(&read_error(&step), &cycle_message("#2", "1 reference"));
+}
+
+#[test]
+fn t185_a_reference_to_a_number_above_2147483647_is_refused() {
+    // OCCT 7.9.3 reads the digits with `atoi`. With glibc and with Emscripten's C library,
+    // #4294967298 is then #2.
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#4294967298,.F.);",
+    ]);
+
+    assert_refused(
+        &read_error(&step),
+        "the STEP file's instance number #4294967298 is larger than 2147483647",
+    );
+}
+
+#[test]
+fn t185_a_number_longer_than_64_bits_is_refused() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#99999999999999999999999,.F.);",
+    ]);
+
+    assert_refused(
+        &read_error(&step),
+        "the STEP file's instance number #99999999999999999999999 is larger than 2147483647",
+    );
+}
+
+#[test]
+fn t185_the_instance_numbered_2147483647_is_walked() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2147483647));",
+        "#2147483647=ORIENTED_EDGE('',*,*,#2147483647,.F.);",
+    ]);
+
+    assert_refused(
+        &read_error(&step),
+        &cycle_message("#2147483647", "1 reference"),
+    );
+}
+
+#[test]
+fn t185_an_instance_numbered_2147483648_is_refused() {
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#3,.F.);",
+        "#2147483648=VERTEX('');",
+    ]);
+
+    assert_refused(
+        &read_error(&step),
+        "the STEP file's instance number #2147483648 is larger than 2147483647",
+    );
+}
+
+#[test]
+fn t186_a_repeated_number_is_refused_before_the_cycle_through_it() {
+    // The walk would close the cycle of #2 and the first #3 after the text is read: the second
+    // definition of #3 comes first.
+    let step = step_file([
+        "#1=EDGE_LOOP('',(#2));",
+        "#2=ORIENTED_EDGE('',*,*,#3,.F.);",
+        "#3=ORIENTED_EDGE('',*,*,#2,.T.);",
+        "#3=VERTEX('');",
+    ]);
+
+    assert_refused(
+        &read_error(&step),
+        "the STEP file defines the instance number #3 more than once, again on line 8",
+    );
+}
+
+#[test]
+fn t187_a_chain_of_100000_instances_without_a_cycle_is_refused_on_a_small_stack() {
+    let edge = LONG_WALK + 2;
+    let oriented_edges = (2..edge).map(|number| {
+        let next = number + 1;
+        format!("#{number}=ORIENTED_EDGE('',*,*,#{next},.F.);")
+    });
+    let (vertex, line, point, vector, direction) =
+        (edge + 1, edge + 2, edge + 3, edge + 4, edge + 5);
+    let ends = [
+        format!("#{edge}=EDGE_CURVE('',#{vertex},#{vertex},#{line},.T.);"),
+        format!("#{vertex}=VERTEX_POINT('',#{point});"),
+        format!("#{line}=LINE('',#{point},#{vector});"),
+        format!("#{point}=CARTESIAN_POINT('',(0.,0.,0.));"),
+        format!("#{vector}=VECTOR('',#{direction},1.);"),
+        format!("#{direction}=DIRECTION('',(0.,0.,1.));"),
+    ];
+    let step = step_file(
+        std::iter::once("#1=EDGE_LOOP('',(#2));".to_owned())
+            .chain(oriented_edges)
+            .chain(ends),
+    );
+
+    let result = on_a_two_mebibyte_stack(move || read_step(step.as_bytes(), &Interrupt::new()));
+
+    assert_refused(
+        &result.expect_err("the chain of oriented edges is too deep"),
+        "the STEP file's instance references form a chain of more than 500 references from #99504",
+    );
+}
+
+/// The input of delivery.md section 3.8 finding 6 (test 188): `IMPORT` with two broken lines and
+/// without the lines between them. OCCT's error recovery builds a cycle of oriented edges from it,
+/// which the bytes do not hold. The patch of ADR 0073 refuses it.
+const ORIENTED_EDGE_CYCLE: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/1274c3a5727db947d6b2e2220687a8d6a3aa3029");
+
+#[test]
+fn t188_a_recovered_cycle_of_oriented_edges_is_refused() {
+    assert_eq!(ORIENTED_EDGE_CYCLE.len(), 5610);
+    let full = import_text();
+    let lines: Vec<&str> = full.lines().collect();
+    let kept = lines[..92]
+        .iter()
+        .chain(&["#77 = ',#306,1.);"])
+        .chain(&lines[357..409])
+        .chain(&["#349 = UNURE(1.E-07),#346,"])
+        .chain(&lines[410..]);
+    let expected: String = kept.map(|line| format!("{line}\n")).collect();
+    assert_eq!(text(ORIENTED_EDGE_CYCLE), expected);
+
+    let error = read_step(ORIENTED_EDGE_CYCLE, &Interrupt::new())
+        .expect_err("the recovered oriented edges form a cycle");
+
+    assert_refused(
+        &error,
+        "STEPCAFControl_Reader found 53 fails in the file's check list, the first: Undefined Parsing: Line 95: Incorrect syntax: unexpected QUID, expecting SCOPE or TYPE or '('",
+    );
+}
+
+/// The input of delivery.md section 3.8 finding 7 (test 189): a file that defines `#3` twice and
+/// refers to the missing `#4`.
+const REPEATED_NUMBER: &[u8] =
+    include_bytes!("../../../fuzz/corpus/step_read/2fe9c7d2910d17fa53b930ee98faefe335fd3c54");
+
+#[test]
+fn t189_a_number_defined_twice_is_refused() {
+    assert_eq!(REPEATED_NUMBER.len(), 187);
+    assert_eq!(
+        text(REPEATED_NUMBER),
+        step_file([
+            "#1=EDGE_LOOP('',(#2,#3));",
+            "#2=ORIENTED_EDGE('',*,*,#4,.F.);",
+            "#3=ORIENTED_EDGE('',*,*,#4,.T.);",
+            "#3=ORIENTED_EDGE('',*,*,#4,.T.);",
+        ])
+    );
+
+    let error =
+        read_step(REPEATED_NUMBER, &Interrupt::new()).expect_err("the file defines #3 twice");
+
+    assert_refused(
+        &error,
+        "the STEP file defines the instance number #3 more than once, again on line 8",
+    );
+}
+
+/// A file with a scope whose `ENDSCOPE` has an export list (test 190): OCCT 7.9.3's parser prints
+/// a warning to standard output for the list (`standard_streams` reads it too).
+const EXPORT_LIST: [&str; 4] = [
+    "#1=&SCOPE",
+    "#2=VERTEX('');",
+    "#3=VERTEX('');",
+    "ENDSCOPE / #2 / PARTSMITH_LABEL(1.);",
+];
+
+#[test]
+fn t190_a_scope_is_refused() {
+    assert_refused(
+        &read_error(&step_file(EXPORT_LIST)),
+        "the STEP file opens or closes a scope on line 5",
+    );
+}
+
+#[test]
+fn t190_an_end_of_scope_alone_is_refused() {
+    let step = step_file(["#1=VERTEX('');", "#2=VERTEX('');", "ENDSCOPE / #1 /"]);
+
+    assert_refused(
+        &read_error(&step),
+        "the STEP file opens or closes a scope on line 7",
+    );
 }
 
 #[test]
@@ -1102,7 +1622,7 @@ fn truncated_brep_bytes_fail_to_read() {
 /// and reads what the child wrote. WebAssembly tests cannot start processes.
 #[cfg(not(target_os = "emscripten"))]
 mod standard_streams {
-    use super::EMPTY_STEP;
+    use super::{EMPTY_STEP, EXPORT_LIST, step_file};
     use crate::common::{
         OPT, box_edge_radii, box_primitive, face_with_role, harness_test_name, uncolored_body,
         xy_plane_at,
@@ -1129,6 +1649,8 @@ mod standard_streams {
         Shape::from_brep(&bytes).expect("the bytes reload");
         read_step(b"not a step file", &Interrupt::new()).expect_err("the bytes are not STEP");
         read_step(EMPTY_STEP.as_bytes(), &Interrupt::new()).expect_err("the file has no solid");
+        read_step(step_file(EXPORT_LIST).as_bytes(), &Interrupt::new())
+            .expect_err("the file has a scope");
         let step = write_step(
             &[uncolored_body(block.shape.clone(), "Bracket")],
             &Interrupt::new(),

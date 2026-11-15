@@ -18,10 +18,11 @@ the other projects listed after it, under their own notices. All these texts are
 below.
 
 OCCT is linked statically into the app's geometry core,
-core/partsmith_core.wasm. It is the unmodified source of the tag V7_9_3 of
-https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries
-by the script scripts/build-occt.sh in the Partsmith source, which lists the
-toolkits and options used.
+core/partsmith_core.wasm. It is the source of the tag V7_9_3 of
+https://github.com/Open-Cascade-SAS/OCCT with Partsmith's patch
+scripts/occt-7.9.3.patch applied, built as static WebAssembly libraries by the
+script scripts/build-occt.sh in the Partsmith source, which lists the toolkits
+and options used.
 
 You may modify OCCT and use your version with Partsmith. Each deployment of this
 site names the commit of https://github.com/blai30/partsmith it was built from
@@ -36,9 +37,10 @@ the first, run git merge --no-ff with the second, and compare the tree that
 git log -1 --format=%T prints with that tree. Each deployment also holds the
 OCCT source the build reads, at /occt-7.9.3-source.tar.gz. The script
 scripts/occt-source-archive.sh at that commit makes that file from the tag
-V7_9_3. To relink: put your OCCT source in <work>/src (from the archive:
-mkdir -p <work>/src &&
-tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run
+V7_9_3 and the patch, which it holds as occt-7.9.3.patch. To relink: put your
+OCCT source in <work>/src (from the archive: mkdir -p <work>/src &&
+tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src &&
+patch -d <work>/src -p1 -i occt-7.9.3.patch), run
 OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK
 of scripts/emsdk-version.sh active, and build the core with
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md

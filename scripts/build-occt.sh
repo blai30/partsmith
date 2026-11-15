@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the pinned OCCT release as static libraries, for the host or for WebAssembly.
+# Builds the pinned OCCT release, with Partsmith's patch scripts/occt-<version>.patch applied, as static libraries,
+# for the host or for WebAssembly.
 #
 # Usage: scripts/build-occt.sh native|wasm <install-prefix>
 #
@@ -10,15 +11,25 @@ set -euo pipefail
 target="${1:?usage: build-occt.sh native|wasm <install-prefix>}"
 prefix="${2:?usage: build-occt.sh native|wasm <install-prefix>}"
 
-source "$(dirname "$0")/occt-version.sh"
+scripts="$(cd "$(dirname "$0")" && pwd)"
+source "$scripts/occt-version.sh"
 
 work="${OCCT_WORK_DIR:-${TMPDIR:-/tmp}/occt-${OCCT_VERSION}}"
 src="$work/src"
 build="$work/build-$target"
+# Partsmith's fixes to the pinned release (ADR 0073).
+patch="$scripts/occt-${OCCT_VERSION}.patch"
 
-# An existing src is used as it is, which is how a modified OCCT is built (delivery.md section 2.13).
+# A fresh clone of the tag gets the patch, and so does an unchanged clone of the pinned commit, such as the one
+# scripts/occt-source-archive.sh leaves: a Git clone whose checked-out commit is OCCT_COMMIT and whose tracked files
+# are that commit's. Any other existing src is used as it is, which is how a modified OCCT is built (delivery.md
+# section 2.13).
+cloned=false
+apply=false
 if [ ! -d "$src" ]; then
   git clone --depth 1 --branch "$OCCT_TAG" https://github.com/Open-Cascade-SAS/OCCT.git "$src"
+  cloned=true
+  apply=true
   commit="$(git -C "$src" rev-parse "$OCCT_TAG^{commit}")"
   if [ "$commit" != "$OCCT_COMMIT" ]; then
     echo "The tag $OCCT_TAG in $src names the commit $commit, not $OCCT_COMMIT, which scripts/occt-version.sh pins. Upstream may have moved the tag; nothing was built or archived from it (docs/spec/delivery.md section 2.13)." >&2
@@ -26,6 +37,18 @@ if [ ! -d "$src" ]; then
     rm -rf "$src"
     exit 1
   fi
+elif [ "$(git -C "$src" rev-parse --verify --quiet HEAD 2>/dev/null)" = "$OCCT_COMMIT" ] &&
+  git -C "$src" diff --quiet HEAD --; then
+  apply=true
+fi
+if [ "$apply" = true ] && ! git -C "$src" apply "$patch"; then
+  echo "$patch does not apply to the tag $OCCT_TAG in $src; nothing was built from it (docs/adr/0073-a-check-of-step-bytes-and-a-patch-to-occt-7-9-3.md)." >&2
+  # A clone this run made goes, as after the commit check. An existing one stays as it was: git apply changes nothing
+  # when it fails.
+  if [ "$cloned" = true ]; then
+    rm -rf "$src"
+  fi
+  exit 1
 fi
 
 toolkits="TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKFillet TKOffset TKFeat TKMesh TKShHealing TKDESTEP TKDESTL"

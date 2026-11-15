@@ -16,6 +16,7 @@ mod interrupt;
 mod primitives;
 mod profiles;
 mod shape;
+mod step_check;
 mod sweeps;
 mod tessellation;
 #[cfg(test)]

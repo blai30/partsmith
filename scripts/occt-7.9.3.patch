@@ -1,0 +1,72 @@
+Partsmith's patch to OCCT 7.9.3 (tag V7_9_3, commit a016080bf6738d6aeae020badee4e888ad1540a5).
+
+scripts/build-occt.sh applies it with git apply before the build, to its fresh clone of the tag
+or to an unchanged clone of the pinned commit. scripts/occt-source-archive.sh adds it to the OCCT
+source archive (delivery.md section 2.13, ADR 0073 in docs/adr/). It changes OCCT's code and is
+offered under OCCT's own license, the GNU Lesser General Public License version 2.1 with the
+Open CASCADE exception. It is written so it can be offered to OCCT upstream.
+
+It fixes a stack overflow and a null dereference that end the process while
+STEPControl_Reader::ReadStream reads a STEP file (delivery.md section 3.8, findings 5 and 6):
+
+1. RWStepShape_RWOrientedEdge::ReadStep. An ORIENTED_EDGE whose edge_element is an ORIENTED_EDGE
+   breaks ISO 10303-42 oriented_edge WR1. StepShape_OrientedEdge::EdgeStart and EdgeEnd follow the
+   edge_element, and a cycle of oriented edges, which OCCT's error recovery on a malformed file can
+   build, makes them call each other until the stack overflows. The reader now gives the fail
+   "edge_element is an oriented_edge" and drops the edge_element. EdgeStart and EdgeEnd then
+   recurse at most one step. A reader that stops on a fail of the check list before the transfer,
+   as Partsmith's does, never builds the shape.
+
+2. RWStepShape_RWEdgeCurve::ReadStep. An EDGE_CURVE whose start or end is a plain VERTEX loaded
+   without a fail. AreEndsMatch, in the check of the edge curve, then read the point of a null
+   VertexPoint, and StepToTopoDS_TranslateVertex::Init reads the same null point in the transfer.
+   The reader now asks for a VertexPoint at both ends, and any other vertex gives the load fail
+   "Parameter n0.2 (edge_start) : Entity has illegal type" or the same for edge_end. The check
+   then skips the edge curve, which failed to load.
+
+diff --git a/src/RWStepShape/RWStepShape_RWEdgeCurve.cxx b/src/RWStepShape/RWStepShape_RWEdgeCurve.cxx
+index 408de879..c36353dc 100644
+--- a/src/RWStepShape/RWStepShape_RWEdgeCurve.cxx
++++ b/src/RWStepShape/RWStepShape_RWEdgeCurve.cxx
+@@ -127,12 +127,13 @@ void RWStepShape_RWEdgeCurve::ReadStep(const Handle(StepData_StepReaderData)& th
+   theStepData->ReadString(theRecordID, 1, "name", theMessageTool, aName);
+ 
+   // --- inherited field : edgeStart ---
++  // Both vertices must be VertexPoints: the check and the transfer read their points
+   Handle(StepShape_Vertex) anEdgeStart;
+   theStepData->ReadEntity(theRecordID,
+                           2,
+                           "edge_start",
+                           theMessageTool,
+-                          STANDARD_TYPE(StepShape_Vertex),
++                          STANDARD_TYPE(StepShape_VertexPoint),
+                           anEdgeStart);
+ 
+   // --- inherited field : edgeEnd ---
+@@ -141,7 +142,7 @@ void RWStepShape_RWEdgeCurve::ReadStep(const Handle(StepData_StepReaderData)& th
+                           3,
+                           "edge_end",
+                           theMessageTool,
+-                          STANDARD_TYPE(StepShape_Vertex),
++                          STANDARD_TYPE(StepShape_VertexPoint),
+                           anEdgeEnd);
+ 
+   // --- own field : edgeGeometry ---
+diff --git a/src/RWStepShape/RWStepShape_RWOrientedEdge.cxx b/src/RWStepShape/RWStepShape_RWOrientedEdge.cxx
+index c8948573..03bc0c8a 100644
+--- a/src/RWStepShape/RWStepShape_RWOrientedEdge.cxx
++++ b/src/RWStepShape/RWStepShape_RWOrientedEdge.cxx
+@@ -52,6 +52,13 @@ void RWStepShape_RWOrientedEdge::ReadStep(const Handle(StepData_StepReaderData)&
+   Handle(StepShape_Edge) aEdgeElement;
+   // szv#4:S4163:12Mar99 `Standard_Boolean stat4 =` not needed
+   data->ReadEntity(num, 4, "edge_element", ach, STANDARD_TYPE(StepShape_Edge), aEdgeElement);
++  // The edge_element must not be an oriented_edge (ISO 10303-42 oriented_edge WR1): EdgeStart and
++  // EdgeEnd follow it, and a cycle of oriented edges makes them recurse without end
++  if (!aEdgeElement.IsNull() && aEdgeElement->IsKind(STANDARD_TYPE(StepShape_OrientedEdge)))
++  {
++    ach->AddFail("edge_element is an oriented_edge");
++    aEdgeElement.Nullify();
++  }
+ 
+   // --- own field : orientation ---
+ 

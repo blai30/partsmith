@@ -90,7 +90,7 @@ jobs:
       # the runner's git or gzip wrote other bytes than the ones 2.13 measured.
       - name: Write the OCCT source archive
         env:
-          OCCT_SOURCE_SHA256: bb71bf7473f9a278648f3ff96e28bd50afe49bf8d6e53ab55e883b54d0220155
+          OCCT_SOURCE_SHA256: 528dab4a1aedf600a716ccffeec1b888c7e9a19568b364f065d84d177aa1572b
         run: |
           source scripts/occt-version.sh
           archive="occt-$OCCT_VERSION-source.tar.gz"
@@ -187,7 +187,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .occt/native
-          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh', 'scripts/occt-7.9.3.patch') }}
       # Only an OCCT build needs Ninja. The Tauri install above already ran apt-get update.
       - name: Install Ninja
         if: runner.os == 'Linux' && steps.occt.outputs.cache-hit != 'true'

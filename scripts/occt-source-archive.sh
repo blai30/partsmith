@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Writes the OCCT source that scripts/build-occt.sh reads, from the tag scripts/occt-version.sh pins, as
-# <directory>/occt-<version>-source.tar.gz: the same bytes on every run, whatever the Git configuration
-# (delivery.md section 2.13, ADR 0034). The release workflow attaches it to every release. CI writes it into every
-# web deployment.
+# Writes the OCCT source that scripts/build-occt.sh reads, from the tag scripts/occt-version.sh pins, with the patch
+# scripts/occt-<version>.patch that build-occt.sh applies to it, as <directory>/occt-<version>-source.tar.gz: the same
+# bytes on every run, whatever the Git configuration (delivery.md section 2.13, ADR 0034, ADR 0073). The release
+# workflow attaches it to every release. CI writes it into every web deployment.
 #
 # Usage: scripts/occt-source-archive.sh <directory>
 #
@@ -16,11 +16,13 @@ if [ "$#" -ne 1 ]; then
 fi
 directory="$1"
 
-source "$(dirname "$0")/occt-version.sh"
+scripts="$(cd "$(dirname "$0")" && pwd)"
+source "$scripts/occt-version.sh"
 
 work="${OCCT_WORK_DIR:-${TMPDIR:-/tmp}/occt-${OCCT_VERSION}}"
 src="$work/src"
 archive="$directory/occt-${OCCT_VERSION}-source.tar.gz"
+patch="$scripts/occt-${OCCT_VERSION}.patch"
 
 cloned=false
 if [ ! -d "$src" ]; then
@@ -50,10 +52,10 @@ temporary="$archive.$$.partial"
 trap 'rm -f -- "$temporary"' EXIT
 # The -c options keep the configuration from changing the bytes: the line endings of files without an eol
 # attribute (core.autocrlf, and core.eol for text files), the file modes, and attributes such as export-ignore from a
-# global attributes file. git archive of a tag gives every entry the commit's time, and gzip -n leaves the name and
-# time out of its header.
+# global attributes file. git archive of a tag gives every entry the commit's time, the patch added after the tagged
+# files included, and gzip -n leaves the name and time out of its header. The tar still names the tagged commit.
 git -C "$src" -c core.autocrlf=false -c core.eol=lf -c tar.umask=0002 -c core.attributesFile=/dev/null \
-  archive --format=tar --prefix="occt-${OCCT_VERSION}/" "$OCCT_TAG" -- "${paths[@]}" |
+  archive --format=tar --prefix="occt-${OCCT_VERSION}/" --add-file="$patch" "$OCCT_TAG" -- "${paths[@]}" |
   gzip -9 -n >"$temporary"
 mv -- "$temporary" "$archive"
 
