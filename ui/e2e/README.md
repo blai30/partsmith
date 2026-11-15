@@ -20,6 +20,8 @@ The Playwright tests in this folder run against the production build of the app 
    PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium pnpm -C ui e2e smoke.spec.ts viewport.spec.ts
    ```
 
+   The development container's Chromium was Chrome for Testing 153.0.8010.12 on 2026-11-15. Its browser process ends with SIGTRAP when a page calls a method of an origin private file system handle read back from IndexedDB. E-150 to E-153 and E-173 make that call when they choose a folder, so they fail there and pass in CI's Chromium. Leave them out of a local run with `--grep-invert "E-(15[0-3]|173) "`.
+
 ## What the configuration does
 
 - `playwright.config.ts` stops with a message when `ui/public/core` lacks `partsmith_core.mjs` or `partsmith_core.wasm`.
