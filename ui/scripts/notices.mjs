@@ -827,11 +827,14 @@ function occtUsedParagraph(app, occtVersion) {
   return `The Partsmith ${app} uses Open CASCADE Technology (OCCT) ${occtVersion}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.`
 }
 
-/** The OCCT source archive of `occtVersion` and the commands that extract it into `<work>/src` (section 2.13). */
+/**
+ * The OCCT source archive of `occtVersion`, the name of the patch it holds, and the commands that extract it into
+ * `<work>/src` and apply the patch (section 2.13).
+ */
 function occtSourceArchive(occtVersion) {
   const archive = `occt-${occtVersion}-source.tar.gz`
-  // A line may end after the &&, where a shell reads on.
   const patch = `occt-${occtVersion}.patch`
+  // A line may end after the &&, where a shell reads on.
   const extract = [
     shellCommand('mkdir -p <work>/src &&'),
     shellCommand(`tar -xzf ${archive} --strip-components=1 -C <work>/src &&`),
