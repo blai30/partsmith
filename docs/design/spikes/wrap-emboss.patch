@@ -1,0 +1,3854 @@
+Kernel spike wrap-emboss: wrap emboss on a cylinder and a cone.
+
+Spec: docs/spec/kernel.md section 8.3 (M2 wave 1, ADR 0071).
+Branch: spike/kernel-wrap-emboss, kept only in the development container and never pushed.
+Last commit: 7ddebc5 (7ddebc5caa36754d57cb4c422719fec30095181f).
+Base commit: 2c56ff9 (2c56ff91a8e96f07b1ac1ec2407e469ce2da6437).
+
+This file is git diff 2c56ff9 7ddebc5. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7b9cf6..a51467e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2702,6 +2702,7 @@ dependencies = [
+  "partsmith-budgets",
+  "partsmith-engine",
+  "partsmith-model",
++ "partsmith-occt-sys",
+  "partsmith-protocol",
+  "proptest",
+  "serde_json",
+diff --git a/crates/partsmith-occt-sys/benches/budgets.rs b/crates/partsmith-occt-sys/benches/budgets.rs
+index 4ff165b..fb5811e 100644
+--- a/crates/partsmith-occt-sys/benches/budgets.rs
++++ b/crates/partsmith-occt-sys/benches/budgets.rs
+@@ -9,10 +9,14 @@
+ //! three times these and are not measured here, except the rows of interrupts whose names end in
+ //! `web`, which have budgets of their own and run only in the WebAssembly build under Node:
+ //! `cargo bench -p partsmith-occt-sys --target wasm32-unknown-emscripten --bench budgets -- web`.
+-//! The cancel latencies without a budget are printed, for kernel spec open issue 17.
++//! The cancel latencies without a budget are printed, for kernel spec open issue 17. The rows of
++//! the wrap-emboss spike (kernel spec section 8.3) run on both targets; their names start with
++//! `wrap-emboss`.
+ 
+ #[path = "../tests/common/mod.rs"]
+ mod common;
++#[path = "../tests/emboss_inputs.rs"]
++mod emboss_inputs;
+ 
+ #[cfg(not(target_os = "emscripten"))]
+ use std::cell::LazyCell;
+@@ -25,15 +29,16 @@ use std::sync::atomic::AtomicU64;
+ use std::thread;
+ use std::time::{Duration, Instant};
+ 
++use emboss_inputs::{CONSTRUCTIONS, inputs};
+ use partsmith_budgets::{Report, median, median_mean_time, median_time_of};
+ use partsmith_mesh::TessellationTolerance;
+ #[cfg(not(target_os = "emscripten"))]
+ use partsmith_occt_sys::split;
+ use partsmith_occt_sys::{
+-    Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+-    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+-    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+-    make_torus, read_step, shell, transform, write_step,
++    Axis, EdgeRadius, EmbossSpec, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
++    PlanarRegion, Plane, Point, Point2, PollRecord, Shape, SubShapeKind, TaggedCurve, Transform,
++    Vector, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile,
++    make_sphere, make_torus, read_step, shell, transform, wrap_emboss, write_step,
+ };
+ 
+ /// Times each operation runs; the median counts.
+@@ -471,6 +476,71 @@ fn measure_web_interrupts(report: &mut Report) {
+     );
+ }
+ 
++/// The runs of each row of the wrap-emboss spike (kernel spec section 8.1 item 4).
++const SPIKE_RUNS: usize = 5;
++
++/// The time section 8.3 gives the 20-character label with its boolean, natively.
++const LABEL_BUDGET: Duration = Duration::from_secs(1);
++
++/// The median of a value over a row's runs, and its largest value.
++fn median_and_most(values: impl IntoIterator<Item = Duration>) -> (Duration, Duration) {
++    let mut values: Vec<Duration> = values.into_iter().collect();
++    values.sort();
++    (values[values.len() / 2], values[values.len() - 1])
++}
++
++/// The rows of the wrap-emboss spike: for each input and construction, the median of 5 runs of
++/// the emboss with its boolean, and the polls of those runs with an interrupt that is never
++/// requested, with the time each run spends in the facade outside the shim, whose polls cover
++/// only the call inside it. Natively the rows of the 20-character label (on the cylinder and
++/// across its seam) have section 8.3's 1 s; the other rows, and every row under Node, print
++/// their medians.
++fn measure_wrap_emboss(report: &mut Report) {
++    for input in inputs() {
++        for (name, thickening) in CONSTRUCTIONS {
++            let row = format!("wrap-emboss {} {name}", input.name);
++            if !report.includes(&row) {
++                continue;
++            }
++            let spec = EmbossSpec {
++                thickening,
++                ..input.spec.clone()
++            };
++            let mut polls: Vec<PollRecord> = Vec::with_capacity(SPIKE_RUNS);
++            let mut outside = Vec::with_capacity(SPIKE_RUNS);
++            let time = median(SPIKE_RUNS, |_| {
++                let start = Instant::now();
++                let result = wrap_emboss(&input.body, &spec, &Interrupt::new());
++                let elapsed = start.elapsed();
++                match result {
++                    Ok(result) => {
++                        outside.push(elapsed.saturating_sub(result.polls.total));
++                        polls.push(result.polls);
++                    }
++                    Err(error) => println!("{row}: {}", error.detail()),
++                }
++                elapsed
++            });
++            if !polls.is_empty() {
++                let (longest, most) = median_and_most(polls.iter().map(|record| record.longest));
++                let (first, _) = median_and_most(polls.iter().map(|record| record.first));
++                let (last, _) = median_and_most(polls.iter().map(|record| record.last));
++                let (outside, outside_most) = median_and_most(outside);
++                let after: Vec<u64> = polls.iter().map(|record| record.longest_after).collect();
++                println!(
++                    "{row}: polls {} first {first:.3?} longest {longest:.3?} (most {most:.3?}, after polls {after:?}) last {last:.3?} outside the shim {outside:.3?} (most {outside_most:.3?})",
++                    polls[0].count
++                );
++            }
++            if cfg!(not(target_os = "emscripten")) && input.is_label {
++                report.record_time(&row, time, LABEL_BUDGET);
++            } else {
++                println!("{row}: median {time:.3?} (no budget)");
++            }
++        }
++    }
++}
++
+ fn main() -> ExitCode {
+     let mut report = Report::from_arguments();
+ 
+@@ -754,6 +824,7 @@ fn main() -> ExitCode {
+     }
+     #[cfg(target_os = "emscripten")]
+     measure_web_interrupts(&mut report);
++    measure_wrap_emboss(&mut report);
+ 
+     report.finish()
+ }
+diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs
+index f8596a7..47d33f0 100644
+--- a/crates/partsmith-occt-sys/build.rs
++++ b/crates/partsmith-occt-sys/build.rs
+@@ -54,6 +54,8 @@ const SOURCES: &[&str] = &[
+     "cpp/validity.cpp",
+     "cpp/history.cpp",
+     "cpp/interrupt.cpp",
++    "cpp/parameter_plane.cpp",
++    "cpp/emboss.cpp",
+ ];
+ 
+ fn main() {
+diff --git a/crates/partsmith-occt-sys/cpp/emboss.cpp b/crates/partsmith-occt-sys/cpp/emboss.cpp
+new file mode 100644
+index 0000000..d98a113
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/emboss.cpp
+@@ -0,0 +1,506 @@
++// The wrap emboss of the wrap-emboss spike (kernel spec section 8.3): outlines of the developed
++// plane mapped onto a cylinder or a cone by the parameter-plane map, one face per region on the
++// surface, each thickened along the surface's normals by BRepOffset_MakeSimpleOffset or by
++// BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple, then fused to the body (raised) or cut
++// from it (recessed). The spike's indicator records when it is polled (section 8.1 item 4).
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <limits>
++#include <optional>
++#include <utility>
++#include <vector>
++
++#include <BRepAdaptor_Curve.hxx>
++#include <BRepBuilderAPI_MakeFace.hxx>
++#include <BRepCheck_Analyzer.hxx>
++#include <BRepGProp.hxx>
++#include <BRepClass_FaceClassifier.hxx>
++#include <BRepOffsetAPI_MakeThickSolid.hxx>
++#include <BRepOffset_MakeSimpleOffset.hxx>
++#include <BRepTools.hxx>
++#include <BRep_Builder.hxx>
++#include <BRep_Tool.hxx>
++#include <GCPnts_AbscissaPoint.hxx>
++#include <GProp_GProps.hxx>
++#include <TopExp.hxx>
++#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
++#include <TopTools_IndexedMapOfShape.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Wire.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++using Clock = std::chrono::steady_clock;
++
++// The milliseconds of a duration.
++double milliseconds(Clock::duration duration) {
++  return std::chrono::duration<double, std::milli>(duration).count();
++}
++
++// The spike's indicator: answers as the shim's indicator does, and records the time of each
++// poll, so the spike can report the polls of a call and the longest gap between them.
++class PollRecorder : public Interruption {
++ public:
++  explicit PollRecorder(const Interrupt &interrupt)
++      : Interruption(interrupt), start_(Clock::now()), last_(start_) {}
++
++  Standard_Boolean UserBreak() override {
++    const Clock::time_point now = Clock::now();
++    if (count_ == 0) {
++      first_ = now - start_;
++    } else if (now - last_ > longest_) {
++      longest_ = now - last_;
++      longest_after_ = count_;
++    }
++    last_ = now;
++    ++count_;
++    return Interruption::UserBreak();
++  }
++
++  // The polls so far, with the time from the last one to now as the end of the call.
++  PollData data() const {
++    const Clock::time_point now = Clock::now();
++    return PollData{count_,         milliseconds(first_),      milliseconds(longest_),
++                    longest_after_, milliseconds(now - last_), milliseconds(now - start_)};
++  }
++
++ private:
++  Clock::time_point start_;
++  Clock::time_point last_;
++  Clock::duration first_{};
++  Clock::duration longest_{};
++  std::uint64_t longest_after_ = 0;
++  std::uint64_t count_ = 0;
++};
++
++// The curve of a role that has none: the base and top faces.
++constexpr std::uint32_t kNoCurve = std::numeric_limits<std::uint32_t>::max();
++
++// The points sampled along each curve of a loop to find which way it runs.
++constexpr int kOrientationSamples = 32;
++
++// The relative tolerance of the lengths edge_length measures.
++constexpr double kLengthTolerance = 1e-12;
++
++// The relative tolerance of the volumes adaptive_volume measures.
++constexpr double kVolumeTolerance = 1e-10;
++
++// An element of the construction with its role.
++struct Role {
++  TopoDS_Shape element;
++  EmbossPart part;
++  std::uint32_t region;
++  std::uint32_t curve;
++  EmbossSource source;
++};
++
++// One region's face on the surface, with the edge each curve gave it and the vertex at each
++// curve's start.
++struct WrappedRegion {
++  TopoDS_Face face;
++  std::vector<std::pair<TopoDS_Edge, std::uint32_t>> edges;
++  std::vector<std::pair<TopoDS_Vertex, std::uint32_t>> vertices;
++};
++
++// Twice the signed area of a loop of the developed plane, from points sampled along its curves:
++// positive when it runs counterclockwise.
++double twice_signed_area(const std::vector<ParameterCurve> &loop) {
++  std::vector<gp_Pnt2d> points;
++  for (const ParameterCurve &curve : loop) {
++    for (int sample = 0; sample < kOrientationSamples; ++sample) {
++      points.push_back(curve.curve->Value(curve.first + (curve.last - curve.first) * sample /
++                                                            kOrientationSamples));
++    }
++  }
++  double area = 0.0;
++  for (std::size_t point = 0; point < points.size(); ++point) {
++    const gp_Pnt2d &next = points[(point + 1) % points.size()];
++    area += points[point].X() * next.Y() - next.X() * points[point].Y();
++  }
++  return area;
++}
++
++// Maps the loop of `count` curves from `first` onto the surface: one edge per curve along its
++// image, consecutive edges sharing the vertex where they meet. Raises Partsmith_InvalidInput when
++// the curves do not meet end to end, or when the loop does not run counterclockwise (`outer`) or
++// clockwise (a hole). Records each edge and vertex in `region` and the map's deviation.
++TopoDS_Wire wrap_loop(const WrapSurfaceData &surface, const Handle(Geom_Surface) &geometry,
++                      rust::Slice<const WrapCurveData> curves, std::size_t first,
++                      std::size_t count, bool outer, WrappedRegion &region, double &deviation) {
++  std::vector<ParameterCurve> developed;
++  for (std::size_t position = 0; position < count; ++position) {
++    developed.push_back(developed_curve(curves[first + position]));
++  }
++  for (std::size_t position = 0; position < count; ++position) {
++    if (developed[position].end().Distance(developed[(position + 1) % count].start()) > kLinear) {
++      raise_invalid_input("The curves of an emboss loop must meet end to end.");
++    }
++  }
++  if ((twice_signed_area(developed) > 0.0) != outer) {
++    raise_invalid_input(outer ? "An emboss region's outer loop must run counterclockwise."
++                              : "An emboss region's holes must run clockwise.");
++  }
++  std::vector<TopoDS_Vertex> vertices;
++  for (const ParameterCurve &curve : developed) {
++    const gp_Pnt2d start = curve.start();
++    vertices.push_back(
++        vertex_on_surface(geometry, developed_to_parameter(surface, start.X(), start.Y())));
++  }
++  BRep_Builder builder;
++  TopoDS_Wire wire;
++  builder.MakeWire(wire);
++  for (std::size_t position = 0; position < count; ++position) {
++    const MappedCurve mapped = map_curve(surface, developed[position]);
++    deviation = std::max(deviation, mapped.deviation);
++    const TopoDS_Edge edge = edge_on_surface(geometry, mapped.image.curve, vertices[position],
++                                             vertices[(position + 1) % count], mapped.image.first,
++                                             mapped.image.last, 0.0);
++    builder.Add(wire, edge);
++    const auto curve = static_cast<std::uint32_t>(first + position);
++    region.edges.emplace_back(edge, curve);
++    region.vertices.emplace_back(vertices[position], curve);
++  }
++  wire.Closed(Standard_True);
++  return wire;
++}
++
++// The wrapped faces of the outlines, one per region: `loops` gives the curves of each loop in
++// order and `regions` the loops of each region, its outer loop first.
++std::vector<WrappedRegion> wrap_regions(const WrapSurfaceData &surface,
++                                        rust::Slice<const WrapCurveData> curves,
++                                        rust::Slice<const std::uint32_t> loops,
++                                        rust::Slice<const std::uint32_t> regions,
++                                        double &deviation, Polls &polls) {
++  const Handle(Geom_Surface) geometry = wrap_surface(surface);
++  std::vector<WrappedRegion> wrapped;
++  std::size_t loop = 0;
++  std::size_t curve = 0;
++  for (const std::uint32_t loop_count : regions) {
++    polls.before("BRepBuilderAPI_MakeFace");
++    WrappedRegion region;
++    std::optional<BRepBuilderAPI_MakeFace> face;
++    for (std::uint32_t position = 0; position < loop_count; ++position, ++loop) {
++      const std::size_t count = loops[loop];
++      const TopoDS_Wire wire =
++          wrap_loop(surface, geometry, curves, curve, count, position == 0, region, deviation);
++      curve += count;
++      if (position == 0) {
++        // The loops already run the way the face's normal asks, so the face maker is not asked
++        // to orient them.
++        face.emplace(geometry, wire, Standard_False);
++      } else {
++        face->Add(wire);
++      }
++    }
++    if (!face->IsDone()) {
++      raise_not_done("BRepBuilderAPI_MakeFace failed with status " +
++                     std::to_string(static_cast<int>(face->Error())));
++    }
++    region.face = face->Face();
++    wrapped.push_back(std::move(region));
++  }
++  return wrapped;
++}
++
++// The element of `solid` that `element` of the wrapped face became: itself when the solid holds
++// it, else its image in the thickening's `modified` history.
++template <class Modified>
++std::optional<std::pair<TopoDS_Shape, EmbossSource>> base_image(
++    const TopoDS_Shape &element, const TopTools_IndexedMapOfShape &elements,
++    Modified &&modified) {
++  if (elements.Contains(element)) {
++    return std::make_pair(element, EmbossSource::Section);
++  }
++  const TopoDS_Shape image = modified(element);
++  if (!image.IsNull() && elements.Contains(image)) {
++    return std::make_pair(image, EmbossSource::Modified);
++  }
++  return std::nullopt;
++}
++
++// The one ancestor in `ancestors` (a map from elements to the elements holding them) that holds
++// both `first` and `second`, or nothing.
++std::optional<TopoDS_Shape> shared_ancestor(
++    const TopTools_IndexedDataMapOfShapeListOfShape &ancestors, const TopoDS_Shape &first,
++    const TopoDS_Shape &second) {
++  if (!ancestors.Contains(first) || !ancestors.Contains(second)) {
++    return std::nullopt;
++  }
++  for (const TopoDS_Shape &candidate : ancestors.FindFromKey(first)) {
++    for (const TopoDS_Shape &other : ancestors.FindFromKey(second)) {
++      if (candidate.IsSame(other)) {
++        return candidate;
++      }
++    }
++  }
++  return std::nullopt;
++}
++
++// The roles of one region's solid: the base face, edges and vertices from the wrapped face
++// (themselves, or their images in the thickening's `modified`), the top face, edges and vertices
++// from its `generated`, and the walls and the edges between base and top vertices by adjacency,
++// since no OCCT history of the thickening names them.
++template <class Generated, class Modified>
++void add_roles(const TopoDS_Shape &solid, const WrappedRegion &region, std::uint32_t index,
++               Generated &&generated, Modified &&modified, std::vector<Role> &roles) {
++  TopTools_IndexedMapOfShape elements;
++  TopExp::MapShapes(solid, elements);
++  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
++  TopExp::MapShapesAndAncestors(solid, TopAbs_EDGE, TopAbs_FACE, edge_faces);
++  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
++  TopExp::MapShapesAndAncestors(solid, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
++  auto top_of = [&](const TopoDS_Shape &element) -> std::optional<TopoDS_Shape> {
++    const TopoDS_Shape image = generated(element);
++    if (image.IsNull() || !elements.Contains(image)) {
++      return std::nullopt;
++    }
++    return image;
++  };
++  if (const auto base = base_image(region.face, elements, modified)) {
++    roles.push_back({base->first, EmbossPart::BaseFace, index, kNoCurve, base->second});
++  }
++  if (const auto top = top_of(region.face)) {
++    roles.push_back({*top, EmbossPart::TopFace, index, kNoCurve, EmbossSource::Generated});
++  }
++  for (const auto &[edge, curve] : region.edges) {
++    const auto base = base_image(edge, elements, modified);
++    const auto top = top_of(edge);
++    if (base) {
++      roles.push_back({base->first, EmbossPart::BaseEdge, index, curve, base->second});
++    }
++    if (top) {
++      roles.push_back({*top, EmbossPart::TopEdge, index, curve, EmbossSource::Generated});
++    }
++    if (base && top) {
++      if (const auto wall = shared_ancestor(edge_faces, base->first, *top)) {
++        roles.push_back({*wall, EmbossPart::WallFace, index, curve, EmbossSource::Adjacent});
++      }
++    }
++  }
++  for (const auto &[vertex, curve] : region.vertices) {
++    const auto base = base_image(vertex, elements, modified);
++    const auto top = top_of(vertex);
++    if (base) {
++      roles.push_back({base->first, EmbossPart::BaseVertex, index, curve, base->second});
++    }
++    if (top) {
++      roles.push_back({*top, EmbossPart::TopVertex, index, curve, EmbossSource::Generated});
++    }
++    if (base && top) {
++      if (const auto wall = shared_ancestor(vertex_edges, base->first, *top)) {
++        roles.push_back({*wall, EmbossPart::WallEdge, index, curve, EmbossSource::Adjacent});
++      }
++    }
++  }
++}
++
++// The first shape of a history list, or a null shape.
++TopoDS_Shape first_of(const TopTools_ListOfShape &shapes) {
++  return shapes.IsEmpty() ? TopoDS_Shape() : shapes.First();
++}
++
++// Thickens one region's face by `depth` with `thickening`, outward when `raised` and inward
++// otherwise, and adds the roles of the solid's elements. Both thickenings make the solid's shell
++// with the face as given and offset it along its normal as given, so the face is given as the
++// solid's boundary, reversed for a raised solid, whose base faces the axis, and is offset by
++// minus the depth, into the solid. Given forward and offset outward, a raised solid came out
++// inside out (negative volume), which BRepCheck_Analyzer passes and the fuse empties.
++TopoDS_Shape thicken(const WrappedRegion &region, std::uint32_t index, double depth, bool raised,
++                     ThickeningType thickening, std::vector<Role> &roles, Polls &polls) {
++  const TopoDS_Shape face = raised ? region.face.Reversed() : TopoDS_Shape(region.face);
++  const double offset = -depth;
++  if (thickening == ThickeningType::SimpleOffset) {
++    BRepOffset_MakeSimpleOffset maker(face, offset);
++    maker.SetBuildSolidFlag(Standard_True);
++    polls.before("BRepOffset_MakeSimpleOffset");
++    maker.Perform();
++    if (!maker.IsDone()) {
++      raise_not_done(std::string("BRepOffset_MakeSimpleOffset failed: ") +
++                     maker.GetErrorMessage().ToCString());
++    }
++    const TopoDS_Shape solid = maker.GetResultShape();
++    add_roles(
++        solid, region, index, [&](const TopoDS_Shape &shape) { return maker.Generated(shape); },
++        [&](const TopoDS_Shape &shape) { return maker.Modified(shape); }, roles);
++    return solid;
++  }
++  BRepOffsetAPI_MakeThickSolid maker;
++  polls.before("BRepOffsetAPI_MakeThickSolid");
++  maker.MakeThickSolidBySimple(face, offset);
++  if (!maker.IsDone()) {
++    raise_not_done("BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple failed");
++  }
++  const TopoDS_Shape solid = maker.Shape();
++  add_roles(
++      solid, region, index,
++      [&](const TopoDS_Shape &shape) { return first_of(maker.Generated(shape)); },
++      [&](const TopoDS_Shape &shape) { return first_of(maker.Modified(shape)); }, roles);
++  return solid;
++}
++
++// Replaces each role's element by its images in `history`, dropping removed elements.
++void follow(std::vector<Role> &roles, const Handle(BRepTools_History) &history) {
++  std::vector<Role> followed;
++  for (const Role &role : roles) {
++    if (history->IsRemoved(role.element)) {
++      continue;
++    }
++    const TopTools_ListOfShape &images = history->Modified(role.element);
++    if (images.IsEmpty()) {
++      followed.push_back(role);
++    }
++    for (const TopoDS_Shape &image : images) {
++      followed.push_back({image, role.part, role.region, role.curve, role.source});
++    }
++  }
++  roles = std::move(followed);
++}
++
++// The kind of a face, edge or vertex; nothing for other types.
++std::optional<ElementKind> element_kind(TopAbs_ShapeEnum type) {
++  switch (type) {
++    case TopAbs_FACE:
++      return ElementKind::Face;
++    case TopAbs_EDGE:
++      return ElementKind::Edge;
++    case TopAbs_VERTEX:
++      return ElementKind::Vertex;
++    default:
++      return std::nullopt;
++  }
++}
++
++// Checks a whole shape and repairs it when it is not valid, as section 3.5 does, recording which.
++ValidityType check_and_repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
++                              Polls &polls) {
++  polls.before("BRepCheck_Analyzer");
++  if (BRepCheck_Analyzer(shape).IsValid()) {
++    return ValidityType::AsBuilt;
++  }
++  return repair(shape, history, polls) ? ValidityType::AfterRepair : ValidityType::Invalid;
++}
++
++}  // namespace
++
++EmbossData wrap_emboss(const Shape &body, const EmbossSpecData &spec,
++                       rust::Slice<const WrapCurveData> curves,
++                       rust::Slice<const std::uint32_t> loops,
++                       rust::Slice<const std::uint32_t> regions, const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  double deviation = 0.0;
++  const std::vector<WrappedRegion> wrapped =
++      wrap_regions(spec.surface, curves, loops, regions, deviation, polls);
++
++  std::vector<TopoDS_Shape> solids;
++  std::vector<Role> roles;
++  for (std::size_t region = 0; region < wrapped.size(); ++region) {
++    solids.push_back(thicken(wrapped[region], static_cast<std::uint32_t>(region), spec.depth,
++                             spec.raised, spec.thickening, roles, polls));
++  }
++  TopoDS_Shape construction = compound_of(solids);
++  Handle(BRepTools_History) repair_history = new BRepTools_History;
++  const ValidityType construction_validity =
++      check_and_repair(construction, repair_history, polls);
++  if (construction_validity == ValidityType::Invalid) {
++    raise_invalid_result("the emboss construction stays invalid after ShapeFix_Shape");
++  }
++  follow(roles, repair_history);
++  const std::shared_ptr<Shape> construction_shape = make_shape(construction);
++
++  // The boolean of section 3.4.5 on copies of the body and the construction, its whole result
++  // checked and repaired. History inputs: [body, construction].
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape body_copy = copy_elements(body);
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape construction_copy = copy_elements(*construction_shape);
++  TopTools_ListOfShape tools;
++  tools.Append(construction_copy.get());
++  Handle(BRepTools_History) history = new BRepTools_History;
++  TopoDS_Shape result =
++      solids_only(run_boolean(spec.raised ? BOPAlgo_FUSE : BOPAlgo_CUT, body_copy.get(), tools,
++                              true, history, polls));
++  const ValidityType result_validity = check_and_repair(result, history, polls);
++  OpResultData result_data =
++      op_result(result, history, {body_copy.get(), construction_copy.get()});
++
++  rust::Vec<EmbossRoleData> role_data;
++  for (const Role &role : roles) {
++    const std::optional<ElementKind> kind = element_kind(role.element.ShapeType());
++    const int index = kind ? construction_shape->map(*kind).FindIndex(role.element) : 0;
++    if (index > 0) {
++      role_data.push_back(EmbossRoleData{*kind, static_cast<std::uint32_t>(index), role.part,
++                                         role.region, role.curve, role.source});
++    }
++  }
++  return EmbossData{std::move(result_data), construction_shape, std::move(role_data),
++                    construction_validity, result_validity, recorder->data(), deviation};
++}
++
++rust::Vec<Vec3> edge_points(const Shape &shape, std::uint32_t edge, std::uint32_t count) {
++  const BRepAdaptor_Curve curve(TopoDS::Edge(element_at(shape, ElementKind::Edge, edge)));
++  const double first = curve.FirstParameter();
++  const double last = curve.LastParameter();
++  rust::Vec<Vec3> points;
++  for (std::uint32_t point = 0; point < count; ++point) {
++    const double parameter = count == 1 ? first : first + (last - first) * point / (count - 1);
++    points.push_back(to_vec3(curve.Value(parameter).XYZ()));
++  }
++  return points;
++}
++
++rust::Vec<Vec3> face_points(const Shape &shape, std::uint32_t face, std::uint32_t count) {
++  const TopoDS_Face &element = TopoDS::Face(element_at(shape, ElementKind::Face, face));
++  const Handle(Geom_Surface) surface = BRep_Tool::Surface(element);
++  double u_first = 0.0;
++  double u_last = 0.0;
++  double v_first = 0.0;
++  double v_last = 0.0;
++  BRepTools::UVBounds(element, u_first, u_last, v_first, v_last);
++  // The cell centers of ever finer square grids until enough of them lie inside the face.
++  std::vector<gp_Pnt2d> inside;
++  for (std::uint32_t cells = 4; inside.size() < count && cells <= 1024; cells *= 2) {
++    inside.clear();
++    for (std::uint32_t row = 0; row < cells; ++row) {
++      for (std::uint32_t column = 0; column < cells; ++column) {
++        const gp_Pnt2d point(u_first + (u_last - u_first) * (column + 0.5) / cells,
++                             v_first + (v_last - v_first) * (row + 0.5) / cells);
++        if (BRepClass_FaceClassifier(element, point, kLinear).State() == TopAbs_IN) {
++          inside.push_back(point);
++        }
++      }
++    }
++  }
++  if (inside.size() < count) {
++    raise_not_done("the face holds fewer points inside it than asked for");
++  }
++  rust::Vec<Vec3> points;
++  for (std::uint32_t point = 0; point < count; ++point) {
++    const gp_Pnt2d &parameter = inside[point * inside.size() / count];
++    points.push_back(to_vec3(surface->Value(parameter.X(), parameter.Y()).XYZ()));
++  }
++  return points;
++}
++
++double edge_length(const Shape &shape, std::uint32_t edge) {
++  const BRepAdaptor_Curve curve(TopoDS::Edge(element_at(shape, ElementKind::Edge, edge)));
++  return GCPnts_AbscissaPoint::Length(curve, kLengthTolerance);
++}
++
++double adaptive_volume(const Shape &shape) {
++  GProp_GProps properties;
++  BRepGProp::VolumePropertiesGK(shape.get(), properties, kVolumeTolerance, Standard_True,
++                                Standard_True);
++  return properties.Mass();
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/internal.h b/crates/partsmith-occt-sys/cpp/internal.h
+index fe181aa..f26aab6 100644
+--- a/crates/partsmith-occt-sys/cpp/internal.h
++++ b/crates/partsmith-occt-sys/cpp/internal.h
+@@ -11,6 +11,8 @@
+ #include <BOPAlgo_Operation.hxx>
+ #include <BRepAdaptor_Surface.hxx>
+ #include <BRepTools_History.hxx>
++#include <Geom2d_Line.hxx>
++#include <Geom_ElementarySurface.hxx>
+ #include <Message_ProgressIndicator.hxx>
+ #include <Message_ProgressRange.hxx>
+ #include <Message_ProgressScope.hxx>
+@@ -22,10 +24,12 @@
+ #include <TopoDS_Edge.hxx>
+ #include <TopoDS_Face.hxx>
+ #include <TopoDS_Shape.hxx>
++#include <TopoDS_Vertex.hxx>
+ #include <gp_Ax2.hxx>
+ #include <gp_Ax3.hxx>
+ #include <gp_Dir.hxx>
+ #include <gp_Pnt.hxx>
++#include <gp_Pnt2d.hxx>
+ 
+ #include "partsmith-occt-sys/src/ffi.rs.h"
+ 
+@@ -70,6 +74,8 @@ class Polls {
+   Polls() : Polls(Handle(Interruption)()) {}
+   // The polls of a call that stops once `interrupt` is requested.
+   explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
++  // The polls of a call through `indicator`, for the wrap-emboss spike's recording indicator.
++  explicit Polls(const Handle(Interruption) &indicator);
+   Polls(const Polls &) = delete;
+   Polls &operator=(const Polls &) = delete;
+ 
+@@ -96,8 +102,6 @@ class Polls {
+   }
+ 
+  private:
+-  explicit Polls(const Handle(Interruption) &indicator);
+-
+   // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+   void stop_if_answered(const char *algorithm) const;
+ 
+@@ -256,6 +260,12 @@ void store_result_pcurves(CheckInputs &inputs, const TopoDS_Shape &result);
+ // unchanged face of an input.
+ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
+ 
++// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
++// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
++// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
++// Otherwise leaves both as they were and returns false. `polls` polls before each step.
++bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls);
++
+ // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
+ // it ran on, with the checks of BRepCheck_Analyzer (the whole result when no unchanged face of
+ // an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
+@@ -337,6 +347,79 @@ TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target
+ // (kernel spec section 3.7, item 2).
+ Handle(IMeshTools_MeshAlgoFactory) mesh_algorithm_factory();
+ 
++// parameter_plane.cpp: the parameter-plane map of a cylinder or a cone (kernel spec sections 8.2
++// and 8.3).
++
++// The tolerance of the 3D curves BRepLib builds for edges on a cylinder or a cone: a tenth of
++// the modeling tolerance.
++constexpr double kCurveTolerance = 1e-7;
++
++// A helix as a line of a surface's parameter plane, and the line's parameter length of one turn.
++struct HelixLine {
++  Handle(Geom2d_Line) line;
++  double turn_length;
++};
++
++// The cylinder (half-angle 0) or cone of `surface`: a Geom_CylindricalSurface or a
++// Geom_ConicalSurface about the frame's normal, with `radius` at the frame's origin.
++Handle(Geom_ElementarySurface) wrap_surface(const WrapSurfaceData &surface);
++
++// The v parameter of the surface at `height` along its axis.
++double parameter_height(const WrapSurfaceData &surface, double height);
++
++// The point of the surface's parameter plane that the point (x, y) of the developed plane maps
++// to: the plane tangent to the surface along the line at angle 0, with x along the circle at
++// height 0 and y along the surface's line. Affine on a cylinder, polar about the apex on a cone.
++gp_Pnt2d developed_to_parameter(const WrapSurfaceData &surface, double x, double y);
++
++// The helix that starts at angle `phase` and `height` and rises `pitch` along the axis per turn:
++// a Geom2d_Line of the parameter plane.
++HelixLine helix_line(const WrapSurfaceData &surface, double phase, double height, double pitch);
++
++// The edge on `surface` along `curve` of its parameter plane from `first` to `last`, with its 3D
++// curve built by BRepLib::BuildCurve3d within kCurveTolerance, which `turns` turns of a helix may
++// need several segments for. Raises StdFail_NotDone when the approximation misses the tolerance.
++TopoDS_Edge edge_on_surface(const Handle(Geom_Surface) &surface, const Handle(Geom2d_Curve) &curve,
++                            const TopoDS_Vertex &first, const TopoDS_Vertex &last,
++                            double first_parameter, double last_parameter, double turns);
++
++// A vertex at the point of `surface` at `point` of its parameter plane.
++TopoDS_Vertex vertex_on_surface(const Handle(Geom_Surface) &surface, const gp_Pnt2d &point);
++
++// A curve of a plane with the parameter range it runs over, from its start to its end.
++struct ParameterCurve {
++  Handle(Geom2d_Curve) curve;
++  double first;
++  double last;
++
++  gp_Pnt2d start() const { return curve->Value(first); }
++  gp_Pnt2d end() const { return curve->Value(last); }
++};
++
++// The curve of the developed plane that a segment, an arc or a B-spline describes, running from
++// its start to its end: a Geom2d_Line, a Geom2d_Circle (clockwise in an indirect frame when the
++// arc's sweep is negative) or a Geom2d_BSplineCurve.
++ParameterCurve developed_curve(const WrapCurveData &curve);
++
++// The image of a curve of the developed plane on the surface's parameter plane, running in the
++// same direction, and the largest distance on the surface between it and the exact image of the
++// developed curve at sampled parameters.
++struct MappedCurve {
++  ParameterCurve image;
++  double deviation;
++};
++
++// Maps `developed` onto the parameter plane of `surface`. On a cylinder the map is affine and the
++// image exact: a line stays a Geom2d_Line, a circle becomes a Geom2d_Ellipse and a B-spline keeps
++// its knots with mapped poles. On a cone the image goes through the polar coordinates of the
++// developed sector and is approximated by Geom2dConvert_ApproxCurve; raises StdFail_NotDone when
++// it misses kMapTolerance.
++MappedCurve map_curve(const WrapSurfaceData &surface, const ParameterCurve &developed);
++
++// The largest distance on the surface between the image of a developed curve and its exact image
++// that the parameter-plane map accepts (kernel spec section 8.3).
++constexpr double kMapTolerance = 1e-6;
++
+ // exchange.cpp
+ 
+ // Runs the one-time initialization of OCCT's process-wide state: removes the default message
+diff --git a/crates/partsmith-occt-sys/cpp/parameter_plane.cpp b/crates/partsmith-occt-sys/cpp/parameter_plane.cpp
+new file mode 100644
+index 0000000..f8dece0
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/parameter_plane.cpp
+@@ -0,0 +1,380 @@
++// The parameter-plane map of a cylinder or a cone (kernel spec sections 8.2 and 8.3): points and
++// curves of the developed plane and helices become points and curves of the surface's parameter
++// plane, and edges on the surface with their 3D curves built by BRepLib. The thread construction
++// of the helix-thread spike and the wrap emboss of the wrap-emboss spike share this code path.
++#include <algorithm>
++#include <cmath>
++
++#include <Adaptor2d_Curve2d.hxx>
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepLib.hxx>
++#include <BRep_Builder.hxx>
++#include <Geom2dAdaptor_Curve.hxx>
++#include <Geom2dConvert_ApproxCurve.hxx>
++#include <Geom2d_BSplineCurve.hxx>
++#include <Geom2d_Circle.hxx>
++#include <Geom2d_Ellipse.hxx>
++#include <Geom2d_Line.hxx>
++#include <Geom_ConicalSurface.hxx>
++#include <Geom_CylindricalSurface.hxx>
++#include <ShapeAnalysis_Edge.hxx>
++#include <TColStd_Array1OfInteger.hxx>
++#include <TColStd_Array1OfReal.hxx>
++#include <TColgp_Array1OfPnt2d.hxx>
++#include <TopoDS_Compound.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++// The most segments BRepLib may give the 3D curve of one turn of a helix, and of any curve.
++constexpr int kSegmentsPerTurn = 8;
++constexpr int kLeastSegments = 30;
++// The highest degree of a 3D curve, BRepLib's default.
++constexpr int kCurveDegree = 14;
++// The samples ShapeAnalysis_Edge compares the 3D curve with the curve on the surface at.
++constexpr int kCurveSamples = 23;
++
++// The samples at which the image of a developed curve is compared with its exact image.
++constexpr int kDeviationSamples = 50;
++
++// The most segments and the highest degree of the approximation of an image on a cone.
++constexpr int kImageSegments = 200;
++constexpr int kImageDegree = 14;
++
++// The second derivatives of a function of the developed plane with respect to x and y.
++struct Hessian {
++  double xx;
++  double xy;
++  double yy;
++};
++
++// The polar coordinates of the developed sector of a cone at a point of the developed plane, with
++// their first and second derivatives: `u` and `v` of the parameter plane, their gradients (the
++// Jacobian's rows) and their Hessians.
++struct PolarMap {
++  gp_Pnt2d value;
++  gp_Vec2d u_gradient;
++  gp_Vec2d v_gradient;
++  Hessian u_hessian;
++  Hessian v_hessian;
++};
++
++// The second derivative of one polar coordinate along a developed curve, from the curve's first
++// and second derivatives `tangent` and `curvature`, by the chain rule.
++double second_derivative(const gp_Vec2d &gradient, const Hessian &hessian, const gp_Vec2d &tangent,
++                         const gp_Vec2d &curvature) {
++  const double x = tangent.X();
++  const double y = tangent.Y();
++  return gradient.Dot(curvature) + hessian.xx * x * x + 2.0 * hessian.xy * x * y +
++         hessian.yy * y * y;
++}
++
++// The map of the developed plane of a cone onto its parameter plane at (x, y), as
++// developed_to_parameter computes it, with its derivatives.
++PolarMap polar_map(const WrapSurfaceData &surface, double x, double y) {
++  const double sine = std::sin(surface.half_angle);
++  const double side = sine > 0.0 ? 1.0 : -1.0;
++  const double magnitude = std::fabs(sine);
++  const double apex = surface.radius / sine;
++  const double along = side * (y + apex);
++  const double squared = x * x + along * along;
++  const double distance = std::sqrt(squared);
++  const double fourth = squared * squared;
++  const double cubed = squared * distance;
++  PolarMap map{};
++  map.value = gp_Pnt2d(std::atan2(x, along) / magnitude, side * distance - apex);
++  map.u_gradient = gp_Vec2d(along / (squared * magnitude), -side * x / (squared * magnitude));
++  map.v_gradient = gp_Vec2d(side * x / distance, along / distance);
++  map.u_hessian.xx = -2.0 * along * x / (fourth * magnitude);
++  map.u_hessian.xy = side * (x * x - along * along) / (fourth * magnitude);
++  map.u_hessian.yy = 2.0 * x * along / (fourth * magnitude);
++  map.v_hessian.xx = side * along * along / cubed;
++  map.v_hessian.xy = -x * along / cubed;
++  map.v_hessian.yy = side * x * x / cubed;
++  return map;
++}
++
++// The exact image of a curve of the developed plane on the parameter plane of a cone, as a curve
++// adaptor that Geom2dConvert_ApproxCurve approximates: each value is the developed curve's mapped
++// through the developed sector's polar coordinates, and each derivative follows by the chain rule.
++class ConeImage : public Adaptor2d_Curve2d {
++ public:
++  ConeImage(const WrapSurfaceData &surface, const Handle(Geom2d_Curve) &developed, double first,
++            double last)
++      : surface_(surface), developed_(developed, first, last) {}
++
++  Standard_Real FirstParameter() const override { return developed_.FirstParameter(); }
++  Standard_Real LastParameter() const override { return developed_.LastParameter(); }
++  GeomAbs_Shape Continuity() const override { return developed_.Continuity(); }
++  Standard_Integer NbIntervals(const GeomAbs_Shape shape) const override {
++    return developed_.NbIntervals(shape);
++  }
++  void Intervals(TColStd_Array1OfReal &parameters, const GeomAbs_Shape shape) const override {
++    developed_.Intervals(parameters, shape);
++  }
++  Handle(Adaptor2d_Curve2d) Trim(const Standard_Real first, const Standard_Real last,
++                                 const Standard_Real) const override {
++    return new ConeImage(surface_, developed_.Curve(), first, last);
++  }
++  gp_Pnt2d Value(const Standard_Real parameter) const override {
++    const gp_Pnt2d point = developed_.Value(parameter);
++    return developed_to_parameter(surface_, point.X(), point.Y());
++  }
++  void D0(const Standard_Real parameter, gp_Pnt2d &point) const override {
++    point = Value(parameter);
++  }
++  void D1(const Standard_Real parameter, gp_Pnt2d &point, gp_Vec2d &first) const override {
++    gp_Pnt2d developed;
++    gp_Vec2d tangent;
++    developed_.D1(parameter, developed, tangent);
++    const PolarMap map = polar_map(surface_, developed.X(), developed.Y());
++    point = map.value;
++    first = gp_Vec2d(map.u_gradient.Dot(tangent), map.v_gradient.Dot(tangent));
++  }
++  void D2(const Standard_Real parameter, gp_Pnt2d &point, gp_Vec2d &first,
++          gp_Vec2d &second) const override {
++    gp_Pnt2d developed;
++    gp_Vec2d tangent;
++    gp_Vec2d curvature;
++    developed_.D2(parameter, developed, tangent, curvature);
++    const PolarMap map = polar_map(surface_, developed.X(), developed.Y());
++    point = map.value;
++    first = gp_Vec2d(map.u_gradient.Dot(tangent), map.v_gradient.Dot(tangent));
++    second = gp_Vec2d(second_derivative(map.u_gradient, map.u_hessian, tangent, curvature),
++                      second_derivative(map.v_gradient, map.v_hessian, tangent, curvature));
++  }
++
++ private:
++  WrapSurfaceData surface_;
++  Geom2dAdaptor_Curve developed_;
++};
++
++// The B-spline of the developed plane that `curve` describes.
++Handle(Geom2d_BSplineCurve) developed_bspline(const WrapCurveData &curve) {
++  const int pole_count = static_cast<int>(curve.poles.size() / 2);
++  TColgp_Array1OfPnt2d poles(1, pole_count);
++  for (int pole = 0; pole < pole_count; ++pole) {
++    poles.SetValue(pole + 1, gp_Pnt2d(curve.poles[2 * pole], curve.poles[2 * pole + 1]));
++  }
++  const int knot_count = static_cast<int>(curve.knots.size());
++  TColStd_Array1OfReal knots(1, knot_count);
++  TColStd_Array1OfInteger multiplicities(1, knot_count);
++  for (int knot = 0; knot < knot_count; ++knot) {
++    knots.SetValue(knot + 1, curve.knots[knot]);
++    multiplicities.SetValue(knot + 1, static_cast<int>(curve.multiplicities[knot]));
++  }
++  return new Geom2d_BSplineCurve(poles, knots, multiplicities, static_cast<int>(curve.degree),
++                                 curve.periodic);
++}
++
++// The exact image of `developed` on the parameter plane of a cylinder of radius r, where the map
++// (x, y) -> (x / r, y) is affine.
++ParameterCurve cylinder_image(const WrapSurfaceData &surface, const ParameterCurve &developed) {
++  const double radius = surface.radius;
++  auto map = [&](const gp_Pnt2d &point) { return gp_Pnt2d(point.X() / radius, point.Y()); };
++  const Handle(Standard_Type) type = developed.curve->DynamicType();
++  if (type == STANDARD_TYPE(Geom2d_Line)) {
++    const gp_Pnt2d start = map(developed.start());
++    const gp_Vec2d along(start, map(developed.end()));
++    return ParameterCurve{new Geom2d_Line(start, gp_Dir2d(along)), 0.0, along.Magnitude()};
++  }
++  if (type == STANDARD_TYPE(Geom2d_Circle)) {
++    // The circle c + R (cos t, s sin t), s = 1 counterclockwise and -1 clockwise, maps to the
++    // ellipse A(c) + (R / r cos t, s R sin t). Geom2d_Ellipse puts its major axis along its x
++    // direction; when that is v (r >= 1) the ellipse's parameter is t - pi / 2.
++    const gp_Circ2d circle = Handle(Geom2d_Circle)::DownCast(developed.curve)->Circ2d();
++    const double sense = circle.Position().YDirection().Y() > 0.0 ? 1.0 : -1.0;
++    const double along_u = circle.Radius() / radius;
++    const double along_v = circle.Radius();
++    const gp_Pnt2d center = map(circle.Location());
++    if (along_v >= along_u) {
++      const gp_Ax22d axes(center, gp_Dir2d(0.0, sense), gp_Dir2d(-1.0, 0.0));
++      return ParameterCurve{new Geom2d_Ellipse(gp_Elips2d(axes, along_v, along_u)),
++                            developed.first - M_PI / 2.0, developed.last - M_PI / 2.0};
++    }
++    const gp_Ax22d axes(center, gp_Dir2d(1.0, 0.0), gp_Dir2d(0.0, sense));
++    return ParameterCurve{new Geom2d_Ellipse(gp_Elips2d(axes, along_u, along_v)), developed.first,
++                          developed.last};
++  }
++  // A B-spline keeps its knots and weights; its poles map.
++  Handle(Geom2d_BSplineCurve) image =
++      Handle(Geom2d_BSplineCurve)::DownCast(developed.curve->Copy());
++  for (int pole = 1; pole <= image->NbPoles(); ++pole) {
++    image->SetPole(pole, map(image->Pole(pole)));
++  }
++  return ParameterCurve{image, developed.first, developed.last};
++}
++
++// The image of `developed` on the parameter plane of a cone, approximated within a 2D tolerance
++// that keeps the image within kCurveTolerance on the surface, where a step in u covers the radius
++// times as far as a step in v.
++ParameterCurve cone_image(const WrapSurfaceData &surface, const ParameterCurve &developed) {
++  double widest = 1.0;
++  for (int sample = 0; sample <= kDeviationSamples; ++sample) {
++    const gp_Pnt2d point = developed.curve->Value(
++        developed.first + (developed.last - developed.first) * sample / kDeviationSamples);
++    const double height =
++        developed_to_parameter(surface, point.X(), point.Y()).Y() * std::cos(surface.half_angle);
++    widest = std::max(widest, surface.radius + height * std::tan(surface.half_angle));
++  }
++  const Handle(ConeImage) exact =
++      new ConeImage(surface, developed.curve, developed.first, developed.last);
++  Geom2dConvert_ApproxCurve approximation(exact, kCurveTolerance / widest, GeomAbs_C2,
++                                          kImageSegments, kImageDegree);
++  if (!approximation.HasResult()) {
++    raise_not_done("Geom2dConvert_ApproxCurve found no image of a developed curve on the cone");
++  }
++  const Handle(Geom2d_Curve) image = approximation.Curve();
++  return ParameterCurve{image, image->FirstParameter(), image->LastParameter()};
++}
++
++}  // namespace
++
++namespace detail {
++
++Handle(Geom_ElementarySurface) wrap_surface(const WrapSurfaceData &surface) {
++  const gp_Ax3 frame = to_ax3(surface.frame);
++  if (surface.half_angle == 0.0) {
++    return new Geom_CylindricalSurface(frame, surface.radius);
++  }
++  return new Geom_ConicalSurface(frame, surface.half_angle, surface.radius);
++}
++
++double parameter_height(const WrapSurfaceData &surface, double height) {
++  return height / std::cos(surface.half_angle);
++}
++
++gp_Pnt2d developed_to_parameter(const WrapSurfaceData &surface, double x, double y) {
++  if (surface.half_angle == 0.0) {
++    // A cylinder of radius r develops onto the plane by u = x / r and v = y.
++    return gp_Pnt2d(x / surface.radius, y);
++  }
++  // A cone develops onto a sector about its apex: polar coordinates about the apex give the
++  // slant distance (v) and the angle, which is u times the sine of the half-angle.
++  const double sine = std::sin(surface.half_angle);
++  const double side = sine > 0.0 ? 1.0 : -1.0;
++  const double apex = surface.radius / sine;
++  const double along = side * (y + apex);
++  const double distance = std::hypot(x, along);
++  return gp_Pnt2d(std::atan2(x, along) / std::fabs(sine), side * distance - apex);
++}
++
++HelixLine helix_line(const WrapSurfaceData &surface, double phase, double height, double pitch) {
++  const gp_Vec2d turn(2.0 * M_PI, parameter_height(surface, pitch));
++  const gp_Pnt2d start(phase, parameter_height(surface, height));
++  return HelixLine{new Geom2d_Line(start, gp_Dir2d(turn)), turn.Magnitude()};
++}
++
++TopoDS_Edge edge_on_surface(const Handle(Geom_Surface) &surface, const Handle(Geom2d_Curve) &curve,
++                            const TopoDS_Vertex &first, const TopoDS_Vertex &last,
++                            double first_parameter, double last_parameter, double turns) {
++  BRepBuilderAPI_MakeEdge make(curve, surface, first, last, first_parameter, last_parameter);
++  if (!make.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeEdge failed with status " +
++                   std::to_string(static_cast<int>(make.Error())));
++  }
++  TopoDS_Edge edge = make.Edge();
++  const int segments =
++      std::max(kLeastSegments, kSegmentsPerTurn * static_cast<int>(std::ceil(turns)));
++  if (!BRepLib::BuildCurve3d(edge, kCurveTolerance, GeomAbs_C1, kCurveDegree, segments)) {
++    raise_not_done("BRepLib::BuildCurves3d gave the edge no 3D curve");
++  }
++  // BRepLib sets the edge's tolerance to the one asked for whatever the approximation reached,
++  // so the edge is checked against the curve on its surface.
++  double deviation = 0.0;
++  ShapeAnalysis_Edge().CheckSameParameter(edge, deviation, kCurveSamples);
++  if (deviation > kCurveTolerance) {
++    raise_not_done("BRepLib::BuildCurves3d approximated an edge within " +
++                   std::to_string(deviation) + " mm, more than its tolerance");
++  }
++  return edge;
++}
++
++TopoDS_Vertex vertex_on_surface(const Handle(Geom_Surface) &surface, const gp_Pnt2d &point) {
++  TopoDS_Vertex vertex;
++  BRep_Builder().MakeVertex(vertex, surface->Value(point.X(), point.Y()), kCurveTolerance);
++  return vertex;
++}
++
++ParameterCurve developed_curve(const WrapCurveData &curve) {
++  if (curve.kind == WrapCurveType::Segment) {
++    const gp_Pnt2d start(curve.start_x, curve.start_y);
++    const gp_Vec2d along(start, gp_Pnt2d(curve.end_x, curve.end_y));
++    return ParameterCurve{new Geom2d_Line(start, gp_Dir2d(along)), 0.0, along.Magnitude()};
++  }
++  if (curve.kind == WrapCurveType::Arc) {
++    // In an indirect frame the circle's parameter runs clockwise, so a negative sweep starts at
++    // minus the start angle.
++    const double sense = curve.sweep > 0.0 ? 1.0 : -1.0;
++    const gp_Ax22d axes(gp_Pnt2d(curve.center_x, curve.center_y), gp_Dir2d(1.0, 0.0),
++                        gp_Dir2d(0.0, sense));
++    const double first = sense * curve.start_angle;
++    return ParameterCurve{new Geom2d_Circle(axes, curve.radius), first,
++                          first + std::fabs(curve.sweep)};
++  }
++  const Handle(Geom2d_Curve) bspline = developed_bspline(curve);
++  return ParameterCurve{bspline, bspline->FirstParameter(), bspline->LastParameter()};
++}
++
++MappedCurve map_curve(const WrapSurfaceData &surface, const ParameterCurve &developed) {
++  const ParameterCurve image = surface.half_angle == 0.0 ? cylinder_image(surface, developed)
++                                                         : cone_image(surface, developed);
++  // The image and the exact image at the same fraction of their ranges: both maps keep the
++  // developed curve's parameter, up to the shift of the ellipse's.
++  const Handle(Geom_Surface) geometry = wrap_surface(surface);
++  double deviation = 0.0;
++  for (int sample = 0; sample <= kDeviationSamples; ++sample) {
++    const double fraction = static_cast<double>(sample) / kDeviationSamples;
++    const gp_Pnt2d point =
++        developed.curve->Value(developed.first + (developed.last - developed.first) * fraction);
++    const gp_Pnt2d exact = developed_to_parameter(surface, point.X(), point.Y());
++    const gp_Pnt2d mapped = image.curve->Value(image.first + (image.last - image.first) * fraction);
++    deviation = std::max(deviation, geometry->Value(exact.X(), exact.Y())
++                                        .Distance(geometry->Value(mapped.X(), mapped.Y())));
++  }
++  if (deviation > kMapTolerance) {
++    raise_not_done("the image of a developed curve lies " + std::to_string(deviation) +
++                   " mm from its exact image, more than its tolerance");
++  }
++  return MappedCurve{image, deviation};
++}
++
++}  // namespace detail
++
++std::shared_ptr<Shape> wrap_curves(const WrapSurfaceData &surface,
++                                   rust::Slice<const WrapCurveData> curves) {
++  const Handle(Geom_Surface) geometry = wrap_surface(surface);
++  std::vector<TopoDS_Shape> edges;
++  for (const WrapCurveData &curve : curves) {
++    if (curve.kind == WrapCurveType::Helix) {
++      const HelixLine helix = helix_line(surface, curve.phase, curve.height, curve.pitch);
++      const double length = helix.turn_length * curve.turns;
++      const TopoDS_Vertex first = vertex_on_surface(geometry, helix.line->Value(0.0));
++      const TopoDS_Vertex last = vertex_on_surface(geometry, helix.line->Value(length));
++      edges.push_back(
++          edge_on_surface(geometry, helix.line, first, last, 0.0, length, curve.turns));
++      continue;
++    }
++    // A segment, an arc or a B-spline of the developed plane, by its image.
++    const ParameterCurve developed = developed_curve(curve);
++    const ParameterCurve image = map_curve(surface, developed).image;
++    const gp_Pnt2d start = image.start();
++    const gp_Pnt2d end = image.end();
++    const TopoDS_Vertex first = vertex_on_surface(geometry, start);
++    const TopoDS_Vertex last =
++        developed.start().Distance(developed.end()) <= kLinear ? first
++                                                               : vertex_on_surface(geometry, end);
++    edges.push_back(edge_on_surface(geometry, image.curve, first, last, image.first, image.last,
++                                    std::fabs(end.X() - start.X()) / (2.0 * M_PI)));
++  }
++  return make_shape(compound_of(edges));
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/shim.h b/crates/partsmith-occt-sys/cpp/shim.h
+index d540d25..48a9751 100644
+--- a/crates/partsmith-occt-sys/cpp/shim.h
++++ b/crates/partsmith-occt-sys/cpp/shim.h
+@@ -89,6 +89,10 @@ struct SplitData;
+ struct MeshData;
+ struct StepBodyData;
+ struct StepImportData;
++struct WrapSurfaceData;
++struct WrapCurveData;
++struct EmbossSpecData;
++struct EmbossData;
+ enum class ElementKind : std::uint8_t;
+ enum class ContinuityType : std::uint8_t;
+ enum class ShapeType : std::uint8_t;
+@@ -185,6 +189,20 @@ SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interru
+ std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
+ OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+ 
++// parameter_plane.cpp
++std::shared_ptr<Shape> wrap_curves(const WrapSurfaceData &surface,
++                                   rust::Slice<const WrapCurveData> curves);
++
++// emboss.cpp
++EmbossData wrap_emboss(const Shape &body, const EmbossSpecData &spec,
++                       rust::Slice<const WrapCurveData> curves,
++                       rust::Slice<const std::uint32_t> loops,
++                       rust::Slice<const std::uint32_t> regions, const Interrupt &interrupt);
++rust::Vec<Vec3> edge_points(const Shape &shape, std::uint32_t edge, std::uint32_t count);
++rust::Vec<Vec3> face_points(const Shape &shape, std::uint32_t face, std::uint32_t count);
++double edge_length(const Shape &shape, std::uint32_t edge);
++double adaptive_volume(const Shape &shape);
++
+ // interrupt.cpp
+ void wait_for_interrupt(const Interrupt &interrupt, double limit);
+ #ifdef __EMSCRIPTEN__
+diff --git a/crates/partsmith-occt-sys/cpp/validity.cpp b/crates/partsmith-occt-sys/cpp/validity.cpp
+index fd88ff3..e182bb0 100644
+--- a/crates/partsmith-occt-sys/cpp/validity.cpp
++++ b/crates/partsmith-occt-sys/cpp/validity.cpp
+@@ -445,12 +445,6 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
+   }
+ }
+ 
+-namespace {
+-
+-// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
+-// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
+-// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
+-// Otherwise leaves both as they were and returns false. `polls` polls before each step.
+ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls) {
+   initialize();
+   polls.before("BRepBuilderAPI_Copy");
+@@ -474,6 +468,8 @@ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls
+   return true;
+ }
+ 
++namespace {
++
+ // The message of a result that stays invalid after repair.
+ std::string stays_invalid(const char *algorithm) {
+   return std::string(algorithm) + " produced a shape that stays invalid after ShapeFix_Shape";
+diff --git a/crates/partsmith-occt-sys/src/emboss.rs b/crates/partsmith-occt-sys/src/emboss.rs
+new file mode 100644
+index 0000000..fa86aa9
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/emboss.rs
+@@ -0,0 +1,472 @@
++//! The wrap emboss of the wrap-emboss spike (kernel spec section 8.3): planar outlines mapped onto
++//! a cylinder or a cone by the parameter-plane map, made faces on it, thickened along its normals
++//! by one of two OCCT constructions, then fused to the body (raised) or cut from it (recessed).
++//! The result reports the construction's roles from OCCT's history, both validity checks, the
++//! call's polls and how far the cone's images lie from their exact images.
++
++use std::time::Duration;
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::history::{History, op_result_from_ffi};
++use crate::interrupt::Interrupt;
++use crate::parameter_plane::{WrapCurve, WrapSurface};
++use crate::shape::{Shape, SubShape, SubShapeKind};
++use crate::values::{Point, check_finite, is_positive_length};
++
++/// A closed loop of the developed plane: its curves in chain order, each running from its start
++/// to the next one's start.
++#[derive(Debug, Clone, PartialEq)]
++pub struct WrapLoop {
++    /// The curves in chain order.
++    pub curves: Vec<WrapCurve>,
++}
++
++/// An outer loop, counterclockwise in the developed plane, with hole loops, clockwise.
++#[derive(Debug, Clone, PartialEq)]
++pub struct WrapRegion {
++    /// The outer boundary.
++    pub outer: WrapLoop,
++    /// The holes inside the outer boundary.
++    pub holes: Vec<WrapLoop>,
++}
++
++/// How each wrapped face becomes a solid (section 8.3's two constructions).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum Thickening {
++    /// `BRepOffset_MakeSimpleOffset` with `SetBuildSolidFlag(true)`.
++    SimpleOffset,
++    /// `BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple`.
++    ThickSolidBySimple,
++}
++
++/// Which way the outlines go from the surface, and so which boolean joins them to the body.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum EmbossKind {
++    /// Thickened outward and fused to the body.
++    Raised,
++    /// Thickened inward and cut from the body.
++    Recessed,
++}
++
++/// A wrap emboss: outlines of the developed plane of `surface`, raised or recessed by `depth`.
++#[derive(Debug, Clone, PartialEq)]
++pub struct EmbossSpec {
++    /// The cylinder or cone the outlines are mapped onto.
++    pub surface: WrapSurface,
++    /// The regions of the outlines.
++    pub regions: Vec<WrapRegion>,
++    /// How far the outlines are raised or recessed along the surface's normals.
++    pub depth: f64,
++    /// Raised or recessed.
++    pub kind: EmbossKind,
++    /// How each face is thickened.
++    pub thickening: Thickening,
++}
++
++/// What an element of a wrap emboss's construction is.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum EmbossPart {
++    /// The wrapped face on the surface.
++    BaseFace,
++    /// The face the thickening offset from it.
++    TopFace,
++    /// A face between a base edge and its top edge.
++    WallFace,
++    /// An edge of the wrapped face, from one curve.
++    BaseEdge,
++    /// The edge the thickening offset from a base edge.
++    TopEdge,
++    /// An edge from a base vertex to its top vertex.
++    WallEdge,
++    /// A vertex of the wrapped face, at the start of one curve.
++    BaseVertex,
++    /// The vertex the thickening offset from a base vertex.
++    TopVertex,
++}
++
++/// What named an element of a wrap emboss's construction.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum EmbossSource {
++    /// The element of the wrapped face itself, in the solid unchanged.
++    Section,
++    /// The thickening's `Modified` of an element of the wrapped face.
++    Modified,
++    /// The thickening's `Generated` of an element of the wrapped face.
++    Generated,
++    /// No history: the face holding a base edge and its top edge, or the edge joining a base
++    /// vertex and its top vertex.
++    Adjacent,
++}
++
++/// The role of one element of a wrap emboss's construction.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct EmbossRole {
++    /// The element of the construction.
++    pub element: SubShape,
++    /// What it is.
++    pub part: EmbossPart,
++    /// The region it belongs to, in `EmbossSpec::regions` order.
++    pub region: u32,
++    /// The curve it comes from, numbered over every loop of every region in order (outer loop
++    /// first, then the holes); none for the base and top faces.
++    pub curve: Option<u32>,
++    /// What named it.
++    pub source: EmbossSource,
++}
++
++/// How a shape passed the checks of `BRepCheck_Analyzer` (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum Validity {
++    /// Valid as built.
++    AsBuilt,
++    /// Valid after `ShapeFix_Shape`.
++    AfterRepair,
++    /// Invalid after `ShapeFix_Shape`.
++    Invalid,
++}
++
++/// The polls of one call with an interrupt that is never requested (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct PollRecord {
++    /// The number of `UserBreak` calls.
++    pub count: u64,
++    /// From the call's start to its first poll.
++    pub first: Duration,
++    /// The longest gap between two polls.
++    pub longest: Duration,
++    /// How many polls came before the longest gap: it ends at poll `longest_after + 1`.
++    pub longest_after: u64,
++    /// From the last poll to the call's end.
++    pub last: Duration,
++    /// The whole call in the shim.
++    pub total: Duration,
++}
++
++/// A wrap emboss joined to its body.
++#[derive(Debug, Clone)]
++pub struct EmbossResult {
++    /// The body with the emboss.
++    pub shape: Shape,
++    /// The history of the boolean. Inputs: [body, construction].
++    pub history: History,
++    /// The construction alone: a compound of one solid per region, in region order.
++    pub construction: Shape,
++    /// The roles of the construction's elements.
++    pub roles: Vec<EmbossRole>,
++    /// The check of the construction.
++    pub construction_validity: Validity,
++    /// The check of the whole result of the boolean.
++    pub result_validity: Validity,
++    /// The polls of the call.
++    pub polls: PollRecord,
++    /// The largest distance on the surface between a curve's image and its exact image, at 51
++    /// samples of each curve: rounding on a cylinder, the approximation on a cone.
++    pub map_deviation: f64,
++}
++
++const DEPTH_MESSAGE: &str = "An emboss needs a depth greater than 0 mm.";
++const EMPTY_MESSAGE: &str = "An emboss needs at least one region, and every loop a curve.";
++const HELIX_MESSAGE: &str = "An emboss outline is made of segments, arcs and B-splines.";
++const NO_SOLID_MESSAGE: &str = "An emboss needs a body with a solid.";
++
++impl Validity {
++    fn from_ffi(
++        operation: Operation,
++        validity: sys::ValidityType,
++    ) -> Result<Validity, KernelError> {
++        match validity {
++            sys::ValidityType::AsBuilt => Ok(Validity::AsBuilt),
++            sys::ValidityType::AfterRepair => Ok(Validity::AfterRepair),
++            sys::ValidityType::Invalid => Ok(Validity::Invalid),
++            _ => Err(KernelError::unknown_from_shim(
++                operation,
++                "validity",
++                validity.repr,
++            )),
++        }
++    }
++}
++
++impl EmbossRole {
++    fn from_ffi(
++        operation: Operation,
++        role: sys::EmbossRoleData,
++    ) -> Result<EmbossRole, KernelError> {
++        let part = match role.part {
++            sys::EmbossPart::BaseFace => EmbossPart::BaseFace,
++            sys::EmbossPart::TopFace => EmbossPart::TopFace,
++            sys::EmbossPart::WallFace => EmbossPart::WallFace,
++            sys::EmbossPart::BaseEdge => EmbossPart::BaseEdge,
++            sys::EmbossPart::TopEdge => EmbossPart::TopEdge,
++            sys::EmbossPart::WallEdge => EmbossPart::WallEdge,
++            sys::EmbossPart::BaseVertex => EmbossPart::BaseVertex,
++            sys::EmbossPart::TopVertex => EmbossPart::TopVertex,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "emboss part",
++                    role.part.repr,
++                ));
++            }
++        };
++        let source = match role.source {
++            sys::EmbossSource::Section => EmbossSource::Section,
++            sys::EmbossSource::Modified => EmbossSource::Modified,
++            sys::EmbossSource::Generated => EmbossSource::Generated,
++            sys::EmbossSource::Adjacent => EmbossSource::Adjacent,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "emboss source",
++                    role.source.repr,
++                ));
++            }
++        };
++        Ok(EmbossRole {
++            element: SubShape {
++                kind: SubShapeKind::from_ffi(operation, role.kind)?,
++                index: role.index,
++            },
++            part,
++            region: role.region,
++            curve: (role.curve != u32::MAX).then_some(role.curve),
++            source,
++        })
++    }
++}
++
++impl PollRecord {
++    fn from_ffi(polls: sys::PollData) -> PollRecord {
++        let duration = |milliseconds: f64| Duration::from_secs_f64(milliseconds.max(0.0) / 1000.0);
++        PollRecord {
++            count: polls.count,
++            first: duration(polls.first),
++            longest: duration(polls.longest),
++            longest_after: polls.longest_after,
++            last: duration(polls.last),
++            total: duration(polls.total),
++        }
++    }
++}
++
++/// The bridge form of a spec's outlines: every curve in order, the number of curves of each
++/// loop, and the number of loops of each region.
++struct Outlines {
++    curves: Vec<sys::WrapCurveData>,
++    loops: Vec<u32>,
++    regions: Vec<u32>,
++}
++
++/// A count of curves or loops as the bridge takes it.
++fn count(length: usize) -> u32 {
++    u32::try_from(length).expect("an emboss has fewer than 2^32 curves and loops")
++}
++
++impl EmbossSpec {
++    /// Checks the spec (section 3.1 items 4 to 6) and returns its bridge form. The shim checks
++    /// what needs geometry: that each loop's curves meet end to end and that it runs the way its
++    /// place asks.
++    fn to_ffi(&self, operation: Operation) -> Result<(sys::EmbossSpecData, Outlines), KernelError> {
++        check_finite(operation, &[self.depth])?;
++        if !is_positive_length(self.depth) {
++            return Err(KernelError::invalid_input(operation, DEPTH_MESSAGE));
++        }
++        let surface = self.surface.to_ffi(operation)?;
++        let mut outlines = Outlines {
++            curves: Vec::new(),
++            loops: Vec::new(),
++            regions: Vec::new(),
++        };
++        for region in &self.regions {
++            for outline in std::iter::once(&region.outer).chain(&region.holes) {
++                if outline.curves.is_empty() {
++                    return Err(KernelError::invalid_input(operation, EMPTY_MESSAGE));
++                }
++                for curve in &outline.curves {
++                    if matches!(curve, WrapCurve::Helix(_)) {
++                        return Err(KernelError::invalid_input(operation, HELIX_MESSAGE));
++                    }
++                    outlines.curves.push(curve.to_ffi(operation, &surface)?);
++                }
++                outlines.loops.push(count(outline.curves.len()));
++            }
++            outlines.regions.push(count(region.holes.len() + 1));
++        }
++        if outlines.regions.is_empty() {
++            return Err(KernelError::invalid_input(operation, EMPTY_MESSAGE));
++        }
++        let thickening = match self.thickening {
++            Thickening::SimpleOffset => sys::ThickeningType::SimpleOffset,
++            Thickening::ThickSolidBySimple => sys::ThickeningType::ThickSolidBySimple,
++        };
++        let spec = sys::EmbossSpecData {
++            surface,
++            depth: self.depth,
++            raised: self.kind == EmbossKind::Raised,
++            thickening,
++        };
++        Ok((spec, outlines))
++    }
++}
++
++/// Maps the outlines of `spec` onto its surface, makes one face per region, thickens each by
++/// `spec.depth` along the surface's normals (outward when raised, inward when recessed) with
++/// `spec.thickening`, checks the compound of solids and repairs it when invalid, then fuses it to
++/// `body` (raised) or cuts it from it (recessed) with the settings of section 3.4.5 and checks
++/// the whole result. A construction that stays invalid after repair fails with `InvalidResult`; a
++/// result that does reports `Validity::Invalid`.
++pub fn wrap_emboss(
++    body: &Shape,
++    spec: &EmbossSpec,
++    interrupt: &Interrupt,
++) -> Result<EmbossResult, KernelError> {
++    let operation = Operation::Emboss;
++    let (data, outlines) = spec.to_ffi(operation)?;
++    if body.count(SubShapeKind::Solid) == 0 {
++        return Err(KernelError::invalid_input(operation, NO_SOLID_MESSAGE));
++    }
++    let data = call(operation, || {
++        sys::wrap_emboss(
++            body.inner(),
++            &data,
++            &outlines.curves,
++            &outlines.loops,
++            &outlines.regions,
++            interrupt,
++        )
++    })?;
++    let result = op_result_from_ffi(operation, data.result)?;
++    Ok(EmbossResult {
++        shape: result.shape,
++        history: result.history,
++        construction: Shape::from_ffi(operation, data.construction)?,
++        roles: data
++            .roles
++            .into_iter()
++            .map(|role| EmbossRole::from_ffi(operation, role))
++            .collect::<Result<_, KernelError>>()?,
++        construction_validity: Validity::from_ffi(operation, data.construction_validity)?,
++        result_validity: Validity::from_ffi(operation, data.result_validity)?,
++        polls: PollRecord::from_ffi(data.polls),
++        map_deviation: data.map_deviation,
++    })
++}
++
++/// `count` points of edge `edge` of `shape` (1-based), equally spaced in its 3D curve's
++/// parameter from its start to its end.
++pub fn edge_points(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Point>, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Edge, edge)?;
++    let points = call(operation, || sys::edge_points(shape.inner(), edge, count))?;
++    Ok(points.into_iter().map(Point::from_ffi).collect())
++}
++
++/// `count` points of face `face` of `shape` (1-based): points of its surface at the cell centers
++/// inside it of the coarsest square grid over its parameter bounds, from 4 by 4 cells doubling up
++/// to 1024 by 1024, that puts at least `count` inside, spread evenly over that grid's inside ones.
++pub fn face_points(shape: &Shape, face: u32, count: u32) -> Result<Vec<Point>, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Face, face)?;
++    let points = call(operation, || sys::face_points(shape.inner(), face, count))?;
++    Ok(points.into_iter().map(Point::from_ffi).collect())
++}
++
++/// The length of edge `edge` of `shape` (1-based) along its 3D curve, by
++/// `GCPnts_AbscissaPoint::Length` within 1e-12 relative.
++pub fn edge_length(shape: &Shape, edge: u32) -> Result<f64, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Edge, edge)?;
++    call(operation, || sys::edge_length(shape.inner(), edge))
++}
++
++/// The volume of the solids of `shape` by `BRepGProp::VolumePropertiesGK`, adaptive Gauss-Kronrod
++/// integration over the spans of each face within 1e-10 relative: a second measure for the
++/// spike's volume checks, apart from `Shape::volume`.
++pub fn adaptive_volume(shape: &Shape) -> Result<f64, KernelError> {
++    let operation = Operation::Measure;
++    call(operation, || sys::adaptive_volume(shape.inner()))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::KernelErrorKind;
++    use crate::parameter_plane::Helix;
++    use crate::values::{Plane, Point2};
++
++    fn spec(regions: Vec<WrapRegion>, depth: f64) -> EmbossSpec {
++        EmbossSpec {
++            surface: WrapSurface::Cylinder {
++                frame: Plane::XY,
++                radius: 15.0,
++            },
++            regions,
++            depth,
++            kind: EmbossKind::Raised,
++            thickening: Thickening::SimpleOffset,
++        }
++    }
++
++    fn square() -> WrapRegion {
++        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
++        let curves = (0..4)
++            .map(|corner| {
++                let (x, y) = corners[corner];
++                let (next_x, next_y) = corners[(corner + 1) % 4];
++                WrapCurve::Segment {
++                    start: Point2 { x, y },
++                    end: Point2 {
++                        x: next_x,
++                        y: next_y,
++                    },
++                }
++            })
++            .collect();
++        WrapRegion {
++            outer: WrapLoop { curves },
++            holes: Vec::new(),
++        }
++    }
++
++    fn refusal(spec: &EmbossSpec) -> KernelError {
++        wrap_emboss(&Shape::empty(), spec, &Interrupt::new()).expect_err("the spec is refused")
++    }
++
++    #[test]
++    fn an_emboss_without_depth_is_refused() {
++        let error = refusal(&spec(vec![square()], 0.0));
++
++        assert_eq!(error.message, DEPTH_MESSAGE);
++        assert_eq!(error.kind, KernelErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn an_emboss_without_regions_is_refused() {
++        let error = refusal(&spec(Vec::new(), 0.6));
++
++        assert_eq!(error.message, EMPTY_MESSAGE);
++    }
++
++    #[test]
++    fn an_outline_with_a_helix_is_refused() {
++        let mut region = square();
++        region.outer.curves.push(WrapCurve::Helix(Helix {
++            phase: 0.0,
++            height: 0.0,
++            pitch: 1.0,
++            turns: 1.0,
++        }));
++
++        let error = refusal(&spec(vec![region], 0.6));
++
++        assert_eq!(error.message, HELIX_MESSAGE);
++    }
++
++    #[test]
++    fn a_body_without_a_solid_is_refused() {
++        let error = refusal(&spec(vec![square()], 0.6));
++
++        assert_eq!(error.message, NO_SOLID_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/src/error.rs b/crates/partsmith-occt-sys/src/error.rs
+index 0b35a61..fa1880f 100644
+--- a/crates/partsmith-occt-sys/src/error.rs
++++ b/crates/partsmith-occt-sys/src/error.rs
+@@ -101,6 +101,10 @@ pub enum Operation {
+     ReadBrep,
+     /// [`crate::wait_for_interrupt`].
+     WaitForInterrupt,
++    /// [`crate::wrap_curves`].
++    WrapCurves,
++    /// [`crate::wrap_emboss`].
++    Emboss,
+ }
+ 
+ impl Operation {
+@@ -133,6 +137,8 @@ impl Operation {
+             Operation::WriteBrep => "write_brep",
+             Operation::ReadBrep => "read_brep",
+             Operation::WaitForInterrupt => "wait_for_interrupt",
++            Operation::WrapCurves => "wrap_curves",
++            Operation::Emboss => "emboss",
+         }
+     }
+ 
+@@ -177,6 +183,10 @@ impl Operation {
+             Operation::WaitForInterrupt => {
+                 "The test wait could not run; report it with the details."
+             }
++            Operation::WrapCurves => {
++                "The curves could not be mapped onto the surface; report it with the details."
++            }
++            Operation::Emboss => "A shallower depth or a simpler outline may work.",
+         }
+     }
+ 
+@@ -200,6 +210,7 @@ impl Operation {
+             Operation::Shell => Some("shell"),
+             Operation::Transform => Some("moved or copied body"),
+             Operation::Split => Some("split"),
++            Operation::Emboss => Some("emboss"),
+             Operation::Section
+             | Operation::Compound
+             | Operation::Measure
+@@ -209,7 +220,8 @@ impl Operation {
+             | Operation::ReadStep
+             | Operation::WriteBrep
+             | Operation::ReadBrep
+-            | Operation::WaitForInterrupt => None,
++            | Operation::WaitForInterrupt
++            | Operation::WrapCurves => None,
+         }
+     }
+ }
+diff --git a/crates/partsmith-occt-sys/src/ffi.rs b/crates/partsmith-occt-sys/src/ffi.rs
+index 1cb2283..6e5f21a 100644
+--- a/crates/partsmith-occt-sys/src/ffi.rs
++++ b/crates/partsmith-occt-sys/src/ffi.rs
+@@ -282,6 +282,137 @@ pub(crate) mod bridge {
+         warnings: Vec<String>,
+     }
+ 
++    /// A cylinder (`half_angle` 0) or a cone about the frame's normal, with `radius` at the
++    /// frame's origin: the surface of the parameter-plane map (kernel spec sections 8.2 and 8.3).
++    #[derive(Debug, Clone, Copy)]
++    struct WrapSurfaceData {
++        frame: Frame,
++        radius: f64,
++        half_angle: f64,
++    }
++
++    /// The kind of a curve of the parameter-plane map.
++    #[derive(Debug, Clone, Copy)]
++    enum WrapCurveType {
++        Segment,
++        Helix,
++        Arc,
++        Bspline,
++    }
++
++    /// One curve of the parameter-plane map: a segment of the developed plane from `start` to
++    /// `end`; a helix that starts at angle `phase` and `height` and rises `pitch` along the
++    /// axis per turn for `turns` turns; an arc of the developed plane about `center` from
++    /// `start_angle` through `sweep` (counterclockwise when positive); or a B-spline of the
++    /// developed plane with its `degree`, `poles` (x and y of each), `knots`, `multiplicities`
++    /// and whether it is `periodic`. Fields another kind uses are 0 or empty.
++    #[derive(Debug, Clone)]
++    struct WrapCurveData {
++        kind: WrapCurveType,
++        start_x: f64,
++        start_y: f64,
++        end_x: f64,
++        end_y: f64,
++        phase: f64,
++        height: f64,
++        pitch: f64,
++        turns: f64,
++        center_x: f64,
++        center_y: f64,
++        radius: f64,
++        start_angle: f64,
++        sweep: f64,
++        degree: u32,
++        periodic: bool,
++        poles: Vec<f64>,
++        knots: Vec<f64>,
++        multiplicities: Vec<u32>,
++    }
++
++    /// How the wrap-emboss spike thickens each wrapped face into a solid (kernel spec section
++    /// 8.3), in `Thickening` order.
++    #[derive(Debug, Clone, Copy)]
++    enum ThickeningType {
++        SimpleOffset,
++        ThickSolidBySimple,
++    }
++
++    /// A wrap emboss: the surface its outlines are mapped onto, how far they are raised (or
++    /// recessed when `raised` is false) and how each face is thickened.
++    #[derive(Debug, Clone, Copy)]
++    struct EmbossSpecData {
++        surface: WrapSurfaceData,
++        depth: f64,
++        raised: bool,
++        thickening: ThickeningType,
++    }
++
++    /// What an element of a wrap emboss's construction is, in `EmbossPart` order.
++    #[derive(Debug, Clone, Copy)]
++    enum EmbossPart {
++        BaseFace,
++        TopFace,
++        WallFace,
++        BaseEdge,
++        TopEdge,
++        WallEdge,
++        BaseVertex,
++        TopVertex,
++    }
++
++    /// What named an element of a wrap emboss's construction, in `EmbossSource` order.
++    #[derive(Debug, Clone, Copy)]
++    enum EmbossSource {
++        Section,
++        Modified,
++        Generated,
++        Adjacent,
++    }
++
++    /// The role of one element of a wrap emboss's construction: its part, its region and the
++    /// curve it comes from (`u32::MAX` for the base and top faces).
++    #[derive(Debug, Clone, Copy)]
++    struct EmbossRoleData {
++        kind: ElementKind,
++        index: u32,
++        part: EmbossPart,
++        region: u32,
++        curve: u32,
++        source: EmbossSource,
++    }
++
++    /// Whether a shape was valid as built, valid after repair, or invalid.
++    #[derive(Debug, Clone, Copy)]
++    enum ValidityType {
++        AsBuilt,
++        AfterRepair,
++        Invalid,
++    }
++
++    /// The polls of one call, in milliseconds: from its start to the first, the longest gap
++    /// between two and how many polls came before it, from the last to its end, and the whole
++    /// call.
++    #[derive(Debug, Clone, Copy)]
++    struct PollData {
++        count: u64,
++        first: f64,
++        longest: f64,
++        longest_after: u64,
++        last: f64,
++        total: f64,
++    }
++
++    /// A wrap emboss fused to or cut from its body, with its construction and their checks.
++    struct EmbossData {
++        result: OpResultData,
++        construction: SharedPtr<Shape>,
++        roles: Vec<EmbossRoleData>,
++        construction_validity: ValidityType,
++        result_validity: ValidityType,
++        polls: PollData,
++        map_deviation: f64,
++    }
++
+     extern "Rust" {
+         /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+         /// requested and keeps it only for the call that received it (kernel spec section 3.13
+@@ -418,6 +549,23 @@ pub(crate) mod bridge {
+         ) -> Result<UniquePtr<CxxString>>;
+         fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImportData>;
+ 
++        fn wrap_curves(
++            surface: &WrapSurfaceData,
++            curves: &[WrapCurveData],
++        ) -> Result<SharedPtr<Shape>>;
++        fn wrap_emboss(
++            body: &Shape,
++            spec: &EmbossSpecData,
++            curves: &[WrapCurveData],
++            loops: &[u32],
++            regions: &[u32],
++            interrupt: &Interrupt,
++        ) -> Result<EmbossData>;
++        fn edge_points(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Vec3>>;
++        fn face_points(shape: &Shape, face: u32, count: u32) -> Result<Vec<Vec3>>;
++        fn edge_length(shape: &Shape, edge: u32) -> Result<f64>;
++        fn adaptive_volume(shape: &Shape) -> Result<f64>;
++
+         /// Polls `interrupt` about once per millisecond until it is requested or `limit`
+         /// milliseconds have passed (kernel spec section 3.13 item 8).
+         fn wait_for_interrupt(interrupt: &Interrupt, limit: f64) -> Result<()>;
+diff --git a/crates/partsmith-occt-sys/src/lib.rs b/crates/partsmith-occt-sys/src/lib.rs
+index 9435ed2..c0c8362 100644
+--- a/crates/partsmith-occt-sys/src/lib.rs
++++ b/crates/partsmith-occt-sys/src/lib.rs
+@@ -8,11 +8,13 @@
+ mod blends;
+ mod booleans;
+ mod element;
++mod emboss;
+ mod error;
+ mod exchange;
+ mod ffi;
+ mod history;
+ mod interrupt;
++mod parameter_plane;
+ mod primitives;
+ mod profiles;
+ mod shape;
+@@ -30,10 +32,16 @@ pub use element::{
+     Continuity, EdgeNormals, EdgeTopology, ElementGeometry, FaceNormal, FaceTopology, GeometryKind,
+     Topology, VertexTopology,
+ };
++pub use emboss::{
++    EmbossKind, EmbossPart, EmbossResult, EmbossRole, EmbossSource, EmbossSpec, PollRecord,
++    Thickening, Validity, WrapLoop, WrapRegion, adaptive_volume, edge_length, edge_points,
++    face_points, wrap_emboss,
++};
+ pub use error::{KernelError, KernelErrorKind, Operation};
+ pub use exchange::{StepBody, StepImport, read_step, write_step};
+ pub use history::{ElementFate, History, InputHistory, OpResult, Origin};
+ pub use interrupt::{Interrupt, wait_for_interrupt};
++pub use parameter_plane::{Helix, WrapBspline, WrapCurve, WrapSurface, wrap_curves};
+ pub use primitives::{
+     Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
+ };
+diff --git a/crates/partsmith-occt-sys/src/parameter_plane.rs b/crates/partsmith-occt-sys/src/parameter_plane.rs
+new file mode 100644
+index 0000000..ad8280f
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/parameter_plane.rs
+@@ -0,0 +1,376 @@
++//! The parameter-plane map of a cylinder or a cone (kernel spec sections 8.2 and 8.3): curves of
++//! the developed plane and helices become curves of the surface's parameter plane, and edges on
++//! the surface with those curves on it, exact on a cylinder and within 1e-6 mm on a cone. The
++//! helix-thread spike's thread and the wrap-emboss spike's emboss share this code path.
++
++use std::f64::consts::{FRAC_PI_2, TAU};
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::shape::Shape;
++use crate::values::{Plane, Point2, check_finite, is_positive_length};
++
++/// A cylinder or a cone about the normal of its frame. Angles on it start at the frame's x axis
++/// and heights at its origin.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub enum WrapSurface {
++    /// A cylinder.
++    Cylinder {
++        /// The axis frame.
++        frame: Plane,
++        /// The radius.
++        radius: f64,
++    },
++    /// A cone whose radius grows by the tangent of `half_angle` per millimeter along the normal;
++    /// a negative angle narrows it.
++    Cone {
++        /// The axis frame.
++        frame: Plane,
++        /// The radius at the frame's origin.
++        radius: f64,
++        /// The angle between the cone's lines and its axis, in radians.
++        half_angle: f64,
++    },
++}
++
++/// A helix on a cylinder or a cone: from angle `phase` at `height` along the axis, it rises
++/// `pitch` along the axis per turn for `turns` turns. A positive pitch is right-handed.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct Helix {
++    /// The angle of its start from the frame's x axis, in radians.
++    pub phase: f64,
++    /// The height of its start along the axis.
++    pub height: f64,
++    /// Its rise along the axis per turn.
++    pub pitch: f64,
++    /// Its number of turns.
++    pub turns: f64,
++}
++
++/// A B-spline of the developed plane, as `Geom2d_BSplineCurve` takes it.
++#[derive(Debug, Clone, PartialEq)]
++pub struct WrapBspline {
++    /// Its degree, from 1 to 25.
++    pub degree: u32,
++    /// Its poles.
++    pub poles: Vec<Point2>,
++    /// Its distinct knots, increasing.
++    pub knots: Vec<f64>,
++    /// The multiplicity of each knot.
++    pub multiplicities: Vec<u32>,
++    /// Whether it is periodic, and so closed.
++    pub periodic: bool,
++}
++
++/// A curve of the parameter-plane map. The developed plane is the plane tangent to the surface
++/// along its line at angle 0, with x along the circle at height 0 and y along the line. On a
++/// cylinder of radius r its point (x, y) maps to u = x / r and v = y, so each curve's image is
++/// exact; on a cone it maps through the polar coordinates of the developed sector, and each
++/// image is approximated within 1e-6 mm (section 8.3).
++#[derive(Debug, Clone, PartialEq)]
++pub enum WrapCurve {
++    /// A straight segment of the developed plane.
++    Segment {
++        /// Its start in the developed plane.
++        start: Point2,
++        /// Its end in the developed plane.
++        end: Point2,
++    },
++    /// An arc of a circle of the developed plane: from `start_angle` (from the x axis) through
++    /// `sweep`, counterclockwise when positive and clockwise when negative.
++    Arc {
++        /// Its center in the developed plane.
++        center: Point2,
++        /// Its radius.
++        radius: f64,
++        /// The angle of its start, in radians.
++        start_angle: f64,
++        /// The angle it turns through, in radians, at most a full turn either way.
++        sweep: f64,
++    },
++    /// A B-spline of the developed plane.
++    Bspline(WrapBspline),
++    /// A helix, a line of the parameter plane on both surfaces.
++    Helix(Helix),
++}
++
++const RADIUS_MESSAGE: &str = "A wrap surface needs a radius greater than 0 mm.";
++const HALF_ANGLE_MESSAGE: &str =
++    "A cone needs a half-angle between 0 and 90 degrees, other than 0, on either side.";
++const SHORT_SEGMENT_MESSAGE: &str = "A segment needs a length greater than 0 mm.";
++const ARC_MESSAGE: &str =
++    "An arc needs a radius greater than 0 mm and a sweep other than 0 of at most a full turn.";
++const BSPLINE_MESSAGE: &str = "A B-spline needs a degree from 1 to 25, increasing knots with positive multiplicities, and as many poles as they call for.";
++const TURNS_MESSAGE: &str = "A helix needs more than 0 turns.";
++const APEX_MESSAGE: &str = "A helix on a cone must stay on one side of the cone's apex.";
++
++impl WrapSurface {
++    /// Checks the surface (section 3.1 items 4 to 6) and returns its bridge form.
++    pub(crate) fn to_ffi(self, operation: Operation) -> Result<sys::WrapSurfaceData, KernelError> {
++        let (frame, radius, half_angle) = match self {
++            WrapSurface::Cylinder { frame, radius } => (frame, radius, 0.0),
++            WrapSurface::Cone {
++                frame,
++                radius,
++                half_angle,
++            } => (frame, radius, half_angle),
++        };
++        check_finite(operation, &[radius, half_angle])?;
++        let frame = frame.frame(operation)?;
++        if !is_positive_length(radius) {
++            return Err(KernelError::invalid_input(operation, RADIUS_MESSAGE));
++        }
++        let is_cone = matches!(self, WrapSurface::Cone { .. });
++        if is_cone && !(half_angle != 0.0 && half_angle.abs() < FRAC_PI_2) {
++            return Err(KernelError::invalid_input(operation, HALF_ANGLE_MESSAGE));
++        }
++        Ok(sys::WrapSurfaceData {
++            frame: frame.to_ffi(),
++            radius,
++            half_angle,
++        })
++    }
++
++    /// The radius at `height` along the axis.
++    fn radius_at(surface: &sys::WrapSurfaceData, height: f64) -> f64 {
++        surface.radius + height * surface.half_angle.tan()
++    }
++}
++
++impl WrapBspline {
++    /// Checks the B-spline's values and counts (section 3.1 items 4 to 6): `Geom2d_BSplineCurve`
++    /// raises on counts that do not agree.
++    fn check(&self, operation: Operation) -> Result<(), KernelError> {
++        let coordinates: Vec<f64> = self
++            .poles
++            .iter()
++            .flat_map(|pole| [pole.x, pole.y])
++            .collect();
++        check_finite(operation, &coordinates)?;
++        check_finite(operation, &self.knots)?;
++        let increasing = self.knots.windows(2).all(|pair| pair[0] < pair[1]);
++        let multiplicities: Option<usize> = self
++            .multiplicities
++            .iter()
++            .try_fold(0usize, |sum, multiplicity| {
++                (*multiplicity >= 1).then(|| sum + *multiplicity as usize)
++            });
++        let poles_needed = multiplicities.and_then(|sum| {
++            let last = *self.multiplicities.last()? as usize;
++            if self.periodic {
++                Some(sum - last)
++            } else {
++                sum.checked_sub(self.degree as usize + 1)
++            }
++        });
++        let valid = (1..=25).contains(&self.degree)
++            && self.knots.len() >= 2
++            && self.knots.len() == self.multiplicities.len()
++            && increasing
++            && poles_needed == Some(self.poles.len())
++            && self.poles.len() >= 2;
++        if !valid {
++            return Err(KernelError::invalid_input(operation, BSPLINE_MESSAGE));
++        }
++        Ok(())
++    }
++}
++
++impl WrapCurve {
++    /// Checks the curve on `surface` and returns its bridge form.
++    pub(crate) fn to_ffi(
++        &self,
++        operation: Operation,
++        surface: &sys::WrapSurfaceData,
++    ) -> Result<sys::WrapCurveData, KernelError> {
++        let mut data = sys::WrapCurveData {
++            kind: sys::WrapCurveType::Segment,
++            start_x: 0.0,
++            start_y: 0.0,
++            end_x: 0.0,
++            end_y: 0.0,
++            phase: 0.0,
++            height: 0.0,
++            pitch: 0.0,
++            turns: 0.0,
++            center_x: 0.0,
++            center_y: 0.0,
++            radius: 0.0,
++            start_angle: 0.0,
++            sweep: 0.0,
++            degree: 0,
++            periodic: false,
++            poles: Vec::new(),
++            knots: Vec::new(),
++            multiplicities: Vec::new(),
++        };
++        match self {
++            WrapCurve::Segment { start, end } => {
++                check_finite(operation, &[start.x, start.y, end.x, end.y])?;
++                if !is_positive_length(start.distance(*end)) {
++                    return Err(KernelError::invalid_input(operation, SHORT_SEGMENT_MESSAGE));
++                }
++                (data.start_x, data.start_y, data.end_x, data.end_y) =
++                    (start.x, start.y, end.x, end.y);
++            }
++            WrapCurve::Arc {
++                center,
++                radius,
++                start_angle,
++                sweep,
++            } => {
++                check_finite(
++                    operation,
++                    &[center.x, center.y, *radius, *start_angle, *sweep],
++                )?;
++                if !is_positive_length(*radius) || *sweep == 0.0 || sweep.abs() > TAU {
++                    return Err(KernelError::invalid_input(operation, ARC_MESSAGE));
++                }
++                data.kind = sys::WrapCurveType::Arc;
++                (data.center_x, data.center_y, data.radius) = (center.x, center.y, *radius);
++                (data.start_angle, data.sweep) = (*start_angle, *sweep);
++            }
++            WrapCurve::Bspline(bspline) => {
++                bspline.check(operation)?;
++                data.kind = sys::WrapCurveType::Bspline;
++                data.degree = bspline.degree;
++                data.periodic = bspline.periodic;
++                data.poles = bspline
++                    .poles
++                    .iter()
++                    .flat_map(|pole| [pole.x, pole.y])
++                    .collect();
++                data.knots.clone_from(&bspline.knots);
++                data.multiplicities.clone_from(&bspline.multiplicities);
++            }
++            WrapCurve::Helix(helix) => {
++                check_helix(operation, surface, helix)?;
++                data.kind = sys::WrapCurveType::Helix;
++                (data.phase, data.height, data.pitch, data.turns) =
++                    (helix.phase, helix.height, helix.pitch, helix.turns);
++            }
++        }
++        Ok(data)
++    }
++}
++
++/// Checks a helix on `surface`: finite, more than 0 turns, and on a cone where the radius stays
++/// above 0 from its start to its end.
++pub(crate) fn check_helix(
++    operation: Operation,
++    surface: &sys::WrapSurfaceData,
++    helix: &Helix,
++) -> Result<(), KernelError> {
++    check_finite(
++        operation,
++        &[helix.phase, helix.height, helix.pitch, helix.turns],
++    )?;
++    if helix.turns <= 0.0 {
++        return Err(KernelError::invalid_input(operation, TURNS_MESSAGE));
++    }
++    let end = helix.height + helix.pitch * helix.turns;
++    if [helix.height, end]
++        .iter()
++        .any(|height| !is_positive_length(WrapSurface::radius_at(surface, *height)))
++    {
++        return Err(KernelError::invalid_input(operation, APEX_MESSAGE));
++    }
++    Ok(())
++}
++
++/// Maps each curve onto the parameter plane of `surface` and returns a compound of one edge per
++/// curve, in order. Each edge has the curve's image on the parameter plane as its curve on the
++/// surface, and a 3D curve that `BRepLib::BuildCurves3d` approximates within 1e-7 mm.
++pub fn wrap_curves(surface: &WrapSurface, curves: &[WrapCurve]) -> Result<Shape, KernelError> {
++    let operation = Operation::WrapCurves;
++    let surface = surface.to_ffi(operation)?;
++    let curves = curves
++        .iter()
++        .map(|curve| curve.to_ffi(operation, &surface))
++        .collect::<Result<Vec<_>, KernelError>>()?;
++    let shape = call(operation, || sys::wrap_curves(&surface, &curves))?;
++    Shape::from_ffi(operation, shape)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::KernelErrorKind;
++
++    fn cone(half_angle: f64) -> WrapSurface {
++        WrapSurface::Cone {
++            frame: Plane::XY,
++            radius: 10.0,
++            half_angle,
++        }
++    }
++
++    #[test]
++    fn a_cone_without_a_half_angle_is_refused() {
++        let error = wrap_curves(&cone(0.0), &[]).expect_err("no half-angle");
++
++        assert_eq!(error.message, HALF_ANGLE_MESSAGE);
++        assert_eq!(error.kind, KernelErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn an_arc_without_a_sweep_is_refused() {
++        let arc = WrapCurve::Arc {
++            center: Point2 { x: 0.0, y: 0.0 },
++            radius: 1.0,
++            start_angle: 0.0,
++            sweep: 0.0,
++        };
++
++        let error = wrap_curves(&cone(0.1), &[arc]).expect_err("no sweep");
++
++        assert_eq!(error.message, ARC_MESSAGE);
++    }
++
++    #[test]
++    fn a_bspline_with_too_few_poles_is_refused() {
++        let bspline = WrapCurve::Bspline(WrapBspline {
++            degree: 3,
++            poles: vec![Point2 { x: 0.0, y: 0.0 }, Point2 { x: 1.0, y: 0.0 }],
++            knots: vec![0.0, 1.0],
++            multiplicities: vec![4, 4],
++            periodic: false,
++        });
++
++        let error = wrap_curves(&cone(0.1), &[bspline]).expect_err("too few poles");
++
++        assert_eq!(error.message, BSPLINE_MESSAGE);
++    }
++
++    #[test]
++    fn a_helix_through_the_apex_is_refused() {
++        let helix = WrapCurve::Helix(Helix {
++            phase: 0.0,
++            height: 0.0,
++            pitch: -20.0,
++            turns: 10.0,
++        });
++
++        let error = wrap_curves(&cone(0.1), &[helix]).expect_err("through the apex");
++
++        assert_eq!(error.message, APEX_MESSAGE);
++    }
++
++    #[test]
++    fn a_helix_without_turns_is_refused() {
++        let helix = WrapCurve::Helix(Helix {
++            phase: 0.0,
++            height: 0.0,
++            pitch: 1.0,
++            turns: 0.0,
++        });
++        let cylinder = WrapSurface::Cylinder {
++            frame: Plane::XY,
++            radius: 5.0,
++        };
++
++        let error = wrap_curves(&cylinder, &[helix]).expect_err("no turns");
++
++        assert_eq!(error.message, TURNS_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/emboss_inputs.rs b/crates/partsmith-occt-sys/tests/emboss_inputs.rs
+new file mode 100644
+index 0000000..f52cf28
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/emboss_inputs.rs
+@@ -0,0 +1,662 @@
++//! The inputs of the wrap-emboss spike (kernel spec section 8.3), shared by its tests and its bench
++//! rows: an outline alphabet of lines and arcs for the characters of `PARTSMITH LABEL 2026`, 5 mm
++//! tall with strokes 0.8 mm wide, with `S` a closed B-spline (no font reader yet, m2-plan.md item
++//! 27), and the labels on a cylinder of radius 15 mm and on a frustum of radii 20 and 15 mm, 30 mm
++//! tall.
++
++use std::f64::consts::{FRAC_PI_2, PI};
++
++use partsmith_occt_sys::{
++    EmbossKind, EmbossSpec, Plane, Point, Point2, Shape, Thickening, Vector, WrapBspline,
++    WrapCurve, WrapLoop, WrapRegion, WrapSurface, make_cone, make_cylinder,
++};
++
++/// The height of the characters.
++pub const CAP_HEIGHT: f64 = 5.0;
++
++/// The gap after each character.
++pub const GAP: f64 = 0.6;
++
++/// How far a space advances.
++pub const SPACE: f64 = 2.0;
++
++/// How far the outlines are raised or recessed.
++pub const DEPTH: f64 = 0.6;
++
++/// The radius of the cylinder, the cap's side.
++pub const CYLINDER_RADIUS: f64 = 15.0;
++
++/// The height of the cylinder.
++pub const CYLINDER_HEIGHT: f64 = 14.0;
++
++/// The baseline of the labels on the cylinder, along its axis.
++pub const CYLINDER_BASELINE: f64 = 4.5;
++
++/// The frustum's radii at its bottom and its top, and its height.
++pub const FRUSTUM_BOTTOM: f64 = 20.0;
++pub const FRUSTUM_TOP: f64 = 15.0;
++pub const FRUSTUM_HEIGHT: f64 = 30.0;
++
++/// The label of the spike.
++pub const LABEL: &str = "PARTSMITH LABEL 2026";
++
++/// The label on the frustum.
++pub const SHORT_LABEL: &str = "PARTS";
++
++/// The character the label across the seam is centered on: the seam runs through its middle.
++pub const SEAM_CHARACTER: usize = 12;
++
++/// The underline of the long label: its thickness, and its gap below the baseline.
++pub const UNDERLINE: f64 = 0.8;
++pub const UNDERLINE_GAP: f64 = 0.8;
++
++/// How far the underline runs past the label's ends.
++pub const UNDERLINE_OVERHANG: f64 = 0.5;
++
++/// A pen that draws one closed loop of the developed plane from its start, in chain order.
++struct Pen {
++    start: Point2,
++    at: Point2,
++    curves: Vec<WrapCurve>,
++}
++
++/// A point of the developed plane.
++fn point(x: f64, y: f64) -> Point2 {
++    Point2 { x, y }
++}
++
++impl Pen {
++    /// A loop that starts at (x, y).
++    fn at(x: f64, y: f64) -> Pen {
++        Pen {
++            start: point(x, y),
++            at: point(x, y),
++            curves: Vec::new(),
++        }
++    }
++
++    /// A segment to (x, y).
++    fn line(mut self, x: f64, y: f64) -> Pen {
++        let end = point(x, y);
++        self.curves.push(WrapCurve::Segment {
++            start: self.at,
++            end,
++        });
++        self.at = end;
++        self
++    }
++
++    /// An arc about (x, y) from where the pen is, through `sweep` degrees (counterclockwise when
++    /// positive).
++    fn arc(mut self, x: f64, y: f64, sweep: f64) -> Pen {
++        let center = point(x, y);
++        let radius = (self.at.x - x).hypot(self.at.y - y);
++        let start_angle = (self.at.y - y).atan2(self.at.x - x);
++        let sweep = sweep.to_radians();
++        let end_angle = start_angle + sweep;
++        self.curves.push(WrapCurve::Arc {
++            center,
++            radius,
++            start_angle,
++            sweep,
++        });
++        self.at = point(x + radius * end_angle.cos(), y + radius * end_angle.sin());
++        self
++    }
++
++    /// Closes the loop with a segment back to its start, unless the pen is there already.
++    fn close(self) -> WrapLoop {
++        let pen = if (self.at.x - self.start.x).hypot(self.at.y - self.start.y) > 1e-9 {
++            let start = self.start;
++            self.line(start.x, start.y)
++        } else {
++            self
++        };
++        WrapLoop { curves: pen.curves }
++    }
++}
++
++/// A region with its outer loop and holes.
++fn region(outer: WrapLoop, holes: Vec<WrapLoop>) -> WrapRegion {
++    WrapRegion { outer, holes }
++}
++
++/// The closed polygon through `corners`.
++fn polygon(corners: &[(f64, f64)]) -> WrapLoop {
++    let (x, y) = corners[0];
++    corners[1..]
++        .iter()
++        .fold(Pen::at(x, y), |pen, &(x, y)| pen.line(x, y))
++        .close()
++}
++
++/// The counter of `P` and `R`: a half disk of radius 0.7 on a 0.7 mm stem, clockwise.
++fn bowl_counter() -> WrapLoop {
++    Pen::at(0.8, 2.8)
++        .line(0.8, 4.2)
++        .line(1.5, 4.2)
++        .arc(1.5, 3.5, -180.0)
++        .close()
++}
++
++/// The angle on the bowl of `R` where its leg's right side meets it.
++const R_LEG_ANGLE: f64 = -1.19;
++
++/// The poles of the closed B-spline of `S`: a blocky S, counterclockwise, that the cubic B-spline
++/// rounds.
++const S_POLES: [(f64, f64); 12] = [
++    (0.0, 0.0),
++    (3.0, 0.0),
++    (3.0, 2.9),
++    (0.8, 2.9),
++    (0.8, 4.2),
++    (3.0, 4.2),
++    (3.0, 5.0),
++    (0.0, 5.0),
++    (0.0, 2.1),
++    (2.2, 2.1),
++    (2.2, 0.8),
++    (0.0, 0.8),
++];
++
++/// The outline of `S`: one periodic cubic B-spline with uniform knots.
++fn s_outline() -> WrapLoop {
++    let poles: Vec<Point2> = S_POLES.iter().map(|&(x, y)| point(x, y)).collect();
++    let knots: Vec<f64> = (0..=poles.len()).map(|knot| knot as f64).collect();
++    let multiplicities = vec![1; knots.len()];
++    WrapLoop {
++        curves: vec![WrapCurve::Bspline(WrapBspline {
++            degree: 3,
++            poles,
++            knots,
++            multiplicities,
++            periodic: true,
++        })],
++    }
++}
++
++/// The regions of a character in its own box, from (0, 0) to its width and the cap height, and
++/// its width; nothing for a space.
++pub fn glyph(character: char) -> (Vec<WrapRegion>, f64) {
++    let slope = 0.28;
++    match character {
++        'P' => (
++            vec![region(
++                Pen::at(0.0, 0.0)
++                    .line(0.8, 0.0)
++                    .line(0.8, 2.0)
++                    .line(1.5, 2.0)
++                    .arc(1.5, 3.5, 180.0)
++                    .line(0.0, 5.0)
++                    .close(),
++                vec![bowl_counter()],
++            )],
++            3.0,
++        ),
++        'A' => {
++            let apex = 1.9 / (2.0 * slope);
++            (
++                vec![region(
++                    polygon(&[
++                        (0.0, 0.0),
++                        (0.85, 0.0),
++                        (0.85 + slope * 1.1, 1.1),
++                        (2.75 - slope * 1.1, 1.1),
++                        (2.75, 0.0),
++                        (3.6, 0.0),
++                        (2.2, 5.0),
++                        (1.4, 5.0),
++                    ]),
++                    vec![polygon(&[
++                        (0.85 + slope * 1.8, 1.8),
++                        (1.8, apex),
++                        (2.75 - slope * 1.8, 1.8),
++                    ])],
++                )],
++                3.6,
++            )
++        }
++        'R' => {
++            let leg = (1.5 + 1.5 * R_LEG_ANGLE.cos(), 3.5 + 1.5 * R_LEG_ANGLE.sin());
++            (
++                vec![region(
++                    Pen::at(0.0, 0.0)
++                        .line(0.8, 0.0)
++                        .line(0.8, 2.0)
++                        .line(1.2, 2.0)
++                        .line(2.1, 0.0)
++                        .line(3.0, 0.0)
++                        .line(leg.0, leg.1)
++                        .arc(1.5, 3.5, (FRAC_PI_2 - R_LEG_ANGLE).to_degrees())
++                        .line(0.0, 5.0)
++                        .close(),
++                    vec![bowl_counter()],
++                )],
++                3.0,
++            )
++        }
++        'T' => (
++            vec![region(
++                polygon(&[
++                    (1.2, 0.0),
++                    (2.0, 0.0),
++                    (2.0, 4.2),
++                    (3.2, 4.2),
++                    (3.2, 5.0),
++                    (0.0, 5.0),
++                    (0.0, 4.2),
++                    (1.2, 4.2),
++                ]),
++                Vec::new(),
++            )],
++            3.2,
++        ),
++        'S' => (vec![region(s_outline(), Vec::new())], 3.0),
++        'M' => (
++            vec![region(
++                polygon(&[
++                    (0.0, 0.0),
++                    (0.8, 0.0),
++                    (0.8, 3.4),
++                    (1.6, 1.2),
++                    (2.4, 1.2),
++                    (3.2, 3.4),
++                    (3.2, 0.0),
++                    (4.0, 0.0),
++                    (4.0, 5.0),
++                    (3.2, 5.0),
++                    (2.0, 2.2),
++                    (0.8, 5.0),
++                    (0.0, 5.0),
++                ]),
++                Vec::new(),
++            )],
++            4.0,
++        ),
++        'I' => (
++            vec![region(
++                polygon(&[(0.0, 0.0), (0.8, 0.0), (0.8, 5.0), (0.0, 5.0)]),
++                Vec::new(),
++            )],
++            0.8,
++        ),
++        'H' => (
++            vec![region(
++                polygon(&[
++                    (0.0, 0.0),
++                    (0.8, 0.0),
++                    (0.8, 2.1),
++                    (2.4, 2.1),
++                    (2.4, 0.0),
++                    (3.2, 0.0),
++                    (3.2, 5.0),
++                    (2.4, 5.0),
++                    (2.4, 2.9),
++                    (0.8, 2.9),
++                    (0.8, 5.0),
++                    (0.0, 5.0),
++                ]),
++                Vec::new(),
++            )],
++            3.2,
++        ),
++        'L' => (
++            vec![region(
++                polygon(&[
++                    (0.0, 0.0),
++                    (2.8, 0.0),
++                    (2.8, 0.8),
++                    (0.8, 0.8),
++                    (0.8, 5.0),
++                    (0.0, 5.0),
++                ]),
++                Vec::new(),
++            )],
++            2.8,
++        ),
++        'B' => (
++            vec![region(
++                Pen::at(0.0, 0.0)
++                    .line(1.6, 0.0)
++                    .arc(1.6, 1.3, 180.0)
++                    .arc(1.6, 3.8, 180.0)
++                    .line(0.0, 5.0)
++                    .close(),
++                vec![
++                    Pen::at(0.8, 0.8)
++                        .line(0.8, 1.8)
++                        .line(1.6, 1.8)
++                        .arc(1.6, 1.3, -180.0)
++                        .close(),
++                    Pen::at(0.8, 3.4)
++                        .line(0.8, 4.2)
++                        .line(1.6, 4.2)
++                        .arc(1.6, 3.8, -180.0)
++                        .close(),
++                ],
++            )],
++            2.9,
++        ),
++        'E' => (
++            vec![region(
++                polygon(&[
++                    (0.0, 0.0),
++                    (2.8, 0.0),
++                    (2.8, 0.8),
++                    (0.8, 0.8),
++                    (0.8, 2.1),
++                    (2.4, 2.1),
++                    (2.4, 2.9),
++                    (0.8, 2.9),
++                    (0.8, 4.2),
++                    (2.8, 4.2),
++                    (2.8, 5.0),
++                    (0.0, 5.0),
++                ]),
++                Vec::new(),
++            )],
++            2.8,
++        ),
++        '2' => {
++            let angle = (-40.0_f64).to_radians();
++            let outer = (1.5 + 1.5 * angle.cos(), 3.5 + 1.5 * angle.sin());
++            (
++                vec![region(
++                    Pen::at(0.0, 0.0)
++                        .line(3.0, 0.0)
++                        .line(3.0, 0.8)
++                        .line(1.25, 0.8)
++                        .line(outer.0, outer.1)
++                        .arc(1.5, 3.5, 220.0)
++                        .line(0.8, 3.5)
++                        .arc(1.5, 3.5, -220.0)
++                        .line(0.0, 0.8)
++                        .close(),
++                    Vec::new(),
++                )],
++                3.0,
++            )
++        }
++        '0' => (
++            vec![region(
++                Pen::at(3.0, 1.5)
++                    .line(3.0, 3.5)
++                    .arc(1.5, 3.5, 180.0)
++                    .line(0.0, 1.5)
++                    .arc(1.5, 1.5, 180.0)
++                    .close(),
++                vec![
++                    Pen::at(0.8, 1.5)
++                        .line(0.8, 3.5)
++                        .arc(1.5, 3.5, -180.0)
++                        .line(2.2, 1.5)
++                        .arc(1.5, 1.5, -180.0)
++                        .close(),
++                ],
++            )],
++            3.0,
++        ),
++        '6' => {
++            // The bowl's outer circle meets the stem's right side at x = 0.8, and the hook ends
++            // at 30 degrees.
++            let meet = ((0.8 - 1.5) / 1.5_f64).acos().to_degrees();
++            let end = 30.0_f64.to_radians();
++            (
++                vec![region(
++                    Pen::at(0.0, 3.5)
++                        .line(0.0, 1.5)
++                        .arc(1.5, 1.5, 360.0 - (180.0 - meet))
++                        .line(0.8, 3.5)
++                        .arc(1.5, 3.5, -150.0)
++                        .line(1.5 + 1.5 * end.cos(), 3.5 + 1.5 * end.sin())
++                        .arc(1.5, 3.5, 150.0)
++                        .close(),
++                    vec![
++                        Pen::at(2.2, 1.5)
++                            .arc(1.5, 1.5, -180.0)
++                            .arc(1.5, 1.5, -180.0)
++                            .close(),
++                    ],
++                )],
++                3.0,
++            )
++        }
++        ' ' => (Vec::new(), SPACE - GAP),
++        other => panic!("the spike's alphabet has no {other:?}"),
++    }
++}
++
++/// Moves a curve by `along_x` along x and `along_y` along y.
++fn moved(curve: &WrapCurve, along_x: f64, along_y: f64) -> WrapCurve {
++    let shift = |at: Point2| point(at.x + along_x, at.y + along_y);
++    match curve {
++        WrapCurve::Segment { start, end } => WrapCurve::Segment {
++            start: shift(*start),
++            end: shift(*end),
++        },
++        WrapCurve::Arc {
++            center,
++            radius,
++            start_angle,
++            sweep,
++        } => WrapCurve::Arc {
++            center: shift(*center),
++            radius: *radius,
++            start_angle: *start_angle,
++            sweep: *sweep,
++        },
++        WrapCurve::Bspline(bspline) => WrapCurve::Bspline(WrapBspline {
++            poles: bspline.poles.iter().map(|pole| shift(*pole)).collect(),
++            ..bspline.clone()
++        }),
++        WrapCurve::Helix(helix) => WrapCurve::Helix(*helix),
++    }
++}
++
++/// Moves a region by `along_x` along x and `along_y` along y.
++fn moved_region(region: &WrapRegion, along_x: f64, along_y: f64) -> WrapRegion {
++    let move_loop = |outline: &WrapLoop| WrapLoop {
++        curves: outline
++            .curves
++            .iter()
++            .map(|curve| moved(curve, along_x, along_y))
++            .collect(),
++    };
++    WrapRegion {
++        outer: move_loop(&region.outer),
++        holes: region.holes.iter().map(move_loop).collect(),
++    }
++}
++
++/// The length of `text` from the start of its first character to the end of its last.
++pub fn text_length(text: &str) -> f64 {
++    text.chars()
++        .map(|character| glyph(character).1 + GAP)
++        .sum::<f64>()
++        - GAP
++}
++
++/// Where each character of `text` starts, from 0.
++pub fn character_starts(text: &str) -> Vec<f64> {
++    let mut starts = Vec::new();
++    let mut at = 0.0;
++    for character in text.chars() {
++        starts.push(at);
++        at += glyph(character).1 + GAP;
++    }
++    starts
++}
++
++/// The regions of `text` with its baseline at `baseline` and its first character at `start`.
++pub fn text_regions(text: &str, start: f64, baseline: f64) -> Vec<WrapRegion> {
++    text.chars()
++        .zip(character_starts(text))
++        .flat_map(|(character, offset)| {
++            glyph(character)
++                .0
++                .iter()
++                .map(|region| moved_region(region, start + offset, baseline))
++                .collect::<Vec<_>>()
++        })
++        .collect()
++}
++
++/// The surface the cylinder's labels wrap onto.
++pub fn cylinder_surface() -> WrapSurface {
++    WrapSurface::Cylinder {
++        frame: Plane::XY,
++        radius: CYLINDER_RADIUS,
++    }
++}
++
++/// The frustum's half-angle: it narrows upward.
++pub fn frustum_half_angle() -> f64 {
++    -((FRUSTUM_BOTTOM - FRUSTUM_TOP) / FRUSTUM_HEIGHT).atan()
++}
++
++/// The surface the frustum's label wraps onto: its frame turned half a turn, so the label's middle
++/// faces away from the frustum's seam.
++pub fn frustum_surface() -> WrapSurface {
++    WrapSurface::Cone {
++        frame: Plane {
++            origin: Point::new(0.0, 0.0, 0.0),
++            normal: Vector::new(0.0, 0.0, 1.0),
++            x_axis: Vector::new(-1.0, 0.0, 0.0),
++        },
++        radius: FRUSTUM_BOTTOM,
++        half_angle: frustum_half_angle(),
++    }
++}
++
++/// One input of the spike.
++#[derive(Debug, Clone)]
++pub struct Input {
++    /// Its name in test and row names.
++    pub name: &'static str,
++    /// The body the outlines go onto.
++    pub body: Shape,
++    /// The surface, regions and depth, raised or recessed (the thickening is set per
++    /// construction).
++    pub spec: EmbossSpec,
++    /// Whether it is the 20-character label, whose time and poll gap section 8.3 bounds.
++    pub is_label: bool,
++}
++
++/// The cylinder of radius 15 mm, 14 mm tall.
++pub fn cylinder() -> Shape {
++    make_cylinder(&Plane::XY, CYLINDER_RADIUS, CYLINDER_HEIGHT)
++        .expect("the cylinder builds")
++        .shape
++}
++
++/// The frustum of radii 20 and 15 mm, 30 mm tall.
++pub fn frustum() -> Shape {
++    make_cone(&Plane::XY, FRUSTUM_BOTTOM, FRUSTUM_TOP, FRUSTUM_HEIGHT)
++        .expect("the frustum builds")
++        .shape
++}
++
++/// The spec of one input, with the first construction; each test and row sets its own.
++fn spec(surface: WrapSurface, regions: Vec<WrapRegion>, kind: EmbossKind) -> EmbossSpec {
++    EmbossSpec {
++        surface,
++        regions,
++        depth: DEPTH,
++        kind,
++        thickening: Thickening::SimpleOffset,
++    }
++}
++
++/// Where the 20-character label starts so that its middle faces away from the cylinder's seam.
++pub fn label_start() -> f64 {
++    PI * CYLINDER_RADIUS - text_length(LABEL) / 2.0
++}
++
++/// Where the 20-character label starts so that the cylinder's seam runs through the middle of
++/// its `SEAM_CHARACTER`.
++pub fn seam_label_start() -> f64 {
++    let character = LABEL
++        .chars()
++        .nth(SEAM_CHARACTER)
++        .expect("the label is long enough");
++    -(character_starts(LABEL)[SEAM_CHARACTER] + glyph(character).1 / 2.0)
++}
++
++/// The underline of the long label: a rectangle under the 20 characters starting at `start`.
++pub fn underline(start: f64) -> WrapRegion {
++    let (left, right) = (
++        start - UNDERLINE_OVERHANG,
++        start + text_length(LABEL) + UNDERLINE_OVERHANG,
++    );
++    let (bottom, top) = (
++        CYLINDER_BASELINE - UNDERLINE_GAP - UNDERLINE,
++        CYLINDER_BASELINE - UNDERLINE_GAP,
++    );
++    region(
++        polygon(&[(left, bottom), (right, bottom), (right, top), (left, top)]),
++        Vec::new(),
++    )
++}
++
++/// The frustum's label: centered on the developed plane's y axis at the middle of the slant.
++pub fn frustum_regions() -> Vec<WrapRegion> {
++    let slant = (FRUSTUM_HEIGHT * FRUSTUM_HEIGHT
++        + (FRUSTUM_BOTTOM - FRUSTUM_TOP) * (FRUSTUM_BOTTOM - FRUSTUM_TOP))
++        .sqrt();
++    text_regions(
++        SHORT_LABEL,
++        -text_length(SHORT_LABEL) / 2.0,
++        (slant - CAP_HEIGHT) / 2.0,
++    )
++}
++
++/// Every input of the spike (section 8.3), raised and recessed.
++pub fn inputs() -> Vec<Input> {
++    let mut inputs = Vec::new();
++    for kind in [EmbossKind::Raised, EmbossKind::Recessed] {
++        let label = text_regions(LABEL, label_start(), CYLINDER_BASELINE);
++        let seam = text_regions(LABEL, seam_label_start(), CYLINDER_BASELINE);
++        let mut long = label.clone();
++        long.push(underline(label_start()));
++        let names = match kind {
++            EmbossKind::Raised => ["label raised", "seam raised", "long raised", "cone raised"],
++            EmbossKind::Recessed => [
++                "label recessed",
++                "seam recessed",
++                "long recessed",
++                "cone recessed",
++            ],
++        };
++        inputs.push(Input {
++            name: names[0],
++            body: cylinder(),
++            spec: spec(cylinder_surface(), label, kind),
++            is_label: true,
++        });
++        inputs.push(Input {
++            name: names[1],
++            body: cylinder(),
++            spec: spec(cylinder_surface(), seam, kind),
++            is_label: true,
++        });
++        inputs.push(Input {
++            name: names[2],
++            body: cylinder(),
++            spec: spec(cylinder_surface(), long, kind),
++            is_label: false,
++        });
++        inputs.push(Input {
++            name: names[3],
++            body: frustum(),
++            spec: spec(frustum_surface(), frustum_regions(), kind),
++            is_label: false,
++        });
++    }
++    inputs
++}
++
++/// The two constructions of section 8.3, by name.
++pub const CONSTRUCTIONS: [(&str, Thickening); 2] = [
++    ("simple-offset", Thickening::SimpleOffset),
++    ("thick-solid", Thickening::ThickSolidBySimple),
++];
+diff --git a/crates/partsmith-occt-sys/tests/integration.rs b/crates/partsmith-occt-sys/tests/integration.rs
+index fd98155..dde15d4 100644
+--- a/crates/partsmith-occt-sys/tests/integration.rs
++++ b/crates/partsmith-occt-sys/tests/integration.rs
+@@ -7,6 +7,7 @@ mod common;
+ mod blends;
+ mod booleans;
+ mod determinism_and_concurrency;
++mod emboss_inputs;
+ mod exchange;
+ mod interrupts;
+ mod primitives_and_queries;
+@@ -14,3 +15,4 @@ mod profiles_and_sweeps;
+ mod tessellation;
+ mod transforms_and_split;
+ mod values;
++mod wrap_emboss;
+diff --git a/crates/partsmith-occt-sys/tests/wrap_emboss.rs b/crates/partsmith-occt-sys/tests/wrap_emboss.rs
+new file mode 100644
+index 0000000..81f47c0
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/wrap_emboss.rs
+@@ -0,0 +1,694 @@
++//! The wrap-emboss spike (kernel spec section 8.3): both thickenings on every input, measured as
++//! section 8.1 item 4 asks. Each test prints its measurements, with one canonical `parity` line
++//! per shape that the native and WebAssembly runs compare (ADR 0042), and pins the criteria of
++//! section 8.3's Pass but time and parity that the input fails, as the spike recorded them.
++
++use std::collections::BTreeMap;
++use std::f64::consts::TAU;
++
++use partsmith_mesh::{TessellationTolerance, WELD_TOLERANCE};
++use partsmith_occt_sys::{
++    EmbossKind, EmbossPart, EmbossResult, EmbossSource, EmbossSpec, Interrupt, Plane, Point,
++    Point2, Shape, SubShapeKind, Thickening, Validity, Vector, WrapBspline, WrapCurve, WrapLoop,
++    WrapSurface, adaptive_volume, edge_length, edge_points, face_points, wrap_curves, wrap_emboss,
++};
++
++use crate::common::assert_closed;
++use crate::emboss_inputs::{CONSTRUCTIONS, DEPTH, Input, inputs};
++
++/// The tolerance of tests 137 and 138: 0.05 mm and 5 degrees.
++const FINE: TessellationTolerance = TessellationTolerance {
++    chord_deviation: 0.05,
++    angular_deviation: 0.087_266_462_599_716_48,
++};
++
++/// The points sampled on each raised top face, and along each of its edges (measured only).
++const SAMPLES: u32 = 20;
++
++/// How far a top face's points may lie from the offset surface (section 8.3's Checks).
++const SURFACE_TOLERANCE: f64 = 1e-6;
++
++/// How far a wrapped outline's length may differ from its planar length, relative.
++const LENGTH_TOLERANCE: f64 = 1e-6;
++
++/// The canonical summary of a shape that the native and WebAssembly runs compare.
++fn parity_line(key: &str, stage: &str, shape: &Shape) -> String {
++    let volume = shape.volume().expect("the shape is measured");
++    let area = shape.area().expect("the shape is measured");
++    let Ok(bounds) = shape.bounding_box() else {
++        return format!("parity {key} {stage}: empty");
++    };
++    format!(
++        "parity {key} {stage}: faces={} edges={} vertices={} volume={volume:?} area={area:?} min={:?} max={:?}",
++        shape.count(SubShapeKind::Face),
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        bounds.min,
++        bounds.max
++    )
++}
++
++/// The undirected edges of the welded mesh that are not used by exactly two triangles, or the
++/// tessellation's error (test 138's check).
++fn open_mesh_edges(shape: &Shape) -> Result<usize, String> {
++    let mesh = shape
++        .tessellate(&FINE, &Interrupt::new())
++        .map_err(|error| error.detail())?;
++    let welded = mesh
++        .weld(WELD_TOLERANCE)
++        .expect("WELD_TOLERANCE is a valid weld tolerance")
++        .mesh;
++    let triangles: Vec<[usize; 3]> = welded
++        .triangles()
++        .iter()
++        .map(|corners| corners.map(|vertex| vertex as usize))
++        .collect();
++    let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
++    for [first, second, third] in &triangles {
++        for (start, end) in [(*first, *second), (*second, *third), (*third, *first)] {
++            *uses.entry((start.min(end), start.max(end))).or_insert(0) += 1;
++        }
++    }
++    let open = uses.values().filter(|count| **count != 2).count();
++    if open == 0 {
++        assert_closed(&triangles);
++    }
++    Ok(open)
++}
++
++/// The vector from `from` to `to`.
++fn between(from: Point, to: Point) -> Vector {
++    Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
++}
++
++/// The signed distance of `point` from `surface` along its normal that points away from the
++/// axis: on a cylinder its distance from the axis less the radius, on a cone its distance from
++/// the cone's line in the point's axial half-plane.
++fn surface_distance(surface: &WrapSurface, point: Point) -> f64 {
++    let (frame, radius, half_angle) = match *surface {
++        WrapSurface::Cylinder { frame, radius } => (frame, radius, 0.0),
++        WrapSurface::Cone {
++            frame,
++            radius,
++            half_angle,
++        } => (frame, radius, half_angle),
++    };
++    let normal = frame.normal.normalized().expect("the frame has a normal");
++    let offset = between(frame.origin, point);
++    let height = offset.dot(normal);
++    let along = normal.scaled(height);
++    let radial = Vector::new(offset.x - along.x, offset.y - along.y, offset.z - along.z).length();
++    (radial - (radius + height * half_angle.tan())) * half_angle.cos()
++}
++
++/// The planar length of a periodic uniform cubic B-spline, by 10-point Gauss-Legendre
++/// quadrature on 16 pieces of each span: the only B-spline of the spike's alphabet.
++fn uniform_cubic_length(bspline: &WrapBspline) -> f64 {
++    const NODES: [f64; 5] = [
++        0.148_874_338_981_631_2,
++        0.433_395_394_129_247_2,
++        0.679_409_568_299_024_4,
++        0.865_063_366_688_984_5,
++        0.973_906_528_517_171_7,
++    ];
++    const WEIGHTS: [f64; 5] = [
++        0.295_524_224_714_752_9,
++        0.269_266_719_309_996_4,
++        0.219_086_362_515_982,
++        0.149_451_349_150_580_6,
++        0.066_671_344_308_688_1,
++    ];
++    const PIECES: usize = 16;
++    assert!(bspline.periodic && bspline.degree == 3);
++    let poles = &bspline.poles;
++    let count = poles.len();
++    let speed = |span: usize, parameter: f64| {
++        let weights = [
++            -(1.0 - parameter) * (1.0 - parameter) / 2.0,
++            (3.0 * parameter * parameter - 4.0 * parameter) / 2.0,
++            (-3.0 * parameter * parameter + 2.0 * parameter + 1.0) / 2.0,
++            parameter * parameter / 2.0,
++        ];
++        let (mut x, mut y) = (0.0, 0.0);
++        for (offset, weight) in weights.iter().enumerate() {
++            let pole = poles[(span + offset) % count];
++            x += weight * pole.x;
++            y += weight * pole.y;
++        }
++        x.hypot(y)
++    };
++    let mut length = 0.0;
++    for span in 0..count {
++        for piece in 0..PIECES {
++            let (low, high) = (
++                piece as f64 / PIECES as f64,
++                (piece + 1) as f64 / PIECES as f64,
++            );
++            let (middle, half) = ((low + high) / 2.0, (high - low) / 2.0);
++            for (node, weight) in NODES.iter().zip(WEIGHTS) {
++                length += weight
++                    * half
++                    * (speed(span, middle - half * node) + speed(span, middle + half * node));
++            }
++        }
++    }
++    length
++}
++
++/// The length of a curve of the developed plane.
++fn planar_length(curve: &WrapCurve) -> f64 {
++    match curve {
++        WrapCurve::Segment { start, end } => (end.x - start.x).hypot(end.y - start.y),
++        WrapCurve::Arc { radius, sweep, .. } => radius * sweep.abs(),
++        WrapCurve::Bspline(bspline) => uniform_cubic_length(bspline),
++        WrapCurve::Helix(_) => unreachable!("an emboss has no helix"),
++    }
++}
++
++/// Every loop of a spec in order, each with the number of its first curve.
++fn loops(spec: &EmbossSpec) -> Vec<(u32, &WrapLoop)> {
++    let mut first = 0u32;
++    let mut loops = Vec::new();
++    for region in &spec.regions {
++        for outline in std::iter::once(&region.outer).chain(&region.holes) {
++            loops.push((first, outline));
++            first += outline.curves.len() as u32;
++        }
++    }
++    loops
++}
++
++/// The smallest and largest x of the spec's curves in the developed plane, from their ends,
++/// arc centers less their radii and B-spline poles.
++fn developed_extent(spec: &EmbossSpec) -> (f64, f64) {
++    let mut extent = (f64::INFINITY, f64::NEG_INFINITY);
++    let mut add = |x: f64| extent = (extent.0.min(x), extent.1.max(x));
++    for (_, outline) in loops(spec) {
++        for curve in &outline.curves {
++            match curve {
++                WrapCurve::Segment { start, end } => {
++                    add(start.x);
++                    add(end.x);
++                }
++                WrapCurve::Arc { center, radius, .. } => {
++                    add(center.x - radius);
++                    add(center.x + radius);
++                }
++                WrapCurve::Bspline(bspline) => bspline.poles.iter().for_each(|pole| add(pole.x)),
++                WrapCurve::Helix(_) => {}
++            }
++        }
++    }
++    extent
++}
++
++/// The largest relative difference between a wrapped outline's length (its base edges in the
++/// construction, along their 3D curves) and its planar length.
++fn length_error(result: &EmbossResult, spec: &EmbossSpec) -> f64 {
++    let mut wrapped: BTreeMap<u32, f64> = BTreeMap::new();
++    for role in &result.roles {
++        if role.part == EmbossPart::BaseEdge {
++            let curve = role.curve.expect("a base edge comes from a curve");
++            *wrapped.entry(curve).or_insert(0.0) +=
++                edge_length(&result.construction, role.element.index).expect("the edge measures");
++        }
++    }
++    loops(spec)
++        .into_iter()
++        .map(|(first, outline)| {
++            let planar: f64 = outline.curves.iter().map(planar_length).sum();
++            let length: f64 = (first..first + outline.curves.len() as u32)
++                .map(|curve| wrapped.get(&curve).copied().unwrap_or(f64::NAN))
++                .sum();
++            ((length - planar) / planar).abs()
++        })
++        .fold(0.0, f64::max)
++}
++
++/// The faces of `shape` that are raised top faces: in the construction, the faces of the role
++/// `TopFace`; in the result, the faces whose origins in the construction (input 1) are.
++fn top_faces(result: &EmbossResult, in_result: bool) -> Vec<u32> {
++    let tops: Vec<u32> = result
++        .roles
++        .iter()
++        .filter(|role| role.part == EmbossPart::TopFace)
++        .map(|role| role.element.index)
++        .collect();
++    if !in_result {
++        return tops;
++    }
++    (1..=result.shape.count(SubShapeKind::Face))
++        .filter(|face| {
++            result
++                .history
++                .modified_from(SubShapeKind::Face, *face)
++                .iter()
++                .any(|origin| origin.input == 1 && tops.contains(&origin.element.index))
++        })
++        .collect()
++}
++
++/// How far the top faces of `shape` lie from the offset surface at their vertices and at
++/// `SAMPLES` points of each, and (measured only) at `SAMPLES` points of each of their edges.
++fn top_deviation(shape: &Shape, faces: &[u32], surface: &WrapSurface, offset: f64) -> (f64, f64) {
++    let topology = shape.topology().expect("the shape has a topology");
++    let deviation = |point: Point| (surface_distance(surface, point) - offset).abs();
++    let mut on_face: f64 = 0.0;
++    let mut on_edges: f64 = 0.0;
++    for &face in faces {
++        let entry = &topology.faces[face as usize - 1];
++        for &vertex in &entry.vertices {
++            let position = shape
++                .element(SubShapeKind::Vertex, vertex)
++                .expect("the vertex is measured")
++                .centroid;
++            on_face = on_face.max(deviation(position));
++        }
++        for point in face_points(shape, face, SAMPLES).expect("the face is sampled") {
++            on_face = on_face.max(deviation(point));
++        }
++        for &edge in &entry.edges {
++            for point in edge_points(shape, edge, SAMPLES).expect("the edge is sampled") {
++                on_edges = on_edges.max(deviation(point));
++            }
++        }
++    }
++    (on_face, on_edges)
++}
++
++/// What a result element descends from.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
++enum Descent {
++    /// An element of the body.
++    Body,
++    /// An element of the construction with its part and what named it, and whether the boolean
++    /// kept it whole (`true`) or made it one of several images.
++    Construction(EmbossPart, EmbossSource, bool),
++    /// An element of the construction that no role names.
++    Unnamed,
++    /// Only generated by the boolean, or nothing at all.
++    New,
++}
++
++/// For each kind, how many result elements descend from each combination of origins.
++fn history_counts(result: &EmbossResult) -> BTreeMap<(SubShapeKind, Vec<Descent>), usize> {
++    let roles: BTreeMap<(SubShapeKind, u32), (EmbossPart, EmbossSource)> = result
++        .roles
++        .iter()
++        .map(|role| {
++            (
++                (role.element.kind, role.element.index),
++                (role.part, role.source),
++            )
++        })
++        .collect();
++    let mut counts = BTreeMap::new();
++    for kind in [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex] {
++        for index in 1..=result.shape.count(kind) {
++            let mut descents: Vec<Descent> = result
++                .history
++                .modified_from(kind, index)
++                .into_iter()
++                .map(|origin| {
++                    if origin.input == 0 {
++                        return Descent::Body;
++                    }
++                    let fates = &result.history.inputs[1];
++                    let fate = match kind {
++                        SubShapeKind::Face => &fates.faces,
++                        SubShapeKind::Edge => &fates.edges,
++                        _ => &fates.vertices,
++                    }[origin.element.index as usize - 1]
++                        .clone();
++                    match roles.get(&(origin.element.kind, origin.element.index)) {
++                        Some((part, source)) => {
++                            Descent::Construction(*part, *source, fate.modified.len() == 1)
++                        }
++                        None => Descent::Unnamed,
++                    }
++                })
++                .collect();
++            if descents.is_empty() {
++                descents.push(Descent::New);
++            }
++            descents.sort();
++            descents.dedup();
++            *counts.entry((kind, descents)).or_insert(0) += 1;
++        }
++    }
++    counts
++}
++
++/// The elements of the construction that no role names, by kind.
++fn unnamed_construction(result: &EmbossResult) -> BTreeMap<SubShapeKind, usize> {
++    let mut unnamed = BTreeMap::new();
++    for kind in [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex] {
++        let count = (1..=result.construction.count(kind))
++            .filter(|index| {
++                !result
++                    .roles
++                    .iter()
++                    .any(|role| role.element.kind == kind && role.element.index == *index)
++            })
++            .count();
++        unnamed.insert(kind, count);
++    }
++    unnamed
++}
++
++/// The construction's roles counted by part and source.
++fn role_counts(result: &EmbossResult) -> BTreeMap<(EmbossPart, EmbossSource), usize> {
++    let mut counts = BTreeMap::new();
++    for role in &result.roles {
++        *counts.entry((role.part, role.source)).or_insert(0) += 1;
++    }
++    counts
++}
++
++/// The construction's top faces that have no image in the result.
++fn lost_top_faces(result: &EmbossResult) -> usize {
++    result
++        .roles
++        .iter()
++        .filter(|role| role.part == EmbossPart::TopFace)
++        .filter(|role| {
++            result.history.inputs[1].faces[role.element.index as usize - 1]
++                .modified
++                .is_empty()
++        })
++        .count()
++}
++
++/// The volume checks (measured, not a criterion of section 8.3): `Shape::volume` and the adaptive
++/// volume of the construction and the result, and how far the result's adaptive volume is from
++/// the body's with the construction's added (raised) or taken away (recessed), relative.
++fn volume_line(key: &str, input: &Input, result: &EmbossResult) -> String {
++    let measure = |shape: &Shape| {
++        (
++            shape.volume().expect("the shape is measured"),
++            adaptive_volume(shape).expect("the shape is measured"),
++        )
++    };
++    let body = measure(&input.body);
++    let construction = measure(&result.construction);
++    let joined = measure(&result.shape);
++    let expected = match input.spec.kind {
++        EmbossKind::Raised => body.1 + construction.1,
++        EmbossKind::Recessed => body.1 - construction.1,
++    };
++    format!(
++        "{key}: volumes (Shape::volume, adaptive): body {body:?}, construction {construction:?}, result {joined:?}; result off the body {} the construction by {:.3e} relative",
++        match input.spec.kind {
++            EmbossKind::Raised => "with",
++            EmbossKind::Recessed => "without",
++        },
++        (joined.1 - expected).abs() / expected
++    )
++}
++
++/// True when `value` is at most `limit`; false for NaN.
++fn within(value: f64, limit: f64) -> bool {
++    value <= limit
++}
++
++/// The criteria of section 8.3's Pass but time and parity that an input fails.
++fn failures(
++    result: &EmbossResult,
++    top: (f64, f64),
++    length: Option<f64>,
++    construction_valid: bool,
++    result_valid: bool,
++) -> Vec<&'static str> {
++    let mut failures = Vec::new();
++    if result.construction_validity != Validity::AsBuilt || !construction_valid {
++        failures.push("the construction is not valid as built");
++    }
++    if result.result_validity != Validity::AsBuilt || !result_valid {
++        failures.push("the emboss with its boolean is not valid as built");
++    }
++    if !within(top.0, SURFACE_TOLERANCE) {
++        failures.push("a raised top face is off the offset surface");
++    }
++    if lost_top_faces(result) > 0 {
++        failures.push("the result lost raised top faces");
++    }
++    if length.is_some_and(|error| !within(error, LENGTH_TOLERANCE)) {
++        failures.push("a wrapped outline's length is not its planar length");
++    }
++    failures
++}
++
++/// Runs one construction on one input, prints its measurements and returns the criteria it fails
++/// (or the failure of the call).
++fn measure(input: &Input, name: &str, thickening: Thickening) -> Vec<String> {
++    let key = format!("{} {name}", input.name);
++    let spec = EmbossSpec {
++        thickening,
++        ..input.spec.clone()
++    };
++    let result = match wrap_emboss(&input.body, &spec, &Interrupt::new()) {
++        Ok(result) => result,
++        Err(error) => {
++            println!("{key}: failed: {}", error.detail());
++            println!("parity {key} failure: {}", error.detail());
++            return vec![format!("failed: {}", error.detail())];
++        }
++    };
++    let offset = match input.spec.kind {
++        EmbossKind::Raised => DEPTH,
++        EmbossKind::Recessed => -DEPTH,
++    };
++    let construction_valid = result.construction.is_valid().expect("the check runs");
++    let result_valid = result.shape.is_valid().expect("the check runs");
++    let construction_top = top_deviation(
++        &result.construction,
++        &top_faces(&result, false),
++        &spec.surface,
++        offset,
++    );
++    let result_faces = top_faces(&result, true);
++    let result_top = top_deviation(&result.shape, &result_faces, &spec.surface, offset);
++    let worst_top = (
++        construction_top.0.max(result_top.0),
++        construction_top.1.max(result_top.1),
++    );
++    let length = length_error(&result, &spec);
++    let on_cylinder = matches!(spec.surface, WrapSurface::Cylinder { .. });
++    let (left, right) = developed_extent(&spec);
++    println!(
++        "{key}: {} regions, {} curves, from x = {left:.4} to {right:.4} mm of the developed plane ({:.4} mm{}); the 20-character label: {}",
++        spec.regions.len(),
++        loops(&spec)
++            .iter()
++            .map(|(_, outline)| outline.curves.len())
++            .sum::<usize>(),
++        right - left,
++        match spec.surface {
++            WrapSurface::Cylinder { radius, .. } => format!(
++                ", {:.4} rad, {:.1} percent of the circumference",
++                (right - left) / radius,
++                100.0 * (right - left) / (TAU * radius)
++            ),
++            WrapSurface::Cone { .. } => String::new(),
++        },
++        input.is_label
++    );
++    println!(
++        "{key}: construction {:?} (is_valid {construction_valid}), result {:?} (is_valid {result_valid}); open mesh edges: construction {:?}, result {:?}",
++        result.construction_validity,
++        result.result_validity,
++        open_mesh_edges(&result.construction),
++        open_mesh_edges(&result.shape),
++    );
++    println!(
++        "{key}: top faces {} in the construction, {} in the result; off the offset surface: construction {:.3e} mm (edges {:.3e}), result {:.3e} mm (edges {:.3e})",
++        top_faces(&result, false).len(),
++        result_faces.len(),
++        construction_top.0,
++        construction_top.1,
++        result_top.0,
++        result_top.1,
++    );
++    println!(
++        "{key}: wrapped outline length error {length:.3e} relative ({}); map deviation {:.3e} mm",
++        if on_cylinder { "checked" } else { "measured" },
++        result.map_deviation
++    );
++    println!(
++        "{key}: polls {} first {:.3?} longest {:.3?} after poll {} last {:.3?} total {:.3?} (debug build)",
++        result.polls.count,
++        result.polls.first,
++        result.polls.longest,
++        result.polls.longest_after,
++        result.polls.last,
++        result.polls.total
++    );
++    println!("{key}: roles {:?}", role_counts(&result));
++    println!(
++        "{key}: construction elements no role names {:?}",
++        unnamed_construction(&result)
++    );
++    for ((kind, descents), count) in history_counts(&result) {
++        println!("{key}: history {kind:?} x{count} from {descents:?}");
++    }
++    println!("{}", volume_line(&key, input, &result));
++    println!(
++        "{}",
++        parity_line(&key, "construction", &result.construction)
++    );
++    println!("{}", parity_line(&key, "result", &result.shape));
++    failures(
++        &result,
++        worst_top,
++        on_cylinder.then_some(length),
++        construction_valid,
++        result_valid,
++    )
++    .into_iter()
++    .map(String::from)
++    .collect()
++}
++
++/// Runs one input with one construction and checks the failures the spike recorded for it.
++fn check(input_name: &str, construction: &str, expected: &[&str]) {
++    let input = inputs()
++        .into_iter()
++        .find(|input| input.name == input_name)
++        .expect("the input exists");
++    let (name, thickening) = CONSTRUCTIONS
++        .into_iter()
++        .find(|(name, _)| *name == construction)
++        .expect("the construction exists");
++    let failures = measure(&input, name, thickening);
++    println!("{input_name} {construction}: fails {failures:?}");
++    assert_eq!(failures, expected, "{input_name} {construction}");
++}
++
++macro_rules! spike_tests {
++    ($($test:ident: $input:literal, $construction:literal, [$($failure:literal),*];)*) => {
++        $(
++            #[test]
++            fn $test() {
++                check($input, $construction, &[$($failure),*]);
++            }
++        )*
++    };
++}
++
++spike_tests! {
++    label_raised_simple_offset: "label raised", "simple-offset", [];
++    label_raised_thick_solid: "label raised", "thick-solid", [];
++    label_recessed_simple_offset: "label recessed", "simple-offset", [];
++    label_recessed_thick_solid: "label recessed", "thick-solid", [];
++    seam_raised_simple_offset: "seam raised", "simple-offset", [];
++    seam_raised_thick_solid: "seam raised", "thick-solid", [];
++    seam_recessed_simple_offset: "seam recessed", "simple-offset", [];
++    seam_recessed_thick_solid: "seam recessed", "thick-solid", [];
++    long_raised_simple_offset: "long raised", "simple-offset", [];
++    long_raised_thick_solid: "long raised", "thick-solid", [];
++    long_recessed_simple_offset: "long recessed", "simple-offset", [];
++    long_recessed_thick_solid: "long recessed", "thick-solid", [];
++    cone_raised_simple_offset: "cone raised", "simple-offset", [];
++    cone_raised_thick_solid: "cone raised", "thick-solid", [];
++    cone_recessed_simple_offset: "cone recessed", "simple-offset", [];
++    cone_recessed_thick_solid: "cone recessed", "thick-solid", [];
++}
++
++/// The inverse of the cone's parameter-plane map at a point of its surface: the point of the
++/// developed plane it comes from.
++fn developed_point(surface: &WrapSurface, point: Point) -> Point2 {
++    let WrapSurface::Cone {
++        frame,
++        radius,
++        half_angle,
++    } = *surface
++    else {
++        unreachable!("the check is for a cone")
++    };
++    let normal = frame.normal.normalized().expect("a unit normal");
++    let x_axis = frame.x_axis.normalized().expect("a unit x axis");
++    let y_axis = normal.cross(x_axis);
++    let offset = between(frame.origin, point);
++    let angle = offset.dot(y_axis).atan2(offset.dot(x_axis));
++    let slant = offset.dot(normal) / half_angle.cos();
++    let sine = half_angle.sin();
++    let apex = radius / sine;
++    let distance = (slant + apex) * sine.signum();
++    let sector = angle * sine.abs();
++    Point2 {
++        x: distance * sector.sin(),
++        y: sine.signum() * distance * sector.cos() - apex,
++    }
++}
++
++#[test]
++fn a_segment_and_an_arc_on_a_cone_lie_on_their_exact_images() {
++    let surface = WrapSurface::Cone {
++        frame: Plane::XY,
++        radius: 20.0,
++        half_angle: -(5.0_f64 / 30.0).atan(),
++    };
++    let start = Point2 { x: -3.0, y: 10.0 };
++    let end = Point2 { x: 4.0, y: 16.0 };
++    let center = Point2 { x: 1.0, y: 12.0 };
++    let curves = [
++        WrapCurve::Segment { start, end },
++        WrapCurve::Arc {
++            center,
++            radius: 2.5,
++            start_angle: -0.5,
++            sweep: -4.0,
++        },
++    ];
++    let edges = wrap_curves(&surface, &curves).expect("the curves map");
++
++    let mut worst: f64 = 0.0;
++    for point in edge_points(&edges, 1, SAMPLES).expect("the segment is sampled") {
++        worst = worst.max(surface_distance(&surface, point).abs());
++        let developed = developed_point(&surface, point);
++        let along = (end.x - start.x, end.y - start.y);
++        let length = along.0.hypot(along.1);
++        let across =
++            ((developed.x - start.x) * along.1 - (developed.y - start.y) * along.0) / length;
++        worst = worst.max(across.abs());
++    }
++    for point in edge_points(&edges, 2, SAMPLES).expect("the arc is sampled") {
++        worst = worst.max(surface_distance(&surface, point).abs());
++        let developed = developed_point(&surface, point);
++        let off = ((developed.x - center.x).hypot(developed.y - center.y) - 2.5).abs();
++        worst = worst.max(off);
++    }
++    println!(
++        "cone map: the sampled points lie {worst:.3e} mm off the cone or their developed curves"
++    );
++    assert!(worst < 1e-6, "{worst}");
++}
++
++#[test]
++fn an_arc_on_a_cylinder_is_an_exact_ellipse_of_the_parameter_plane() {
++    let surface = WrapSurface::Cylinder {
++        frame: Plane::XY,
++        radius: 15.0,
++    };
++    let center = Point2 { x: 40.0, y: 6.0 };
++    let arc = WrapCurve::Arc {
++        center,
++        radius: 1.5,
++        start_angle: 2.0,
++        sweep: -5.0,
++    };
++    let edges = wrap_curves(&surface, &[arc]).expect("the arc maps");
++
++    let mut worst: f64 = 0.0;
++    for point in edge_points(&edges, 1, SAMPLES).expect("the arc is sampled") {
++        let angle = point.y.atan2(point.x).rem_euclid(TAU);
++        let developed = Point2 {
++            x: 15.0 * angle,
++            y: point.z,
++        };
++        let off = ((developed.x - center.x).hypot(developed.y - center.y) - 1.5).abs();
++        worst = worst.max(off).max((point.x.hypot(point.y) - 15.0).abs());
++    }
++    println!("cylinder map: the arc's samples lie {worst:.3e} mm off the developed circle");
++    assert!(worst < 1e-6, "{worst}");
++}
+diff --git a/crates/partsmith-wasm/Cargo.toml b/crates/partsmith-wasm/Cargo.toml
+index 4e7f5cb..f481734 100644
+--- a/crates/partsmith-wasm/Cargo.toml
++++ b/crates/partsmith-wasm/Cargo.toml
+@@ -30,6 +30,8 @@ harness = false
+ 
+ [dependencies]
+ partsmith-engine.workspace = true
++# The wrap-emboss spike's calls in `main` (kernel spec section 8.1 item 2).
++partsmith-occt-sys.workspace = true
+ 
+ [dev-dependencies]
+ partsmith-budgets.workspace = true
+diff --git a/crates/partsmith-wasm/src/main.rs b/crates/partsmith-wasm/src/main.rs
+index fa319e9..9f88441 100644
+--- a/crates/partsmith-wasm/src/main.rs
++++ b/crates/partsmith-wasm/src/main.rs
+@@ -1,6 +1,85 @@
+ //! The web core module `partsmith_core`: an Emscripten executable whose runtime stays alive after `main` returns, so JavaScript can call `ps_alloc`, `ps_free` and `ps_call` (protocol.md section 2.10, ADR 0009).
+ 
++use std::hint::black_box;
++
++use partsmith_occt_sys::{
++    EmbossKind, EmbossSpec, Interrupt, Plane, Point2, Thickening, WrapCurve, WrapLoop, WrapRegion,
++    WrapSurface, adaptive_volume, edge_length, edge_points, face_points, make_cone, make_cylinder,
++    wrap_curves, wrap_emboss,
++};
++
+ fn main() {
+     // Creating the session here pays its setup cost while the module is instantiated. Calling into the library also keeps it, and with it the three exports, in the link.
+     partsmith_wasm::initialize_session();
++    keep_wrap_emboss_spike();
++}
++
++/// A square of the developed plane, 1 mm across, with its lower left corner at (x, y), counterclockwise.
++fn square(x: f64, y: f64) -> WrapRegion {
++    let corners = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)];
++    let curves = (0..corners.len())
++        .map(|corner| {
++            let (start_x, start_y) = corners[corner];
++            let (end_x, end_y) = corners[(corner + 1) % corners.len()];
++            WrapCurve::Segment {
++                start: Point2 {
++                    x: start_x,
++                    y: start_y,
++                },
++                end: Point2 { x: end_x, y: end_y },
++            }
++        })
++        .collect();
++    WrapRegion {
++        outer: WrapLoop { curves },
++        holes: Vec::new(),
++    }
++}
++
++/// Calls each function of the wrap-emboss spike once on a small input, both thickenings and both surfaces among them, so the linker keeps their code for the size measurement (kernel spec section 8.1 items 2 and 4).
++fn keep_wrap_emboss_spike() {
++    let cylinder = WrapSurface::Cylinder {
++        frame: Plane::XY,
++        radius: 5.0,
++    };
++    let cone = WrapSurface::Cone {
++        frame: Plane::XY,
++        radius: 5.0,
++        half_angle: -0.1,
++    };
++    let arc = WrapCurve::Arc {
++        center: Point2 { x: 0.0, y: 1.0 },
++        radius: 0.5,
++        start_angle: 0.0,
++        sweep: 1.0,
++    };
++    if let Ok(edges) = wrap_curves(&cylinder, &[arc]) {
++        black_box(edge_points(&edges, 1, 2).ok());
++        black_box(edge_length(&edges, 1).ok());
++    }
++    let interrupt = Interrupt::new();
++    let bodies = [
++        make_cylinder(&Plane::XY, 5.0, 3.0),
++        make_cone(&Plane::XY, 5.0, 4.7, 3.0),
++    ];
++    let embosses = [
++        (cylinder, EmbossKind::Raised, Thickening::SimpleOffset),
++        (cone, EmbossKind::Recessed, Thickening::ThickSolidBySimple),
++    ];
++    for (body, (surface, kind, thickening)) in bodies.into_iter().zip(embosses) {
++        let Ok(body) = body else {
++            continue;
++        };
++        let spec = EmbossSpec {
++            surface,
++            regions: vec![square(0.0, 1.0)],
++            depth: 0.3,
++            kind,
++            thickening,
++        };
++        if let Ok(emboss) = wrap_emboss(&body.shape, &spec, &interrupt) {
++            black_box(face_points(&emboss.construction, 1, 2).ok());
++            black_box(adaptive_volume(&emboss.shape).ok());
++        }
++    }
+ }

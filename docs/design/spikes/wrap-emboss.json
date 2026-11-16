@@ -1,0 +1,3451 @@
+{
+ "spike": "wrap-emboss",
+ "section": "kernel.md section 8.3",
+ "date": "2026-11-15",
+ "runs_utc": {
+  "comparison_tests_694d1f3": "2026-11-16T05:41:53Z/05:42:44Z, the spike's tests at 694d1f3 natively, then under Node, for the line-by-line comparison",
+  "tests_native_c471b27": "2026-11-16T05:45:07Z/05:45:26Z",
+  "tests_node_c471b27": "2026-11-16T05:46:15Z/05:46:47Z",
+  "size_build_c471b27": "2026-11-16T05:49:58Z/05:53:47Z",
+  "timed_sets_c471b27": "2026-11-16T05:56:21Z/06:04:42Z",
+  "rebuilds_7ddebc5": "2026-11-16T06:05:24Z/06:08:00Z, benches and tests on both targets, compared by SHA-256 with c471b27's",
+  "size_build_7ddebc5": "2026-11-16T06:08:15Z/06:11:26Z",
+  "tests_native_7ddebc5": "2026-11-16T06:11:39Z/06:12:00Z",
+  "tests_node_7ddebc5": "2026-11-16T06:13:24Z/06:13:58Z",
+  "whole_crate_tests_7ddebc5": "2026-11-16T06:14:07Z/06:14:24Z",
+  "unit_tests_7ddebc5": "2026-11-16T06:14:29Z/06:14:34Z, natively then under Node",
+  "lint_7ddebc5": "2026-11-16T06:14:40Z/06:14:51Z",
+  "first_run_tests": "2026-11-16T04:52Z (state of 37f5706)"
+ },
+ "branch": "spike/kernel-wrap-emboss",
+ "worktree": "/home/user/partsmith-spike",
+ "commit": "7ddebc5",
+ "base": "2c56ff9",
+ "map_source": {
+  "branch": "spike/kernel-helix-thread",
+  "commit": "fbd7d46",
+  "brought_in": "36e3783",
+  "files": [
+   "crates/partsmith-occt-sys/cpp/parameter_plane.cpp",
+   "crates/partsmith-occt-sys/src/parameter_plane.rs"
+  ],
+  "hunks": [
+   "cpp/internal.h",
+   "cpp/shim.h",
+   "src/ffi.rs",
+   "src/error.rs",
+   "src/lib.rs",
+   "build.rs"
+  ],
+  "thread_code_brought": false
+ },
+ "commits": [
+  {
+   "commit": "36e3783",
+   "what": "the parameter-plane map from fbd7d46, without the thread"
+  },
+  {
+   "commit": "37f5706",
+   "what": "the spike as first run: faces as built, offset +0.6 raised; raised inputs fail (pinned)"
+  },
+  {
+   "commit": "6799c97",
+   "what": "faces given as their solid boundary, reversed when raised, offset -depth; every input passes"
+  },
+  {
+   "commit": "485f9be",
+   "what": "bench rows with polls; web core main calls"
+  },
+  {
+   "commit": "694d1f3",
+   "what": "ancestor maps once per region (cleanup inside the timed call)"
+  },
+  {
+   "commit": "c471b27",
+   "what": "the cone map's gradients and Hessians and the inputs' shifts named in words (check round 1, m5); no result changes"
+  },
+  {
+   "commit": "7ddebc5",
+   "what": "face_points' doc comment describes the coarsest grid; its binaries are c471b27's"
+  }
+ ],
+ "patch": {
+  "path": "docs/design/spikes/wrap-emboss.patch",
+  "command": "git diff 2c56ff9..7ddebc5",
+  "bytes": 152340,
+  "files": 18,
+  "insertions": 3526,
+  "deletions": 14,
+  "for": "docs/design/spikes/wrap-emboss.patch"
+ },
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "ram_gb": 15,
+  "kernel": "Linux 6.18.44",
+  "timed_set_loads": [
+   {
+    "set": "native 1",
+    "when": "before",
+    "utc": "05:56:21",
+    "loadavg": "0.23 0.93 0.83 1/115 18716"
+   },
+   {
+    "set": "native 1",
+    "when": "after",
+    "utc": "05:56:49",
+    "loadavg": "0.53 0.94 0.84 1/119 18824"
+   },
+   {
+    "set": "native 2",
+    "when": "before",
+    "utc": "05:57:39",
+    "loadavg": "0.23 0.79 0.79 1/114 18926"
+   },
+   {
+    "set": "native 2",
+    "when": "after",
+    "utc": "05:58:07",
+    "loadavg": "0.49 0.81 0.80 1/115 18998"
+   },
+   {
+    "set": "native 3",
+    "when": "before",
+    "utc": "05:59:32",
+    "loadavg": "0.24 0.66 0.75 1/115 19376"
+   },
+   {
+    "set": "native 3",
+    "when": "after",
+    "utc": "05:59:59",
+    "loadavg": "0.54 0.69 0.75 1/115 19454"
+   },
+   {
+    "set": "node 1",
+    "when": "before",
+    "utc": "06:00:49",
+    "loadavg": "0.23 0.58 0.71 1/112 19709"
+   },
+   {
+    "set": "node 1",
+    "when": "after",
+    "utc": "06:01:30",
+    "loadavg": "0.61 0.64 0.73 1/116 19914"
+   },
+   {
+    "set": "node 2",
+    "when": "before",
+    "utc": "06:02:25",
+    "loadavg": "0.24 0.53 0.68 1/113 20321"
+   },
+   {
+    "set": "node 2",
+    "when": "after",
+    "utc": "06:03:05",
+    "loadavg": "0.61 0.59 0.70 1/116 20600"
+   },
+   {
+    "set": "node 3",
+    "when": "before",
+    "utc": "06:04:00",
+    "loadavg": "0.24 0.49 0.66 1/116 20943"
+   },
+   {
+    "set": "node 3",
+    "when": "after",
+    "utc": "06:04:42",
+    "loadavg": "0.74 0.59 0.68 1/116 21178"
+   }
+  ]
+ },
+ "tools": {
+  "rust": "1.97.0",
+  "emscripten": "4.0.15",
+  "node": "22.23.4",
+  "occt": "7.9.3"
+ },
+ "tests": {
+  "spike_native": "18 passed (7ddebc5 and c471b27)",
+  "spike_node": "18 passed (7ddebc5 and c471b27)",
+  "unit_native": "9 passed (7ddebc5)",
+  "unit_node": "9 passed (7ddebc5)",
+  "whole_crate_native": {
+   "unit": 205,
+   "integration": 569,
+   "failed": 0,
+   "ignored": 0,
+   "commit": "7ddebc5"
+  },
+  "fmt": "clean (7ddebc5)",
+  "clippy": "clean (-p partsmith-occt-sys -p partsmith-wasm --all-targets -D warnings, 7ddebc5)",
+  "outputs_compared": "the spike's test outputs at 694d1f3, c471b27 and 7ddebc5 are equal line by line on each target, apart from the debug build's poll times"
+ },
+ "inputs": {
+  "alphabet": {
+   "cap_height_mm": 5.0,
+   "stroke_mm": 0.8,
+   "gap_mm": 0.6,
+   "space_advance_mm": 2.0,
+   "bspline_character": "S",
+   "bspline": "periodic cubic, 12 poles, uniform knots 0..12",
+   "widths_mm": {
+    "P": 3.0,
+    "A": 3.6,
+    "R": 3.0,
+    "T": 3.2,
+    "S": 3.0,
+    "M": 4.0,
+    "I": 0.8,
+    "H": 3.2,
+    "L": 2.8,
+    "B": 2.9,
+    "E": 2.8,
+    "2": 3.0,
+    "0": 3.0,
+    "6": 3.0
+   },
+   "counters": [
+    "P",
+    "A",
+    "R",
+    "B (2)",
+    "0",
+    "6"
+   ]
+  },
+  "label": {
+   "text": "PARTSMITH LABEL 2026",
+   "regions": 18,
+   "loops": 26,
+   "curves": 162,
+   "segments": 140,
+   "arcs": 21,
+   "bsplines": 1,
+   "length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "developed_area_mm2": 142.967433955851
+  },
+  "cylinder": {
+   "radius_mm": 15.0,
+   "height_mm": 14.0,
+   "baseline_mm": 4.5,
+   "seam_angle_rad": 0.0
+  },
+  "label_input": {
+   "developed_x_mm": [
+    13.0739,
+    81.1739
+   ],
+   "u_rad": [
+    0.872,
+    5.412
+   ]
+  },
+  "seam_input": {
+   "developed_x_mm": [
+    -43.45,
+    24.65
+   ],
+   "u_rad": [
+    -2.897,
+    1.643
+   ],
+   "seam_through": "the middle of B (13th character)"
+  },
+  "long_input": {
+   "underline_mm": [
+    69.1,
+    0.8
+   ],
+   "gap_below_baseline_mm": 0.8,
+   "span_rad": 4.6067,
+   "circumference_percent": 73.3,
+   "regions": 19,
+   "loops": 27,
+   "curves": 166,
+   "note": "the 20-character label is already longer than half the circumference; this input adds one outline longer than half the circumference"
+  },
+  "cone_input": {
+   "frustum": "make_cone(Plane::XY, 20, 15, 30)",
+   "half_angle_rad": -0.16515,
+   "slant_mm": 30.414,
+   "text": "PARTS",
+   "regions": 5,
+   "loops": 8,
+   "curves": 43,
+   "length_mm": 18.2,
+   "baseline_slant_mm": 12.707,
+   "frame": "turned half a turn (x axis -X)",
+   "u_rad": [
+    -0.53,
+    0.53
+   ]
+  },
+  "depth_mm": 0.6,
+  "kinds": [
+   "raised (fuse)",
+   "recessed (cut)"
+  ]
+ },
+ "constructions": {
+  "simple-offset": "BRepOffset_MakeSimpleOffset per region face, SetBuildSolidFlag(true)",
+  "thick-solid": "BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple per region face (the same OCCT code: it runs BRepOffset_MakeSimpleOffset with the build-solid flag)",
+  "orientation": "each face given as its solid boundary: reversed when raised, as built when recessed; offset -0.6 mm into the solid (since 6799c97)",
+  "identical_results": true
+ },
+ "first_run_37f5706": {
+  "what": "faces as built, offset +0.6 raised and -0.6 recessed",
+  "raised": {
+   "cone raised simple-offset": {
+    "construction_volume_mm3": {
+     "Shape::volume": -23.476585422163556,
+     "adaptive_volume": -23.891792856635952
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "cone raised thick-solid": {
+    "construction_volume_mm3": {
+     "Shape::volume": -23.476585422163556,
+     "adaptive_volume": -23.891792856635952
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "label raised simple-offset": {
+    "construction_volume_mm3": {
+     "Shape::volume": -87.08032511725594,
+     "adaptive_volume": -87.49606957919724
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "label raised thick-solid": {
+    "construction_volume_mm3": {
+     "Shape::volume": -87.08032511725594,
+     "adaptive_volume": -87.49606957919724
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "long raised simple-offset": {
+    "construction_volume_mm3": {
+     "Shape::volume": -120.91168511270276,
+     "adaptive_volume": -121.32742957464386
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "long raised thick-solid": {
+    "construction_volume_mm3": {
+     "Shape::volume": -120.91168511270276,
+     "adaptive_volume": -121.32742957464386
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "seam raised simple-offset": {
+    "construction_volume_mm3": {
+     "Shape::volume": -87.08032532133255,
+     "adaptive_volume": -87.49606956407294
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   },
+   "seam raised thick-solid": {
+    "construction_volume_mm3": {
+     "Shape::volume": -87.08032532133255,
+     "adaptive_volume": -87.49606956407294
+    },
+    "result_volume_mm3": {
+     "Shape::volume": 0.0,
+     "adaptive_volume": 0.0
+    },
+    "result": "empty (no solid)",
+    "fails": [
+     "the result lost raised top faces"
+    ],
+    "validity": "construction and result valid as built by BRepCheck_Analyzer"
+   }
+  },
+  "recessed": "as now: every check passes"
+ },
+ "measurements": {
+  "cone raised simple-offset": {
+   "history": [
+    "Face x6 from [Body]",
+    "Face x5 from [Construction(TopFace, Generated, true)]",
+    "Face x43 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x43 from [Construction(BaseEdge, Section, true)]",
+    "Edge x43 from [Construction(TopEdge, Generated, true)]",
+    "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 5,
+   "curves": 43,
+   "developed_x_mm": [
+    -9.1,
+    9.1
+   ],
+   "developed_length_mm": 18.2,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 8
+   },
+   "top_faces": {
+    "construction": 5,
+    "result": 5
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 7.772e-15,
+    "construction_edges_measured": 8.395e-08,
+    "result_vertices_and_points": 7.772e-15,
+    "result_edges_measured": 8.395e-08
+   },
+   "outline_length_error_relative": 2.081e-09,
+   "outline_length": "measured",
+   "map_deviation_mm": 3.523e-08,
+   "polls_debug_build": "polls 3602 first 6.674µs longest 17.126ms after poll 1284 last 11.260ms total 189.632ms (debug build)",
+   "roles": "{(BaseFace, Section): 5, (TopFace, Generated): 5, (WallFace, Adjacent): 43, (BaseEdge, Section): 43, (TopEdge, Generated): 43, (WallEdge, Adjacent): 43, (BaseVertex, Section): 43, (TopVertex, Generated): 43}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     29059.732045705583,
+     29059.732045705525
+    ],
+    "construction": [
+     23.476585422163552,
+     23.89179285663595
+    ],
+    "result": [
+     29086.89570317646,
+     29083.623839376894
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 2.801e-11,
+   "parity_construction": "faces=53 edges=129 vertices=86 volume=23.476585422163552 area=139.83879643150456 min=[-18.49581347865581, -8.909557857856964, 12.159795045850883] max=[-14.790903430644804, 9.01269459513354, 17.56462430196265]",
+   "parity_result": "faces=54 edges=132 vertices=88 volume=29086.89570317646 area=5369.455418113428 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 8
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 7.772e-15,
+     "construction_edges_measured": 8.395e-08,
+     "result_vertices_and_points": 7.772e-15,
+     "result_edges_measured": 8.395e-08
+    },
+    "outline_length_error_relative": 2.081e-09,
+    "map_deviation_mm": 3.523e-08,
+    "volumes_mm3": {
+     "body": [
+      29059.732045705583,
+      29059.732045705518
+     ],
+     "construction": [
+      23.476585422163495,
+      23.891792856635906
+     ],
+     "result": [
+      29086.89570317843,
+      29083.623839370848
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=53 edges=129 vertices=86 volume=23.476585422163495 area=139.83879643150448 min=[-18.49581347865581, -8.909557857856964, 12.159795045850883] max=[-14.790903430644805, 9.012694595133539, 17.56462430196265]",
+    "parity_result": "faces=54 edges=132 vertices=88 volume=29086.89570317843 area=5369.455418104599 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+    "history": [
+     "Face x6 from [Body]",
+     "Face x5 from [Construction(TopFace, Generated, true)]",
+     "Face x43 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x43 from [Construction(BaseEdge, Section, true)]",
+     "Edge x43 from [Construction(TopEdge, Generated, true)]",
+     "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 185.157,
+     "sets_ms": [
+      185.157,
+      181.644,
+      188.401
+     ],
+     "spread": 0.03649335428852274,
+     "polls": 3602,
+     "first_ms": 0.002288,
+     "longest_ms": 20.873,
+     "longest_sets_ms": [
+      20.873,
+      20.526,
+      21.466
+     ],
+     "longest_most_ms": 27.253,
+     "longest_after": [
+      1284
+     ],
+     "last_ms": 12.355,
+     "last_most_ms": 12.367,
+     "outside_ms": 0.126446,
+     "outside_most_ms": 0.157
+    },
+    "node": {
+     "median_ms": 266.019,
+     "sets_ms": [
+      241.826,
+      266.019,
+      288.118
+     ],
+     "spread": 0.17401764535615877,
+     "polls": 3602,
+     "first_ms": 0.003155,
+     "longest_ms": 28.37,
+     "longest_sets_ms": [
+      25.979,
+      28.37,
+      28.752
+     ],
+     "longest_most_ms": 30.145,
+     "longest_after": [
+      11,
+      1284,
+      1532
+     ],
+     "last_ms": 19.133,
+     "last_most_ms": 20.708,
+     "outside_ms": 0.118439,
+     "outside_most_ms": 0.131
+    }
+   }
+  },
+  "cone raised thick-solid": {
+   "history": [
+    "Face x6 from [Body]",
+    "Face x5 from [Construction(TopFace, Generated, true)]",
+    "Face x43 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x43 from [Construction(BaseEdge, Section, true)]",
+    "Edge x43 from [Construction(TopEdge, Generated, true)]",
+    "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 5,
+   "curves": 43,
+   "developed_x_mm": [
+    -9.1,
+    9.1
+   ],
+   "developed_length_mm": 18.2,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 8
+   },
+   "top_faces": {
+    "construction": 5,
+    "result": 5
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 7.772e-15,
+    "construction_edges_measured": 8.395e-08,
+    "result_vertices_and_points": 7.772e-15,
+    "result_edges_measured": 8.395e-08
+   },
+   "outline_length_error_relative": 2.081e-09,
+   "outline_length": "measured",
+   "map_deviation_mm": 3.523e-08,
+   "polls_debug_build": "polls 3602 first 7.747µs longest 20.355ms after poll 1284 last 17.622ms total 199.867ms (debug build)",
+   "roles": "{(BaseFace, Section): 5, (TopFace, Generated): 5, (WallFace, Adjacent): 43, (BaseEdge, Section): 43, (TopEdge, Generated): 43, (WallEdge, Adjacent): 43, (BaseVertex, Section): 43, (TopVertex, Generated): 43}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     29059.732045705583,
+     29059.732045705525
+    ],
+    "construction": [
+     23.476585422163552,
+     23.89179285663595
+    ],
+    "result": [
+     29086.89570317646,
+     29083.623839376894
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 2.801e-11,
+   "parity_construction": "faces=53 edges=129 vertices=86 volume=23.476585422163552 area=139.83879643150456 min=[-18.49581347865581, -8.909557857856964, 12.159795045850883] max=[-14.790903430644804, 9.01269459513354, 17.56462430196265]",
+   "parity_result": "faces=54 edges=132 vertices=88 volume=29086.89570317646 area=5369.455418113428 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 8
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 7.772e-15,
+     "construction_edges_measured": 8.395e-08,
+     "result_vertices_and_points": 7.772e-15,
+     "result_edges_measured": 8.395e-08
+    },
+    "outline_length_error_relative": 2.081e-09,
+    "map_deviation_mm": 3.523e-08,
+    "volumes_mm3": {
+     "body": [
+      29059.732045705583,
+      29059.732045705518
+     ],
+     "construction": [
+      23.476585422163495,
+      23.891792856635906
+     ],
+     "result": [
+      29086.89570317843,
+      29083.623839370848
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=53 edges=129 vertices=86 volume=23.476585422163495 area=139.83879643150448 min=[-18.49581347865581, -8.909557857856964, 12.159795045850883] max=[-14.790903430644805, 9.012694595133539, 17.56462430196265]",
+    "parity_result": "faces=54 edges=132 vertices=88 volume=29086.89570317843 area=5369.455418104599 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+    "history": [
+     "Face x6 from [Body]",
+     "Face x5 from [Construction(TopFace, Generated, true)]",
+     "Face x43 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x43 from [Construction(BaseEdge, Section, true)]",
+     "Edge x43 from [Construction(TopEdge, Generated, true)]",
+     "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 185.864,
+     "sets_ms": [
+      185.569,
+      185.864,
+      192.78
+     ],
+     "spread": 0.038797185038522856,
+     "polls": 3602,
+     "first_ms": 0.002227,
+     "longest_ms": 20.831,
+     "longest_sets_ms": [
+      20.779,
+      20.831,
+      21.213
+     ],
+     "longest_most_ms": 35.04,
+     "longest_after": [
+      1284,
+      1532
+     ],
+     "last_ms": 12.543,
+     "last_most_ms": 13.049,
+     "outside_ms": 0.154165,
+     "outside_most_ms": 0.261
+    },
+    "node": {
+     "median_ms": 253.138,
+     "sets_ms": [
+      253.138,
+      238.82,
+      273.794
+     ],
+     "spread": 0.1381617931721037,
+     "polls": 3602,
+     "first_ms": 0.003101,
+     "longest_ms": 28.344,
+     "longest_sets_ms": [
+      28.344,
+      26.248,
+      28.945
+     ],
+     "longest_most_ms": 36.925,
+     "longest_after": [
+      1284
+     ],
+     "last_ms": 17.479,
+     "last_most_ms": 18.917,
+     "outside_ms": 0.122457,
+     "outside_most_ms": 0.166
+    }
+   }
+  },
+  "cone recessed simple-offset": {
+   "history": [
+    "Face x6 from [Body]",
+    "Face x5 from [Construction(TopFace, Generated, true)]",
+    "Face x43 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x43 from [Construction(BaseEdge, Section, true)]",
+    "Edge x43 from [Construction(TopEdge, Generated, true)]",
+    "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 5,
+   "curves": 43,
+   "developed_x_mm": [
+    -9.1,
+    9.1
+   ],
+   "developed_length_mm": 18.2,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 8
+   },
+   "top_faces": {
+    "construction": 5,
+    "result": 5
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 4.33e-15,
+    "construction_edges_measured": 6.849e-08,
+    "result_vertices_and_points": 4.33e-15,
+    "result_edges_measured": 6.849e-08
+   },
+   "outline_length_error_relative": 2.081e-09,
+   "outline_length": "measured",
+   "map_deviation_mm": 3.523e-08,
+   "polls_debug_build": "polls 3612 first 8.884µs longest 23.440ms after poll 1284 last 17.905ms total 243.986ms (debug build)",
+   "roles": "{(BaseFace, Section): 5, (TopFace, Generated): 5, (WallFace, Adjacent): 43, (BaseEdge, Section): 43, (TopEdge, Generated): 43, (WallEdge, Adjacent): 43, (BaseVertex, Section): 43, (TopVertex, Generated): 43}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     29059.732045705583,
+     29059.732045705525
+    ],
+    "construction": [
+     22.694836511571026,
+     23.09680246764782
+    ],
+    "result": [
+     29035.884114365428,
+     29036.63524399737
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 2.616e-11,
+   "parity_construction": "faces=53 edges=129 vertices=86 volume=22.694836511571026 area=136.36866190666134 min=[-17.90420771293873, -8.621640904890388, 12.061155653467669] max=[-14.280607873183563, 8.725380741687111, 17.465984909579436]",
+   "parity_result": "faces=54 edges=132 vertices=88 volume=29035.884114365428 area=5365.985283588585 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 8
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 6.217e-15,
+     "construction_edges_measured": 6.849e-08,
+     "result_vertices_and_points": 6.217e-15,
+     "result_edges_measured": 6.849e-08
+    },
+    "outline_length_error_relative": 2.081e-09,
+    "map_deviation_mm": 3.523e-08,
+    "volumes_mm3": {
+     "body": [
+      29059.732045705583,
+      29059.732045705518
+     ],
+     "construction": [
+      22.694836511570834,
+      23.09680246764778
+     ],
+     "result": [
+      29035.884114365563,
+      29036.635243989098
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=53 edges=129 vertices=86 volume=22.694836511570834 area=136.36866190666123 min=[-17.90420771293873, -8.621640904890388, 12.061155653467669] max=[-14.280607873183564, 8.72538074168711, 17.465984909579436]",
+    "parity_result": "faces=54 edges=132 vertices=88 volume=29035.884114365563 area=5365.985283579756 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+    "history": [
+     "Face x6 from [Body]",
+     "Face x5 from [Construction(TopFace, Generated, true)]",
+     "Face x43 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x43 from [Construction(BaseEdge, Section, true)]",
+     "Edge x43 from [Construction(TopEdge, Generated, true)]",
+     "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 198.089,
+     "sets_ms": [
+      201.095,
+      173.866,
+      198.089
+     ],
+     "spread": 0.13745841515682336,
+     "polls": 3612,
+     "first_ms": 0.002368,
+     "longest_ms": 21.079,
+     "longest_sets_ms": [
+      21.079,
+      18.89,
+      21.325
+     ],
+     "longest_most_ms": 23.049,
+     "longest_after": [
+      1284
+     ],
+     "last_ms": 12.601,
+     "last_most_ms": 12.859,
+     "outside_ms": 0.137189,
+     "outside_most_ms": 0.18
+    },
+    "node": {
+     "median_ms": 276.945,
+     "sets_ms": [
+      276.945,
+      300.815,
+      272.65
+     ],
+     "spread": 0.1016988932820597,
+     "polls": 3612,
+     "first_ms": 0.003205,
+     "longest_ms": 28.901,
+     "longest_sets_ms": [
+      29.01,
+      28.901,
+      28.258
+     ],
+     "longest_most_ms": 32.687,
+     "longest_after": [
+      11,
+      1284
+     ],
+     "last_ms": 19.137,
+     "last_most_ms": 19.39,
+     "outside_ms": 0.127942,
+     "outside_most_ms": 0.155
+    }
+   },
+   "parity_identical_note": "the floors' distance from the offset surface differs by rounding: 4.330e-15 mm natively, 6.217e-15 mm under Node"
+  },
+  "cone recessed thick-solid": {
+   "history": [
+    "Face x6 from [Body]",
+    "Face x5 from [Construction(TopFace, Generated, true)]",
+    "Face x43 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x43 from [Construction(BaseEdge, Section, true)]",
+    "Edge x43 from [Construction(TopEdge, Generated, true)]",
+    "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 5,
+   "curves": 43,
+   "developed_x_mm": [
+    -9.1,
+    9.1
+   ],
+   "developed_length_mm": 18.2,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 8
+   },
+   "top_faces": {
+    "construction": 5,
+    "result": 5
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 4.33e-15,
+    "construction_edges_measured": 6.849e-08,
+    "result_vertices_and_points": 4.33e-15,
+    "result_edges_measured": 6.849e-08
+   },
+   "outline_length_error_relative": 2.081e-09,
+   "outline_length": "measured",
+   "map_deviation_mm": 3.523e-08,
+   "polls_debug_build": "polls 3612 first 7.840µs longest 23.900ms after poll 1284 last 14.345ms total 234.541ms (debug build)",
+   "roles": "{(BaseFace, Section): 5, (TopFace, Generated): 5, (WallFace, Adjacent): 43, (BaseEdge, Section): 43, (TopEdge, Generated): 43, (WallEdge, Adjacent): 43, (BaseVertex, Section): 43, (TopVertex, Generated): 43}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     29059.732045705583,
+     29059.732045705525
+    ],
+    "construction": [
+     22.694836511571026,
+     23.09680246764782
+    ],
+    "result": [
+     29035.884114365428,
+     29036.63524399737
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 2.616e-11,
+   "parity_construction": "faces=53 edges=129 vertices=86 volume=22.694836511571026 area=136.36866190666134 min=[-17.90420771293873, -8.621640904890388, 12.061155653467669] max=[-14.280607873183563, 8.725380741687111, 17.465984909579436]",
+   "parity_result": "faces=54 edges=132 vertices=88 volume=29035.884114365428 area=5365.985283588585 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 8
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 6.217e-15,
+     "construction_edges_measured": 6.849e-08,
+     "result_vertices_and_points": 6.217e-15,
+     "result_edges_measured": 6.849e-08
+    },
+    "outline_length_error_relative": 2.081e-09,
+    "map_deviation_mm": 3.523e-08,
+    "volumes_mm3": {
+     "body": [
+      29059.732045705583,
+      29059.732045705518
+     ],
+     "construction": [
+      22.694836511570834,
+      23.09680246764778
+     ],
+     "result": [
+      29035.884114365563,
+      29036.635243989098
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=53 edges=129 vertices=86 volume=22.694836511570834 area=136.36866190666123 min=[-17.90420771293873, -8.621640904890388, 12.061155653467669] max=[-14.280607873183564, 8.72538074168711, 17.465984909579436]",
+    "parity_result": "faces=54 edges=132 vertices=88 volume=29035.884114365563 area=5365.985283579756 min=[-20.0000001, -20.0000001, -1e-7] max=[20.0000001, 20.0000001, 30.0000001]",
+    "history": [
+     "Face x6 from [Body]",
+     "Face x5 from [Construction(TopFace, Generated, true)]",
+     "Face x43 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x43 from [Construction(BaseEdge, Section, true)]",
+     "Edge x43 from [Construction(TopEdge, Generated, true)]",
+     "Edge x43 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x43 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x43 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 197.766,
+     "sets_ms": [
+      236.834,
+      184.208,
+      197.766
+     ],
+     "spread": 0.26610236339916876,
+     "polls": 3612,
+     "first_ms": 0.00223,
+     "longest_ms": 21.25,
+     "longest_sets_ms": [
+      26.703,
+      19.398,
+      21.25
+     ],
+     "longest_most_ms": 28.575,
+     "longest_after": [
+      1284
+     ],
+     "last_ms": 12.596,
+     "last_most_ms": 13.629,
+     "outside_ms": 0.122163,
+     "outside_most_ms": 0.195
+    },
+    "node": {
+     "median_ms": 273.325,
+     "sets_ms": [
+      280.019,
+      262.736,
+      273.325
+     ],
+     "spread": 0.06323241562242757,
+     "polls": 3612,
+     "first_ms": 0.002918,
+     "longest_ms": 28.257,
+     "longest_sets_ms": [
+      28.277,
+      27.646,
+      28.257
+     ],
+     "longest_most_ms": 38.122,
+     "longest_after": [
+      1284
+     ],
+     "last_ms": 18.678,
+     "last_most_ms": 19.176,
+     "outside_ms": 0.119046,
+     "outside_most_ms": 0.148
+    }
+   },
+   "parity_identical_note": "the floors' distance from the offset surface differs by rounding: 4.330e-15 mm natively, 6.217e-15 mm under Node"
+  },
+  "label raised simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x162 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    13.0739,
+    81.1739
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 6.083e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 6.083e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 12654 first 8.418µs longest 76.081ms after poll 37 last 48.321ms total 575.096ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     87.08032511725595,
+     87.49606957919723
+    ],
+    "result": [
+     9982.99464845501,
+     9983.512928834198
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 4.479e-11,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032511725595 area=513.8802418809471 min=[-15.595753626002676, -15.597123696094936, 4.499999899999999] max=[10.040291431931234, 15.600000100492315, 9.50000010001779]",
+   "parity_result": "faces=191 edges=489 vertices=326 volume=9982.99464845501 area=2961.2615280443233 min=[-15.595753626002676, -15.597123696094936, -1e-7] max=[15.0000001, 15.600000100492315, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 6.083e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 6.083e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      87.080325117256,
+      87.49606957919725
+     ],
+     "result": [
+      9982.99464847036,
+      9983.51292885308
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=87.080325117256 area=513.8802418809472 min=[-15.595753626002676, -15.597123696094936, 4.499999899999999] max=[10.040291431931234, 15.600000100492315, 9.50000010001779]",
+    "parity_result": "faces=191 edges=489 vertices=326 volume=9982.99464847036 area=2961.2615280456084 min=[-15.595753626002676, -15.597123696094936, -1e-7] max=[15.0000001, 15.600000100492315, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x162 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 382.081,
+     "sets_ms": [
+      410.606,
+      345.523,
+      382.081
+     ],
+     "spread": 0.17033822671108997,
+     "polls": 12654,
+     "first_ms": 0.002595,
+     "longest_ms": 40.188,
+     "longest_sets_ms": [
+      45.056,
+      36.531,
+      40.188
+     ],
+     "longest_most_ms": 62.527,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 38.795,
+     "last_most_ms": 39.723,
+     "outside_ms": 0.385003,
+     "outside_most_ms": 1.083
+    },
+    "node": {
+     "median_ms": 612.348,
+     "sets_ms": [
+      612.348,
+      604.98,
+      625.571
+     ],
+     "spread": 0.03362630399707357,
+     "polls": 12654,
+     "first_ms": 0.003616,
+     "longest_ms": 61.427,
+     "longest_sets_ms": [
+      61.1,
+      61.427,
+      71.437
+     ],
+     "longest_most_ms": 90.356,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 55.783,
+     "last_most_ms": 57.71,
+     "outside_ms": 0.446635,
+     "outside_most_ms": 2.329
+    }
+   }
+  },
+  "label raised thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x162 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    13.0739,
+    81.1739
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 6.083e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 6.083e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 12654 first 9.573µs longest 69.746ms after poll 37 last 53.438ms total 503.978ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     87.08032511725595,
+     87.49606957919723
+    ],
+    "result": [
+     9982.99464845501,
+     9983.512928834198
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 4.479e-11,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032511725595 area=513.8802418809471 min=[-15.595753626002676, -15.597123696094936, 4.499999899999999] max=[10.040291431931234, 15.600000100492315, 9.50000010001779]",
+   "parity_result": "faces=191 edges=489 vertices=326 volume=9982.99464845501 area=2961.2615280443233 min=[-15.595753626002676, -15.597123696094936, -1e-7] max=[15.0000001, 15.600000100492315, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 6.083e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 6.083e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      87.080325117256,
+      87.49606957919725
+     ],
+     "result": [
+      9982.99464847036,
+      9983.51292885308
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=87.080325117256 area=513.8802418809472 min=[-15.595753626002676, -15.597123696094936, 4.499999899999999] max=[10.040291431931234, 15.600000100492315, 9.50000010001779]",
+    "parity_result": "faces=191 edges=489 vertices=326 volume=9982.99464847036 area=2961.2615280456084 min=[-15.595753626002676, -15.597123696094936, -1e-7] max=[15.0000001, 15.600000100492315, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x162 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 347.469,
+     "sets_ms": [
+      384.333,
+      347.469,
+      339.23
+     ],
+     "spread": 0.12980438542718922,
+     "polls": 12654,
+     "first_ms": 0.002416,
+     "longest_ms": 36.213,
+     "longest_sets_ms": [
+      40.623,
+      36.213,
+      35.167
+     ],
+     "longest_most_ms": 57.93,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 36.238,
+     "last_most_ms": 40.337,
+     "outside_ms": 0.426426,
+     "outside_most_ms": 0.607
+    },
+    "node": {
+     "median_ms": 540.923,
+     "sets_ms": [
+      540.923,
+      494.614,
+      594.965
+     ],
+     "spread": 0.18551808667777125,
+     "polls": 12654,
+     "first_ms": 0.00446,
+     "longest_ms": 54.384,
+     "longest_sets_ms": [
+      54.319,
+      54.384,
+      55.953
+     ],
+     "longest_most_ms": 61.393,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 52.748,
+     "last_most_ms": 59.421,
+     "outside_ms": 0.415218,
+     "outside_most_ms": 0.763
+    }
+   }
+  },
+  "label recessed simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x162 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    13.0739,
+    81.1739
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 8.549e-15,
+    "construction_edges_measured": 6.694e-08,
+    "result_vertices_and_points": 8.549e-15,
+    "result_edges_measured": 6.694e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13196 first 9.820µs longest 70.286ms after poll 37 last 46.295ms total 635.435ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     83.66541035069744,
+     84.06485116939344
+    ],
+    "result": [
+     9813.783571797077,
+     9811.952008132306
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 5.033e-11,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541035069744 area=499.033292133763 min=[-14.99591695192565, -14.997234327014363, 4.499999899999999] max=[9.65412638070311, 15.000000100473383, 9.50000010001779]",
+   "parity_result": "faces=191 edges=489 vertices=326 volume=9813.783571797077 area=2946.4145782971473 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000100473383, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 8.549e-15,
+     "construction_edges_measured": 6.694e-08,
+     "result_vertices_and_points": 8.549e-15,
+     "result_edges_measured": 6.694e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      83.66541035069748,
+      84.06485116939344
+     ],
+     "result": [
+      9813.783571812068,
+      9811.95200815085
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541035069748 area=499.033292133763 min=[-14.99591695192565, -14.997234327014363, 4.499999899999999] max=[9.65412638070311, 15.000000100473383, 9.50000010001779]",
+    "parity_result": "faces=191 edges=489 vertices=326 volume=9813.783571812068 area=2946.4145782984324 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000100473383, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x162 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 402.602,
+     "sets_ms": [
+      402.602,
+      353.048,
+      429.725
+     ],
+     "spread": 0.1904535993363173,
+     "polls": 13196,
+     "first_ms": 0.002588,
+     "longest_ms": 39.987,
+     "longest_sets_ms": [
+      39.987,
+      34.882,
+      41.797
+     ],
+     "longest_most_ms": 51.457,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 37.301,
+     "last_most_ms": 38.72,
+     "outside_ms": 0.431074,
+     "outside_most_ms": 0.458
+    },
+    "node": {
+     "median_ms": 577.625,
+     "sets_ms": [
+      577.625,
+      571.942,
+      602.224
+     ],
+     "spread": 0.05242501623025326,
+     "polls": 13196,
+     "first_ms": 0.003695,
+     "longest_ms": 54.152,
+     "longest_sets_ms": [
+      54.152,
+      53.586,
+      55.457
+     ],
+     "longest_most_ms": 56.595,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 51.382,
+     "last_most_ms": 52.937,
+     "outside_ms": 0.401963,
+     "outside_most_ms": 0.46
+    }
+   }
+  },
+  "label recessed thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x162 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    13.0739,
+    81.1739
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 8.549e-15,
+    "construction_edges_measured": 6.694e-08,
+    "result_vertices_and_points": 8.549e-15,
+    "result_edges_measured": 6.694e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13196 first 8.431µs longest 59.741ms after poll 37 last 50.005ms total 547.702ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     83.66541035069744,
+     84.06485116939344
+    ],
+    "result": [
+     9813.783571797077,
+     9811.952008132306
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 5.033e-11,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541035069744 area=499.033292133763 min=[-14.99591695192565, -14.997234327014363, 4.499999899999999] max=[9.65412638070311, 15.000000100473383, 9.50000010001779]",
+   "parity_result": "faces=191 edges=489 vertices=326 volume=9813.783571797077 area=2946.4145782971473 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000100473383, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 8.549e-15,
+     "construction_edges_measured": 6.694e-08,
+     "result_vertices_and_points": 8.549e-15,
+     "result_edges_measured": 6.694e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      83.66541035069748,
+      84.06485116939344
+     ],
+     "result": [
+      9813.783571812068,
+      9811.95200815085
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541035069748 area=499.033292133763 min=[-14.99591695192565, -14.997234327014363, 4.499999899999999] max=[9.65412638070311, 15.000000100473383, 9.50000010001779]",
+    "parity_result": "faces=191 edges=489 vertices=326 volume=9813.783571812068 area=2946.4145782984324 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000100473383, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x162 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 409.818,
+     "sets_ms": [
+      403.226,
+      409.818,
+      419.517
+     ],
+     "spread": 0.03975179225900277,
+     "polls": 13196,
+     "first_ms": 0.002686,
+     "longest_ms": 39.443,
+     "longest_sets_ms": [
+      39.443,
+      37.541,
+      40.409
+     ],
+     "longest_most_ms": 49.625,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 39.309,
+     "last_most_ms": 40.09,
+     "outside_ms": 0.436114,
+     "outside_most_ms": 0.544
+    },
+    "node": {
+     "median_ms": 593.172,
+     "sets_ms": [
+      599.297,
+      593.172,
+      588.262
+     ],
+     "spread": 0.018603373051998547,
+     "polls": 13196,
+     "first_ms": 0.004074,
+     "longest_ms": 54.328,
+     "longest_sets_ms": [
+      56.79,
+      53.454,
+      54.328
+     ],
+     "longest_most_ms": 78.92,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 50.987,
+     "last_most_ms": 51.401,
+     "outside_ms": 0.38527,
+     "outside_most_ms": 0.755
+    }
+   }
+  },
+  "long raised simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x19 from [Construction(TopFace, Generated, true)]",
+    "Face x166 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x166 from [Construction(BaseEdge, Section, true)]",
+    "Edge x166 from [Construction(TopEdge, Generated, true)]",
+    "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 19,
+   "curves": 166,
+   "developed_x_mm": [
+    12.5739,
+    81.6739
+   ],
+   "developed_length_mm": 69.1,
+   "span_rad": 4.6067,
+   "circumference_percent": 73.3,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 19,
+    "result": 19
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 6.083e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 6.083e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13008 first 7.832µs longest 53.301ms after poll 39 last 52.095ms total 540.632ms (debug build)",
+   "roles": "{(BaseFace, Section): 19, (TopFace, Generated): 19, (WallFace, Adjacent): 166, (BaseEdge, Section): 166, (TopEdge, Generated): 166, (WallEdge, Adjacent): 166, (BaseVertex, Section): 166, (TopVertex, Generated): 166}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     120.91168511270277,
+     121.32742957464386
+    ],
+    "result": [
+     10016.905863057553,
+     10017.344288825123
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 4.419e-11,
+   "parity_construction": "faces=204 edges=498 vertices=332 volume=120.91168511270277 area=712.189841846798 min=[-15.60000009703758, -15.600000106882515, 2.899999899999997] max=[10.432624887321575, 15.600000106882502, 9.50000010001779]",
+   "parity_result": "faces=196 edges=501 vertices=334 volume=10016.905863057553 area=3049.011128010173 min=[-15.60000009703758, -15.600000106882515, -1e-7] max=[15.0000001, 15.600000106882502, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 6.083e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 6.083e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      120.91168511270249,
+      121.3274295746436
+     ],
+     "result": [
+      10016.905863072221,
+      10017.344288843362
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=204 edges=498 vertices=332 volume=120.91168511270249 area=712.1898418467962 min=[-15.600000097037586, -15.600000106882533, 2.899999899999997] max=[10.432624887321573, 15.600000106882542, 9.50000010001779]",
+    "parity_result": "faces=196 edges=501 vertices=334 volume=10016.905863072221 area=3049.011128011456 min=[-15.600000097037586, -15.600000106882533, -1e-7] max=[15.0000001, 15.600000106882542, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x19 from [Construction(TopFace, Generated, true)]",
+     "Face x166 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x166 from [Construction(BaseEdge, Section, true)]",
+     "Edge x166 from [Construction(TopEdge, Generated, true)]",
+     "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 410.611,
+     "sets_ms": [
+      452.994,
+      400.916,
+      410.611
+     ],
+     "spread": 0.12683050381017566,
+     "polls": 13008,
+     "first_ms": 0.002632,
+     "longest_ms": 44.21,
+     "longest_sets_ms": [
+      44.21,
+      40.716,
+      48.432
+     ],
+     "longest_most_ms": 70.386,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 41.431,
+     "last_most_ms": 47.599,
+     "outside_ms": 0.533174,
+     "outside_most_ms": 1.277
+    },
+    "node": {
+     "median_ms": 561.802,
+     "sets_ms": [
+      586.44,
+      518.8,
+      561.802
+     ],
+     "spread": 0.12039828978892937,
+     "polls": 13008,
+     "first_ms": 0.003929,
+     "longest_ms": 58.076,
+     "longest_sets_ms": [
+      58.076,
+      53.073,
+      61.594
+     ],
+     "longest_most_ms": 82.358,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 54.91,
+     "last_most_ms": 56.276,
+     "outside_ms": 0.438388,
+     "outside_most_ms": 0.825
+    }
+   }
+  },
+  "long raised thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x19 from [Construction(TopFace, Generated, true)]",
+    "Face x166 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x166 from [Construction(BaseEdge, Section, true)]",
+    "Edge x166 from [Construction(TopEdge, Generated, true)]",
+    "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 19,
+   "curves": 166,
+   "developed_x_mm": [
+    12.5739,
+    81.6739
+   ],
+   "developed_length_mm": 69.1,
+   "span_rad": 4.6067,
+   "circumference_percent": 73.3,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 19,
+    "result": 19
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 6.083e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 6.083e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13008 first 7.097µs longest 55.796ms after poll 39 last 62.648ms total 488.736ms (debug build)",
+   "roles": "{(BaseFace, Section): 19, (TopFace, Generated): 19, (WallFace, Adjacent): 166, (BaseEdge, Section): 166, (TopEdge, Generated): 166, (WallEdge, Adjacent): 166, (BaseVertex, Section): 166, (TopVertex, Generated): 166}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     120.91168511270277,
+     121.32742957464386
+    ],
+    "result": [
+     10016.905863057553,
+     10017.344288825123
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 4.419e-11,
+   "parity_construction": "faces=204 edges=498 vertices=332 volume=120.91168511270277 area=712.189841846798 min=[-15.60000009703758, -15.600000106882515, 2.899999899999997] max=[10.432624887321575, 15.600000106882502, 9.50000010001779]",
+   "parity_result": "faces=196 edges=501 vertices=334 volume=10016.905863057553 area=3049.011128010173 min=[-15.60000009703758, -15.600000106882515, -1e-7] max=[15.0000001, 15.600000106882502, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 6.083e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 6.083e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      120.91168511270249,
+      121.3274295746436
+     ],
+     "result": [
+      10016.905863072221,
+      10017.344288843362
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=204 edges=498 vertices=332 volume=120.91168511270249 area=712.1898418467962 min=[-15.600000097037586, -15.600000106882533, 2.899999899999997] max=[10.432624887321573, 15.600000106882542, 9.50000010001779]",
+    "parity_result": "faces=196 edges=501 vertices=334 volume=10016.905863072221 area=3049.011128011456 min=[-15.600000097037586, -15.600000106882533, -1e-7] max=[15.0000001, 15.600000106882542, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x19 from [Construction(TopFace, Generated, true)]",
+     "Face x166 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x166 from [Construction(BaseEdge, Section, true)]",
+     "Edge x166 from [Construction(TopEdge, Generated, true)]",
+     "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 395.333,
+     "sets_ms": [
+      402.415,
+      383.661,
+      395.333
+     ],
+     "spread": 0.047438488565336105,
+     "polls": 13008,
+     "first_ms": 0.002697,
+     "longest_ms": 42.241,
+     "longest_sets_ms": [
+      42.323,
+      41.204,
+      42.241
+     ],
+     "longest_most_ms": 53.474,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 41.782,
+     "last_most_ms": 46.206,
+     "outside_ms": 0.488412,
+     "outside_most_ms": 0.57
+    },
+    "node": {
+     "median_ms": 563.314,
+     "sets_ms": [
+      563.314,
+      581.123,
+      554.476
+     ],
+     "spread": 0.04730399031446059,
+     "polls": 13008,
+     "first_ms": 0.003608,
+     "longest_ms": 57.639,
+     "longest_sets_ms": [
+      57.639,
+      58.355,
+      56.425
+     ],
+     "longest_most_ms": 87.978,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 56.551,
+     "last_most_ms": 58.745,
+     "outside_ms": 0.423026,
+     "outside_most_ms": 0.628
+    }
+   }
+  },
+  "long recessed simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x19 from [Construction(TopFace, Generated, true)]",
+    "Face x166 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x166 from [Construction(BaseEdge, Section, true)]",
+    "Edge x166 from [Construction(TopEdge, Generated, true)]",
+    "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 19,
+   "curves": 166,
+   "developed_x_mm": [
+    12.5739,
+    81.6739
+   ],
+   "developed_length_mm": 69.1,
+   "span_rad": 4.6067,
+   "circumference_percent": 73.3,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 19,
+    "result": 19
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 8.549e-15,
+    "construction_edges_measured": 6.694e-08,
+    "result_vertices_and_points": 8.549e-15,
+    "result_edges_measured": 6.694e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13551 first 9.215µs longest 71.025ms after poll 39 last 57.849ms total 660.747ms (debug build)",
+   "roles": "{(BaseFace, Section): 19, (TopFace, Generated): 19, (WallFace, Adjacent): 166, (BaseEdge, Section): 166, (TopEdge, Generated): 166, (WallEdge, Adjacent): 166, (BaseVertex, Section): 166, (TopVertex, Generated): 166}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     116.17005034632258,
+     116.56949116501843
+    ],
+    "result": [
+     9781.188696104056,
+     9779.44736813314
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 5.014e-11,
+   "parity_construction": "faces=204 edges=498 vertices=332 volume=116.17005034632258 area=689.6036921009515 min=[-15.000000097151531, -15.000000106617794, 2.899999899999997] max=[10.031370087809153, 15.0000001066178, 9.50000010001779]",
+   "parity_result": "faces=196 edges=501 vertices=334 volume=9781.188696104056 area=3026.424978264334 min=[-15.0000001, -15.000000106617794, -1e-7] max=[15.0000001, 15.0000001066178, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 8.549e-15,
+     "construction_edges_measured": 6.694e-08,
+     "result_vertices_and_points": 8.549e-15,
+     "result_edges_measured": 6.694e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      116.17005034632281,
+      116.56949116501859
+     ],
+     "result": [
+      9781.188696118392,
+      9779.447368151072
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=204 edges=498 vertices=332 volume=116.17005034632281 area=689.6036921009529 min=[-15.00000009715153, -15.000000106617808, 2.899999899999997] max=[10.031370087809131, 15.000000106617799, 9.50000010001779]",
+    "parity_result": "faces=196 edges=501 vertices=334 volume=9781.188696118392 area=3026.4249782656207 min=[-15.0000001, -15.000000106617808, -1e-7] max=[15.0000001, 15.000000106617799, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x19 from [Construction(TopFace, Generated, true)]",
+     "Face x166 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x166 from [Construction(BaseEdge, Section, true)]",
+     "Edge x166 from [Construction(TopEdge, Generated, true)]",
+     "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 341.735,
+     "sets_ms": [
+      328.812,
+      426.128,
+      341.735
+     ],
+     "spread": 0.2847703630005705,
+     "polls": 13551,
+     "first_ms": 0.00246,
+     "longest_ms": 33.253,
+     "longest_sets_ms": [
+      33.253,
+      42.036,
+      32.787
+     ],
+     "longest_most_ms": 43.377,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 34.106,
+     "last_most_ms": 41.555,
+     "outside_ms": 0.429918,
+     "outside_most_ms": 1.52
+    },
+    "node": {
+     "median_ms": 585.862,
+     "sets_ms": [
+      610.169,
+      585.756,
+      585.862
+     ],
+     "spread": 0.04167022268042647,
+     "polls": 13551,
+     "first_ms": 0.004123,
+     "longest_ms": 57.05,
+     "longest_sets_ms": [
+      57.05,
+      54.972,
+      57.167
+     ],
+     "longest_most_ms": 70.846,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 52.531,
+     "last_most_ms": 54.71,
+     "outside_ms": 0.413685,
+     "outside_most_ms": 0.449
+    }
+   }
+  },
+  "long recessed thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x19 from [Construction(TopFace, Generated, true)]",
+    "Face x166 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x3 from [Body]",
+    "Edge x166 from [Construction(BaseEdge, Section, true)]",
+    "Edge x166 from [Construction(TopEdge, Generated, true)]",
+    "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+   ],
+   "regions": 19,
+   "curves": 166,
+   "developed_x_mm": [
+    12.5739,
+    81.6739
+   ],
+   "developed_length_mm": 69.1,
+   "span_rad": 4.6067,
+   "circumference_percent": 73.3,
+   "is_20_character_label": false,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 19,
+    "result": 19
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 8.549e-15,
+    "construction_edges_measured": 6.694e-08,
+    "result_vertices_and_points": 8.549e-15,
+    "result_edges_measured": 6.694e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 1.528e-14,
+   "polls_debug_build": "polls 13551 first 9.510µs longest 63.397ms after poll 39 last 60.750ms total 578.256ms (debug build)",
+   "roles": "{(BaseFace, Section): 19, (TopFace, Generated): 19, (WallFace, Adjacent): 166, (BaseEdge, Section): 166, (TopEdge, Generated): 166, (WallEdge, Adjacent): 166, (BaseVertex, Section): 166, (TopVertex, Generated): 166}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     116.17005034632258,
+     116.56949116501843
+    ],
+    "result": [
+     9781.188696104056,
+     9779.44736813314
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 5.014e-11,
+   "parity_construction": "faces=204 edges=498 vertices=332 volume=116.17005034632258 area=689.6036921009515 min=[-15.000000097151531, -15.000000106617794, 2.899999899999997] max=[10.031370087809153, 15.0000001066178, 9.50000010001779]",
+   "parity_result": "faces=196 edges=501 vertices=334 volume=9781.188696104056 area=3026.424978264334 min=[-15.0000001, -15.000000106617794, -1e-7] max=[15.0000001, 15.0000001066178, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 8.549e-15,
+     "construction_edges_measured": 6.694e-08,
+     "result_vertices_and_points": 8.549e-15,
+     "result_edges_measured": 6.694e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 1.528e-14,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      116.17005034632281,
+      116.56949116501859
+     ],
+     "result": [
+      9781.188696118392,
+      9779.447368151072
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=204 edges=498 vertices=332 volume=116.17005034632281 area=689.6036921009529 min=[-15.00000009715153, -15.000000106617808, 2.899999899999997] max=[10.031370087809131, 15.000000106617799, 9.50000010001779]",
+    "parity_result": "faces=196 edges=501 vertices=334 volume=9781.188696118392 area=3026.4249782656207 min=[-15.0000001, -15.000000106617808, -1e-7] max=[15.0000001, 15.000000106617799, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x19 from [Construction(TopFace, Generated, true)]",
+     "Face x166 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x3 from [Body]",
+     "Edge x166 from [Construction(BaseEdge, Section, true)]",
+     "Edge x166 from [Construction(TopEdge, Generated, true)]",
+     "Edge x166 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x166 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x166 from [Construction(TopVertex, Generated, true)]"
+    ]
+   },
+   "parity_identical_history_and_checks": true,
+   "time_release": {
+    "native": {
+     "median_ms": 362.273,
+     "sets_ms": [
+      417.714,
+      362.273,
+      337.876
+     ],
+     "spread": 0.22038076257408093,
+     "polls": 13551,
+     "first_ms": 0.002504,
+     "longest_ms": 41.511,
+     "longest_sets_ms": [
+      41.511,
+      46.872,
+      33.974
+     ],
+     "longest_most_ms": 64.307,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 35.763,
+     "last_most_ms": 37.17,
+     "outside_ms": 0.405792,
+     "outside_most_ms": 1.029
+    },
+    "node": {
+     "median_ms": 588.45,
+     "sets_ms": [
+      588.45,
+      608.687,
+      584.976
+     ],
+     "spread": 0.040293992692667195,
+     "polls": 13551,
+     "first_ms": 0.004122,
+     "longest_ms": 55.701,
+     "longest_sets_ms": [
+      55.431,
+      58.054,
+      55.701
+     ],
+     "longest_most_ms": 66.999,
+     "longest_after": [
+      39
+     ],
+     "last_ms": 54.998,
+     "last_most_ms": 55.051,
+     "outside_ms": 0.405966,
+     "outside_most_ms": 1.085
+    }
+   }
+  },
+  "seam raised simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x4 from [Body]",
+    "Edge x4 from [Construction(BaseEdge, Section, false)]",
+    "Edge x160 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+    "Vertex x2 from [New]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    -43.45,
+    24.65
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 3.604e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 3.604e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 9.058e-15,
+   "polls_debug_build": "polls 16751 first 8.714µs longest 53.992ms after poll 37 last 53.743ms total 492.962ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     87.08032532133255,
+     87.496069564073
+    ],
+    "result": [
+     9983.790740223614,
+     9983.512929755292
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 1.386e-10,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032532133255 area=513.8802418704614 min=[-15.134422384623566, -15.600000099996803, 4.49999989996348] max=[15.60000009999409, 15.600000101241882, 9.500000100036388]",
+   "parity_result": "faces=191 edges=492 vertices=328 volume=9983.790740223614 area=2961.419546252586 min=[-15.134422384623566, -15.600000099996803, -1e-7] max=[15.60000009999409, 15.600000101241882, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 3.604e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 3.604e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 8.882e-15,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      87.08032532133258,
+      87.49606956407304
+     ],
+     "result": [
+      9983.790740196455,
+      9983.512929728133
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032532133258 area=513.8802418704615 min=[-15.134422384623567, -15.600000099996803, 4.49999989996348] max=[15.60000009999409, 15.600000101241882, 9.500000100036388]",
+    "parity_result": "faces=191 edges=492 vertices=328 volume=9983.790740196455 area=2961.419546247339 min=[-15.134422384623567, -15.600000099996803, -1e-7] max=[15.60000009999409, 15.600000101241882, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x4 from [Body]",
+     "Edge x4 from [Construction(BaseEdge, Section, false)]",
+     "Edge x160 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+     "Vertex x2 from [New]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 414.658,
+     "sets_ms": [
+      406.242,
+      429.631,
+      414.658
+     ],
+     "spread": 0.05640551972951192,
+     "polls": 16751,
+     "first_ms": 0.002448,
+     "longest_ms": 39.291,
+     "longest_sets_ms": [
+      40.992,
+      38.849,
+      39.291
+     ],
+     "longest_most_ms": 63.188,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 40.261,
+     "last_most_ms": 40.737,
+     "outside_ms": 0.474199,
+     "outside_most_ms": 0.854
+    },
+    "node": {
+     "median_ms": 534.976,
+     "sets_ms": [
+      531.966,
+      534.976,
+      535.886
+     ],
+     "spread": 0.007327431510946209,
+     "polls": 16751,
+     "first_ms": 0.004265,
+     "longest_ms": 52.965,
+     "longest_sets_ms": [
+      49.48,
+      52.965,
+      57.772
+     ],
+     "longest_most_ms": 74.049,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 53.44,
+     "last_most_ms": 53.694,
+     "outside_ms": 0.452548,
+     "outside_most_ms": 0.766
+    }
+   },
+   "parity_identical_note": "the map deviation differs by rounding: 9.058e-15 mm natively, 8.882e-15 mm under Node"
+  },
+  "seam raised thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x4 from [Body]",
+    "Edge x4 from [Construction(BaseEdge, Section, false)]",
+    "Edge x160 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+    "Vertex x2 from [New]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    -43.45,
+    24.65
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 9.215e-15,
+    "construction_edges_measured": 3.604e-08,
+    "result_vertices_and_points": 9.215e-15,
+    "result_edges_measured": 3.604e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 9.058e-15,
+   "polls_debug_build": "polls 16751 first 7.959µs longest 72.213ms after poll 37 last 47.141ms total 499.982ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     87.08032532133255,
+     87.496069564073
+    ],
+    "result": [
+     9983.790740223614,
+     9983.512929755292
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 1.386e-10,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032532133255 area=513.8802418704614 min=[-15.134422384623566, -15.600000099996803, 4.49999989996348] max=[15.60000009999409, 15.600000101241882, 9.500000100036388]",
+   "parity_result": "faces=191 edges=492 vertices=328 volume=9983.790740223614 area=2961.419546252586 min=[-15.134422384623566, -15.600000099996803, -1e-7] max=[15.60000009999409, 15.600000101241882, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 9.215e-15,
+     "construction_edges_measured": 3.604e-08,
+     "result_vertices_and_points": 9.215e-15,
+     "result_edges_measured": 3.604e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 8.882e-15,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      87.08032532133258,
+      87.49606956407304
+     ],
+     "result": [
+      9983.790740196455,
+      9983.512929728133
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=87.08032532133258 area=513.8802418704615 min=[-15.134422384623567, -15.600000099996803, 4.49999989996348] max=[15.60000009999409, 15.600000101241882, 9.500000100036388]",
+    "parity_result": "faces=191 edges=492 vertices=328 volume=9983.790740196455 area=2961.419546247339 min=[-15.134422384623567, -15.600000099996803, -1e-7] max=[15.60000009999409, 15.600000101241882, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x4 from [Body]",
+     "Edge x4 from [Construction(BaseEdge, Section, false)]",
+     "Edge x160 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+     "Vertex x2 from [New]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 417.938,
+     "sets_ms": [
+      422.044,
+      417.938,
+      346.241
+     ],
+     "spread": 0.18137379228498007,
+     "polls": 16751,
+     "first_ms": 0.002583,
+     "longest_ms": 38.381,
+     "longest_sets_ms": [
+      41.95,
+      38.381,
+      30.621
+     ],
+     "longest_most_ms": 121.303,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 40.476,
+     "last_most_ms": 41.732,
+     "outside_ms": 0.482587,
+     "outside_most_ms": 1.273
+    },
+    "node": {
+     "median_ms": 541.763,
+     "sets_ms": [
+      541.763,
+      541.372,
+      558.904
+     ],
+     "spread": 0.03236101394890393,
+     "polls": 16751,
+     "first_ms": 0.003832,
+     "longest_ms": 52.458,
+     "longest_sets_ms": [
+      52.458,
+      48.722,
+      53.87
+     ],
+     "longest_most_ms": 71.692,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 53.284,
+     "last_most_ms": 53.759,
+     "outside_ms": 0.489246,
+     "outside_most_ms": 0.731
+    }
+   },
+   "parity_identical_note": "the map deviation differs by rounding: 9.058e-15 mm natively, 8.882e-15 mm under Node"
+  },
+  "seam recessed simple-offset": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x4 from [Body]",
+    "Edge x4 from [Construction(BaseEdge, Section, false)]",
+    "Edge x160 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+    "Vertex x2 from [New]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    -43.45,
+    24.65
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 7.438e-15,
+    "construction_edges_measured": 4.75e-08,
+    "result_vertices_and_points": 7.438e-15,
+    "result_edges_measured": 4.75e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 9.058e-15,
+   "polls_debug_build": "polls 17361 first 7.930µs longest 49.090ms after poll 37 last 56.534ms total 478.067ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     83.66541039942693,
+     84.06485115702114
+    ],
+    "result": [
+     9814.700877795272,
+     9811.952008930213
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 1.304e-10,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541039942693 area=499.03329212876423 min=[-14.552329219830353, -15.00000009999693, 4.499999899999997] max=[15.000000099994313, 15.000000133082997, 9.500000100036388]",
+   "parity_result": "faces=191 edges=492 vertices=328 volume=9814.700877795272 area=2946.572596510883 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000133082997, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 7.438e-15,
+     "construction_edges_measured": 4.75e-08,
+     "result_vertices_and_points": 7.438e-15,
+     "result_edges_measured": 4.75e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 8.882e-15,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      83.66541039942693,
+      84.06485115702115
+     ],
+     "result": [
+      9814.700877768155,
+      9811.952008903096
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541039942693 area=499.03329212876423 min=[-14.552329219830353, -15.00000009999693, 4.499999899999997] max=[15.000000099994313, 15.000000133082997, 9.500000100036388]",
+    "parity_result": "faces=191 edges=492 vertices=328 volume=9814.700877768155 area=2946.572596505637 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000133082997, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x4 from [Body]",
+     "Edge x4 from [Construction(BaseEdge, Section, false)]",
+     "Edge x160 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+     "Vertex x2 from [New]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 344.243,
+     "sets_ms": [
+      344.243,
+      389.394,
+      334.21
+     ],
+     "spread": 0.16030536568644832,
+     "polls": 17361,
+     "first_ms": 0.00265,
+     "longest_ms": 35.862,
+     "longest_sets_ms": [
+      35.862,
+      33.699,
+      38.458
+     ],
+     "longest_most_ms": 51.243,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 35.263,
+     "last_most_ms": 35.858,
+     "outside_ms": 0.458577,
+     "outside_most_ms": 0.649
+    },
+    "node": {
+     "median_ms": 603.808,
+     "sets_ms": [
+      517.591,
+      606.807,
+      603.808
+     ],
+     "spread": 0.14775557793205787,
+     "polls": 17361,
+     "first_ms": 0.003675,
+     "longest_ms": 54.412,
+     "longest_sets_ms": [
+      48.098,
+      59.447,
+      54.412
+     ],
+     "longest_most_ms": 82.722,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 53.08,
+     "last_most_ms": 53.956,
+     "outside_ms": 0.433611,
+     "outside_most_ms": 0.456
+    }
+   },
+   "parity_identical_note": "the map deviation differs by rounding: 9.058e-15 mm natively, 8.882e-15 mm under Node"
+  },
+  "seam recessed thick-solid": {
+   "history": [
+    "Face x11 from [Body]",
+    "Face x18 from [Construction(TopFace, Generated, true)]",
+    "Face x162 from [Construction(WallFace, Adjacent, true)]",
+    "Edge x4 from [Body]",
+    "Edge x4 from [Construction(BaseEdge, Section, false)]",
+    "Edge x160 from [Construction(BaseEdge, Section, true)]",
+    "Edge x162 from [Construction(TopEdge, Generated, true)]",
+    "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+    "Vertex x2 from [Body]",
+    "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+    "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+    "Vertex x2 from [New]"
+   ],
+   "regions": 18,
+   "curves": 162,
+   "developed_x_mm": [
+    -43.45,
+    24.65
+   ],
+   "developed_length_mm": 68.1,
+   "span_rad": 4.54,
+   "circumference_percent": 72.3,
+   "is_20_character_label": true,
+   "construction_validity": "AsBuilt",
+   "construction_is_valid": true,
+   "result_validity": "AsBuilt",
+   "result_is_valid": true,
+   "open_mesh_edges": {
+    "construction": 0,
+    "result": 0
+   },
+   "top_faces": {
+    "construction": 18,
+    "result": 18
+   },
+   "top_off_surface_mm": {
+    "construction_vertices_and_points": 7.438e-15,
+    "construction_edges_measured": 4.75e-08,
+    "result_vertices_and_points": 7.438e-15,
+    "result_edges_measured": 4.75e-08
+   },
+   "outline_length_error_relative": 7.02e-09,
+   "outline_length": "checked",
+   "map_deviation_mm": 9.058e-15,
+   "polls_debug_build": "polls 17361 first 9.094µs longest 52.489ms after poll 37 last 69.464ms total 576.381ms (debug build)",
+   "roles": "{(BaseFace, Section): 18, (TopFace, Generated): 18, (WallFace, Adjacent): 162, (BaseEdge, Section): 162, (TopEdge, Generated): 162, (WallEdge, Adjacent): 162, (BaseVertex, Section): 162, (TopVertex, Generated): 162}",
+   "unnamed_construction_elements": "{Face: 0, Edge: 0, Vertex: 0}",
+   "volumes_mm3": {
+    "body": [
+     9896.016858807849,
+     9896.016858807825
+    ],
+    "construction": [
+     83.66541039942693,
+     84.06485115702114
+    ],
+    "result": [
+     9814.700877795272,
+     9811.952008930213
+    ],
+    "order": [
+     "Shape::volume",
+     "adaptive_volume"
+    ]
+   },
+   "result_off_body_and_construction_relative": 1.304e-10,
+   "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541039942693 area=499.03329212876423 min=[-14.552329219830353, -15.00000009999693, 4.499999899999997] max=[15.000000099994313, 15.000000133082997, 9.500000100036388]",
+   "parity_result": "faces=191 edges=492 vertices=328 volume=9814.700877795272 area=2946.572596510883 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000133082997, 14.0000001]",
+   "fails": [],
+   "node": {
+    "construction_validity": "AsBuilt",
+    "result_validity": "AsBuilt",
+    "open_mesh_edges": {
+     "construction": 0,
+     "result": 0
+    },
+    "top_off_surface_mm": {
+     "construction_vertices_and_points": 7.438e-15,
+     "construction_edges_measured": 4.75e-08,
+     "result_vertices_and_points": 7.438e-15,
+     "result_edges_measured": 4.75e-08
+    },
+    "outline_length_error_relative": 7.02e-09,
+    "map_deviation_mm": 8.882e-15,
+    "volumes_mm3": {
+     "body": [
+      9896.016858807849,
+      9896.016858807825
+     ],
+     "construction": [
+      83.66541039942693,
+      84.06485115702115
+     ],
+     "result": [
+      9814.700877768155,
+      9811.952008903096
+     ],
+     "order": [
+      "Shape::volume",
+      "adaptive_volume"
+     ]
+    },
+    "fails": [],
+    "parity_construction": "faces=198 edges=486 vertices=324 volume=83.66541039942693 area=499.03329212876423 min=[-14.552329219830353, -15.00000009999693, 4.499999899999997] max=[15.000000099994313, 15.000000133082997, 9.500000100036388]",
+    "parity_result": "faces=191 edges=492 vertices=328 volume=9814.700877768155 area=2946.572596505637 min=[-15.0000001, -15.0000001, -1e-7] max=[15.0000001, 15.000000133082997, 14.0000001]",
+    "history": [
+     "Face x11 from [Body]",
+     "Face x18 from [Construction(TopFace, Generated, true)]",
+     "Face x162 from [Construction(WallFace, Adjacent, true)]",
+     "Edge x4 from [Body]",
+     "Edge x4 from [Construction(BaseEdge, Section, false)]",
+     "Edge x160 from [Construction(BaseEdge, Section, true)]",
+     "Edge x162 from [Construction(TopEdge, Generated, true)]",
+     "Edge x162 from [Construction(WallEdge, Adjacent, true)]",
+     "Vertex x2 from [Body]",
+     "Vertex x162 from [Construction(BaseVertex, Section, true)]",
+     "Vertex x162 from [Construction(TopVertex, Generated, true)]",
+     "Vertex x2 from [New]"
+    ]
+   },
+   "parity_identical_history_and_checks": false,
+   "time_release": {
+    "native": {
+     "median_ms": 323.87,
+     "sets_ms": [
+      320.596,
+      402.499,
+      323.87
+     ],
+     "spread": 0.2528885046469263,
+     "polls": 17361,
+     "first_ms": 0.002613,
+     "longest_ms": 31.39,
+     "longest_sets_ms": [
+      31.129,
+      40.201,
+      31.39
+     ],
+     "longest_most_ms": 48.933,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 32.14,
+     "last_most_ms": 36.293,
+     "outside_ms": 0.440736,
+     "outside_most_ms": 0.549
+    },
+    "node": {
+     "median_ms": 600.726,
+     "sets_ms": [
+      605.084,
+      600.726,
+      568.893
+     ],
+     "spread": 0.06024543635534323,
+     "polls": 17361,
+     "first_ms": 0.003841,
+     "longest_ms": 52.665,
+     "longest_sets_ms": [
+      52.792,
+      52.665,
+      51.861
+     ],
+     "longest_most_ms": 70.148,
+     "longest_after": [
+      37
+     ],
+     "last_ms": 49.901,
+     "last_most_ms": 53.084,
+     "outside_ms": 0.398586,
+     "outside_most_ms": 0.481
+    }
+   },
+   "parity_identical_note": "the map deviation differs by rounding: 9.058e-15 mm natively, 8.882e-15 mm under Node"
+  }
+ },
+ "parity": {
+  "lines": 32,
+  "counts_equal": true,
+  "worst_relative": 2.763e-12,
+  "worst_at": "seam recessed simple-offset result",
+  "identical_text": 2
+ },
+ "size": {
+  "wasm_bytes": 20144453,
+  "base_bytes": 19996965,
+  "delta_bytes": 147488,
+  "delta_mib": 0.14,
+  "gzip9_bytes": 7097358,
+  "brotli_bytes": 5089338,
+  "limit_bytes": 1048576,
+  "passes": true,
+  "per_construction_builds": "none: section 8.3 does not compare by size",
+  "with_helix_thread_delta_bytes": 854641,
+  "build_commits": [
+   "c471b27",
+   "7ddebc5"
+  ],
+  "sha256": "c4ee38a4ed014284dc346d799dad861884a50238be41cc1e61a061688ccf5b3e",
+  "identical_to_694d1f3_build": true
+ },
+ "walls_scratch_run": {
+  "label": {
+   "planes": 117,
+   "bspline_surfaces": 45
+  },
+  "cone": {
+   "bspline_surfaces": 43
+  },
+  "base_top_edges": "B-spline 3D curves",
+  "wall_edges_label": {
+   "lines": 86,
+   "bspline_curves": 76
+  },
+  "commit": "694d1f3, a scratch test not on the branch; c471b27 and 7ddebc5 build the same shapes (identical test outputs)"
+ },
+ "criteria": {
+  "simple-offset": {
+   "passed": true,
+   "valid_as_built": "8 of 8",
+   "top_faces_on_offset_surface_mm": 9.215e-15,
+   "lengths_relative": 7.02e-09,
+   "parity": true,
+   "label_time_native_ms": [
+    344.2,
+    414.7
+   ],
+   "label_longest_set_ms": 429.7,
+   "label_longest_poll_gap_ms": [
+    35.86,
+    40.19
+   ],
+   "label_longest_poll_gap_most_ms": 63.19,
+   "size_delta_bytes": 147488
+  },
+  "thick-solid": {
+   "passed": true,
+   "valid_as_built": "8 of 8",
+   "top_faces_on_offset_surface_mm": 9.215e-15,
+   "lengths_relative": 7.02e-09,
+   "parity": true,
+   "label_time_native_ms": [
+    323.9,
+    417.9
+   ],
+   "label_longest_set_ms": 422.0,
+   "label_longest_poll_gap_ms": [
+    31.39,
+    39.44
+   ],
+   "label_longest_poll_gap_most_ms": 121.3,
+   "size_delta_bytes": 147488
+  }
+ },
+ "measured_not_criteria": {
+  "closed_meshes": "every construction and every cylinder result closed; cone results 8 open edges each (two quadrilateral gaps in the frustum side face), natively and under Node",
+  "shape_volume_vs_adaptive": {
+   "label_construction": 0.004752,
+   "long_construction": 0.003427,
+   "cone_construction": 0.0174,
+   "results": [
+    2.587e-05,
+    0.0002802
+   ]
+  },
+  "adaptive_result_vs_body_plus_minus_construction": {
+   "native": [
+    2.616e-11,
+    1.386e-10
+   ],
+   "node": [
+    2.587e-11,
+    1.358e-10
+   ]
+  },
+  "developed_area_check_relative": [
+   8.4e-12,
+   5.2e-11
+  ]
+ },
+ "decision": "Both constructions pass every input and criterion: a pass confirms choice 17's exact wrap on cylinders and cones; features/emboss.md takes BRepOffset_MakeSimpleOffset with SetBuildSolidFlag(true) (the first listed); ADR 0071 gets a dated note confirming choice 17; no ADR for cones.",
+ "previous_state_694d1f3": {
+  "commit": "694d1f3",
+  "runs_utc": {
+   "tests_native": "2026-11-16T05:01:55Z/05:02:13Z",
+   "tests_node": "2026-11-16T05:02:19Z/05:02:51Z",
+   "size_build": "2026-11-16T05:03:21Z/05:07:05Z",
+   "timed_sets": "2026-11-16T05:11:56Z/05:20:13Z",
+   "whole_crate_tests": "2026-11-16T05:20:56Z/05:21:11Z",
+   "unit_tests_node": "2026-11-16T05:21:47Z",
+   "first_run_tests": "2026-11-16T04:52Z (state of 37f5706)"
+  },
+  "timed_set_loads": [
+   {
+    "set": "native 1",
+    "when": "before",
+    "utc": "05:11:56",
+    "loadavg": "0.21 0.97 0.85 1/113 11137"
+   },
+   {
+    "set": "native 1",
+    "when": "after",
+    "utc": "05:12:24",
+    "loadavg": "0.48 0.97 0.85 1/120 11242"
+   },
+   {
+    "set": "native 2",
+    "when": "before",
+    "utc": "05:13:04",
+    "loadavg": "0.24 0.85 0.81 1/120 11316"
+   },
+   {
+    "set": "native 2",
+    "when": "after",
+    "utc": "05:13:33",
+    "loadavg": "0.54 0.87 0.82 1/119 11342"
+   },
+   {
+    "set": "native 3",
+    "when": "before",
+    "utc": "05:14:23",
+    "loadavg": "0.23 0.73 0.78 1/114 11416"
+   },
+   {
+    "set": "native 3",
+    "when": "after",
+    "utc": "05:14:51",
+    "loadavg": "0.54 0.76 0.79 1/113 11488"
+   },
+   {
+    "set": "node 1",
+    "when": "before",
+    "utc": "05:15:41",
+    "loadavg": "0.23 0.64 0.74 1/112 11591"
+   },
+   {
+    "set": "node 1",
+    "when": "after",
+    "utc": "05:16:24",
+    "loadavg": "0.73 0.72 0.76 2/117 11700"
+   },
+   {
+    "set": "node 2",
+    "when": "before",
+    "utc": "05:17:34",
+    "loadavg": "0.23 0.56 0.70 1/116 11843"
+   },
+   {
+    "set": "node 2",
+    "when": "after",
+    "utc": "05:18:14",
+    "loadavg": "0.65 0.64 0.73 1/114 11978"
+   },
+   {
+    "set": "node 3",
+    "when": "before",
+    "utc": "05:19:34",
+    "loadavg": "0.21 0.50 0.67 1/121 12257"
+   },
+   {
+    "set": "node 3",
+    "when": "after",
+    "utc": "05:20:13",
+    "loadavg": "0.94 0.66 0.72 1/121 12417"
+   }
+  ],
+  "note": "the first report's runs; every number below is from the runs at c471b27 and 7ddebc5"
+ },
+ "timed_at": "c471b27",
+ "cross_target_differences": {
+  "seam_map_deviation_mm": {
+   "native": 9.058e-15,
+   "node": 8.882e-15
+  },
+  "cone_recessed_floor_off_surface_mm": {
+   "native": 4.33e-15,
+   "node": 6.217e-15,
+   "where": "both constructions, construction and result"
+  },
+  "adaptive_result_vs_body_plus_minus_construction_relative": {
+   "native": [
+    2.616e-11,
+    1.386e-10
+   ],
+   "node": [
+    2.587e-11,
+    1.358e-10
+   ]
+  },
+  "parity_values": "volume, area and bounding box within 2.763e-12 relative (seam recessed simple-offset, result volume); counts equal; 2 of 32 lines equal character for character",
+  "everything_else": "equal: validity, open mesh edges, top face counts, wrapped lengths, the cone's map deviation, history counts, roles, failures, poll counts",
+  "note": "rounding only; no criterion changes"
+ },
+ "binaries": {
+  "timed_at": "c471b27",
+  "native_bench_sha256": "93377d7a4516cfce4ac36e0a64b8cc74ac438c117f9df37356f392b6ceb03907",
+  "node_bench_wasm_sha256": "c9c4f0b451d49deab5aa92eb23bca025580278a485a3717f373b619d521dd313",
+  "native_tests_sha256": "f01ba19362c8b5d7bbaad9d78a6faf18c67206394f62671883cf8d5d2b39d238",
+  "node_tests_wasm_sha256": "2c879a40999d0bf88d604decac117d402513e6f6a947825b56493f2d76d17d28",
+  "7ddebc5_same_as_c471b27": true,
+  "note": "7ddebc5 changes one doc comment; its bench and test binaries on both targets and its web core are byte-identical to c471b27's, so the timed sets of c471b27 are 7ddebc5's. Of three native bench rebuilds from 7ddebc5's source, two gave the checksum above and the first a file 32 bytes larger with the same .text size, which was not kept and not timed.",
+  "694d1f3_differs": "the bench binaries of 694d1f3 differ from c471b27's (natively .text 16 bytes longer; under Node the bench .wasm differs at the same size), so the timed sets were run again"
+ },
+ "check_round_1": [
+  {
+   "id": "m5-patch-names",
+   "action": "fixed on the branch at c471b27",
+   "what": "PolarMap's du, dv, uxx, uxy, uyy, vxx, vxy, vyy became u_gradient, v_gradient, u_hessian, v_hessian (Hessian xx, xy, yy) with second_derivative computing the same operations in the same order; moved and moved_region take along_x and along_y",
+   "disagreement": "the check proposed no branch change because the branch never merges; it was fixed because the patch is kept in the repository for reviewers under AGENTS.md's code style"
+  },
+  {
+   "id": "m2-cross-target-claim",
+   "action": "record amended (Parity, geometry bullets, map bullet); parity_identical_history_and_checks false for the cone recessed entries"
+  },
+  {
+   "id": "m1-branch-scope",
+   "action": "no branch change; the record names build.rs (+2), crates/partsmith-wasm/Cargo.toml (+2) and Cargo.lock (+1) next to the scope and why each is needed"
+  },
+  {
+   "id": "m3-timing-noise",
+   "action": "no branch change; the record states the set spread on this container and that gate 10's wave 4 row should come from several sets"
+  },
+  {
+   "id": "m4-cone-open-mesh",
+   "action": "no branch change; the record asks features/emboss.md to test a closed mesh on a cone and keeps the kernel open issue for section 3.7 item 2"
+  },
+  {
+   "id": "face-points-doc (found in this round)",
+   "action": "fixed on the branch at 7ddebc5",
+   "what": "face_points' doc comment said the finest square grid; the shim takes the coarsest grid, from 4 by 4 cells doubling up to 1024 by 1024, that puts at least the count inside"
+  }
+ ]
+}

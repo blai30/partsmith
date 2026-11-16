@@ -1,0 +1,3515 @@
+Kernel spike helix-thread: exact helix and modeled thread on a cap.
+
+Spec: docs/spec/kernel.md section 8.2 (M2 wave 1, ADR 0071).
+Branch: spike/kernel-helix-thread, kept only in the development container and never pushed.
+Last commit: fbd7d46 (fbd7d469aae5190f9b6e6bb579757dff1e2be957).
+Base commit: 2c56ff9 (2c56ff91a8e96f07b1ac1ec2407e469ce2da6437).
+
+This file is git diff 2c56ff9 fbd7d46. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7b9cf6..a51467e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2702,6 +2702,7 @@ dependencies = [
+  "partsmith-budgets",
+  "partsmith-engine",
+  "partsmith-model",
++ "partsmith-occt-sys",
+  "partsmith-protocol",
+  "proptest",
+  "serde_json",
+diff --git a/crates/partsmith-occt-sys/benches/budgets.rs b/crates/partsmith-occt-sys/benches/budgets.rs
+index 4ff165b..5172176 100644
+--- a/crates/partsmith-occt-sys/benches/budgets.rs
++++ b/crates/partsmith-occt-sys/benches/budgets.rs
+@@ -13,6 +13,8 @@
+ 
+ #[path = "../tests/common/mod.rs"]
+ mod common;
++#[path = "../tests/thread_inputs.rs"]
++mod thread_inputs;
+ 
+ #[cfg(not(target_os = "emscripten"))]
+ use std::cell::LazyCell;
+@@ -31,10 +33,12 @@ use partsmith_mesh::TessellationTolerance;
+ use partsmith_occt_sys::split;
+ use partsmith_occt_sys::{
+     Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+-    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+-    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+-    make_torus, read_step, shell, transform, write_step,
++    PlanarRegion, Plane, Point, Point2, PollRecord, Shape, SubShapeKind, TaggedCurve,
++    ThreadConstruction, ThreadKind, Transform, Vector, cut, extrude, fillet, fuse, make_box,
++    make_cone, make_cylinder, make_profile, make_sphere, make_torus, modeled_thread, read_step,
++    shell, transform, write_step,
+ };
++use thread_inputs::{CONSTRUCTIONS, Input, LENGTH, LONG_LENGTH, M8, SIZES};
+ 
+ /// Times each operation runs; the median counts.
+ const RUNS: usize = 7;
+@@ -471,6 +475,142 @@ fn measure_web_interrupts(report: &mut Report) {
+     );
+ }
+ 
++/// The runs of each row of the helix-thread spike (kernel spec section 8.1 item 4).
++const SPIKE_RUNS: usize = 5;
++
++/// The time section 8.2 gives the M8 x 1.25 x 20 thread with its boolean, natively.
++const M8_THREAD_BUDGET: Duration = Duration::from_millis(300);
++
++/// The inputs and constructions of the helix-thread spike that run out of memory or time, with
++/// what they did in the spike's tests; their rows are not timed. Under Node two more abort the
++/// module or run past 600 s.
++#[cfg(target_os = "emscripten")]
++const UNTIMED: [(&str, &str, &str); 8] = [
++    ("M3x0.5 block 20", "swept", OUT_OF_MEMORY),
++    (
++        "M5x0.8 block 20",
++        "swept",
++        "its test did not finish within 600 s under Node",
++    ),
++    (
++        "M8x1.25 block 20",
++        "swept",
++        "its test ran out of the module's 4 GB under Node",
++    ),
++    ("M12x1.75 block 20", "swept", OUT_OF_MEMORY),
++    ("M20x2.5 block 20", "swept", OUT_OF_MEMORY),
++    ("M30x2 block 20", "swept", OUT_OF_MEMORY),
++    ("1/4-20UNC block 20", "swept", OUT_OF_MEMORY),
++    (
++        "M8x1.25 block 30",
++        "swept",
++        "its test did not finish within 300 s",
++    ),
++];
++/// The inputs and constructions of the helix-thread spike that run out of memory or time, with
++/// what they did in the spike's tests; their rows are not timed.
++#[cfg(not(target_os = "emscripten"))]
++const UNTIMED: [(&str, &str, &str); 6] = [
++    ("M3x0.5 block 20", "swept", OUT_OF_MEMORY),
++    ("M12x1.75 block 20", "swept", OUT_OF_MEMORY),
++    ("M20x2.5 block 20", "swept", OUT_OF_MEMORY),
++    ("M30x2 block 20", "swept", OUT_OF_MEMORY),
++    ("1/4-20UNC block 20", "swept", OUT_OF_MEMORY),
++    (
++        "M8x1.25 block 30",
++        "swept",
++        "its test did not finish within 300 s",
++    ),
++];
++
++/// What the spike's tests of the plain swept profile in most blocks did.
++const OUT_OF_MEMORY: &str = "its boolean failed with Standard_OutOfMemory at 6 GB in its test";
++
++/// The inputs of the helix-thread spike (kernel spec section 8.2).
++fn thread_inputs() -> Vec<Input> {
++    let mut inputs = Vec::new();
++    for size in SIZES {
++        for kind in [ThreadKind::External, ThreadKind::Internal] {
++            inputs.push(Input::size(size, kind, LENGTH));
++        }
++    }
++    inputs.extend([Input::cap(), Input::neck(), Input::coil()]);
++    for kind in [ThreadKind::External, ThreadKind::Internal] {
++        inputs.push(Input::size(M8, kind, LONG_LENGTH));
++    }
++    inputs
++}
++
++/// The median of a value over a row's runs, and its largest value.
++fn median_and_most(values: impl IntoIterator<Item = Duration>) -> (Duration, Duration) {
++    let mut values: Vec<Duration> = values.into_iter().collect();
++    values.sort();
++    (values[values.len() / 2], values[values.len() - 1])
++}
++
++/// The rows of the helix-thread spike: for each input and construction, the median of 5 runs of
++/// the thread with its boolean, and the polls of those runs with an interrupt that is never
++/// requested, with the time each run spends in the facade outside the shim, whose polls cover
++/// only the call inside it. Natively the rows of the M8 x 1.25 x 20 thread have section 8.2's
++/// 300 ms; the other rows, and every row under Node, print their medians.
++fn measure_helix_thread(report: &mut Report) {
++    for input in thread_inputs() {
++        for (name, construction) in CONSTRUCTIONS {
++            let row = format!("helix-thread {} {name}", input.name);
++            let swept = matches!(construction, ThreadConstruction::Swept { .. });
++            if !report.includes(&row) || (swept && input.spec.half_angle != 0.0) {
++                continue;
++            }
++            if let Some((_, _, reason)) = UNTIMED
++                .iter()
++                .find(|(untimed, construction, _)| *untimed == input.name && *construction == name)
++            {
++                println!("{row}: not timed, {reason}");
++                continue;
++            }
++            let mut polls: Vec<PollRecord> = Vec::with_capacity(SPIKE_RUNS);
++            let mut outside = Vec::with_capacity(SPIKE_RUNS);
++            let time = median(SPIKE_RUNS, |_| {
++                let start = Instant::now();
++                let result = modeled_thread(
++                    &input.base,
++                    &input.spec,
++                    input.kind,
++                    construction,
++                    &Interrupt::new(),
++                );
++                let elapsed = start.elapsed();
++                match result {
++                    Ok(result) => {
++                        outside.push(elapsed.saturating_sub(result.polls.total));
++                        polls.push(result.polls);
++                    }
++                    Err(error) => println!("{row}: {}", error.detail()),
++                }
++                elapsed
++            });
++            if !polls.is_empty() {
++                let (longest, most) = median_and_most(polls.iter().map(|record| record.longest));
++                let (first, _) = median_and_most(polls.iter().map(|record| record.first));
++                let (last, _) = median_and_most(polls.iter().map(|record| record.last));
++                let (outside, outside_most) = median_and_most(outside);
++                println!(
++                    "{row}: polls {} first {first:.3?} longest {longest:.3?} (most {most:.3?}) last {last:.3?} outside the shim {outside:.3?} (most {outside_most:.3?})",
++                    polls[0].count
++                );
++            }
++            let budgeted = cfg!(not(target_os = "emscripten"))
++                && input.spec.pitch == M8.pitch
++                && input.name.ends_with(&format!(" {LENGTH}"));
++            if budgeted {
++                report.record_time(&row, time, M8_THREAD_BUDGET);
++            } else {
++                println!("{row}: median {time:.3?} (no budget)");
++            }
++        }
++    }
++}
++
+ fn main() -> ExitCode {
+     let mut report = Report::from_arguments();
+ 
+@@ -754,6 +894,7 @@ fn main() -> ExitCode {
+     }
+     #[cfg(target_os = "emscripten")]
+     measure_web_interrupts(&mut report);
++    measure_helix_thread(&mut report);
+ 
+     report.finish()
+ }
+diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs
+index f8596a7..ccde9f4 100644
+--- a/crates/partsmith-occt-sys/build.rs
++++ b/crates/partsmith-occt-sys/build.rs
+@@ -54,6 +54,8 @@ const SOURCES: &[&str] = &[
+     "cpp/validity.cpp",
+     "cpp/history.cpp",
+     "cpp/interrupt.cpp",
++    "cpp/parameter_plane.cpp",
++    "cpp/thread.cpp",
+ ];
+ 
+ fn main() {
+diff --git a/crates/partsmith-occt-sys/cpp/internal.h b/crates/partsmith-occt-sys/cpp/internal.h
+index fe181aa..345fb9e 100644
+--- a/crates/partsmith-occt-sys/cpp/internal.h
++++ b/crates/partsmith-occt-sys/cpp/internal.h
+@@ -11,6 +11,8 @@
+ #include <BOPAlgo_Operation.hxx>
+ #include <BRepAdaptor_Surface.hxx>
+ #include <BRepTools_History.hxx>
++#include <Geom2d_Line.hxx>
++#include <Geom_ElementarySurface.hxx>
+ #include <Message_ProgressIndicator.hxx>
+ #include <Message_ProgressRange.hxx>
+ #include <Message_ProgressScope.hxx>
+@@ -22,10 +24,12 @@
+ #include <TopoDS_Edge.hxx>
+ #include <TopoDS_Face.hxx>
+ #include <TopoDS_Shape.hxx>
++#include <TopoDS_Vertex.hxx>
+ #include <gp_Ax2.hxx>
+ #include <gp_Ax3.hxx>
+ #include <gp_Dir.hxx>
+ #include <gp_Pnt.hxx>
++#include <gp_Pnt2d.hxx>
+ 
+ #include "partsmith-occt-sys/src/ffi.rs.h"
+ 
+@@ -70,6 +74,8 @@ class Polls {
+   Polls() : Polls(Handle(Interruption)()) {}
+   // The polls of a call that stops once `interrupt` is requested.
+   explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
++  // The polls of a call through `indicator`, for the helix-thread spike's recording indicator.
++  explicit Polls(const Handle(Interruption) &indicator);
+   Polls(const Polls &) = delete;
+   Polls &operator=(const Polls &) = delete;
+ 
+@@ -96,8 +102,6 @@ class Polls {
+   }
+ 
+  private:
+-  explicit Polls(const Handle(Interruption) &indicator);
+-
+   // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+   void stop_if_answered(const char *algorithm) const;
+ 
+@@ -256,6 +260,12 @@ void store_result_pcurves(CheckInputs &inputs, const TopoDS_Shape &result);
+ // unchanged face of an input.
+ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
+ 
++// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
++// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
++// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
++// Otherwise leaves both as they were and returns false. `polls` polls before each step.
++bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls);
++
+ // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
+ // it ran on, with the checks of BRepCheck_Analyzer (the whole result when no unchanged face of
+ // an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
+@@ -337,6 +347,45 @@ TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target
+ // (kernel spec section 3.7, item 2).
+ Handle(IMeshTools_MeshAlgoFactory) mesh_algorithm_factory();
+ 
++// parameter_plane.cpp: the parameter-plane map of a cylinder or a cone (kernel spec sections 8.2
++// and 8.3).
++
++// The tolerance of the 3D curves BRepLib builds for edges on a cylinder or a cone: a tenth of
++// the modeling tolerance.
++constexpr double kCurveTolerance = 1e-7;
++
++// A helix as a line of a surface's parameter plane, and the line's parameter length of one turn.
++struct HelixLine {
++  Handle(Geom2d_Line) line;
++  double turn_length;
++};
++
++// The cylinder (half-angle 0) or cone of `surface`: a Geom_CylindricalSurface or a
++// Geom_ConicalSurface about the frame's normal, with `radius` at the frame's origin.
++Handle(Geom_ElementarySurface) wrap_surface(const WrapSurfaceData &surface);
++
++// The v parameter of the surface at `height` along its axis.
++double parameter_height(const WrapSurfaceData &surface, double height);
++
++// The point of the surface's parameter plane that the point (x, y) of the developed plane maps
++// to: the plane tangent to the surface along the line at angle 0, with x along the circle at
++// height 0 and y along the surface's line. Affine on a cylinder, polar about the apex on a cone.
++gp_Pnt2d developed_to_parameter(const WrapSurfaceData &surface, double x, double y);
++
++// The helix that starts at angle `phase` and `height` and rises `pitch` along the axis per turn:
++// a Geom2d_Line of the parameter plane.
++HelixLine helix_line(const WrapSurfaceData &surface, double phase, double height, double pitch);
++
++// The edge on `surface` along `curve` of its parameter plane from `first` to `last`, with its 3D
++// curve built by BRepLib::BuildCurve3d within kCurveTolerance, which `turns` turns of a helix may
++// need several segments for. Raises StdFail_NotDone when the approximation misses the tolerance.
++TopoDS_Edge edge_on_surface(const Handle(Geom_Surface) &surface, const Handle(Geom2d_Curve) &curve,
++                            const TopoDS_Vertex &first, const TopoDS_Vertex &last,
++                            double first_parameter, double last_parameter, double turns);
++
++// A vertex at the point of `surface` at `point` of its parameter plane.
++TopoDS_Vertex vertex_on_surface(const Handle(Geom_Surface) &surface, const gp_Pnt2d &point);
++
+ // exchange.cpp
+ 
+ // Runs the one-time initialization of OCCT's process-wide state: removes the default message
+diff --git a/crates/partsmith-occt-sys/cpp/parameter_plane.cpp b/crates/partsmith-occt-sys/cpp/parameter_plane.cpp
+new file mode 100644
+index 0000000..9f5a45f
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/parameter_plane.cpp
+@@ -0,0 +1,133 @@
++// The parameter-plane map of a cylinder or a cone (kernel spec sections 8.2 and 8.3): points of
++// the developed plane and helices become points and lines of the surface's parameter plane, and
++// edges on the surface with their 3D curves built by BRepLib. The thread construction of the
++// helix-thread spike and the wrap emboss of the wrap-emboss spike share this code path.
++#include <algorithm>
++#include <cmath>
++
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepLib.hxx>
++#include <BRep_Builder.hxx>
++#include <Geom2d_Line.hxx>
++#include <Geom_ConicalSurface.hxx>
++#include <Geom_CylindricalSurface.hxx>
++#include <ShapeAnalysis_Edge.hxx>
++#include <TopoDS_Compound.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++// The most segments BRepLib may give the 3D curve of one turn of a helix, and of any curve.
++constexpr int kSegmentsPerTurn = 8;
++constexpr int kLeastSegments = 30;
++// The highest degree of a 3D curve, BRepLib's default.
++constexpr int kCurveDegree = 14;
++// The samples ShapeAnalysis_Edge compares the 3D curve with the curve on the surface at.
++constexpr int kCurveSamples = 23;
++
++}  // namespace
++
++namespace detail {
++
++Handle(Geom_ElementarySurface) wrap_surface(const WrapSurfaceData &surface) {
++  const gp_Ax3 frame = to_ax3(surface.frame);
++  if (surface.half_angle == 0.0) {
++    return new Geom_CylindricalSurface(frame, surface.radius);
++  }
++  return new Geom_ConicalSurface(frame, surface.half_angle, surface.radius);
++}
++
++double parameter_height(const WrapSurfaceData &surface, double height) {
++  return height / std::cos(surface.half_angle);
++}
++
++gp_Pnt2d developed_to_parameter(const WrapSurfaceData &surface, double x, double y) {
++  if (surface.half_angle == 0.0) {
++    // A cylinder of radius r develops onto the plane by u = x / r and v = y.
++    return gp_Pnt2d(x / surface.radius, y);
++  }
++  // A cone develops onto a sector about its apex: polar coordinates about the apex give the
++  // slant distance (v) and the angle, which is u times the sine of the half-angle.
++  const double sine = std::sin(surface.half_angle);
++  const double side = sine > 0.0 ? 1.0 : -1.0;
++  const double apex = surface.radius / sine;
++  const double along = side * (y + apex);
++  const double distance = std::hypot(x, along);
++  return gp_Pnt2d(std::atan2(x, along) / std::fabs(sine), side * distance - apex);
++}
++
++HelixLine helix_line(const WrapSurfaceData &surface, double phase, double height, double pitch) {
++  const gp_Vec2d turn(2.0 * M_PI, parameter_height(surface, pitch));
++  const gp_Pnt2d start(phase, parameter_height(surface, height));
++  return HelixLine{new Geom2d_Line(start, gp_Dir2d(turn)), turn.Magnitude()};
++}
++
++TopoDS_Edge edge_on_surface(const Handle(Geom_Surface) &surface, const Handle(Geom2d_Curve) &curve,
++                            const TopoDS_Vertex &first, const TopoDS_Vertex &last,
++                            double first_parameter, double last_parameter, double turns) {
++  BRepBuilderAPI_MakeEdge make(curve, surface, first, last, first_parameter, last_parameter);
++  if (!make.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeEdge failed with status " +
++                   std::to_string(static_cast<int>(make.Error())));
++  }
++  TopoDS_Edge edge = make.Edge();
++  const int segments =
++      std::max(kLeastSegments, kSegmentsPerTurn * static_cast<int>(std::ceil(turns)));
++  if (!BRepLib::BuildCurve3d(edge, kCurveTolerance, GeomAbs_C1, kCurveDegree, segments)) {
++    raise_not_done("BRepLib::BuildCurves3d gave the edge no 3D curve");
++  }
++  // BRepLib sets the edge's tolerance to the one asked for whatever the approximation reached,
++  // so the edge is checked against the curve on its surface.
++  double deviation = 0.0;
++  ShapeAnalysis_Edge().CheckSameParameter(edge, deviation, kCurveSamples);
++  if (deviation > kCurveTolerance) {
++    raise_not_done("BRepLib::BuildCurves3d approximated an edge within " +
++                   std::to_string(deviation) + " mm, more than its tolerance");
++  }
++  return edge;
++}
++
++TopoDS_Vertex vertex_on_surface(const Handle(Geom_Surface) &surface, const gp_Pnt2d &point) {
++  TopoDS_Vertex vertex;
++  BRep_Builder().MakeVertex(vertex, surface->Value(point.X(), point.Y()), kCurveTolerance);
++  return vertex;
++}
++
++}  // namespace detail
++
++std::shared_ptr<Shape> wrap_curves(const WrapSurfaceData &surface,
++                                   rust::Slice<const WrapCurveData> curves) {
++  const Handle(Geom_Surface) geometry = wrap_surface(surface);
++  std::vector<TopoDS_Shape> edges;
++  for (const WrapCurveData &curve : curves) {
++    if (curve.kind == WrapCurveType::Helix) {
++      const HelixLine helix = helix_line(surface, curve.phase, curve.height, curve.pitch);
++      const double length = helix.turn_length * curve.turns;
++      const TopoDS_Vertex first = vertex_on_surface(geometry, helix.line->Value(0.0));
++      const TopoDS_Vertex last = vertex_on_surface(geometry, helix.line->Value(length));
++      edges.push_back(
++          edge_on_surface(geometry, helix.line, first, last, 0.0, length, curve.turns));
++      continue;
++    }
++    // A segment of the developed plane: its image is a line of the parameter plane on a
++    // cylinder, where the map is affine. The facade refuses segments on a cone.
++    const gp_Pnt2d start = developed_to_parameter(surface, curve.start_x, curve.start_y);
++    const gp_Pnt2d end = developed_to_parameter(surface, curve.end_x, curve.end_y);
++    const gp_Vec2d along(start, end);
++    const Handle(Geom2d_Line) line = new Geom2d_Line(start, gp_Dir2d(along));
++    const double turns = std::fabs(along.X()) / (2.0 * M_PI);
++    edges.push_back(edge_on_surface(geometry, line, vertex_on_surface(geometry, start),
++                                    vertex_on_surface(geometry, end), 0.0, along.Magnitude(),
++                                    turns));
++  }
++  return make_shape(compound_of(edges));
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/shim.h b/crates/partsmith-occt-sys/cpp/shim.h
+index d540d25..ee4ddea 100644
+--- a/crates/partsmith-occt-sys/cpp/shim.h
++++ b/crates/partsmith-occt-sys/cpp/shim.h
+@@ -89,7 +89,13 @@ struct SplitData;
+ struct MeshData;
+ struct StepBodyData;
+ struct StepImportData;
++struct WrapSurfaceData;
++struct WrapCurveData;
++struct ThreadSpecData;
++struct ThreadData;
++struct CheckedBooleanData;
+ enum class ElementKind : std::uint8_t;
++enum class LoftLayoutType : std::uint8_t;
+ enum class ContinuityType : std::uint8_t;
+ enum class ShapeType : std::uint8_t;
+ 
+@@ -185,6 +191,17 @@ SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interru
+ std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
+ OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+ 
++// parameter_plane.cpp
++std::shared_ptr<Shape> wrap_curves(const WrapSurfaceData &surface,
++                                   rust::Slice<const WrapCurveData> curves);
++
++// thread.cpp
++ThreadData modeled_thread(const Shape &base, const ThreadSpecData &spec, bool external,
++                          const Interrupt &interrupt);
++CheckedBooleanData checked_boolean(const Shape &target, const Shape &tool, bool fuse,
++                                   const Interrupt &interrupt);
++rust::Vec<Vec3> edge_points(const Shape &shape, std::uint32_t edge, std::uint32_t count);
++
+ // interrupt.cpp
+ void wait_for_interrupt(const Interrupt &interrupt, double limit);
+ #ifdef __EMSCRIPTEN__
+diff --git a/crates/partsmith-occt-sys/cpp/thread.cpp b/crates/partsmith-occt-sys/cpp/thread.cpp
+new file mode 100644
+index 0000000..21b8563
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/thread.cpp
+@@ -0,0 +1,519 @@
++// The modeled thread of the helix-thread spike (kernel spec section 8.2): a tooth between two
++// coaxial cylinders or cones, built by ThruSections between helical wires (construction (a)) or by
++// a pipe shell along an approximated helix (construction (b)), then fused to its base or cut from
++// it. The spike's indicator records when it is polled (section 8.1 item 4).
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <optional>
++#include <utility>
++#include <vector>
++
++#include <BRepAdaptor_Curve.hxx>
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepBuilderAPI_MakePolygon.hxx>
++#include <BRepBuilderAPI_MakeWire.hxx>
++#include <BRepCheck_Analyzer.hxx>
++#include <BRepOffsetAPI_MakePipeShell.hxx>
++#include <BRepOffsetAPI_ThruSections.hxx>
++#include <BRepTools_WireExplorer.hxx>
++#include <BRep_Builder.hxx>
++#include <GeomAPI_PointsToBSpline.hxx>
++#include <Geom_BSplineCurve.hxx>
++#include <ShapeBuild_ReShape.hxx>
++#include <ShapeExtend.hxx>
++#include <ShapeUpgrade_ShapeDivideAngle.hxx>
++#include <TColgp_Array1OfPnt.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Wire.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++using Clock = std::chrono::steady_clock;
++
++// The milliseconds of a duration.
++double milliseconds(Clock::duration duration) {
++  return std::chrono::duration<double, std::milli>(duration).count();
++}
++
++// The spike's indicator: answers as the shim's indicator does, and records the time of each
++// poll, so the spike can report the polls of a call and the longest gap between them.
++class PollRecorder : public Interruption {
++ public:
++  explicit PollRecorder(const Interrupt &interrupt)
++      : Interruption(interrupt), start_(Clock::now()), last_(start_) {}
++
++  Standard_Boolean UserBreak() override {
++    const Clock::time_point now = Clock::now();
++    if (count_ == 0) {
++      first_ = now - start_;
++    } else {
++      longest_ = std::max(longest_, now - last_);
++    }
++    last_ = now;
++    ++count_;
++    return Interruption::UserBreak();
++  }
++
++  // The polls so far, with the time from the last one to now as the end of the call.
++  PollData data() const {
++    const Clock::time_point now = Clock::now();
++    return PollData{count_, milliseconds(first_), milliseconds(longest_),
++                    milliseconds(now - last_), milliseconds(now - start_)};
++  }
++
++ private:
++  Clock::time_point start_;
++  Clock::time_point last_;
++  Clock::duration first_{};
++  Clock::duration longest_{};
++  std::uint64_t count_ = 0;
++};
++
++// The samples per turn of the helix that construction (b) approximates, and the tolerance and
++// degrees of the approximation (kernel spec section 8.2).
++constexpr int kSpinePointsPerTurn = 32;
++constexpr double kSpineTolerance = 1e-4;
++constexpr int kSpineLeastDegree = 3;
++constexpr int kSpineMostDegree = 8;
++
++// A construction element with its role.
++struct Role {
++  TopoDS_Shape element;
++  ThreadPart part;
++  std::uint32_t piece;
++  HistorySource source;
++};
++
++// A tooth with the roles of its elements, read from the history of the builder that made it.
++struct Tooth {
++  TopoDS_Shape shape;
++  std::vector<Role> roles;
++};
++
++// The axial positions of the tooth's four corners relative to its inner lower corner.
++struct Corners {
++  double inner_lower;
++  double inner_upper;
++  double outer_lower;
++  double outer_upper;
++};
++
++Corners corners_of(const ThreadSpecData &spec) {
++  const double outer_lower = (spec.inner_width - spec.outer_width) / 2.0;
++  return Corners{0.0, spec.inner_width, outer_lower, outer_lower + spec.outer_width};
++}
++
++// The surface of the tooth's inner side (`outer` false) or outer side, in the spec's frame turned
++// about its normal to the thread's phase.
++WrapSurfaceData side_surface(const ThreadSpecData &spec, bool outer) {
++  const gp_Ax3 axes = to_ax3(spec.frame);
++  const gp_Dir x_axis = axes.XDirection().Rotated(axes.Axis(), spec.phase);
++  Frame frame = spec.frame;
++  frame.x_axis = Vec3{x_axis.X(), x_axis.Y(), x_axis.Z()};
++  return WrapSurfaceData{frame, spec.inner_radius + (outer ? spec.depth : 0.0),
++                         spec.half_angle};
++}
++
++// The parameters along a helix line where its pieces end: one piece per turn from the start
++// unless the layout makes each helix one edge; the last parameter is the helix's end.
++std::vector<double> piece_ends(const ThreadSpecData &spec, double turn_length) {
++  std::vector<double> ends;
++  if (spec.layout != LoftLayoutType::Whole) {
++    for (int turn = 1; turn < spec.turns - 1e-9; ++turn) {
++      ends.push_back(turn * turn_length);
++    }
++  }
++  ends.push_back(spec.turns * turn_length);
++  return ends;
++}
++
++// The helical edges of one side of the tooth, piece by piece, with the vertices at their ends,
++// and the segments of the parameter plane from the lower helix up to the upper one at the start
++// and the end. Vertex `k` is at the start of piece `k`; the last ones are at the end.
++struct Side {
++  bool outer;
++  std::vector<TopoDS_Vertex> lower_vertices;
++  std::vector<TopoDS_Vertex> upper_vertices;
++  std::vector<TopoDS_Edge> lower_edges;
++  std::vector<TopoDS_Edge> upper_edges;
++  TopoDS_Edge start_segment;
++  TopoDS_Edge end_segment;
++
++  std::size_t pieces() const { return lower_edges.size(); }
++};
++
++// The edges of one side: each helix a line of the side's parameter plane made edges piece by
++// piece. The side's frame turns to the thread's phase, so its helices start at angle 0 of its
++// parameter plane, where ShapeUpgrade_ShapeDivideAngle divides its faces.
++Side side_of(const ThreadSpecData &spec, bool outer) {
++  const WrapSurfaceData surface = side_surface(spec, outer);
++  const Handle(Geom_Surface) geometry = wrap_surface(surface);
++  const Corners corners = corners_of(spec);
++  const double lower = spec.start + (outer ? corners.outer_lower : corners.inner_lower);
++  const double upper = spec.start + (outer ? corners.outer_upper : corners.inner_upper);
++  const HelixLine lower_helix = helix_line(surface, 0.0, lower, spec.pitch);
++  const HelixLine upper_helix = helix_line(surface, 0.0, upper, spec.pitch);
++  const std::vector<double> ends = piece_ends(spec, lower_helix.turn_length);
++
++  Side side{outer, {}, {}, {}, {}, {}, {}};
++  auto helix_vertices = [&](const HelixLine &helix) {
++    std::vector<TopoDS_Vertex> vertices{vertex_on_surface(geometry, helix.line->Value(0.0))};
++    for (double end : ends) {
++      vertices.push_back(vertex_on_surface(geometry, helix.line->Value(end)));
++    }
++    return vertices;
++  };
++  side.lower_vertices = helix_vertices(lower_helix);
++  side.upper_vertices = helix_vertices(upper_helix);
++  auto helix_edges = [&](const HelixLine &helix, const std::vector<TopoDS_Vertex> &vertices) {
++    std::vector<TopoDS_Edge> edges;
++    double previous = 0.0;
++    for (std::size_t piece = 0; piece < ends.size(); ++piece) {
++      const double turns = (ends[piece] - previous) / helix.turn_length;
++      edges.push_back(edge_on_surface(geometry, helix.line, vertices[piece], vertices[piece + 1],
++                                      previous, ends[piece], turns));
++      previous = ends[piece];
++    }
++    return edges;
++  };
++  side.lower_edges = helix_edges(lower_helix, side.lower_vertices);
++  side.upper_edges = helix_edges(upper_helix, side.upper_vertices);
++  // The segments rise from the lower helix to the upper one, `turns` turns from the start.
++  const double length = parameter_height(surface, upper) - parameter_height(surface, lower);
++  auto segment = [&](double turns, const TopoDS_Vertex &from, const TopoDS_Vertex &to) {
++    const gp_Pnt2d start(2.0 * M_PI * turns, parameter_height(surface, lower + spec.pitch * turns));
++    const Handle(Geom2d_Line) line = new Geom2d_Line(start, gp_Dir2d(0.0, 1.0));
++    return edge_on_surface(geometry, line, from, to, 0.0, length, 0.0);
++  };
++  side.start_segment = segment(0.0, side.lower_vertices.front(), side.upper_vertices.front());
++  side.end_segment = segment(spec.turns, side.lower_vertices.back(), side.upper_vertices.back());
++  return side;
++}
++
++// The closed wire of a side: the lower helix forward, the segment at the end, the upper helix
++// back and the segment at the start, which rises and so is walked in reverse.
++TopoDS_Wire band_wire(const Side &side) {
++  BRep_Builder builder;
++  TopoDS_Wire wire;
++  builder.MakeWire(wire);
++  for (const TopoDS_Edge &edge : side.lower_edges) {
++    builder.Add(wire, edge);
++  }
++  builder.Add(wire, side.end_segment);
++  for (std::size_t piece = side.pieces(); piece-- > 0;) {
++    builder.Add(wire, side.upper_edges[piece].Reversed());
++  }
++  builder.Add(wire, side.start_segment.Reversed());
++  wire.Closed(Standard_True);
++  return wire;
++}
++
++// The part of a vertex at `position` along a side's helices: its start, its end, or between two
++// pieces.
++ThreadPart vertex_part(const Side &side, std::size_t position) {
++  return position == 0               ? ThreadPart::StartVertex
++         : position == side.pieces() ? ThreadPart::EndVertex
++                                     : ThreadPart::RulingVertex;
++}
++
++// The roles of a side's section edges and vertices, which are elements of the tooth themselves.
++void add_section_roles(const Side &side, std::vector<Role> &roles) {
++  const ThreadPart lower = side.outer ? ThreadPart::OuterLower : ThreadPart::InnerLower;
++  const ThreadPart upper = side.outer ? ThreadPart::OuterUpper : ThreadPart::InnerUpper;
++  for (std::size_t piece = 0; piece < side.pieces(); ++piece) {
++    const auto number = static_cast<std::uint32_t>(piece);
++    roles.push_back({side.lower_edges[piece], lower, number, HistorySource::Section});
++    roles.push_back({side.upper_edges[piece], upper, number, HistorySource::Section});
++  }
++  roles.push_back({side.start_segment, ThreadPart::StartEdge, 0, HistorySource::Section});
++  roles.push_back({side.end_segment, ThreadPart::EndEdge, 0, HistorySource::Section});
++  for (std::size_t position = 0; position <= side.pieces(); ++position) {
++    for (const TopoDS_Vertex &vertex :
++         {side.lower_vertices[position], side.upper_vertices[position]}) {
++      roles.push_back({vertex, vertex_part(side, position), static_cast<std::uint32_t>(position),
++                       HistorySource::Section});
++    }
++  }
++}
++
++// Replaces each role's element by its images in `history`, dropping removed elements.
++void follow(std::vector<Role> &roles, const Handle(BRepTools_History) &history) {
++  std::vector<Role> followed;
++  for (const Role &role : roles) {
++    if (history->IsRemoved(role.element)) {
++      continue;
++    }
++    const TopTools_ListOfShape &images = history->Modified(role.element);
++    if (images.IsEmpty()) {
++      followed.push_back(role);
++    }
++    for (const TopoDS_Shape &image : images) {
++      followed.push_back({image, role.part, role.piece, role.source});
++    }
++  }
++  roles = std::move(followed);
++}
++
++// Construction (a): BRepOffsetAPI_ThruSections, ruled and solid, between the helical wires on
++// the inner and outer sides, the construction of OCCT's bottle tutorial. The roles come from its
++// history: the caps (`FirstShape`, `LastShape`), the face each inner section edge generates
++// (`GeneratedFace`), the edge each inner section vertex generates (`Generated`) and the section
++// edges and vertices themselves. With `DividedPerTurn`, ShapeUpgrade_ShapeDivideAngle then
++// divides the faces on the cylinders or cones at every turn, and the roles follow its history.
++Tooth lofted_tooth(const ThreadSpecData &spec, Polls &polls) {
++  polls.before("BRepBuilderAPI_MakeEdge");
++  const Side inner = side_of(spec, false);
++  polls.before("BRepBuilderAPI_MakeEdge");
++  const Side outer = side_of(spec, true);
++  BRepOffsetAPI_ThruSections loft(Standard_True, Standard_True, kLinear);
++  loft.AddWire(band_wire(inner));
++  loft.AddWire(band_wire(outer));
++  loft.CheckCompatibility(Standard_False);
++  polls.run("BRepOffsetAPI_ThruSections",
++            [&](const Message_ProgressRange &range) { loft.Build(range); });
++  if (!loft.IsDone()) {
++    raise_not_done("BRepOffsetAPI_ThruSections failed with status " +
++                   std::to_string(static_cast<int>(loft.GetStatus())));
++  }
++  Tooth tooth{loft.Shape(), {}};
++  std::vector<Role> &roles = tooth.roles;
++  add_section_roles(inner, roles);
++  add_section_roles(outer, roles);
++  roles.push_back({loft.FirstShape(), ThreadPart::InnerFace, 0, HistorySource::FirstShape});
++  roles.push_back({loft.LastShape(), ThreadPart::OuterFace, 0, HistorySource::LastShape});
++  for (std::size_t piece = 0; piece < inner.pieces(); ++piece) {
++    const auto number = static_cast<std::uint32_t>(piece);
++    roles.push_back({loft.GeneratedFace(inner.lower_edges[piece]), ThreadPart::LowerFlank, number,
++                     HistorySource::GeneratedFace});
++    roles.push_back({loft.GeneratedFace(inner.upper_edges[piece]), ThreadPart::UpperFlank, number,
++                     HistorySource::GeneratedFace});
++  }
++  roles.push_back({loft.GeneratedFace(inner.start_segment), ThreadPart::StartFace, 0,
++                   HistorySource::GeneratedFace});
++  roles.push_back({loft.GeneratedFace(inner.end_segment), ThreadPart::EndFace, 0,
++                   HistorySource::GeneratedFace});
++  for (std::size_t position = 0; position <= inner.pieces(); ++position) {
++    const ThreadPart part = position == 0               ? ThreadPart::StartEdge
++                            : position == inner.pieces() ? ThreadPart::EndEdge
++                                                         : ThreadPart::Ruling;
++    for (const TopoDS_Vertex &vertex :
++         {inner.lower_vertices[position], inner.upper_vertices[position]}) {
++      for (const TopoDS_Shape &edge : loft.Generated(vertex)) {
++        roles.push_back({edge, part, static_cast<std::uint32_t>(position),
++                         HistorySource::GeneratedFromVertex});
++      }
++    }
++  }
++  if (spec.layout == LoftLayoutType::DividedPerTurn) {
++    polls.before("ShapeUpgrade_ShapeDivideAngle");
++    ShapeUpgrade_ShapeDivideAngle divide(2.0 * M_PI, tooth.shape);
++    divide.Perform();
++    if (divide.Status(ShapeExtend_FAIL)) {
++      raise_not_done("ShapeUpgrade_ShapeDivideAngle failed");
++    }
++    tooth.shape = divide.Result();
++    follow(roles, divide.GetContext()->History());
++  }
++  return tooth;
++}
++
++// Construction (b): BRepOffsetAPI_MakePipeShell sweeps the tooth's profile along the helix of its
++// inner lower corner, approximated by GeomAPI_PointsToBSpline, in binormal mode along the axis.
++// With `overlap`, the profile's flanks run on into the base by that radial distance.
++Tooth swept_tooth(const ThreadSpecData &spec, Polls &polls) {
++  const gp_Ax3 frame = to_ax3(spec.frame);
++  // From the frame's coordinates to the model's.
++  const gp_Trsf placement = [&] {
++    gp_Trsf transformation;
++    transformation.SetTransformation(frame);
++    return transformation.Inverted();
++  }();
++  const Corners corners = corners_of(spec);
++  const int points = static_cast<int>(std::ceil(spec.turns * kSpinePointsPerTurn)) + 1;
++  TColgp_Array1OfPnt helix(1, points);
++  for (int point = 0; point < points; ++point) {
++    const double turn = spec.turns * point / (points - 1);
++    const double angle = spec.phase + 2.0 * M_PI * turn;
++    helix.SetValue(point + 1, gp_Pnt(spec.inner_radius * std::cos(angle),
++                                     spec.inner_radius * std::sin(angle),
++                                     spec.start + spec.pitch * turn)
++                                  .Transformed(placement));
++  }
++  polls.before("GeomAPI_PointsToBSpline");
++  GeomAPI_PointsToBSpline approximation(helix, kSpineLeastDegree, kSpineMostDegree, GeomAbs_C2,
++                                        kSpineTolerance);
++  if (!approximation.IsDone()) {
++    raise_not_done("GeomAPI_PointsToBSpline failed");
++  }
++  const TopoDS_Wire spine =
++      BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(approximation.Curve())).Wire();
++
++  // The profile in the half-plane at the phase angle, its flanks run on inward by the overlap.
++  const double inner = spec.inner_radius - spec.overlap;
++  const double outer = spec.inner_radius + spec.depth;
++  const double lower_run = spec.overlap * corners.outer_lower / spec.depth;
++  const double upper_run = spec.overlap * (corners.inner_upper - corners.outer_upper) / spec.depth;
++  auto profile_point = [&](double radius, double height) {
++    return gp_Pnt(radius * std::cos(spec.phase), radius * std::sin(spec.phase), height)
++        .Transformed(placement);
++  };
++  BRepBuilderAPI_MakePolygon polygon(
++      profile_point(inner, spec.start - lower_run),
++      profile_point(outer, spec.start + corners.outer_lower),
++      profile_point(outer, spec.start + corners.outer_upper),
++      profile_point(inner, spec.start + corners.inner_upper + upper_run), Standard_True);
++  const TopoDS_Wire profile = polygon.Wire();
++
++  BRepOffsetAPI_MakePipeShell pipe(spine);
++  pipe.SetMode(frame.Direction());
++  pipe.Add(profile);
++  polls.run("BRepOffsetAPI_MakePipeShell",
++            [&](const Message_ProgressRange &range) { pipe.Build(range); });
++  if (!pipe.IsDone()) {
++    raise_not_done("BRepOffsetAPI_MakePipeShell failed with status " +
++                   std::to_string(static_cast<int>(pipe.GetStatus())));
++  }
++  polls.before("BRepOffsetAPI_MakePipeShell::MakeSolid");
++  if (!pipe.MakeSolid()) {
++    raise_not_done("BRepOffsetAPI_MakePipeShell::MakeSolid failed");
++  }
++  Tooth tooth{pipe.Shape(), {}};
++  // The profile's edges from its first vertex: lower flank, outer side, upper flank, inner side.
++  const ThreadPart face_parts[] = {ThreadPart::LowerFlank, ThreadPart::OuterFace,
++                                   ThreadPart::UpperFlank, ThreadPart::InnerFace};
++  // Its vertices in the same order: the inner lower, outer lower, outer upper and inner upper
++  // corners.
++  const ThreadPart edge_parts[] = {ThreadPart::InnerLower, ThreadPart::OuterLower,
++                                   ThreadPart::OuterUpper, ThreadPart::InnerUpper};
++  std::size_t position = 0;
++  for (BRepTools_WireExplorer explorer(profile); explorer.More(); explorer.Next(), ++position) {
++    for (const TopoDS_Shape &face : pipe.Generated(explorer.Current())) {
++      tooth.roles.push_back({face, face_parts[position], 0, HistorySource::GeneratedFromEdge});
++    }
++    for (const TopoDS_Shape &edge : pipe.Generated(explorer.CurrentVertex())) {
++      tooth.roles.push_back({edge, edge_parts[position], 0, HistorySource::GeneratedFromVertex});
++    }
++  }
++  const std::pair<TopoDS_Shape, ThreadPart> caps[] = {
++      {pipe.FirstShape(), ThreadPart::StartFace}, {pipe.LastShape(), ThreadPart::EndFace}};
++  for (const auto &[cap, part] : caps) {
++    const bool start = part == ThreadPart::StartFace;
++    for (TopExp_Explorer face(cap, TopAbs_FACE); face.More(); face.Next()) {
++      tooth.roles.push_back({face.Current(), part, 0,
++                             start ? HistorySource::FirstShape : HistorySource::LastShape});
++    }
++    for (TopExp_Explorer edge(cap, TopAbs_EDGE); edge.More(); edge.Next()) {
++      tooth.roles.push_back({edge.Current(), start ? ThreadPart::StartEdge : ThreadPart::EndEdge,
++                             0, HistorySource::CapElement});
++    }
++    for (TopExp_Explorer vertex(cap, TopAbs_VERTEX); vertex.More(); vertex.Next()) {
++      tooth.roles.push_back({vertex.Current(),
++                             start ? ThreadPart::StartVertex : ThreadPart::EndVertex, 0,
++                             HistorySource::CapElement});
++    }
++  }
++  return tooth;
++}
++
++// The kind of a face, edge or vertex; nothing for other types.
++std::optional<ElementKind> element_kind(TopAbs_ShapeEnum type) {
++  switch (type) {
++    case TopAbs_FACE:
++      return ElementKind::Face;
++    case TopAbs_EDGE:
++      return ElementKind::Edge;
++    case TopAbs_VERTEX:
++      return ElementKind::Vertex;
++    default:
++      return std::nullopt;
++  }
++}
++
++// Checks a whole shape and repairs it when it is not valid, as section 3.5 does, recording which.
++ValidityType check_and_repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
++                              Polls &polls) {
++  polls.before("BRepCheck_Analyzer");
++  if (BRepCheck_Analyzer(shape).IsValid()) {
++    return ValidityType::AsBuilt;
++  }
++  return repair(shape, history, polls) ? ValidityType::AfterRepair : ValidityType::Invalid;
++}
++
++// The boolean of section 3.4.5 on copies of `target` and `tool`, its whole result checked and
++// repaired. History inputs: [target, tool].
++CheckedBooleanData boolean_of(const Shape &target, const Shape &tool, bool fuse, Polls &polls) {
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape target_copy = copy_elements(target);
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape tool_copy = copy_elements(tool);
++  TopTools_ListOfShape tools;
++  tools.Append(tool_copy.get());
++  Handle(BRepTools_History) history = new BRepTools_History;
++  TopoDS_Shape result = solids_only(run_boolean(fuse ? BOPAlgo_FUSE : BOPAlgo_CUT,
++                                                target_copy.get(), tools, true, history, polls));
++  const ValidityType validity = check_and_repair(result, history, polls);
++  return CheckedBooleanData{op_result(result, history, {target_copy.get(), tool_copy.get()}),
++                            validity};
++}
++
++}  // namespace
++
++ThreadData modeled_thread(const Shape &base, const ThreadSpecData &spec, bool external,
++                          const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  Tooth tooth = spec.method == ThreadMethod::Lofted ? lofted_tooth(spec, polls)
++                                                    : swept_tooth(spec, polls);
++  Handle(BRepTools_History) repair_history = new BRepTools_History;
++  const ValidityType thread_validity = check_and_repair(tooth.shape, repair_history, polls);
++  if (thread_validity == ValidityType::Invalid) {
++    raise_invalid_result("the thread construction stays invalid after ShapeFix_Shape");
++  }
++  const std::shared_ptr<Shape> thread_shape = make_shape(tooth.shape);
++  CheckedBooleanData boolean = boolean_of(base, *thread_shape, external, polls);
++
++  // The roles of the construction's elements, through the repair when it ran.
++  follow(tooth.roles, repair_history);
++  rust::Vec<ThreadRoleData> roles;
++  for (const Role &role : tooth.roles) {
++    const std::optional<ElementKind> kind =
++        role.element.IsNull() ? std::nullopt : element_kind(role.element.ShapeType());
++    const int index = kind ? thread_shape->map(*kind).FindIndex(role.element) : 0;
++    if (index > 0) {
++      roles.push_back(ThreadRoleData{*kind, static_cast<std::uint32_t>(index), role.part,
++                                     role.piece, role.source});
++    }
++  }
++  return ThreadData{std::move(boolean.result), thread_shape, std::move(roles), thread_validity,
++                    boolean.validity, recorder->data()};
++}
++
++CheckedBooleanData checked_boolean(const Shape &target, const Shape &tool, bool fuse,
++                                   const Interrupt &interrupt) {
++  Polls polls(interrupt);
++  return boolean_of(target, tool, fuse, polls);
++}
++
++rust::Vec<Vec3> edge_points(const Shape &shape, std::uint32_t edge, std::uint32_t count) {
++  const BRepAdaptor_Curve curve(TopoDS::Edge(element_at(shape, ElementKind::Edge, edge)));
++  const double first = curve.FirstParameter();
++  const double last = curve.LastParameter();
++  rust::Vec<Vec3> points;
++  for (std::uint32_t point = 0; point < count; ++point) {
++    const double parameter = count == 1 ? first : first + (last - first) * point / (count - 1);
++    points.push_back(to_vec3(curve.Value(parameter).XYZ()));
++  }
++  return points;
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/validity.cpp b/crates/partsmith-occt-sys/cpp/validity.cpp
+index fd88ff3..e182bb0 100644
+--- a/crates/partsmith-occt-sys/cpp/validity.cpp
++++ b/crates/partsmith-occt-sys/cpp/validity.cpp
+@@ -445,12 +445,6 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
+   }
+ }
+ 
+-namespace {
+-
+-// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
+-// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
+-// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
+-// Otherwise leaves both as they were and returns false. `polls` polls before each step.
+ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls) {
+   initialize();
+   polls.before("BRepBuilderAPI_Copy");
+@@ -474,6 +468,8 @@ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls
+   return true;
+ }
+ 
++namespace {
++
+ // The message of a result that stays invalid after repair.
+ std::string stays_invalid(const char *algorithm) {
+   return std::string(algorithm) + " produced a shape that stays invalid after ShapeFix_Shape";
+diff --git a/crates/partsmith-occt-sys/src/error.rs b/crates/partsmith-occt-sys/src/error.rs
+index 0b35a61..420df35 100644
+--- a/crates/partsmith-occt-sys/src/error.rs
++++ b/crates/partsmith-occt-sys/src/error.rs
+@@ -101,6 +101,10 @@ pub enum Operation {
+     ReadBrep,
+     /// [`crate::wait_for_interrupt`].
+     WaitForInterrupt,
++    /// [`crate::wrap_curves`].
++    WrapCurves,
++    /// [`crate::modeled_thread`].
++    Thread,
+ }
+ 
+ impl Operation {
+@@ -133,6 +137,8 @@ impl Operation {
+             Operation::WriteBrep => "write_brep",
+             Operation::ReadBrep => "read_brep",
+             Operation::WaitForInterrupt => "wait_for_interrupt",
++            Operation::WrapCurves => "wrap_curves",
++            Operation::Thread => "thread",
+         }
+     }
+ 
+@@ -177,6 +183,10 @@ impl Operation {
+             Operation::WaitForInterrupt => {
+                 "The test wait could not run; report it with the details."
+             }
++            Operation::WrapCurves => {
++                "The curves could not be mapped onto the surface; report it with the details."
++            }
++            Operation::Thread => "A coarser pitch or a shorter thread may work.",
+         }
+     }
+ 
+@@ -200,6 +210,7 @@ impl Operation {
+             Operation::Shell => Some("shell"),
+             Operation::Transform => Some("moved or copied body"),
+             Operation::Split => Some("split"),
++            Operation::Thread => Some("thread"),
+             Operation::Section
+             | Operation::Compound
+             | Operation::Measure
+@@ -209,7 +220,8 @@ impl Operation {
+             | Operation::ReadStep
+             | Operation::WriteBrep
+             | Operation::ReadBrep
+-            | Operation::WaitForInterrupt => None,
++            | Operation::WaitForInterrupt
++            | Operation::WrapCurves => None,
+         }
+     }
+ }
+diff --git a/crates/partsmith-occt-sys/src/ffi.rs b/crates/partsmith-occt-sys/src/ffi.rs
+index 1cb2283..d9570b9 100644
+--- a/crates/partsmith-occt-sys/src/ffi.rs
++++ b/crates/partsmith-occt-sys/src/ffi.rs
+@@ -282,6 +282,150 @@ pub(crate) mod bridge {
+         warnings: Vec<String>,
+     }
+ 
++    /// A cylinder (`half_angle` 0) or a cone about the frame's normal, with `radius` at the
++    /// frame's origin: the surface of the parameter-plane map (kernel spec sections 8.2 and 8.3).
++    #[derive(Debug, Clone, Copy)]
++    struct WrapSurfaceData {
++        frame: Frame,
++        radius: f64,
++        half_angle: f64,
++    }
++
++    /// The kind of a curve of the parameter-plane map.
++    #[derive(Debug, Clone, Copy)]
++    enum WrapCurveType {
++        Segment,
++        Helix,
++    }
++
++    /// One curve of the parameter-plane map: a segment of the developed plane from `start` to
++    /// `end`, or a helix that starts at angle `phase` and `height` and rises `pitch` along the
++    /// axis per turn for `turns` turns.
++    #[derive(Debug, Clone, Copy)]
++    struct WrapCurveData {
++        kind: WrapCurveType,
++        start_x: f64,
++        start_y: f64,
++        end_x: f64,
++        end_y: f64,
++        phase: f64,
++        height: f64,
++        pitch: f64,
++        turns: f64,
++    }
++
++    /// The construction of a modeled thread (kernel spec section 8.2).
++    #[derive(Debug, Clone, Copy)]
++    enum ThreadMethod {
++        Lofted,
++        Swept,
++    }
++
++    /// How construction (a) lays out its lofts, in `LoftLayout` order.
++    #[derive(Debug, Clone, Copy)]
++    enum LoftLayoutType {
++        Whole,
++        EdgePerTurn,
++        DividedPerTurn,
++    }
++
++    /// A modeled thread's tooth and how it is built.
++    #[derive(Debug, Clone, Copy)]
++    struct ThreadSpecData {
++        frame: Frame,
++        inner_radius: f64,
++        depth: f64,
++        half_angle: f64,
++        pitch: f64,
++        inner_width: f64,
++        outer_width: f64,
++        phase: f64,
++        start: f64,
++        turns: f64,
++        method: ThreadMethod,
++        layout: LoftLayoutType,
++        overlap: f64,
++    }
++
++    /// What an element of a thread's construction is, in `ThreadPart` order.
++    #[derive(Debug, Clone, Copy)]
++    enum ThreadPart {
++        InnerFace,
++        OuterFace,
++        LowerFlank,
++        UpperFlank,
++        StartFace,
++        EndFace,
++        InnerLower,
++        InnerUpper,
++        OuterLower,
++        OuterUpper,
++        StartEdge,
++        EndEdge,
++        Ruling,
++        StartVertex,
++        EndVertex,
++        RulingVertex,
++    }
++
++    /// The OCCT history that named an element of a thread's construction, in `HistorySource`
++    /// order.
++    #[derive(Debug, Clone, Copy)]
++    enum HistorySource {
++        Section,
++        FirstShape,
++        LastShape,
++        GeneratedFace,
++        GeneratedFromEdge,
++        GeneratedFromVertex,
++        CapElement,
++    }
++
++    /// The role of one element of a thread's construction.
++    #[derive(Debug, Clone, Copy)]
++    struct ThreadRoleData {
++        kind: ElementKind,
++        index: u32,
++        part: ThreadPart,
++        piece: u32,
++        source: HistorySource,
++    }
++
++    /// Whether a shape was valid as built, valid after repair, or invalid.
++    #[derive(Debug, Clone, Copy)]
++    enum ValidityType {
++        AsBuilt,
++        AfterRepair,
++        Invalid,
++    }
++
++    /// The polls of one call, in milliseconds: from its start to the first, the longest gap
++    /// between two, from the last to its end, and the whole call.
++    #[derive(Debug, Clone, Copy)]
++    struct PollData {
++        count: u64,
++        first: f64,
++        longest: f64,
++        last: f64,
++        total: f64,
++    }
++
++    /// A thread fused to or cut from its base, with its construction and their checks.
++    struct ThreadData {
++        result: OpResultData,
++        thread: SharedPtr<Shape>,
++        roles: Vec<ThreadRoleData>,
++        thread_validity: ValidityType,
++        result_validity: ValidityType,
++        polls: PollData,
++    }
++
++    /// A boolean whose whole result was checked, with the check's outcome.
++    struct CheckedBooleanData {
++        result: OpResultData,
++        validity: ValidityType,
++    }
++
+     extern "Rust" {
+         /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+         /// requested and keeps it only for the call that received it (kernel spec section 3.13
+@@ -418,6 +562,24 @@ pub(crate) mod bridge {
+         ) -> Result<UniquePtr<CxxString>>;
+         fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImportData>;
+ 
++        fn wrap_curves(
++            surface: &WrapSurfaceData,
++            curves: &[WrapCurveData],
++        ) -> Result<SharedPtr<Shape>>;
++        fn modeled_thread(
++            base: &Shape,
++            spec: &ThreadSpecData,
++            external: bool,
++            interrupt: &Interrupt,
++        ) -> Result<ThreadData>;
++        fn checked_boolean(
++            target: &Shape,
++            tool: &Shape,
++            fuse: bool,
++            interrupt: &Interrupt,
++        ) -> Result<CheckedBooleanData>;
++        fn edge_points(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Vec3>>;
++
+         /// Polls `interrupt` about once per millisecond until it is requested or `limit`
+         /// milliseconds have passed (kernel spec section 3.13 item 8).
+         fn wait_for_interrupt(interrupt: &Interrupt, limit: f64) -> Result<()>;
+diff --git a/crates/partsmith-occt-sys/src/lib.rs b/crates/partsmith-occt-sys/src/lib.rs
+index 9435ed2..535c250 100644
+--- a/crates/partsmith-occt-sys/src/lib.rs
++++ b/crates/partsmith-occt-sys/src/lib.rs
+@@ -13,6 +13,7 @@ mod exchange;
+ mod ffi;
+ mod history;
+ mod interrupt;
++mod parameter_plane;
+ mod primitives;
+ mod profiles;
+ mod shape;
+@@ -21,6 +22,7 @@ mod sweeps;
+ mod tessellation;
+ #[cfg(test)]
+ mod test_support;
++mod thread;
+ mod transforms;
+ mod values;
+ 
+@@ -34,6 +36,7 @@ pub use error::{KernelError, KernelErrorKind, Operation};
+ pub use exchange::{StepBody, StepImport, read_step, write_step};
+ pub use history::{ElementFate, History, InputHistory, OpResult, Origin};
+ pub use interrupt::{Interrupt, wait_for_interrupt};
++pub use parameter_plane::{Helix, WrapCurve, WrapSurface, wrap_curves};
+ pub use primitives::{
+     Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
+ };
+@@ -43,6 +46,11 @@ pub use profiles::{
+ pub use shape::{Shape, ShapeKind, SubShape, SubShapeKind};
+ pub use sweeps::{SweepFace, SweepResult, extrude, revolve};
+ pub use tessellation::ElementDisplay;
++pub use thread::{
++    CheckedBoolean, CheckedOperation, HistorySource, LoftLayout, PollRecord, ThreadConstruction,
++    ThreadKind, ThreadPart, ThreadResult, ThreadRole, ThreadSpec, Validity, checked_boolean,
++    edge_points, modeled_thread,
++};
+ pub use transforms::{PlaneSide, SectionFace, SplitResult, compound, section, split, transform};
+ pub use values::{Axis, Color, Plane, Point, Point2, Transform, Vector};
+ 
+diff --git a/crates/partsmith-occt-sys/src/parameter_plane.rs b/crates/partsmith-occt-sys/src/parameter_plane.rs
+new file mode 100644
+index 0000000..d0dd488
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/parameter_plane.rs
+@@ -0,0 +1,254 @@
++//! The parameter-plane map of a cylinder or a cone (kernel spec sections 8.2 and 8.3): points of
++//! the developed plane and helices become lines of the surface's parameter plane, and edges on
++//! the surface with exact curves on it. The helix-thread spike's thread and the wrap-emboss
++//! spike's emboss share this code path.
++
++use std::f64::consts::FRAC_PI_2;
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::shape::Shape;
++use crate::values::{Plane, Point2, check_finite, is_positive_length};
++
++/// A cylinder or a cone about the normal of its frame. Angles on it start at the frame's x axis
++/// and heights at its origin.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub enum WrapSurface {
++    /// A cylinder.
++    Cylinder {
++        /// The axis frame.
++        frame: Plane,
++        /// The radius.
++        radius: f64,
++    },
++    /// A cone whose radius grows by the tangent of `half_angle` per millimeter along the normal;
++    /// a negative angle narrows it.
++    Cone {
++        /// The axis frame.
++        frame: Plane,
++        /// The radius at the frame's origin.
++        radius: f64,
++        /// The angle between the cone's lines and its axis, in radians.
++        half_angle: f64,
++    },
++}
++
++/// A helix on a cylinder or a cone: from angle `phase` at `height` along the axis, it rises
++/// `pitch` along the axis per turn for `turns` turns. A positive pitch is right-handed.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct Helix {
++    /// The angle of its start from the frame's x axis, in radians.
++    pub phase: f64,
++    /// The height of its start along the axis.
++    pub height: f64,
++    /// Its rise along the axis per turn.
++    pub pitch: f64,
++    /// Its number of turns.
++    pub turns: f64,
++}
++
++/// A curve of the parameter-plane map.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub enum WrapCurve {
++    /// A straight segment of the developed plane: the plane tangent to the surface along its line
++    /// at angle 0, with x along the circle at height 0 and y along the line. It maps exactly onto
++    /// a cylinder only; the wrap-emboss spike adds the cone's approximation (section 8.3).
++    Segment {
++        /// Its start in the developed plane.
++        start: Point2,
++        /// Its end in the developed plane.
++        end: Point2,
++    },
++    /// A helix, a line of the parameter plane on both surfaces.
++    Helix(Helix),
++}
++
++const RADIUS_MESSAGE: &str = "A wrap surface needs a radius greater than 0 mm.";
++const HALF_ANGLE_MESSAGE: &str =
++    "A cone needs a half-angle between 0 and 90 degrees, other than 0, on either side.";
++const SEGMENT_ON_CONE_MESSAGE: &str =
++    "A segment of the developed plane maps exactly only onto a cylinder.";
++const SHORT_SEGMENT_MESSAGE: &str = "A segment needs a length greater than 0 mm.";
++const TURNS_MESSAGE: &str = "A helix needs more than 0 turns.";
++const APEX_MESSAGE: &str = "A helix on a cone must stay on one side of the cone's apex.";
++
++impl WrapSurface {
++    /// Checks the surface (section 3.1 items 4 to 6) and returns its bridge form.
++    pub(crate) fn to_ffi(self, operation: Operation) -> Result<sys::WrapSurfaceData, KernelError> {
++        let (frame, radius, half_angle) = match self {
++            WrapSurface::Cylinder { frame, radius } => (frame, radius, 0.0),
++            WrapSurface::Cone {
++                frame,
++                radius,
++                half_angle,
++            } => (frame, radius, half_angle),
++        };
++        check_finite(operation, &[radius, half_angle])?;
++        let frame = frame.frame(operation)?;
++        if !is_positive_length(radius) {
++            return Err(KernelError::invalid_input(operation, RADIUS_MESSAGE));
++        }
++        let is_cone = matches!(self, WrapSurface::Cone { .. });
++        if is_cone && !(half_angle != 0.0 && half_angle.abs() < FRAC_PI_2) {
++            return Err(KernelError::invalid_input(operation, HALF_ANGLE_MESSAGE));
++        }
++        Ok(sys::WrapSurfaceData {
++            frame: frame.to_ffi(),
++            radius,
++            half_angle,
++        })
++    }
++
++    /// The radius at `height` along the axis.
++    fn radius_at(surface: &sys::WrapSurfaceData, height: f64) -> f64 {
++        surface.radius + height * surface.half_angle.tan()
++    }
++}
++
++impl WrapCurve {
++    /// Checks the curve on `surface` and returns its bridge form.
++    fn to_ffi(
++        self,
++        operation: Operation,
++        surface: &sys::WrapSurfaceData,
++    ) -> Result<sys::WrapCurveData, KernelError> {
++        let mut data = sys::WrapCurveData {
++            kind: sys::WrapCurveType::Segment,
++            start_x: 0.0,
++            start_y: 0.0,
++            end_x: 0.0,
++            end_y: 0.0,
++            phase: 0.0,
++            height: 0.0,
++            pitch: 0.0,
++            turns: 0.0,
++        };
++        match self {
++            WrapCurve::Segment { start, end } => {
++                check_finite(operation, &[start.x, start.y, end.x, end.y])?;
++                if surface.half_angle != 0.0 {
++                    return Err(KernelError::invalid_input(
++                        operation,
++                        SEGMENT_ON_CONE_MESSAGE,
++                    ));
++                }
++                if !is_positive_length(start.distance(end)) {
++                    return Err(KernelError::invalid_input(operation, SHORT_SEGMENT_MESSAGE));
++                }
++                (data.start_x, data.start_y, data.end_x, data.end_y) =
++                    (start.x, start.y, end.x, end.y);
++            }
++            WrapCurve::Helix(helix) => {
++                check_helix(operation, surface, &helix)?;
++                data.kind = sys::WrapCurveType::Helix;
++                (data.phase, data.height, data.pitch, data.turns) =
++                    (helix.phase, helix.height, helix.pitch, helix.turns);
++            }
++        }
++        Ok(data)
++    }
++}
++
++/// Checks a helix on `surface`: finite, more than 0 turns, and on a cone where the radius stays
++/// above 0 from its start to its end.
++pub(crate) fn check_helix(
++    operation: Operation,
++    surface: &sys::WrapSurfaceData,
++    helix: &Helix,
++) -> Result<(), KernelError> {
++    check_finite(
++        operation,
++        &[helix.phase, helix.height, helix.pitch, helix.turns],
++    )?;
++    if helix.turns <= 0.0 {
++        return Err(KernelError::invalid_input(operation, TURNS_MESSAGE));
++    }
++    let end = helix.height + helix.pitch * helix.turns;
++    if [helix.height, end]
++        .iter()
++        .any(|height| !is_positive_length(WrapSurface::radius_at(surface, *height)))
++    {
++        return Err(KernelError::invalid_input(operation, APEX_MESSAGE));
++    }
++    Ok(())
++}
++
++/// Maps each curve onto the parameter plane of `surface` and returns a compound of one edge per
++/// curve, in order. Each edge has its line of the parameter plane as its curve on the surface,
++/// and a 3D curve that `BRepLib::BuildCurves3d` approximates within 1e-7 mm.
++pub fn wrap_curves(surface: &WrapSurface, curves: &[WrapCurve]) -> Result<Shape, KernelError> {
++    let operation = Operation::WrapCurves;
++    let surface = surface.to_ffi(operation)?;
++    let curves = curves
++        .iter()
++        .map(|curve| curve.to_ffi(operation, &surface))
++        .collect::<Result<Vec<_>, KernelError>>()?;
++    let shape = call(operation, || sys::wrap_curves(&surface, &curves))?;
++    Shape::from_ffi(operation, shape)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::KernelErrorKind;
++
++    fn cone(half_angle: f64) -> WrapSurface {
++        WrapSurface::Cone {
++            frame: Plane::XY,
++            radius: 10.0,
++            half_angle,
++        }
++    }
++
++    #[test]
++    fn a_cone_without_a_half_angle_is_refused() {
++        let error = wrap_curves(&cone(0.0), &[]).expect_err("no half-angle");
++
++        assert_eq!(error.message, HALF_ANGLE_MESSAGE);
++        assert_eq!(error.kind, KernelErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn a_segment_on_a_cone_is_refused() {
++        let segment = WrapCurve::Segment {
++            start: Point2 { x: 0.0, y: 0.0 },
++            end: Point2 { x: 1.0, y: 0.0 },
++        };
++
++        let error = wrap_curves(&cone(0.1), &[segment]).expect_err("a cone");
++
++        assert_eq!(error.message, SEGMENT_ON_CONE_MESSAGE);
++    }
++
++    #[test]
++    fn a_helix_through_the_apex_is_refused() {
++        let helix = WrapCurve::Helix(Helix {
++            phase: 0.0,
++            height: 0.0,
++            pitch: -20.0,
++            turns: 10.0,
++        });
++
++        let error = wrap_curves(&cone(0.1), &[helix]).expect_err("through the apex");
++
++        assert_eq!(error.message, APEX_MESSAGE);
++    }
++
++    #[test]
++    fn a_helix_without_turns_is_refused() {
++        let helix = WrapCurve::Helix(Helix {
++            phase: 0.0,
++            height: 0.0,
++            pitch: 1.0,
++            turns: 0.0,
++        });
++        let cylinder = WrapSurface::Cylinder {
++            frame: Plane::XY,
++            radius: 5.0,
++        };
++
++        let error = wrap_curves(&cylinder, &[helix]).expect_err("no turns");
++
++        assert_eq!(error.message, TURNS_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/src/thread.rs b/crates/partsmith-occt-sys/src/thread.rs
+new file mode 100644
+index 0000000..360a077
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/thread.rs
+@@ -0,0 +1,555 @@
++//! The modeled thread of the helix-thread spike (kernel spec section 8.2): a tooth between two
++//! coaxial cylinders or cones, built along helices by construction (a) or (b), then fused to its
++//! base for an external thread or cut from it for an internal one. The result reports the
++//! construction's roles from OCCT's history, both validity checks and the call's polls.
++
++use std::time::Duration;
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::history::{History, OpResult, op_result_from_ffi};
++use crate::interrupt::Interrupt;
++use crate::parameter_plane::{Helix, WrapSurface, check_helix};
++use crate::shape::{Shape, SubShape, SubShapeKind};
++use crate::values::{Plane, Point, check_finite, is_positive_length};
++
++/// A thread's tooth: in each axial half-plane a trapezoid whose inner side, `inner_width` wide,
++/// lies on the inner cylinder or cone and whose outer side, `outer_width` wide and centered on
++/// it, lies `depth` further out. Its inner lower corner runs along a helix.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct ThreadSpec {
++    /// The axis frame: the axis along its normal, angle 0 along its x axis, height 0 at its
++    /// origin.
++    pub frame: Plane,
++    /// The radius of the inner side at height 0: the root of an external thread, the crest of an
++    /// internal one.
++    pub inner_radius: f64,
++    /// The radial distance from the inner side to the outer side.
++    pub depth: f64,
++    /// The half-angle of both cones, 0 for cylinders, in radians.
++    pub half_angle: f64,
++    /// The rise along the axis per turn.
++    pub pitch: f64,
++    /// The axial width of the inner side.
++    pub inner_width: f64,
++    /// The axial width of the outer side.
++    pub outer_width: f64,
++    /// The angle of the thread's start from the frame's x axis, in radians.
++    pub phase: f64,
++    /// The height of the inner lower corner at the start.
++    pub start: f64,
++    /// The number of turns.
++    pub turns: f64,
++}
++
++/// Which boolean joins the thread to its base.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum ThreadKind {
++    /// The tooth is fused to the base.
++    External,
++    /// The tooth is cut from the base.
++    Internal,
++}
++
++/// How the tooth is built (section 8.2).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub enum ThreadConstruction {
++    /// (a): `BRepOffsetAPI_ThruSections`, ruled, between helical wires on the inner and outer
++    /// sides, each helix a `Geom2d_Line` of the side's parameter plane, laid out by `layout`.
++    Lofted {
++        /// How the helices are cut into edges and the lofts into turns.
++        layout: LoftLayout,
++    },
++    /// (b): `BRepOffsetAPI_MakePipeShell` of the profile along the helix of its inner lower
++    /// corner, approximated by `GeomAPI_PointsToBSpline` within 1e-4 mm, in binormal mode along
++    /// the axis. Cylinders only. Its flanks run on into the base by `overlap`.
++    Swept {
++        /// The radial distance the flanks run on inward, 0 for the plain profile.
++        overlap: f64,
++    },
++}
++
++/// How construction (a) cuts its helices into edges and its lofts into turns.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum LoftLayout {
++    /// One loft between wires with one edge per helix: its inner and outer faces span every turn.
++    Whole,
++    /// One loft between wires with one edge per turn of each helix.
++    EdgePerTurn,
++    /// `EdgePerTurn`, then `ShapeUpgrade_ShapeDivideAngle` divides the inner and outer faces at
++    /// every turn, so each spans one turn.
++    DividedPerTurn,
++}
++
++/// What an element of a thread's construction is.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum ThreadPart {
++    /// The face on the inner cylinder or cone.
++    InnerFace,
++    /// The face on the outer cylinder or cone.
++    OuterFace,
++    /// The flank from the inner lower to the outer lower helix.
++    LowerFlank,
++    /// The flank from the inner upper to the outer upper helix.
++    UpperFlank,
++    /// The face that closes the thread at its start.
++    StartFace,
++    /// The face that closes the thread at its end.
++    EndFace,
++    /// The helix of the inner lower corner.
++    InnerLower,
++    /// The helix of the inner upper corner.
++    InnerUpper,
++    /// The helix of the outer lower corner.
++    OuterLower,
++    /// The helix of the outer upper corner.
++    OuterUpper,
++    /// An edge of the start face.
++    StartEdge,
++    /// An edge of the end face.
++    EndEdge,
++    /// An edge across a flank between two pieces of its helices.
++    Ruling,
++    /// A corner at the start.
++    StartVertex,
++    /// A corner at the end.
++    EndVertex,
++    /// A vertex between two pieces of a helix.
++    RulingVertex,
++}
++
++/// The OCCT history that named an element of a thread's construction.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum HistorySource {
++    /// The edge or vertex of a section wire, in the result itself.
++    Section,
++    /// `FirstShape` of the builder, or a face of it.
++    FirstShape,
++    /// `LastShape` of the builder, or a face of it.
++    LastShape,
++    /// `BRepOffsetAPI_ThruSections::GeneratedFace` of a section edge.
++    GeneratedFace,
++    /// `Generated` of a profile edge.
++    GeneratedFromEdge,
++    /// `Generated` of a section or profile vertex.
++    GeneratedFromVertex,
++    /// An edge or vertex of `FirstShape` or `LastShape`.
++    CapElement,
++}
++
++/// The role of one element of a thread's construction.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct ThreadRole {
++    /// The element of the construction.
++    pub element: SubShape,
++    /// What it is.
++    pub part: ThreadPart,
++    /// The turn from the start that its piece covers, 0 for a whole helix or flank.
++    pub piece: u32,
++    /// The history that named it.
++    pub source: HistorySource,
++}
++
++/// How a shape passed the checks of `BRepCheck_Analyzer` (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum Validity {
++    /// Valid as built.
++    AsBuilt,
++    /// Valid after `ShapeFix_Shape`.
++    AfterRepair,
++    /// Invalid after `ShapeFix_Shape`.
++    Invalid,
++}
++
++/// The polls of one call with an interrupt that is never requested (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct PollRecord {
++    /// The number of `UserBreak` calls.
++    pub count: u64,
++    /// From the call's start to its first poll.
++    pub first: Duration,
++    /// The longest gap between two polls.
++    pub longest: Duration,
++    /// From the last poll to the call's end.
++    pub last: Duration,
++    /// The whole call in the shim.
++    pub total: Duration,
++}
++
++/// A modeled thread joined to its base.
++#[derive(Debug, Clone)]
++pub struct ThreadResult {
++    /// The base with the thread.
++    pub shape: Shape,
++    /// The history of the boolean. Inputs: [base, thread].
++    pub history: History,
++    /// The thread's construction alone.
++    pub thread: Shape,
++    /// The roles of the construction's elements, from its builder's history.
++    pub roles: Vec<ThreadRole>,
++    /// The check of the construction.
++    pub thread_validity: Validity,
++    /// The check of the whole result of the boolean.
++    pub result_validity: Validity,
++    /// The polls of the call.
++    pub polls: PollRecord,
++}
++
++/// A boolean of the spike's later steps, with the check of its whole result.
++#[derive(Debug, Clone)]
++pub struct CheckedBoolean {
++    /// The result with its history. Inputs: [target, tool].
++    pub result: OpResult,
++    /// The check of the whole result.
++    pub validity: Validity,
++}
++
++/// Which boolean a checked boolean runs.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum CheckedOperation {
++    /// The target with the tool.
++    Fuse,
++    /// The target without the tool.
++    Cut,
++}
++
++const SIZE_MESSAGE: &str = "A thread needs a radius, a depth and a pitch greater than 0 mm.";
++const WIDTH_MESSAGE: &str = "A thread's outer side must be narrower than its inner side, which must be narrower than its pitch.";
++const SWEPT_CONE_MESSAGE: &str = "The swept thread is measured on cylinders only.";
++const OVERLAP_MESSAGE: &str =
++    "A thread's overlap must be at least 0 mm and less than its inner radius.";
++const NO_SOLID_MESSAGE: &str = "A thread needs a base with a solid.";
++
++impl ThreadSpec {
++    /// Checks the spec (section 3.1 items 4 to 6) and returns its bridge form.
++    fn to_ffi(
++        self,
++        operation: Operation,
++        construction: ThreadConstruction,
++    ) -> Result<sys::ThreadSpecData, KernelError> {
++        check_finite(
++            operation,
++            &[
++                self.inner_radius,
++                self.depth,
++                self.half_angle,
++                self.pitch,
++                self.inner_width,
++                self.outer_width,
++                self.phase,
++                self.start,
++                self.turns,
++            ],
++        )?;
++        if ![self.inner_radius, self.depth, self.pitch]
++            .into_iter()
++            .all(is_positive_length)
++        {
++            return Err(KernelError::invalid_input(operation, SIZE_MESSAGE));
++        }
++        if !(is_positive_length(self.outer_width)
++            && is_positive_length(self.inner_width - self.outer_width)
++            && is_positive_length(self.pitch - self.inner_width))
++        {
++            return Err(KernelError::invalid_input(operation, WIDTH_MESSAGE));
++        }
++        let surface = if self.half_angle == 0.0 {
++            WrapSurface::Cylinder {
++                frame: self.frame,
++                radius: self.inner_radius,
++            }
++        } else {
++            WrapSurface::Cone {
++                frame: self.frame,
++                radius: self.inner_radius,
++                half_angle: self.half_angle,
++            }
++        }
++        .to_ffi(operation)?;
++        let helix = Helix {
++            phase: self.phase,
++            height: self.start,
++            pitch: self.pitch,
++            turns: self.turns,
++        };
++        check_helix(operation, &surface, &helix)?;
++        let (method, layout, overlap) = match construction {
++            ThreadConstruction::Lofted { layout } => {
++                let layout = match layout {
++                    LoftLayout::Whole => sys::LoftLayoutType::Whole,
++                    LoftLayout::EdgePerTurn => sys::LoftLayoutType::EdgePerTurn,
++                    LoftLayout::DividedPerTurn => sys::LoftLayoutType::DividedPerTurn,
++                };
++                (sys::ThreadMethod::Lofted, layout, 0.0)
++            }
++            ThreadConstruction::Swept { overlap } => {
++                check_finite(operation, &[overlap])?;
++                if self.half_angle != 0.0 {
++                    return Err(KernelError::invalid_input(operation, SWEPT_CONE_MESSAGE));
++                }
++                if !(overlap >= 0.0 && overlap < self.inner_radius) {
++                    return Err(KernelError::invalid_input(operation, OVERLAP_MESSAGE));
++                }
++                (
++                    sys::ThreadMethod::Swept,
++                    sys::LoftLayoutType::Whole,
++                    overlap,
++                )
++            }
++        };
++        Ok(sys::ThreadSpecData {
++            frame: surface.frame,
++            inner_radius: self.inner_radius,
++            depth: self.depth,
++            half_angle: self.half_angle,
++            pitch: self.pitch,
++            inner_width: self.inner_width,
++            outer_width: self.outer_width,
++            phase: self.phase,
++            start: self.start,
++            turns: self.turns,
++            method,
++            layout,
++            overlap,
++        })
++    }
++}
++
++impl Validity {
++    fn from_ffi(
++        operation: Operation,
++        validity: sys::ValidityType,
++    ) -> Result<Validity, KernelError> {
++        match validity {
++            sys::ValidityType::AsBuilt => Ok(Validity::AsBuilt),
++            sys::ValidityType::AfterRepair => Ok(Validity::AfterRepair),
++            sys::ValidityType::Invalid => Ok(Validity::Invalid),
++            _ => Err(KernelError::unknown_from_shim(
++                operation,
++                "validity",
++                validity.repr,
++            )),
++        }
++    }
++}
++
++impl ThreadRole {
++    fn from_ffi(
++        operation: Operation,
++        role: sys::ThreadRoleData,
++    ) -> Result<ThreadRole, KernelError> {
++        let part = match role.part {
++            sys::ThreadPart::InnerFace => ThreadPart::InnerFace,
++            sys::ThreadPart::OuterFace => ThreadPart::OuterFace,
++            sys::ThreadPart::LowerFlank => ThreadPart::LowerFlank,
++            sys::ThreadPart::UpperFlank => ThreadPart::UpperFlank,
++            sys::ThreadPart::StartFace => ThreadPart::StartFace,
++            sys::ThreadPart::EndFace => ThreadPart::EndFace,
++            sys::ThreadPart::InnerLower => ThreadPart::InnerLower,
++            sys::ThreadPart::InnerUpper => ThreadPart::InnerUpper,
++            sys::ThreadPart::OuterLower => ThreadPart::OuterLower,
++            sys::ThreadPart::OuterUpper => ThreadPart::OuterUpper,
++            sys::ThreadPart::StartEdge => ThreadPart::StartEdge,
++            sys::ThreadPart::EndEdge => ThreadPart::EndEdge,
++            sys::ThreadPart::Ruling => ThreadPart::Ruling,
++            sys::ThreadPart::StartVertex => ThreadPart::StartVertex,
++            sys::ThreadPart::EndVertex => ThreadPart::EndVertex,
++            sys::ThreadPart::RulingVertex => ThreadPart::RulingVertex,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "thread part",
++                    role.part.repr,
++                ));
++            }
++        };
++        let source = match role.source {
++            sys::HistorySource::Section => HistorySource::Section,
++            sys::HistorySource::FirstShape => HistorySource::FirstShape,
++            sys::HistorySource::LastShape => HistorySource::LastShape,
++            sys::HistorySource::GeneratedFace => HistorySource::GeneratedFace,
++            sys::HistorySource::GeneratedFromEdge => HistorySource::GeneratedFromEdge,
++            sys::HistorySource::GeneratedFromVertex => HistorySource::GeneratedFromVertex,
++            sys::HistorySource::CapElement => HistorySource::CapElement,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "history source",
++                    role.source.repr,
++                ));
++            }
++        };
++        Ok(ThreadRole {
++            element: SubShape {
++                kind: SubShapeKind::from_ffi(operation, role.kind)?,
++                index: role.index,
++            },
++            part,
++            piece: role.piece,
++            source,
++        })
++    }
++}
++
++impl PollRecord {
++    fn from_ffi(polls: sys::PollData) -> PollRecord {
++        let duration = |milliseconds: f64| Duration::from_secs_f64(milliseconds.max(0.0) / 1000.0);
++        PollRecord {
++            count: polls.count,
++            first: duration(polls.first),
++            longest: duration(polls.longest),
++            last: duration(polls.last),
++            total: duration(polls.total),
++        }
++    }
++}
++
++/// Builds the thread `spec` describes with `construction`, checks it, and fuses it to `base`
++/// (`External`) or cuts it from it (`Internal`) with the settings of section 3.4.5, checking the
++/// whole result. A construction that stays invalid after repair fails with `InvalidResult`; a
++/// result that does reports `Validity::Invalid`.
++pub fn modeled_thread(
++    base: &Shape,
++    spec: &ThreadSpec,
++    kind: ThreadKind,
++    construction: ThreadConstruction,
++    interrupt: &Interrupt,
++) -> Result<ThreadResult, KernelError> {
++    let operation = Operation::Thread;
++    let data = spec.to_ffi(operation, construction)?;
++    if base.count(SubShapeKind::Solid) == 0 {
++        return Err(KernelError::invalid_input(operation, NO_SOLID_MESSAGE));
++    }
++    let external = kind == ThreadKind::External;
++    let data = call(operation, || {
++        sys::modeled_thread(base.inner(), &data, external, interrupt)
++    })?;
++    let result = op_result_from_ffi(operation, data.result)?;
++    Ok(ThreadResult {
++        shape: result.shape,
++        history: result.history,
++        thread: Shape::from_ffi(operation, data.thread)?,
++        roles: data
++            .roles
++            .into_iter()
++            .map(|role| ThreadRole::from_ffi(operation, role))
++            .collect::<Result<_, KernelError>>()?,
++        thread_validity: Validity::from_ffi(operation, data.thread_validity)?,
++        result_validity: Validity::from_ffi(operation, data.result_validity)?,
++        polls: PollRecord::from_ffi(data.polls),
++    })
++}
++
++/// Runs `operation` of `target` and `tool` as `fuse` or `cut` do, then checks the whole result
++/// and repairs it, reporting which (section 8.1 item 4).
++pub fn checked_boolean(
++    operation: CheckedOperation,
++    target: &Shape,
++    tool: &Shape,
++    interrupt: &Interrupt,
++) -> Result<CheckedBoolean, KernelError> {
++    let (facade_operation, fuse) = match operation {
++        CheckedOperation::Fuse => (Operation::Fuse, true),
++        CheckedOperation::Cut => (Operation::Cut, false),
++    };
++    if [target, tool]
++        .iter()
++        .any(|shape| shape.count(SubShapeKind::Solid) == 0)
++    {
++        return Err(KernelError::invalid_input(
++            facade_operation,
++            NO_SOLID_MESSAGE,
++        ));
++    }
++    let data = call(facade_operation, || {
++        sys::checked_boolean(target.inner(), tool.inner(), fuse, interrupt)
++    })?;
++    Ok(CheckedBoolean {
++        result: op_result_from_ffi(facade_operation, data.result)?,
++        validity: Validity::from_ffi(facade_operation, data.validity)?,
++    })
++}
++
++/// `count` points of edge `edge` of `shape`, equally spaced in its curve's parameter from its
++/// start to its end (1-based index).
++pub fn edge_points(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Point>, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Edge, edge)?;
++    let points = call(operation, || sys::edge_points(shape.inner(), edge, count))?;
++    Ok(points.into_iter().map(Point::from_ffi).collect())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::KernelErrorKind;
++
++    fn spec() -> ThreadSpec {
++        ThreadSpec {
++            frame: Plane::XY,
++            inner_radius: 3.0,
++            depth: 0.7,
++            half_angle: 0.0,
++            pitch: 1.25,
++            inner_width: 0.9375,
++            outer_width: 0.15625,
++            phase: 0.0,
++            start: 0.3,
++            turns: 2.0,
++        }
++    }
++
++    fn refusal(spec: &ThreadSpec, construction: ThreadConstruction) -> KernelError {
++        let base = Shape::empty();
++        modeled_thread(
++            &base,
++            spec,
++            ThreadKind::External,
++            construction,
++            &Interrupt::new(),
++        )
++        .expect_err("the spec is refused")
++    }
++
++    #[test]
++    fn a_tooth_wider_than_its_pitch_is_refused() {
++        let wide = ThreadSpec {
++            inner_width: 1.3,
++            ..spec()
++        };
++
++        let error = refusal(
++            &wide,
++            ThreadConstruction::Lofted {
++                layout: LoftLayout::Whole,
++            },
++        );
++
++        assert_eq!(error.message, WIDTH_MESSAGE);
++        assert_eq!(error.kind, KernelErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn a_swept_thread_on_a_cone_is_refused() {
++        let tapered = ThreadSpec {
++            half_angle: 0.1,
++            ..spec()
++        };
++
++        let error = refusal(&tapered, ThreadConstruction::Swept { overlap: 0.0 });
++
++        assert_eq!(error.message, SWEPT_CONE_MESSAGE);
++    }
++
++    #[test]
++    fn a_base_without_a_solid_is_refused() {
++        let error = refusal(
++            &spec(),
++            ThreadConstruction::Lofted {
++                layout: LoftLayout::DividedPerTurn,
++            },
++        );
++
++        assert_eq!(error.message, NO_SOLID_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/integration.rs b/crates/partsmith-occt-sys/tests/integration.rs
+index fd98155..1b154b2 100644
+--- a/crates/partsmith-occt-sys/tests/integration.rs
++++ b/crates/partsmith-occt-sys/tests/integration.rs
+@@ -12,5 +12,7 @@ mod interrupts;
+ mod primitives_and_queries;
+ mod profiles_and_sweeps;
+ mod tessellation;
++mod thread_inputs;
++mod threads;
+ mod transforms_and_split;
+ mod values;
+diff --git a/crates/partsmith-occt-sys/tests/thread_inputs.rs b/crates/partsmith-occt-sys/tests/thread_inputs.rs
+new file mode 100644
+index 0000000..5b80e61
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/thread_inputs.rs
+@@ -0,0 +1,377 @@
++//! The inputs of the helix-thread spike (kernel spec section 8.2), shared by its tests and the
++//! budgets bench, which includes this module with `#[path]`.
++//!
++//! Every thread has ISO 68-1's basic profile with 0.2 mm of radial clearance: its tooth is 3P/4
++//! wide at the minor diameter (the root flat is P/4) and P/8 at the major diameter, 5H/8 deep, H
++//! the height of the fundamental triangle. External threads sit on rods of their root radius,
++//! internal threads are cut from square blocks with a bore of their crest radius. On a threaded
++//! length L, the tooth runs from P/4 above the base's bottom to P/4 below its top, so it touches
++//! neither end, and its end lies at 45 degrees from the x axis.
++
++// The tests and the bench each use only some of these.
++#![allow(dead_code)]
++
++use std::f64::consts::{FRAC_PI_4, TAU};
++
++use partsmith_occt_sys::{
++    Interrupt, LoftLayout, Plane, Point, Shape, ThreadConstruction, ThreadKind, ThreadSpec, Vector,
++    cut, extrude, make_box, make_cone, make_cylinder, make_profile,
++};
++
++use crate::common::{UP, circle, rectangle, region_with_holes, xy_plane_at};
++
++/// The radial clearance of every thread.
++pub const CLEARANCE: f64 = 0.2;
++
++/// The threaded length of the rods and blocks.
++pub const LENGTH: f64 = 20.0;
++
++/// The longer threaded length whose crest and root faces are counted too.
++pub const LONG_LENGTH: f64 = 30.0;
++
++/// The threaded length of the cap and its neck.
++pub const CAP_LENGTH: f64 = 12.0;
++
++/// The angle of every thread's end from the x axis.
++pub const END_ANGLE: f64 = FRAC_PI_4;
++
++/// How far the overlapping profile of construction (b) runs into the base.
++pub const OVERLAP: f64 = 0.05;
++
++/// The constructions the spike tried, with their names in records: (a) as section 8.2 states it
++/// (`lofted-whole`), with one edge per turn, and with its faces on the cylinders or cones divided
++/// at every turn; (b) with the plain profile and with the profile running into the base.
++pub const CONSTRUCTIONS: [(&str, ThreadConstruction); 5] = [
++    (
++        "lofted-divided",
++        ThreadConstruction::Lofted {
++            layout: LoftLayout::DividedPerTurn,
++        },
++    ),
++    (
++        "lofted-whole",
++        ThreadConstruction::Lofted {
++            layout: LoftLayout::Whole,
++        },
++    ),
++    (
++        "lofted-edge-per-turn",
++        ThreadConstruction::Lofted {
++            layout: LoftLayout::EdgePerTurn,
++        },
++    ),
++    ("swept", ThreadConstruction::Swept { overlap: 0.0 }),
++    (
++        "swept-overlap",
++        ThreadConstruction::Swept { overlap: OVERLAP },
++    ),
++];
++
++/// A thread size: its nominal major diameter and its pitch.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct Size {
++    /// The size's name.
++    pub name: &'static str,
++    /// The nominal major diameter.
++    pub major_diameter: f64,
++    /// The pitch.
++    pub pitch: f64,
++}
++
++/// ISO 261 M3 x 0.5 to M30 x 2 and ASME B1.1 1/4-20 UNC.
++pub const SIZES: [Size; 7] = [
++    Size {
++        name: "M3x0.5",
++        major_diameter: 3.0,
++        pitch: 0.5,
++    },
++    Size {
++        name: "M5x0.8",
++        major_diameter: 5.0,
++        pitch: 0.8,
++    },
++    Size {
++        name: "M8x1.25",
++        major_diameter: 8.0,
++        pitch: 1.25,
++    },
++    Size {
++        name: "M12x1.75",
++        major_diameter: 12.0,
++        pitch: 1.75,
++    },
++    Size {
++        name: "M20x2.5",
++        major_diameter: 20.0,
++        pitch: 2.5,
++    },
++    Size {
++        name: "M30x2",
++        major_diameter: 30.0,
++        pitch: 2.0,
++    },
++    Size {
++        name: "1/4-20UNC",
++        major_diameter: 6.35,
++        pitch: 1.27,
++    },
++];
++
++/// M8 x 1.25, the size of the 300 ms criterion.
++pub const M8: Size = SIZES[2];
++
++/// M30 x 2, the size of the cap.
++pub const M30: Size = SIZES[5];
++
++/// The outer radius of the cap.
++pub const CAP_RADIUS: f64 = 18.0;
++
++/// The cap's wall above its thread.
++pub const CAP_TOP: f64 = 2.0;
++
++/// The inner radius of the neck, a tube.
++pub const NECK_BORE: f64 = 11.0;
++
++/// The cone of the coil: half-angle 5 degrees, root radius 10 mm at height 0, pitch 2 mm, 5 turns.
++pub const COIL_HALF_ANGLE: f64 = 5.0 * std::f64::consts::PI / 180.0;
++/// The root radius of the coil at height 0.
++pub const COIL_RADIUS: f64 = 10.0;
++/// The pitch of the coil.
++pub const COIL_PITCH: f64 = 2.0;
++/// The turns of the coil.
++pub const COIL_TURNS: f64 = 5.0;
++
++/// The depth of ISO 68-1's basic profile: 5H/8, H = sqrt(3)/2 P.
++pub fn depth(pitch: f64) -> f64 {
++    5.0 / 8.0 * 3.0_f64.sqrt() / 2.0 * pitch
++}
++
++/// The basic minor radius of a size.
++pub fn minor_radius(size: Size) -> f64 {
++    size.major_diameter / 2.0 - depth(size.pitch)
++}
++
++/// The tooth on a threaded length: from P/4 above height 0 to P/4 below `length`, ending at
++/// `END_ANGLE`. Its inner side lies at `inner_radius`.
++pub fn tooth(inner_radius: f64, pitch: f64, length: f64, half_angle: f64) -> ThreadSpec {
++    let inner_width = 0.75 * pitch;
++    let turns = (length - 0.5 * pitch - inner_width) / pitch;
++    ThreadSpec {
++        frame: Plane::XY,
++        inner_radius,
++        depth: depth(pitch),
++        half_angle,
++        pitch,
++        inner_width,
++        outer_width: pitch / 8.0,
++        phase: (END_ANGLE - TAU * turns).rem_euclid(TAU),
++        start: pitch / 4.0,
++        turns,
++    }
++}
++
++/// The spec of a size's thread on `length`: the root radius less the clearance for an external
++/// thread, the crest radius plus the clearance for an internal one.
++pub fn size_spec(size: Size, kind: ThreadKind, length: f64) -> ThreadSpec {
++    let inner_radius = match kind {
++        ThreadKind::External => minor_radius(size) - CLEARANCE,
++        ThreadKind::Internal => minor_radius(size) + CLEARANCE,
++    };
++    tooth(inner_radius, size.pitch, length, 0.0)
++}
++
++/// The coil's spec: the tooth of a 2 mm pitch on the cone, 5 turns.
++pub fn coil_spec() -> ThreadSpec {
++    let length = (COIL_TURNS + 1.25) * COIL_PITCH;
++    tooth(COIL_RADIUS, COIL_PITCH, length, COIL_HALF_ANGLE)
++}
++
++/// The threaded length a spec's tooth covers.
++pub fn threaded_length(spec: &ThreadSpec) -> f64 {
++    (spec.turns + 1.25) * spec.pitch
++}
++
++/// A rod of the spec's inner radius from height 0 to `length`.
++pub fn rod(spec: &ThreadSpec, length: f64) -> Shape {
++    make_cylinder(&Plane::XY, spec.inner_radius, length)
++        .expect("the rod builds")
++        .shape
++}
++
++/// A square block 10 mm wider than the size, from height 0 to `length`, with a bore of the
++/// spec's inner radius along the z axis.
++pub fn block(size: Size, spec: &ThreadSpec, length: f64) -> Shape {
++    let half = size.major_diameter / 2.0 + 5.0;
++    let holed = region_with_holes(
++        rectangle((-half, -half), (half, half)),
++        vec![vec![circle(5, (0.0, 0.0), spec.inner_radius)]],
++    );
++    let profile = make_profile(&Plane::XY, &[holed]).expect("the block's profile builds");
++    extrude(&profile, UP, 0.0, length, &Interrupt::new())
++        .expect("the block extrudes")
++        .shape
++}
++
++/// The base of a size's thread: a rod for an external thread, a block for an internal one.
++pub fn size_base(size: Size, spec: &ThreadSpec, kind: ThreadKind, length: f64) -> Shape {
++    match kind {
++        ThreadKind::External => rod(spec, length),
++        ThreadKind::Internal => block(size, spec, length),
++    }
++}
++
++/// The cap: a cylinder of radius 18 mm, its bore of the spec's inner radius open at height 0 and
++/// 12 mm deep, with a 2 mm top.
++pub fn cap(spec: &ThreadSpec) -> Shape {
++    let outside = make_cylinder(&Plane::XY, CAP_RADIUS, CAP_LENGTH + CAP_TOP)
++        .expect("the cap's outside builds")
++        .shape;
++    let bore = make_cylinder(
++        &xy_plane_at(0.0, 0.0, -1.0),
++        spec.inner_radius,
++        CAP_LENGTH + 1.0,
++    )
++    .expect("the cap's bore builds")
++    .shape;
++    cut(&outside, &[bore], &Interrupt::new())
++        .expect("the cap's bore cuts")
++        .shape
++}
++
++/// The neck: a tube of the spec's inner radius around a bore of 11 mm, 12 mm long.
++pub fn neck(spec: &ThreadSpec) -> Shape {
++    let ring = region_with_holes(
++        vec![circle(1, (0.0, 0.0), spec.inner_radius)],
++        vec![vec![circle(2, (0.0, 0.0), NECK_BORE)]],
++    );
++    let profile = make_profile(&Plane::XY, &[ring]).expect("the neck's profile builds");
++    extrude(&profile, UP, 0.0, CAP_LENGTH, &Interrupt::new())
++        .expect("the neck extrudes")
++        .shape
++}
++
++/// The coil's base: the frustum of the coil's root cone over its threaded length.
++pub fn frustum(spec: &ThreadSpec) -> Shape {
++    let length = threaded_length(spec);
++    let top = spec.inner_radius + length * spec.half_angle.tan();
++    make_cone(&Plane::XY, spec.inner_radius, top, length)
++        .expect("the frustum builds")
++        .shape
++}
++
++/// The radius of the spec's outer side at `height`.
++pub fn outer_radius(spec: &ThreadSpec, height: f64) -> f64 {
++    spec.inner_radius + spec.depth + height * spec.half_angle.tan()
++}
++
++/// The 2 mm slot across the threaded part: from below the base to half its threaded length,
++/// across the x axis and through the whole thread.
++pub fn slot(spec: &ThreadSpec) -> Shape {
++    let length = threaded_length(spec);
++    let reach = outer_radius(spec, length.max(0.0)).max(outer_radius(spec, 0.0)) + 6.0;
++    make_box(
++        &xy_plane_at(-1.0, -reach, -1.0),
++        2.0,
++        2.0 * reach,
++        length / 2.0 + 1.0,
++    )
++    .expect("the slot builds")
++    .shape
++}
++
++/// The box that touches the thread's end face from outside the material: from half the depth
++/// inside the inner side to half the depth outside the outer side, 0.5 mm wide along the turn,
++/// and P/16 beyond the end face's axial ends.
++pub fn end_box(spec: &ThreadSpec, kind: ThreadKind) -> Shape {
++    let end_angle = spec.phase + TAU * spec.turns;
++    let end_height = spec.start + spec.pitch * spec.turns;
++    let radial = Vector::new(end_angle.cos(), end_angle.sin(), 0.0);
++    let width = 0.5;
++    let inner = spec.inner_radius + end_height * spec.half_angle.tan() - spec.depth / 2.0;
++    let outer = outer_radius(spec, end_height + spec.inner_width) + spec.depth / 2.0;
++    let margin = spec.pitch / 16.0;
++    // Past the end for the tooth of an external thread, inside the groove of an internal one.
++    let along = match kind {
++        ThreadKind::External => 0.0,
++        ThreadKind::Internal => -width,
++    };
++    let tangent = Vector::new(-end_angle.sin(), end_angle.cos(), 0.0);
++    let origin = Point::new(0.0, 0.0, end_height - margin)
++        .offset(radial.scaled(inner))
++        .offset(tangent.scaled(along));
++    let placement = Plane {
++        origin,
++        normal: UP,
++        x_axis: radial,
++    };
++    make_box(
++        &placement,
++        outer - inner,
++        width,
++        spec.inner_width + 2.0 * margin,
++    )
++    .expect("the end box builds")
++    .shape
++}
++
++/// One input of the spike: a name, the thread's spec and kind, and its base.
++pub struct Input {
++    /// The input's name in records.
++    pub name: String,
++    /// The tooth.
++    pub spec: ThreadSpec,
++    /// Fused or cut.
++    pub kind: ThreadKind,
++    /// The base.
++    pub base: Shape,
++}
++
++impl Input {
++    /// A size's thread on a rod or in a block of `length`.
++    pub fn size(size: Size, kind: ThreadKind, length: f64) -> Input {
++        let spec = size_spec(size, kind, length);
++        let place = match kind {
++            ThreadKind::External => "rod",
++            ThreadKind::Internal => "block",
++        };
++        Input {
++            name: format!("{} {place} {length}", size.name),
++            base: size_base(size, &spec, kind, length),
++            spec,
++            kind,
++        }
++    }
++
++    /// The cap's internal M30 x 2 thread, 12 mm long.
++    pub fn cap() -> Input {
++        let spec = size_spec(M30, ThreadKind::Internal, CAP_LENGTH);
++        Input {
++            name: "cap M30x2 12".to_owned(),
++            base: cap(&spec),
++            spec,
++            kind: ThreadKind::Internal,
++        }
++    }
++
++    /// The neck's external M30 x 2 thread, 12 mm long.
++    pub fn neck() -> Input {
++        let spec = size_spec(M30, ThreadKind::External, CAP_LENGTH);
++        Input {
++            name: "neck M30x2 12".to_owned(),
++            base: neck(&spec),
++            spec,
++            kind: ThreadKind::External,
++        }
++    }
++
++    /// The coil: 5 turns on a frustum of half-angle 5 degrees.
++    pub fn coil() -> Input {
++        let spec = coil_spec();
++        Input {
++            name: "coil cone 5deg".to_owned(),
++            base: frustum(&spec),
++            spec,
++            kind: ThreadKind::External,
++        }
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/threads.rs b/crates/partsmith-occt-sys/tests/threads.rs
+new file mode 100644
+index 0000000..2ddec79
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/threads.rs
+@@ -0,0 +1,886 @@
++//! The helix-thread spike (kernel spec section 8.2): constructions (a) and (b) on every input,
++//! measured as section 8.1 item 4 asks. Each test prints its measurements, with one canonical
++//! `parity` line per shape that the native and WebAssembly runs compare (ADR 0042), and pins the
++//! outcomes the spike recorded.
++
++use std::collections::{BTreeMap, BTreeSet};
++use std::f64::consts::TAU;
++
++use partsmith_mesh::{TessellationTolerance, WELD_TOLERANCE};
++use partsmith_occt_sys::{
++    CheckedOperation, Helix, HistorySource, Interrupt, KernelError, Plane, Point, Point2, Shape,
++    SubShapeKind, ThreadConstruction, ThreadKind, ThreadPart, ThreadResult, ThreadSpec, Validity,
++    WrapCurve, WrapSurface, checked_boolean, edge_points, modeled_thread, wrap_curves,
++};
++
++use crate::common::assert_closed;
++use crate::thread_inputs::{
++    CONSTRUCTIONS, Input, LENGTH, LONG_LENGTH, M8, SIZES, end_box, slot, threaded_length,
++};
++
++/// The tolerance of tests 137 and 138: 0.05 mm and 5 degrees.
++const FINE: TessellationTolerance = TessellationTolerance {
++    chord_deviation: 0.05,
++    angular_deviation: 0.087_266_462_599_716_48,
++};
++
++/// The points sampled along each crest and root edge.
++const SAMPLES: u32 = 20;
++
++/// The exactness tolerance of construction (a) and the helix tolerance of construction (b).
++const LOFTED_TOLERANCE: f64 = 1e-6;
++const SWEPT_TOLERANCE: f64 = 1e-4;
++
++/// The tolerance a construction's crest and root edges are checked with.
++fn helix_tolerance(construction: ThreadConstruction) -> f64 {
++    match construction {
++        ThreadConstruction::Lofted { .. } => LOFTED_TOLERANCE,
++        ThreadConstruction::Swept { .. } => SWEPT_TOLERANCE,
++    }
++}
++
++/// The canonical summary of a shape that the native and WebAssembly runs compare.
++fn parity_line(key: &str, stage: &str, shape: &Shape) -> String {
++    let volume = shape.volume().expect("the shape is measured");
++    let area = shape.area().expect("the shape is measured");
++    let Ok(bounds) = shape.bounding_box() else {
++        return format!("parity {key} {stage}: empty");
++    };
++    format!(
++        "parity {key} {stage}: faces={} edges={} vertices={} volume={volume:?} area={area:?} min={:?} max={:?}",
++        shape.count(SubShapeKind::Face),
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        bounds.min,
++        bounds.max
++    )
++}
++
++/// The undirected edges of the welded mesh that are not used by exactly two triangles, or the
++/// tessellation's error.
++fn open_mesh_edges(shape: &Shape) -> Result<usize, String> {
++    let mesh = shape
++        .tessellate(&FINE, &Interrupt::new())
++        .map_err(|error| error.detail())?;
++    let welded = mesh
++        .weld(WELD_TOLERANCE)
++        .expect("WELD_TOLERANCE is a valid weld tolerance")
++        .mesh;
++    let triangles: Vec<[usize; 3]> = welded
++        .triangles()
++        .iter()
++        .map(|corners| corners.map(|vertex| vertex as usize))
++        .collect();
++    let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
++    for [first, second, third] in &triangles {
++        for (start, end) in [(*first, *second), (*second, *third), (*third, *first)] {
++            *uses.entry((start.min(end), start.max(end))).or_insert(0) += 1;
++        }
++    }
++    let open = uses.values().filter(|count| **count != 2).count();
++    if open == 0 {
++        assert_closed(&triangles);
++    }
++    Ok(open)
++}
++
++/// A corner of the tooth, whose helix an edge follows.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
++enum Corner {
++    InnerLower,
++    InnerUpper,
++    OuterLower,
++    OuterUpper,
++}
++
++impl Corner {
++    /// The corner of a helix part of the construction.
++    fn of_part(part: ThreadPart) -> Option<Corner> {
++        match part {
++            ThreadPart::InnerLower => Some(Corner::InnerLower),
++            ThreadPart::InnerUpper => Some(Corner::InnerUpper),
++            ThreadPart::OuterLower => Some(Corner::OuterLower),
++            ThreadPart::OuterUpper => Some(Corner::OuterUpper),
++            _ => None,
++        }
++    }
++
++    /// The corner between a flank and the inner (`outer` false) or outer side.
++    fn between(flank: ThreadPart, outer: bool) -> Option<Corner> {
++        match (flank, outer) {
++            (ThreadPart::LowerFlank, false) => Some(Corner::InnerLower),
++            (ThreadPart::UpperFlank, false) => Some(Corner::InnerUpper),
++            (ThreadPart::LowerFlank, true) => Some(Corner::OuterLower),
++            (ThreadPart::UpperFlank, true) => Some(Corner::OuterUpper),
++            _ => None,
++        }
++    }
++
++    /// The corner's radius at height 0 and its axial offset from the inner lower corner.
++    fn placement(self, spec: &ThreadSpec) -> (f64, f64) {
++        let outer_lower = (spec.inner_width - spec.outer_width) / 2.0;
++        match self {
++            Corner::InnerLower => (spec.inner_radius, 0.0),
++            Corner::InnerUpper => (spec.inner_radius, spec.inner_width),
++            Corner::OuterLower => (spec.inner_radius + spec.depth, outer_lower),
++            Corner::OuterUpper => (
++                spec.inner_radius + spec.depth,
++                outer_lower + spec.outer_width,
++            ),
++        }
++    }
++}
++
++/// The distance of `point` from the exact helix of a corner, computed from its radius, pitch and
++/// phase: the helix's point at the point's own angle, the turn picked from its height. This is
++/// at least the distance to the nearest point of the helix.
++fn helix_deviation(spec: &ThreadSpec, corner: Corner, point: Point) -> f64 {
++    let (radius, offset) = corner.placement(spec);
++    let base = spec.start + offset;
++    let estimate = spec.phase + TAU * (point.z - base) / spec.pitch;
++    let angle = point.y.atan2(point.x);
++    let angle = angle + TAU * ((estimate - angle) / TAU).round();
++    let height = base + spec.pitch * (angle - spec.phase) / TAU;
++    let radius = radius + height * spec.half_angle.tan();
++    let exact = Point::new(radius * angle.cos(), radius * angle.sin(), height);
++    point.distance(exact)
++}
++
++/// The largest deviation of `SAMPLES` points of an edge from its corner's exact helix.
++fn edge_deviation(shape: &Shape, edge: u32, spec: &ThreadSpec, corner: Corner) -> f64 {
++    edge_points(shape, edge, SAMPLES)
++        .expect("the edge is sampled")
++        .into_iter()
++        .map(|point| helix_deviation(spec, corner, point))
++        .fold(0.0, f64::max)
++}
++
++/// The volume of a tooth, exactly. Each axial section of the tooth is its start's trapezoid moved
++/// along the axis by the pitch per turn and, on cones, out by the cones' slope, so the volume is
++/// the trapezoid's area times the length its centroid travels (Pappus, for a screw motion).
++fn exact_tooth_volume(spec: &ThreadSpec) -> f64 {
++    let (wide, narrow) = (spec.inner_width, spec.outer_width);
++    let area = (wide + narrow) / 2.0 * spec.depth;
++    let slope = spec.half_angle.tan();
++    let centroid = spec.inner_radius
++        + spec.depth * (wide + 2.0 * narrow) / (3.0 * (wide + narrow))
++        + (spec.start + wide / 2.0) * slope;
++    let angle = TAU * spec.turns;
++    area * angle * (centroid + slope * spec.pitch * angle / (2.0 * TAU))
++}
++
++/// The relative difference of two values.
++fn relative(actual: f64, expected: f64) -> f64 {
++    (actual - expected).abs() / expected.abs()
++}
++
++/// The largest relative difference of a volume from its exact value that passes: the agreement
++/// section 8.2's Checks ask of the two constructions, measured and not a criterion of its Pass.
++const VOLUME_TOLERANCE: f64 = 1e-3;
++
++/// What a result element descends from.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
++enum Origin {
++    /// An element of the base.
++    Base,
++    /// An element of the construction, with its part and the history that named it, and
++    /// whether the boolean kept it whole (`true`) or made it one of several images.
++    Thread(ThreadPart, HistorySource, bool),
++    /// Only generated by the boolean, or nothing at all.
++    New,
++}
++
++/// The origins of every element of a thread's result, by kind and index.
++fn origins(result: &ThreadResult) -> BTreeMap<(SubShapeKind, u32), Vec<Origin>> {
++    let roles: BTreeMap<(SubShapeKind, u32), (ThreadPart, HistorySource)> = result
++        .roles
++        .iter()
++        .map(|role| {
++            (
++                (role.element.kind, role.element.index),
++                (role.part, role.source),
++            )
++        })
++        .collect();
++    let mut origins = BTreeMap::new();
++    for kind in [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex] {
++        for index in 1..=result.shape.count(kind) {
++            let mut list: Vec<Origin> = result
++                .history
++                .modified_from(kind, index)
++                .into_iter()
++                .map(|origin| {
++                    if origin.input == 0 {
++                        return Origin::Base;
++                    }
++                    let fates = &result.history.inputs[1];
++                    let fate = match kind {
++                        SubShapeKind::Face => &fates.faces,
++                        SubShapeKind::Edge => &fates.edges,
++                        _ => &fates.vertices,
++                    }[origin.element.index as usize - 1]
++                        .clone();
++                    match roles.get(&(origin.element.kind, origin.element.index)) {
++                        Some((part, source)) => {
++                            Origin::Thread(*part, *source, fate.modified.len() == 1)
++                        }
++                        None => Origin::New,
++                    }
++                })
++                .collect();
++            if list.is_empty() {
++                list.push(Origin::New);
++            }
++            list.sort();
++            list.dedup();
++            origins.insert((kind, index), list);
++        }
++    }
++    origins
++}
++
++/// The measurements of one construction on one input.
++#[derive(Debug, Default)]
++struct Measurement {
++    lines: Vec<String>,
++    failure: Option<String>,
++    thread_validity: Option<Validity>,
++    thread_open: Option<usize>,
++    thread_volume_error: Option<f64>,
++    construction_deviation: f64,
++    result_validity: Option<Validity>,
++    result_open: Option<usize>,
++    result_volume_error: f64,
++    result_volume: f64,
++    result_deviation: f64,
++    result_helix_edges: usize,
++    slot_validity: Option<Validity>,
++    slot_open: Option<usize>,
++    slot_volume: f64,
++    box_validity: Option<Validity>,
++    box_open: Option<usize>,
++    box_volume: f64,
++}
++
++/// True for a later boolean that is valid as built or after repair.
++fn is_valid(validity: Option<Validity>) -> bool {
++    matches!(validity, Some(Validity::AsBuilt | Validity::AfterRepair))
++}
++
++impl Measurement {
++    /// The criteria of section 8.2's Pass but time and parity that the input fails: the
++    /// construction and the thread with its boolean valid as built, both later booleans valid,
++    /// and the exactness check of the construction's and the result's crest and root edges. A
++    /// result without crest or root edges has lost its thread and fails the check.
++    fn failures(&self, tolerance: f64) -> Vec<String> {
++        if let Some(failure) = &self.failure {
++            return vec![failure.clone()];
++        }
++        failed([
++            (
++                self.thread_validity == Some(Validity::AsBuilt),
++                "the construction is not valid as built",
++            ),
++            (
++                self.construction_deviation <= tolerance,
++                "a construction's crest or root edge is off its helix",
++            ),
++            (
++                self.result_validity == Some(Validity::AsBuilt),
++                "the thread with its boolean is not valid as built",
++            ),
++            (
++                self.result_helix_edges > 0 && self.result_deviation <= tolerance,
++                "the result's crest or root edges are missing or off their helices",
++            ),
++            (is_valid(self.slot_validity), "the slot's cut is not valid"),
++            (is_valid(self.box_validity), "the box's fuse is not valid"),
++        ])
++    }
++
++    /// The volume checks the input fails: measured, not a criterion of section 8.2's Pass. A
++    /// valid result that lost the tooth or the base fails them, and so does a `Shape::volume`
++    /// that is off on faces spanning many turns.
++    fn volume_failures(&self) -> Vec<String> {
++        if self.failure.is_some() {
++            return Vec::new();
++        }
++        failed([
++            (
++                self.thread_volume_error
++                    .is_none_or(|error| error <= VOLUME_TOLERANCE),
++                "the construction's volume is not the tooth's",
++            ),
++            (
++                self.result_volume_error <= VOLUME_TOLERANCE,
++                "the result's volume is not the base's with the tooth",
++            ),
++            (
++                self.slot_volume > 0.0 && self.slot_volume < self.result_volume,
++                "the slot's cut removed nothing or everything",
++            ),
++            (
++                self.box_volume > self.slot_volume,
++                "the box's fuse added nothing",
++            ),
++        ])
++    }
++
++    /// The meshes of section 8.1 item 4 that are not closed: measured, not a criterion of
++    /// section 8.2.
++    fn open_meshes(&self) -> Vec<&'static str> {
++        [
++            (self.thread_open, "construction"),
++            (self.result_open, "result"),
++            (self.slot_open, "slot"),
++            (self.box_open, "box"),
++        ]
++        .into_iter()
++        .filter(|(open, _)| *open != Some(0))
++        .map(|(_, stage)| stage)
++        .collect()
++    }
++}
++
++/// The failures of the checks that do not pass.
++fn failed<const COUNT: usize>(checks: [(bool, &str); COUNT]) -> Vec<String> {
++    checks
++        .into_iter()
++        .filter(|(passes, _)| !passes)
++        .map(|(_, failure)| failure.to_owned())
++        .collect()
++}
++
++/// The record of a failed call.
++fn failure(error: &KernelError) -> String {
++    format!("{:?} {}", error.kind, error.detail())
++}
++
++/// Measures one construction on one input.
++fn measure(input: &Input, name: &str, construction: ThreadConstruction) -> Measurement {
++    let key = format!("{} {name}", input.name);
++    let mut measurement = Measurement::default();
++    let result = match modeled_thread(
++        &input.base,
++        &input.spec,
++        input.kind,
++        construction,
++        &Interrupt::new(),
++    ) {
++        Ok(result) => result,
++        Err(error) => {
++            measurement.failure = Some(failure(&error));
++            measurement
++                .lines
++                .push(format!("{key}: thread failed: {}", failure(&error)));
++            return measurement;
++        }
++    };
++    let spec = &input.spec;
++    let tolerance = helix_tolerance(construction);
++
++    // The construction.
++    measurement.thread_validity = Some(result.thread_validity);
++    measurement.thread_open = open_mesh_edges(&result.thread).ok();
++    let thread_volume = result.thread.volume().expect("the thread is measured");
++    let exact_volume = exact_tooth_volume(spec);
++    // The overlapping profile is larger than the tooth, and its inner helices run inside the
++    // base: the boolean's intersection edges are the thread's inner crest or root edges instead.
++    let overlaps = matches!(construction, ThreadConstruction::Swept { overlap } if overlap > 0.0);
++    measurement.thread_volume_error = (!overlaps).then(|| relative(thread_volume, exact_volume));
++    let mut construction_helix_edges = 0;
++    for role in &result.roles {
++        if let (SubShapeKind::Edge, Some(corner)) = (role.element.kind, Corner::of_part(role.part))
++        {
++            if overlaps && matches!(corner, Corner::InnerLower | Corner::InnerUpper) {
++                continue;
++            }
++            construction_helix_edges += 1;
++            measurement.construction_deviation = measurement.construction_deviation.max(
++                edge_deviation(&result.thread, role.element.index, spec, corner),
++            );
++        }
++    }
++    measurement.lines.push(format!(
++        "{key}: thread {:?}, is_valid {}, open mesh edges {:?}, volume {thread_volume:?} (exact {exact_volume:?}, relative {:?}), helix edges {construction_helix_edges} worst {:e} mm",
++        result.thread_validity,
++        result.thread.is_valid().expect("the thread is checked"),
++        measurement.thread_open,
++        relative(thread_volume, exact_volume),
++        measurement.construction_deviation
++    ));
++    measurement
++        .lines
++        .push(parity_line(&key, "thread", &result.thread));
++
++    // The result: its crest and root edges are the edges between a flank and a side.
++    let origins = origins(&result);
++    let topology = result.shape.topology().expect("the topology is read");
++    let face_origins = |face: u32| origins[&(SubShapeKind::Face, face)].clone();
++    let is_part = |face: u32, wanted: ThreadPart| {
++        face_origins(face)
++            .iter()
++            .any(|origin| matches!(origin, Origin::Thread(part, _, _) if *part == wanted))
++    };
++    let is_base = |face: u32| face_origins(face).contains(&Origin::Base);
++    for (position, edge) in topology.edges.iter().enumerate() {
++        let [first, second] = edge.faces[..] else {
++            continue;
++        };
++        for (flank, side) in [(first, second), (second, first)] {
++            for flank_part in [ThreadPart::LowerFlank, ThreadPart::UpperFlank] {
++                if !is_part(flank, flank_part) {
++                    continue;
++                }
++                let outer = is_part(side, ThreadPart::OuterFace);
++                if !(outer || is_base(side) || is_part(side, ThreadPart::InnerFace)) {
++                    continue;
++                }
++                let corner = Corner::between(flank_part, outer).expect("a flank and a side");
++                let index = u32::try_from(position + 1).expect("edge indices fit u32");
++                measurement.result_helix_edges += 1;
++                measurement.result_deviation = measurement.result_deviation.max(edge_deviation(
++                    &result.shape,
++                    index,
++                    spec,
++                    corner,
++                ));
++            }
++        }
++    }
++    // Crest and root faces: the outer side's images, and the base's faces along the inner side.
++    let outer_faces = (1..=result.shape.count(SubShapeKind::Face))
++        .filter(|face| is_part(*face, ThreadPart::OuterFace))
++        .count();
++    let inner_faces = (1..=result.shape.count(SubShapeKind::Face))
++        .filter(|face| {
++            (is_base(*face) || is_part(*face, ThreadPart::InnerFace))
++                && topology.faces[*face as usize - 1].edges.iter().any(|edge| {
++                    topology.edges[*edge as usize - 1]
++                        .faces
++                        .iter()
++                        .any(|other| {
++                            is_part(*other, ThreadPart::LowerFlank)
++                                || is_part(*other, ThreadPart::UpperFlank)
++                        })
++                })
++        })
++        .count();
++    let (crest_faces, root_faces) = match input.kind {
++        ThreadKind::External => (outer_faces, inner_faces),
++        ThreadKind::Internal => (inner_faces, outer_faces),
++    };
++    measurement.result_validity = Some(result.result_validity);
++    measurement.result_open = open_mesh_edges(&result.shape).ok();
++    measurement.result_volume = result.shape.volume().expect("the result is measured");
++    let base_volume = input.base.volume().expect("the base is measured");
++    let expected_volume = match input.kind {
++        ThreadKind::External => base_volume + exact_volume,
++        ThreadKind::Internal => base_volume - exact_volume,
++    };
++    measurement.result_volume_error = relative(measurement.result_volume, expected_volume);
++    measurement.lines.push(format!(
++        "{key}: result {:?}, is_valid {}, open mesh edges {:?}, volume {:?} (expected {expected_volume:?}, relative {:?}), crest and root edges {} worst {:e} mm, crest faces {crest_faces} root faces {root_faces}",
++        result.result_validity,
++        result.shape.is_valid().expect("the result is checked"),
++        measurement.result_open,
++        measurement.result_volume,
++        measurement.result_volume_error,
++        measurement.result_helix_edges,
++        measurement.result_deviation
++    ));
++    measurement
++        .lines
++        .push(parity_line(&key, "result", &result.shape));
++    measurement.lines.push(format!(
++        "{key}: polls {} first {:?} longest {:?} last {:?} total {:?} (debug build)",
++        result.polls.count,
++        result.polls.first,
++        result.polls.longest,
++        result.polls.last,
++        result.polls.total
++    ));
++
++    // The history of each result element.
++    let mut counts: BTreeMap<(String, Vec<Origin>), usize> = BTreeMap::new();
++    for ((kind, _), list) in &origins {
++        *counts
++            .entry((format!("{kind:?}"), list.clone()))
++            .or_insert(0) += 1;
++    }
++    for ((kind, list), count) in &counts {
++        measurement
++            .lines
++            .push(format!("{key}: history {kind} x{count} from {list:?}"));
++    }
++    let mut thread_counts: BTreeMap<(String, ThreadPart, HistorySource), usize> = BTreeMap::new();
++    for role in &result.roles {
++        *thread_counts
++            .entry((format!("{:?}", role.element.kind), role.part, role.source))
++            .or_insert(0) += 1;
++    }
++    for ((kind, part, source), count) in &thread_counts {
++        measurement.lines.push(format!(
++            "{key}: construction {kind} {part:?} x{count} by {source:?}"
++        ));
++    }
++    // The result's edges that no history names, by the origins of the faces on their sides.
++    let mut unnamed: BTreeMap<Vec<Vec<Origin>>, usize> = BTreeMap::new();
++    for (position, edge) in topology.edges.iter().enumerate() {
++        let index = u32::try_from(position + 1).expect("edge indices fit u32");
++        if origins[&(SubShapeKind::Edge, index)] == [Origin::New] {
++            let mut sides: Vec<Vec<Origin>> =
++                edge.faces.iter().map(|face| face_origins(*face)).collect();
++            sides.sort();
++            *unnamed.entry(sides).or_insert(0) += 1;
++        }
++    }
++    for (sides, count) in &unnamed {
++        measurement.lines.push(format!(
++            "{key}: history new Edge x{count} between {sides:?}"
++        ));
++    }
++    // The construction's elements that more than one role names.
++    let mut names: BTreeMap<(SubShapeKind, u32), BTreeSet<String>> = BTreeMap::new();
++    for role in &result.roles {
++        names
++            .entry((role.element.kind, role.element.index))
++            .or_default()
++            .insert(format!(
++                "{:?} {} by {:?}",
++                role.part, role.piece, role.source
++            ));
++    }
++    for ((kind, _), roles) in names.iter().filter(|(_, roles)| roles.len() > 1) {
++        measurement
++            .lines
++            .push(format!("{key}: construction {kind:?} named by {roles:?}"));
++    }
++
++    // The later booleans: the slot, then the box at the end face.
++    match checked_boolean(
++        CheckedOperation::Cut,
++        &result.shape,
++        &slot(spec),
++        &Interrupt::new(),
++    ) {
++        Ok(slotted) => {
++            measurement.slot_validity = Some(slotted.validity);
++            measurement.slot_open = open_mesh_edges(&slotted.result.shape).ok();
++            measurement.slot_volume = slotted
++                .result
++                .shape
++                .volume()
++                .expect("the slot's cut is measured");
++            measurement.lines.push(format!(
++                "{key}: slot {:?}, open mesh edges {:?}, volume {:?}",
++                slotted.validity, measurement.slot_open, measurement.slot_volume
++            ));
++            measurement
++                .lines
++                .push(parity_line(&key, "slot", &slotted.result.shape));
++            match checked_boolean(
++                CheckedOperation::Fuse,
++                &slotted.result.shape,
++                &end_box(spec, input.kind),
++                &Interrupt::new(),
++            ) {
++                Ok(boxed) => {
++                    measurement.box_validity = Some(boxed.validity);
++                    measurement.box_open = open_mesh_edges(&boxed.result.shape).ok();
++                    measurement.box_volume = boxed
++                        .result
++                        .shape
++                        .volume()
++                        .expect("the box's fuse is measured");
++                    measurement.lines.push(format!(
++                        "{key}: box {:?}, open mesh edges {:?}, volume {:?}",
++                        boxed.validity, measurement.box_open, measurement.box_volume
++                    ));
++                    measurement
++                        .lines
++                        .push(parity_line(&key, "box", &boxed.result.shape));
++                }
++                Err(error) => measurement
++                    .lines
++                    .push(format!("{key}: box failed: {}", failure(&error))),
++            }
++        }
++        Err(error) => measurement
++            .lines
++            .push(format!("{key}: slot failed: {}", failure(&error))),
++    }
++    measurement.lines.push(format!(
++        "{key}: fails {:?}",
++        measurement.failures(tolerance)
++    ));
++    measurement.lines.push(format!(
++        "{key}: volume checks fail {:?}",
++        measurement.volume_failures()
++    ));
++    measurement.lines.push(format!(
++        "{key}: open or missing meshes {:?}",
++        measurement.open_meshes()
++    ));
++    measurement
++}
++
++/// Measures one construction on one input, prints the record, and checks that the input passes
++/// the criteria of section 8.2's Pass but time and parity exactly when the spike recorded that it
++/// does (`passes`).
++fn check(input: &Input, name: &str, construction: ThreadConstruction, passes: bool) {
++    let measurement = measure(input, name, construction);
++    println!("{}", measurement.lines.join("\n"));
++    let failures = measurement.failures(helix_tolerance(construction));
++    assert_eq!(
++        failures.is_empty(),
++        passes,
++        "{} {name}: {failures:?}",
++        input.name
++    );
++}
++
++/// The tests of one input, one per construction, each with whether the spike recorded that the
++/// construction passes on it: `lofted_divided`, `lofted_whole`, `lofted_edge_per_turn`, `swept`
++/// and `swept_overlap`. The plain profile of `swept` nearly coincides with the base along its
++/// root, and its booleans run for minutes and, on blocks, past 6 GB of memory: those tests are
++/// ignored, and the spike ran each alone with a limit of 6 GB and 300 s.
++macro_rules! input_tests {
++    ($module:ident, $input:expr, [$($construction:ident: $passes:expr $(, $ignore:meta)?;)*]) => {
++        mod $module {
++            use super::*;
++
++            $(
++                #[test]
++                $(#[$ignore])?
++                fn $construction() {
++                    let (name, construction) = construction(stringify!($construction));
++                    check(&$input, name, construction, $passes);
++                }
++            )*
++        }
++    };
++}
++
++/// The construction a test is named after.
++fn construction(test: &str) -> (&'static str, ThreadConstruction) {
++    let name = test.replace('_', "-");
++    CONSTRUCTIONS
++        .into_iter()
++        .find(|(known, _)| *known == name)
++        .expect("each test is named after a construction")
++}
++
++fn size_input(index: usize, kind: ThreadKind) -> Input {
++    Input::size(SIZES[index], kind, LENGTH)
++}
++
++input_tests!(m3_rod, size_input(0, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: true;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: false;
++]);
++input_tests!(m3_block, size_input(0, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m5_rod, size_input(1, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: false;
++]);
++input_tests!(m5_block, size_input(1, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m8_rod, size_input(2, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: true, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m8_block, size_input(2, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m12_rod, size_input(3, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m12_block, size_input(3, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m20_rod, size_input(4, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: true, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m20_block, size_input(4, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m30_rod, size_input(5, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m30_block, size_input(5, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(unc_rod, size_input(6, ThreadKind::External), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: false;
++]);
++input_tests!(unc_block, size_input(6, ThreadKind::Internal), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(cap, Input::cap(), [
++    lofted_divided: true;
++    lofted_whole: true;
++    lofted_edge_per_turn: true;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(neck, Input::neck(), [
++    lofted_divided: true;
++    lofted_whole: true;
++    lofted_edge_per_turn: true;
++    swept: true, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(coil, Input::coil(), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++]);
++input_tests!(m8_rod_30, Input::size(M8, ThreadKind::External, LONG_LENGTH), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++input_tests!(m8_block_30, Input::size(M8, ThreadKind::Internal, LONG_LENGTH), [
++    lofted_divided: true;
++    lofted_whole: false;
++    lofted_edge_per_turn: false;
++    swept: false, ignore = "runs for minutes, past 6 GB on blocks";
++    swept_overlap: true;
++]);
++
++/// The bare helix of the coil: 5 turns on the cone of half-angle 5 degrees, one edge.
++#[test]
++fn cone_helix_is_exact() {
++    let input = Input::coil();
++    let spec = input.spec;
++    let surface = WrapSurface::Cone {
++        frame: Plane::XY,
++        radius: spec.inner_radius,
++        half_angle: spec.half_angle,
++    };
++    let helix = Helix {
++        phase: spec.phase,
++        height: spec.start,
++        pitch: spec.pitch,
++        turns: spec.turns,
++    };
++    let edges = wrap_curves(&surface, &[WrapCurve::Helix(helix)]).expect("the helix maps");
++
++    let deviation = edge_deviation(&edges, 1, &spec, Corner::InnerLower);
++
++    println!("cone helix: 1 edge, worst {deviation:e} mm");
++    println!("{}", parity_edge_line("cone helix", &edges));
++    assert!(deviation <= LOFTED_TOLERANCE, "{deviation:e}");
++}
++
++/// A segment of the developed plane of a cylinder, a helix of 5 turns, maps onto its exact helix.
++#[test]
++fn developed_segment_is_a_helix() {
++    let input = Input::size(M8, ThreadKind::External, LENGTH);
++    let spec = ThreadSpec {
++        phase: 0.0,
++        ..input.spec
++    };
++    let surface = WrapSurface::Cylinder {
++        frame: Plane::XY,
++        radius: spec.inner_radius,
++    };
++    let turns = 5.0;
++    let segment = WrapCurve::Segment {
++        start: Point2 {
++            x: 0.0,
++            y: spec.start,
++        },
++        end: Point2 {
++            x: TAU * spec.inner_radius * turns,
++            y: spec.start + spec.pitch * turns,
++        },
++    };
++    let edges = wrap_curves(&surface, &[segment]).expect("the segment maps");
++
++    let deviation = edge_deviation(&edges, 1, &spec, Corner::InnerLower);
++
++    println!("developed segment: worst {deviation:e} mm");
++    assert!(deviation <= LOFTED_TOLERANCE, "{deviation:e}");
++}
++
++/// The summary of a shape of edges, without volume and area.
++fn parity_edge_line(key: &str, shape: &Shape) -> String {
++    let bounds = shape.bounding_box().expect("the shape has bounds");
++    format!(
++        "parity {key}: edges={} vertices={} min={:?} max={:?}",
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        bounds.min,
++        bounds.max
++    )
++}
++
++/// Every thread ends above the slot, which reaches half its threaded length.
++#[test]
++fn inputs_end_above_the_slot() {
++    for size in SIZES {
++        let input = Input::size(size, ThreadKind::External, LENGTH);
++        let end = input.spec.start + input.spec.pitch * input.spec.turns;
++        assert!(end > threaded_length(&input.spec) / 2.0, "{}", input.name);
++    }
++}
+diff --git a/crates/partsmith-wasm/Cargo.toml b/crates/partsmith-wasm/Cargo.toml
+index 4e7f5cb..834bcf7 100644
+--- a/crates/partsmith-wasm/Cargo.toml
++++ b/crates/partsmith-wasm/Cargo.toml
+@@ -30,6 +30,8 @@ harness = false
+ 
+ [dependencies]
+ partsmith-engine.workspace = true
++# The helix-thread spike's calls in `main` (kernel spec section 8.1 item 2).
++partsmith-occt-sys.workspace = true
+ 
+ [dev-dependencies]
+ partsmith-budgets.workspace = true
+diff --git a/crates/partsmith-wasm/src/main.rs b/crates/partsmith-wasm/src/main.rs
+index fa319e9..c7a92ed 100644
+--- a/crates/partsmith-wasm/src/main.rs
++++ b/crates/partsmith-wasm/src/main.rs
+@@ -1,6 +1,73 @@
+ //! The web core module `partsmith_core`: an Emscripten executable whose runtime stays alive after `main` returns, so JavaScript can call `ps_alloc`, `ps_free` and `ps_call` (protocol.md section 2.10, ADR 0009).
+ 
++use std::hint::black_box;
++
++use partsmith_occt_sys::{
++    CheckedOperation, Helix, Interrupt, LoftLayout, Plane, ThreadConstruction, ThreadKind,
++    ThreadSpec, WrapCurve, WrapSurface, checked_boolean, edge_points, make_cylinder,
++    modeled_thread, wrap_curves,
++};
++
+ fn main() {
+     // Creating the session here pays its setup cost while the module is instantiated. Calling into the library also keeps it, and with it the three exports, in the link.
+     partsmith_wasm::initialize_session();
++    keep_helix_thread_spike();
++}
++
++/// Calls each function of the helix-thread spike once on a small input, so the linker keeps their code for the size measurement (kernel spec section 8.1 items 2 and 4).
++fn keep_helix_thread_spike() {
++    let surface = WrapSurface::Cylinder {
++        frame: Plane::XY,
++        radius: 5.0,
++    };
++    let helix = WrapCurve::Helix(Helix {
++        phase: 0.0,
++        height: 0.0,
++        pitch: 1.0,
++        turns: 1.0,
++    });
++    if let Ok(edges) = wrap_curves(&surface, &[helix]) {
++        black_box(edge_points(&edges, 1, 2).ok());
++    }
++    let Ok(rod) = make_cylinder(&Plane::XY, 5.0, 3.0) else {
++        return;
++    };
++    let spec = ThreadSpec {
++        frame: Plane::XY,
++        inner_radius: 5.0,
++        depth: 0.5,
++        half_angle: 0.0,
++        pitch: 1.0,
++        inner_width: 0.75,
++        outer_width: 0.125,
++        phase: 0.0,
++        start: 0.25,
++        turns: 1.0,
++    };
++    let interrupt = Interrupt::new();
++    let constructions = [
++        ThreadConstruction::Lofted {
++            layout: LoftLayout::DividedPerTurn,
++        },
++        ThreadConstruction::Swept { overlap: 0.05 },
++    ];
++    for construction in constructions {
++        if let Ok(thread) = modeled_thread(
++            &rod.shape,
++            &spec,
++            ThreadKind::External,
++            construction,
++            &interrupt,
++        ) {
++            black_box(
++                checked_boolean(
++                    CheckedOperation::Cut,
++                    &thread.shape,
++                    &thread.thread,
++                    &interrupt,
++                )
++                .ok(),
++            );
++        }
++    }
+ }

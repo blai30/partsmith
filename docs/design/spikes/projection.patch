@@ -1,0 +1,2514 @@
+Kernel spike projection: edge projection, section by the sketch plane and silhouette.
+
+Spec: docs/spec/kernel.md section 8.7 (M2 wave 1, ADR 0071).
+Branch: spike/kernel-projection, kept only in the development container and never pushed.
+Last commit: 1fe1c9a (1fe1c9a4db444f071357bbe3a2976808ced06a1c).
+Base commit: 2c56ff9 (2c56ff91a8e96f07b1ac1ec2407e469ce2da6437).
+
+This file is git diff 2c56ff9 1fe1c9a. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7b9cf6..a51467e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2702,6 +2702,7 @@ dependencies = [
+  "partsmith-budgets",
+  "partsmith-engine",
+  "partsmith-model",
++ "partsmith-occt-sys",
+  "partsmith-protocol",
+  "proptest",
+  "serde_json",
+diff --git a/crates/partsmith-occt-sys/benches/budgets.rs b/crates/partsmith-occt-sys/benches/budgets.rs
+index 4ff165b..523375a 100644
+--- a/crates/partsmith-occt-sys/benches/budgets.rs
++++ b/crates/partsmith-occt-sys/benches/budgets.rs
+@@ -9,10 +9,14 @@
+ //! three times these and are not measured here, except the rows of interrupts whose names end in
+ //! `web`, which have budgets of their own and run only in the WebAssembly build under Node:
+ //! `cargo bench -p partsmith-occt-sys --target wasm32-unknown-emscripten --bench budgets -- web`.
+-//! The cancel latencies without a budget are printed, for kernel spec open issue 17.
++//! The cancel latencies without a budget are printed, for kernel spec open issue 17. The rows of
++//! the projection spike (kernel spec section 8.7) run on both targets; their names start with
++//! `projection`.
+ 
+ #[path = "../tests/common/mod.rs"]
+ mod common;
++#[path = "../tests/projection_inputs.rs"]
++mod projection_inputs;
+ 
+ #[cfg(not(target_os = "emscripten"))]
+ use std::cell::LazyCell;
+@@ -31,9 +35,9 @@ use partsmith_mesh::TessellationTolerance;
+ use partsmith_occt_sys::split;
+ use partsmith_occt_sys::{
+     Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+-    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+-    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+-    make_torus, read_step, shell, transform, write_step,
++    PlanarRegion, Plane, Point, Point2, PollRecord, Shape, SubShapeKind, TaggedCurve, Transform,
++    Vector, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile,
++    make_sphere, make_torus, read_step, shell, transform, write_step,
+ };
+ 
+ /// Times each operation runs; the median counts.
+@@ -471,6 +475,77 @@ fn measure_web_interrupts(report: &mut Report) {
+     );
+ }
+ 
++/// The runs of each row of the projection spike (kernel spec section 8.1 item 4).
++const SPIKE_RUNS: usize = 5;
++
++/// The median of a row's values over its runs, and the largest.
++fn median_and_most(values: impl IntoIterator<Item = Duration>) -> (Duration, Duration) {
++    let mut values: Vec<Duration> = values.into_iter().collect();
++    values.sort();
++    (values[values.len() / 2], values[values.len() - 1])
++}
++
++/// The rows of the projection spike: for each input and construction, the median of 5 runs of the
++/// call, and the polls of those runs with an interrupt that is never requested, with the time
++/// each run spends in the facade outside the shim, whose polls cover only the call inside it.
++/// Natively the rows of the 56 edges of test 45's result have section 8.7's limit; the other rows,
++/// and every row under Node, print their medians.
++fn measure_projections(report: &mut Report) {
++    for name in projection_inputs::INPUT_NAMES {
++        let rows: Vec<String> = projection_inputs::SILHOUETTES
++            .iter()
++            .chain(projection_inputs::PROJECTIONS)
++            .chain(projection_inputs::SECTIONS)
++            .map(|construction| format!("projection {name} {}", construction.name()))
++            .collect();
++        if !rows.iter().any(|row| report.includes(row)) {
++            continue;
++        }
++        let input = projection_inputs::input(name);
++        for construction in input.constructions {
++            let row = format!("projection {name} {}", construction.name());
++            if !report.includes(&row) {
++                continue;
++            }
++            let mut polls: Vec<PollRecord> = Vec::with_capacity(SPIKE_RUNS);
++            let mut outside = Vec::with_capacity(SPIKE_RUNS);
++            let mut times = Vec::with_capacity(SPIKE_RUNS);
++            let time = median(SPIKE_RUNS, |_| {
++                let start = Instant::now();
++                let result = black_box(construction.run(&input, &Interrupt::new()));
++                let elapsed = start.elapsed();
++                match result {
++                    Ok(curves) => {
++                        outside.push(elapsed.saturating_sub(curves.polls.total));
++                        polls.push(curves.polls);
++                    }
++                    Err(error) => println!("{row}: {}", error.detail()),
++                }
++                times.push(elapsed);
++                elapsed
++            });
++            if !polls.is_empty() {
++                let (longest, most) = median_and_most(polls.iter().map(|record| record.longest));
++                let (first, first_most) = median_and_most(polls.iter().map(|record| record.first));
++                let (last, last_most) = median_and_most(polls.iter().map(|record| record.last));
++                let (outside, outside_most) = median_and_most(outside);
++                let after: Vec<u64> = polls.iter().map(|record| record.longest_after).collect();
++                println!(
++                    "{row}: polls {} first {first:.3?} (most {first_most:.3?}) longest {longest:.3?} (most {most:.3?}, after polls {after:?}) last {last:.3?} (most {last_most:.3?}) outside the shim {outside:.3?} (most {outside_most:.3?})",
++                    polls[0].count
++                );
++            }
++            println!("{row}: runs {times:.3?}");
++            match input.budget {
++                Some(budget) if cfg!(not(target_os = "emscripten")) => {
++                    report.record_time(&row, time, budget);
++                }
++                _ => println!("{row}: median {time:.3?} (no limit)"),
++            }
++        }
++    }
++}
++
+ fn main() -> ExitCode {
+     let mut report = Report::from_arguments();
+ 
+@@ -754,6 +829,7 @@ fn main() -> ExitCode {
+     }
+     #[cfg(target_os = "emscripten")]
+     measure_web_interrupts(&mut report);
++    measure_projections(&mut report);
+ 
+     report.finish()
+ }
+diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs
+index f8596a7..bae1c23 100644
+--- a/crates/partsmith-occt-sys/build.rs
++++ b/crates/partsmith-occt-sys/build.rs
+@@ -54,6 +54,7 @@ const SOURCES: &[&str] = &[
+     "cpp/validity.cpp",
+     "cpp/history.cpp",
+     "cpp/interrupt.cpp",
++    "cpp/projection.cpp",
+ ];
+ 
+ fn main() {
+diff --git a/crates/partsmith-occt-sys/cpp/internal.h b/crates/partsmith-occt-sys/cpp/internal.h
+index fe181aa..b966b76 100644
+--- a/crates/partsmith-occt-sys/cpp/internal.h
++++ b/crates/partsmith-occt-sys/cpp/internal.h
+@@ -25,6 +25,7 @@
+ #include <gp_Ax2.hxx>
+ #include <gp_Ax3.hxx>
+ #include <gp_Dir.hxx>
++#include <gp_Pln.hxx>
+ #include <gp_Pnt.hxx>
+ 
+ #include "partsmith-occt-sys/src/ffi.rs.h"
+@@ -70,6 +71,8 @@ class Polls {
+   Polls() : Polls(Handle(Interruption)()) {}
+   // The polls of a call that stops once `interrupt` is requested.
+   explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
++  // The polls of a call through `indicator`, for the projection spike's recording indicator.
++  explicit Polls(const Handle(Interruption) &indicator);
+   Polls(const Polls &) = delete;
+   Polls &operator=(const Polls &) = delete;
+ 
+@@ -96,8 +99,6 @@ class Polls {
+   }
+ 
+  private:
+-  explicit Polls(const Handle(Interruption) &indicator);
+-
+   // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+   void stop_if_answered(const char *algorithm) const;
+ 
+@@ -320,6 +321,11 @@ FaceMass face_mass(const TopoDS_Face &face, const BRepAdaptor_Surface &surface);
+ // The volume of the solids of `shape` (kernel spec section 3.6, item 1), each solid once.
+ double solids_volume(const TopoDS_Shape &shape);
+ 
++// transforms.cpp
++
++// A planar face on `plane` that covers the projection of the shape's bounding box.
++TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane);
++
+ // booleans.cpp
+ 
+ // Runs one boolean of `target` with `tools` with the settings of kernel spec section 3.4.5
+@@ -330,6 +336,12 @@ TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target
+                          const TopTools_ListOfShape &tools, bool unify,
+                          const Handle(BRepTools_History) &history, Polls &polls);
+ 
++// mesh.cpp
++
++// Meshes `shape` in place with the parameters and face algorithms of kernel spec section 3.7,
++// item 2. The mesher gets a range of `polls`.
++void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle, Polls &polls);
++
+ // mesh_algorithm.cpp
+ 
+ // The face algorithms of the shim's mesher, by surface type: OCCT's, with the shim's copy of
+diff --git a/crates/partsmith-occt-sys/cpp/mesh.cpp b/crates/partsmith-occt-sys/cpp/mesh.cpp
+index b95f43e..faf43d3 100644
+--- a/crates/partsmith-occt-sys/cpp/mesh.cpp
++++ b/crates/partsmith-occt-sys/cpp/mesh.cpp
+@@ -57,9 +57,11 @@ std::vector<gp_XYZ> from_first_vertex(std::vector<gp_XYZ> points, const TopoDS_E
+   return points;
+ }
+ 
+-// Meshes `shape` in place with the parameters and face algorithms of kernel spec section 3.7,
+-// item 2, as BRepMesh_IncrementalMesh's own Perform does with OCCT's context. The mesher gets a
+-// range of `polls`.
++}  // namespace
++
++namespace detail {
++
++// Runs the mesher as BRepMesh_IncrementalMesh's own Perform runs it with OCCT's context.
+ void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle, Polls &polls) {
+   // Built with a named algorithm, so it never reads CSF_MeshAlgo from the environment; its face
+   // algorithms are then replaced by the shim's.
+@@ -76,6 +78,10 @@ void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle, Polls
+             [&](const Message_ProgressRange &range) { mesher.Perform(context, range); });
+ }
+ 
++}  // namespace detail
++
++namespace {
++
+ // The triangulation the mesher stored on face `index`, in the frame of the face without
+ // `location`; raises StdFail_NotDone when it stored none, as on a face without a wire (kernel
+ // spec section 3.7, items 7 and 9.2).
+diff --git a/crates/partsmith-occt-sys/cpp/projection.cpp b/crates/partsmith-occt-sys/cpp/projection.cpp
+new file mode 100644
+index 0000000..ddf8890
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/projection.cpp
+@@ -0,0 +1,572 @@
++// The projection spike (kernel spec section 8.7): edges of a body projected onto a plane along
++// its normal, the section of a body by a plane, and a body's silhouette seen along a plane's
++// normal and placed on the plane, each with the polls of its call. Spike code: it lives on the
++// branch spike/kernel-projection and never merges (section 8.1).
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <optional>
++#include <string>
++#include <tuple>
++#include <vector>
++
++#include <BRepAdaptor_Curve.hxx>
++#include <BRepAlgoAPI_Section.hxx>
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepBuilderAPI_MakeVertex.hxx>
++#include <BRepBuilderAPI_Transform.hxx>
++#include <BRepExtrema_DistShapeShape.hxx>
++#include <BRepLib.hxx>
++#include <BRepLib_MakeEdge2d.hxx>
++#include <BRepProj_Projection.hxx>
++#include <BRep_Tool.hxx>
++#include <ElSLib.hxx>
++#include <GeomProjLib.hxx>
++#include <Geom_Plane.hxx>
++#include <Geom_TrimmedCurve.hxx>
++#include <HLRAlgo_EdgeIterator.hxx>
++#include <HLRAlgo_EdgeStatus.hxx>
++#include <HLRAlgo_Projector.hxx>
++#include <HLRBRep_Algo.hxx>
++#include <HLRBRep_HLRToShape.hxx>
++#include <HLRBRep_PolyAlgo.hxx>
++#include <HLRBRep_PolyHLRToShape.hxx>
++#include <HLRTopoBRep_OutLiner.hxx>
++#include <Precision.hxx>
++#include <TopExp.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Iterator.hxx>
++#include <gp_Pnt2d.hxx>
++#include <gp_Trsf.hxx>
++#include <gp_XY.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++// The mesh HLRBRep_PolyAlgo works from: the tolerance of the closed-mesh check of kernel spec
++// section 8.1 item 4, 0.05 mm and 5 degrees.
++constexpr double kMeshDeviation = 0.05;
++constexpr double kMeshAngle = 5.0 * M_PI / 180.0;
++
++// The spike's indicator: answers as the shim's indicator does, and records the time of each poll,
++// so the spike can report the polls of a call and the longest gap between two of them.
++class PollRecorder : public Interruption {
++ public:
++  explicit PollRecorder(const Interrupt &interrupt)
++      : Interruption(interrupt), start_(Clock::now()), last_(start_) {}
++
++  Standard_Boolean UserBreak() override {
++    const Clock::time_point now = Clock::now();
++    if (count_ == 0) {
++      first_ = now - start_;
++    } else if (now - last_ > longest_) {
++      longest_ = now - last_;
++      longest_after_ = count_;
++    }
++    last_ = now;
++    ++count_;
++    return Interruption::UserBreak();
++  }
++
++  // The polls so far, with the time from the last one to now as the end of the call.
++  PollData data() const {
++    const Clock::time_point now = Clock::now();
++    return PollData{count_,         milliseconds(first_),      milliseconds(longest_),
++                    longest_after_, milliseconds(now - last_), milliseconds(now - start_)};
++  }
++
++ private:
++  using Clock = std::chrono::steady_clock;
++
++  static double milliseconds(Clock::duration duration) {
++    return std::chrono::duration<double, std::milli>(duration).count();
++  }
++
++  Clock::time_point start_;
++  Clock::time_point last_;
++  Clock::duration first_{};
++  Clock::duration longest_{};
++  std::uint64_t longest_after_ = 0;
++  std::uint64_t count_ = 0;
++};
++
++// An edge or a vertex a call made and an input element it came from.
++struct Origin {
++  TopoDS_Shape element;
++  SubShapeData input;
++  RelationType relation;
++};
++
++// A made edge and the edge HLR drew in 3D that it was projected from.
++struct DrawnSource {
++  TopoDS_Shape edge;
++  TopoDS_Shape drawn;
++};
++
++// What one call made: its edges with the input elements they came from, the edges HLR drew in 3D
++// that it projected with the source of each made edge, the source edges that project to a point,
++// and those it could not project.
++struct Curves {
++  std::vector<TopoDS_Shape> edges;
++  std::vector<Origin> origins;
++  std::vector<TopoDS_Shape> drawn;
++  std::vector<DrawnSource> drawn_sources;
++  rust::Vec<ProjectedPointData> points;
++  rust::Vec<EdgeFailureData> failures;
++  std::uint32_t whole_edges = 0;
++
++  // Adds `edge`, which no history names.
++  void add(const TopoDS_Shape &edge) { edges.push_back(edge); }
++
++  // Adds `edge`, which came from `input` by `relation`, as did its vertices.
++  void add(const TopoDS_Shape &edge, SubShapeData input, RelationType relation) {
++    add(edge);
++    origins.push_back(Origin{edge, input, relation});
++    for (TopoDS_Iterator vertex(edge); vertex.More(); vertex.Next()) {
++      origins.push_back(Origin{vertex.Value(), input, relation});
++    }
++  }
++};
++
++// The text of an OCCT exception, as trycatch writes it.
++std::string describe(const Standard_Failure &failure) {
++  return std::string(failure.DynamicType()->Name()) + ": " + failure.GetMessageString();
++}
++
++// The largest tolerance of an edge or a vertex of `shape`.
++double largest_tolerance(const Shape &shape) {
++  double largest = 0.0;
++  for (int edge = 1; edge <= shape.edges().Extent(); ++edge) {
++    largest = std::max(largest, BRep_Tool::Tolerance(TopoDS::Edge(shape.edges()(edge))));
++  }
++  for (int vertex = 1; vertex <= shape.vertices().Extent(); ++vertex) {
++    largest = std::max(largest, BRep_Tool::Tolerance(TopoDS::Vertex(shape.vertices()(vertex))));
++  }
++  return largest;
++}
++
++// The result element an origin names, by its kind and index in `result`.
++SubShapeData element_of(const Shape &result, const TopoDS_Shape &element) {
++  const ElementKind kind =
++      element.ShapeType() == TopAbs_VERTEX ? ElementKind::Vertex : ElementKind::Edge;
++  return SubShapeData{kind, static_cast<std::uint32_t>(result.map(kind).FindIndex(element))};
++}
++
++// The order of origins: by element, then by input, then by relation.
++std::tuple<ElementKind, std::uint32_t, ElementKind, std::uint32_t, RelationType> origin_order(
++    const OriginData &origin) {
++  return {origin.element.kind, origin.element.index, origin.input.kind, origin.input.index,
++          origin.relation};
++}
++
++// The compound of the made edges, with each input element its edges and vertices came from, each
++// pair once, in origin order, and the compound of the drawn edges, with the drawn edge each made
++// edge was projected from, in drawing order.
++CurveSetData curve_set(Curves curves, const PollRecorder &recorder) {
++  const std::shared_ptr<Shape> result = make_shape(compound_of(curves.edges));
++  const std::shared_ptr<Shape> drawn = make_shape(compound_of(curves.drawn));
++  rust::Vec<OriginData> drawn_origins;
++  for (const DrawnSource &source : curves.drawn_sources) {
++    drawn_origins.push_back(OriginData{element_of(*result, source.edge),
++                                       element_of(*drawn, source.drawn), RelationType::Projected});
++  }
++  std::vector<OriginData> found;
++  for (const Origin &origin : curves.origins) {
++    found.push_back(OriginData{element_of(*result, origin.element), origin.input, origin.relation});
++  }
++  const auto before = [](const OriginData &left, const OriginData &right) {
++    return origin_order(left) < origin_order(right);
++  };
++  const auto same = [](const OriginData &left, const OriginData &right) {
++    return origin_order(left) == origin_order(right);
++  };
++  std::sort(found.begin(), found.end(), before);
++  found.erase(std::unique(found.begin(), found.end(), same), found.end());
++  rust::Vec<OriginData> origins;
++  for (const OriginData &origin : found) {
++    origins.push_back(origin);
++  }
++  const double tolerance = largest_tolerance(*result);
++  return CurveSetData{result,
++                      std::move(origins),
++                      drawn,
++                      std::move(drawn_origins),
++                      std::move(curves.points),
++                      std::move(curves.failures),
++                      tolerance,
++                      curves.whole_edges,
++                      recorder.data()};
++}
++
++// The edges of `edges` of `shape`, checking each index.
++std::vector<std::pair<std::uint32_t, TopoDS_Edge>> source_edges(
++    const Shape &shape, rust::Slice<const std::uint32_t> edges) {
++  std::vector<std::pair<std::uint32_t, TopoDS_Edge>> sources;
++  for (std::uint32_t index : edges) {
++    sources.emplace_back(index, TopoDS::Edge(element_at(shape, ElementKind::Edge, index)));
++  }
++  return sources;
++}
++
++// The edge of `edge`'s curve projected onto `plane` along its normal with
++// GeomProjLib::ProjectOnPlane, keeping the curve's parametrization or not. Raises StdFail_NotDone
++// when it gives no curve or no edge.
++TopoDS_Edge projected_curve(const TopoDS_Edge &edge, const Handle(Geom_Plane) &plane,
++                            bool keep_parametrization, Polls &polls) {
++  double first = 0.0;
++  double last = 0.0;
++  const Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
++  polls.before("GeomProjLib::ProjectOnPlane");
++  const Handle(Geom_Curve) projected =
++      GeomProjLib::ProjectOnPlane(new Geom_TrimmedCurve(curve, first, last), plane,
++                                  plane->Position().Direction(), keep_parametrization);
++  if (projected.IsNull()) {
++    raise_not_done("GeomProjLib::ProjectOnPlane returned no curve");
++  }
++  polls.before("BRepBuilderAPI_MakeEdge");
++  BRepBuilderAPI_MakeEdge maker(projected);
++  if (!maker.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeEdge failed with status " + std::to_string(maker.Error()));
++  }
++  return maker.Edge();
++}
++
++// Projects one edge with BRepProj_Projection onto `target` along `direction` and adds the edges of
++// its wires.
++void project_edge(std::uint32_t index, const TopoDS_Edge &edge, const TopoDS_Face &target,
++                  const gp_Dir &direction, Curves &curves, Polls &polls) {
++  polls.before("BRepProj_Projection");
++  BRepProj_Projection projection(edge, target, direction);
++  if (!projection.IsDone()) {
++    curves.failures.push_back(EdgeFailureData{index, "BRepProj_Projection is not done"});
++    return;
++  }
++  for (TopExp_Explorer piece(projection.Shape(), TopAbs_EDGE); piece.More(); piece.Next()) {
++    curves.add(piece.Current(), SubShapeData{ElementKind::Edge, index}, RelationType::Projected);
++  }
++}
++
++// The point a source edge projects to when its projection has no length: a degenerated edge, or
++// a line along the plane's normal. No projection algorithm makes a curve of it.
++std::optional<gp_Pnt> projects_to_point(const TopoDS_Edge &edge, const gp_Pln &plane) {
++  std::optional<gp_Pnt> point;
++  if (BRep_Tool::Degenerated(edge)) {
++    point = BRep_Tool::Pnt(TopExp::FirstVertex(edge));
++  } else if (const BRepAdaptor_Curve curve(edge);
++             curve.GetType() == GeomAbs_Line &&
++             curve.Line().Direction().IsParallel(plane.Axis().Direction(), Precision::Angular())) {
++    point = curve.Value(curve.FirstParameter());
++  }
++  if (point) {
++    double u_parameter = 0.0;
++    double v_parameter = 0.0;
++    ElSLib::Parameters(plane, *point, u_parameter, v_parameter);
++    point = ElSLib::Value(u_parameter, v_parameter, plane);
++  }
++  return point;
++}
++
++// Records the point of each source edge that projects to one, runs `project` on each other source
++// edge and records an OCCT exception as that edge's failure.
++template <class Project>
++void project_each(const Shape &shape, rust::Slice<const std::uint32_t> edges, const gp_Pln &plane,
++                  Curves &curves, Project &&project) {
++  for (const auto &[index, edge] : source_edges(shape, edges)) {
++    if (const std::optional<gp_Pnt> point = projects_to_point(edge, plane)) {
++      curves.points.push_back(ProjectedPointData{index, to_vec3(point->XYZ())});
++      continue;
++    }
++    try {
++      project(index, edge);
++    } catch (const Partsmith_Canceled &) {
++      throw;
++    } catch (const Standard_Failure &failure) {
++      curves.failures.push_back(EdgeFailureData{index, describe(failure)});
++    }
++  }
++}
++
++// The displacement from the projector's frame, where HLR draws its edges, onto the plane.
++gp_Trsf onto_plane(const Frame &plane) {
++  gp_Trsf displacement;
++  displacement.SetDisplacement(gp_Ax3(), to_ax3(plane));
++  return displacement;
++}
++
++// Gives the edges HLR drew in its projector's frame their 3D curves and moves them onto the plane.
++void place_on_plane(Curves &curves, const Frame &plane, Polls &polls) {
++  const TopoDS_Compound drawn = compound_of(curves.edges);
++  polls.before("BRepLib::BuildCurves3d");
++  BRepLib::BuildCurves3d(drawn);
++  polls.before("BRepBuilderAPI_Transform");
++  BRepBuilderAPI_Transform mover(drawn, onto_plane(plane), Standard_True);
++  for (TopoDS_Shape &edge : curves.edges) {
++    edge = mover.ModifiedShape(edge);
++  }
++  for (Origin &origin : curves.origins) {
++    origin.element = mover.ModifiedShape(origin.element);
++  }
++}
++
++// The number of edges of a shape that may be null.
++std::uint32_t edge_count(const TopoDS_Shape &shape) {
++  if (shape.IsNull()) {
++    return 0;
++  }
++  TopTools_IndexedMapOfShape edges;
++  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
++  return static_cast<std::uint32_t>(edges.Extent());
++}
++
++// Adds each edge of `outlines`, a compound HLR drew for input face `face`, or nothing when null.
++void add_outlines(const TopoDS_Shape &outlines, std::uint32_t face, Curves &curves) {
++  if (outlines.IsNull()) {
++    return;
++  }
++  for (TopExp_Explorer edge(outlines, TopAbs_EDGE); edge.More(); edge.Next()) {
++    curves.add(edge.Current(), SubShapeData{ElementKind::Face, face}, RelationType::Outlined);
++  }
++}
++
++}  // namespace
++
++CurveSetData project_on_plane(const Shape &shape, rust::Slice<const std::uint32_t> edges,
++                              const Frame &plane, bool keep_parametrization,
++                              const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls(recorder);
++  const gp_Pln target_plane(to_ax3(plane));
++  const Handle(Geom_Plane) target = new Geom_Plane(target_plane);
++  Curves curves;
++  project_each(shape, edges, target_plane, curves,
++               [&](std::uint32_t index, const TopoDS_Edge &edge) {
++                 curves.add(projected_curve(edge, target, keep_parametrization, polls),
++                            SubShapeData{ElementKind::Edge, index}, RelationType::Projected);
++               });
++  return curve_set(std::move(curves), *recorder);
++}
++
++CurveSetData project_by_prism(const Shape &shape, rust::Slice<const std::uint32_t> edges,
++                              const Frame &plane, const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls(recorder);
++  const gp_Pln target_plane(to_ax3(plane));
++  polls.before("BRepBuilderAPI_MakeFace");
++  const TopoDS_Face target = covering_face(shape.get(), target_plane);
++  Curves curves;
++  project_each(shape, edges, target_plane, curves,
++               [&](std::uint32_t index, const TopoDS_Edge &edge) {
++                 project_edge(index, edge, target, target_plane.Axis().Direction(), curves, polls);
++               });
++  return curve_set(std::move(curves), *recorder);
++}
++
++CurveSetData section_by_plane(const Shape &shape, const Frame &plane, bool approximation,
++                              const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls(recorder);
++  BRepAlgoAPI_Section section(shape.get(), gp_Pln(to_ax3(plane)), Standard_False);
++  section.Approximation(approximation);
++  set_boolean_options(section);
++  polls.run("BRepAlgoAPI_Section",
++            [&](const Message_ProgressRange &range) { section.Build(range); });
++  require_no_errors(section, "BRepAlgoAPI_Section");
++  // The section's edges, and each input element whose history names one of them or one of their
++  // vertices: the element itself, or an image in its Modified or Generated list.
++  Curves curves;
++  TopTools_IndexedMapOfShape made;
++  TopExp::MapShapes(section.Shape(), TopAbs_EDGE, made);
++  curves.edges.assign(made.cbegin(), made.cend());
++  TopExp::MapShapes(section.Shape(), TopAbs_VERTEX, made);
++  for (ElementKind kind : {ElementKind::Face, ElementKind::Edge, ElementKind::Vertex}) {
++    const TopTools_IndexedMapOfShape &inputs = shape.map(kind);
++    for (int index = 1; index <= inputs.Extent(); ++index) {
++      const TopoDS_Shape &input = inputs(index);
++      const SubShapeData source{kind, static_cast<std::uint32_t>(index)};
++      if (made.Contains(input)) {
++        curves.origins.push_back(Origin{input, source, RelationType::Kept});
++      }
++      for (const TopoDS_Shape &image : section.Modified(input)) {
++        if (made.Contains(image)) {
++          curves.origins.push_back(Origin{image, source, RelationType::Modified});
++        }
++      }
++      for (const TopoDS_Shape &image : section.Generated(input)) {
++        if (made.Contains(image)) {
++          curves.origins.push_back(Origin{image, source, RelationType::Generated});
++        }
++      }
++    }
++  }
++  curves.whole_edges = static_cast<std::uint32_t>(curves.edges.size());
++  return curve_set(std::move(curves), *recorder);
++}
++
++CurveSetData silhouette_exact(const Shape &shape, const Frame &plane, bool edges_on_outline,
++                              const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls(recorder);
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape copy = copy_shape(shape);
++  const Handle(HLRBRep_Algo) algorithm = new HLRBRep_Algo;
++  algorithm->Add(copy.get());
++  algorithm->Projector(HLRAlgo_Projector(to_ax2(plane)));
++  polls.before("HLRBRep_Algo::Update");
++  algorithm->Update();
++  polls.before("HLRBRep_Algo::Hide");
++  algorithm->Hide();
++  polls.before("HLRBRep_HLRToShape");
++  HLRBRep_HLRToShape extractor(algorithm);
++  Curves curves;
++  if (edges_on_outline) {
++    // The visible outlines inside faces and the visible parts of edges on the outline, in 3D
++    // (OutLineVCompound3d), each projected onto the plane. No history names them; each made edge
++    // is recorded with the drawn edge it was projected from, for the checks of a projection.
++    const TopoDS_Shape drawn = extractor.OutLineVCompound3d();
++    curves.whole_edges = edge_count(drawn);
++    const Handle(Geom_Plane) target = new Geom_Plane(gp_Pln(to_ax3(plane)));
++    if (!drawn.IsNull()) {
++      for (TopExp_Explorer edge(drawn, TopAbs_EDGE); edge.More(); edge.Next()) {
++        const TopoDS_Edge made =
++            projected_curve(TopoDS::Edge(edge.Current()), target, false, polls);
++        curves.add(made);
++        curves.drawn.push_back(edge.Current());
++        curves.drawn_sources.push_back(DrawnSource{made, edge.Current()});
++      }
++    }
++    return curve_set(std::move(curves), *recorder);
++  }
++  // The outlines of each face of the outlined shape, the copy with its outlines as internal edges,
++  // with the face of the copy it was built from.
++  const Handle(HLRTopoBRep_OutLiner) &outliner = algorithm->ShapeBounds(1).Shape();
++  TopTools_IndexedMapOfShape outlined;
++  TopExp::MapShapes(outliner->OutLinedShape(), TopAbs_FACE, outlined);
++  for (int face = 1; face <= outlined.Extent(); ++face) {
++    const TopoDS_Shape &outlined_face = outlined(face);
++    const TopoDS_Shape original = outliner->DataStructure().NewSOldS(outlined_face);
++    const auto index = static_cast<std::uint32_t>(copy.faces().FindIndex(original));
++    add_outlines(extractor.OutLineVCompound(outlined_face), index, curves);
++  }
++  curves.whole_edges = edge_count(extractor.OutLineVCompound());
++  place_on_plane(curves, plane, polls);
++  return curve_set(std::move(curves), *recorder);
++}
++
++CurveSetData silhouette_from_mesh(const Shape &shape, const Frame &plane, bool edges_on_outline,
++                                  const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls(recorder);
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape copy = copy_shape(shape);
++  mesh(copy.get(), kMeshDeviation, kMeshAngle, polls);
++  const Handle(HLRBRep_PolyAlgo) algorithm = new HLRBRep_PolyAlgo(copy.get());
++  algorithm->Projector(HLRAlgo_Projector(to_ax2(plane)));
++  polls.before("HLRBRep_PolyAlgo::Update");
++  algorithm->Update();
++  Curves curves;
++  if (edges_on_outline) {
++    // The visible parts of the segments the algorithm marks as outlines inside faces or as edges on
++    // the outline, read as HLRBRep_PolyHLRToShape::Update reads them, each with its face or edge.
++    polls.before("HLRBRep_PolyAlgo::Hide");
++    const gp_Trsf &projector = algorithm->Projector().Transformation();
++    HLRAlgo_EdgeStatus status;
++    TopoDS_Shape source;
++    Standard_Boolean smooth = Standard_False;
++    Standard_Boolean sewn = Standard_False;
++    Standard_Boolean on_outline = Standard_False;
++    Standard_Boolean inside = Standard_False;
++    for (algorithm->InitHide(); algorithm->MoreHide(); algorithm->NextHide()) {
++      const HLRAlgo_BiPoint::PointsT &points =
++          algorithm->Hide(status, source, smooth, sewn, on_outline, inside);
++      if (!on_outline && !inside) {
++        continue;
++      }
++      gp_XYZ start = points.Pnt1;
++      gp_XYZ end = points.Pnt2;
++      projector.Transforms(start);
++      projector.Transforms(end);
++      const gp_XY origin(start.X(), start.Y());
++      const gp_XY along = gp_XY(end.X(), end.Y()) - origin;
++      if (along.Modulus() <= 1e-10) {
++        continue;
++      }
++      const ElementKind kind = inside ? ElementKind::Face : ElementKind::Edge;
++      const auto index = static_cast<std::uint32_t>(copy.map(kind).FindIndex(source));
++      HLRAlgo_EdgeIterator part;
++      for (part.InitVisible(status); part.MoreVisible(); part.NextVisible()) {
++        double from = 0.0;
++        double to = 0.0;
++        Standard_ShortReal from_tolerance = 0.0F;
++        Standard_ShortReal to_tolerance = 0.0F;
++        part.Visible(from, from_tolerance, to, to_tolerance);
++        const gp_Pnt2d first(origin + from * along);
++        const gp_Pnt2d last(origin + to * along);
++        if (first.SquareDistance(last) > 1e-20) {
++          curves.add(BRepLib_MakeEdge2d(first, last).Edge(), SubShapeData{kind, index},
++                     RelationType::Outlined);
++        }
++      }
++    }
++    curves.whole_edges = static_cast<std::uint32_t>(curves.edges.size());
++  } else {
++    polls.before("HLRBRep_PolyHLRToShape");
++    HLRBRep_PolyHLRToShape extractor;
++    extractor.Update(algorithm);
++    // The outline segments of each face of the copy, whose indices are the input's.
++    for (int face = 1; face <= copy.faces().Extent(); ++face) {
++      add_outlines(extractor.OutLineVCompound(copy.faces()(face)), static_cast<std::uint32_t>(face),
++                   curves);
++    }
++    curves.whole_edges = edge_count(extractor.OutLineVCompound());
++  }
++  place_on_plane(curves, plane, polls);
++  return curve_set(std::move(curves), *recorder);
++}
++
++rust::Vec<Vec3> edge_samples(const Shape &shape, std::uint32_t edge, std::uint32_t count) {
++  const TopoDS_Edge &sampled = TopoDS::Edge(element_at(shape, ElementKind::Edge, edge));
++  rust::Vec<Vec3> samples;
++  if (BRep_Tool::Degenerated(sampled)) {
++    // A degenerated edge has no curve: each of its points is its vertex.
++    const Vec3 vertex = to_vec3(BRep_Tool::Pnt(TopExp::FirstVertex(sampled)).XYZ());
++    for (std::uint32_t sample = 0; sample < count; ++sample) {
++      samples.push_back(vertex);
++    }
++    return samples;
++  }
++  double first = 0.0;
++  double last = 0.0;
++  const Handle(Geom_Curve) curve = BRep_Tool::Curve(sampled, first, last);
++  for (std::uint32_t sample = 0; sample < count; ++sample) {
++    const double parameter =
++        count == 1 ? first : first + (last - first) * sample / static_cast<double>(count - 1);
++    samples.push_back(to_vec3(curve->Value(parameter).XYZ()));
++  }
++  return samples;
++}
++
++rust::Vec<double> element_distances(const Shape &shape, ElementKind kind, std::uint32_t index,
++                                    rust::Slice<const Vec3> points) {
++  const TopoDS_Shape &element = element_at(shape, kind, index);
++  rust::Vec<double> distances;
++  for (const Vec3 &point : points) {
++    BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(to_point(point)).Vertex(),
++                                        element);
++    if (!distance.IsDone()) {
++      raise_not_done("BRepExtrema_DistShapeShape found no distance");
++    }
++    distances.push_back(distance.Value());
++  }
++  return distances;
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/shim.h b/crates/partsmith-occt-sys/cpp/shim.h
+index d540d25..56847c7 100644
+--- a/crates/partsmith-occt-sys/cpp/shim.h
++++ b/crates/partsmith-occt-sys/cpp/shim.h
+@@ -89,6 +89,7 @@ struct SplitData;
+ struct MeshData;
+ struct StepBodyData;
+ struct StepImportData;
++struct CurveSetData;
+ enum class ElementKind : std::uint8_t;
+ enum class ContinuityType : std::uint8_t;
+ enum class ShapeType : std::uint8_t;
+@@ -185,6 +186,22 @@ SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interru
+ std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
+ OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+ 
++// projection.cpp
++CurveSetData project_on_plane(const Shape &shape, rust::Slice<const std::uint32_t> edges,
++                              const Frame &plane, bool keep_parametrization,
++                              const Interrupt &interrupt);
++CurveSetData project_by_prism(const Shape &shape, rust::Slice<const std::uint32_t> edges,
++                              const Frame &plane, const Interrupt &interrupt);
++CurveSetData section_by_plane(const Shape &shape, const Frame &plane, bool approximation,
++                              const Interrupt &interrupt);
++CurveSetData silhouette_exact(const Shape &shape, const Frame &plane, bool edges_on_outline,
++                              const Interrupt &interrupt);
++CurveSetData silhouette_from_mesh(const Shape &shape, const Frame &plane, bool edges_on_outline,
++                                  const Interrupt &interrupt);
++rust::Vec<Vec3> edge_samples(const Shape &shape, std::uint32_t edge, std::uint32_t count);
++rust::Vec<double> element_distances(const Shape &shape, ElementKind kind, std::uint32_t index,
++                                    rust::Slice<const Vec3> points);
++
+ // interrupt.cpp
+ void wait_for_interrupt(const Interrupt &interrupt, double limit);
+ #ifdef __EMSCRIPTEN__
+diff --git a/crates/partsmith-occt-sys/cpp/transforms.cpp b/crates/partsmith-occt-sys/cpp/transforms.cpp
+index 236162c..d868ed2 100644
+--- a/crates/partsmith-occt-sys/cpp/transforms.cpp
++++ b/crates/partsmith-occt-sys/cpp/transforms.cpp
+@@ -27,13 +27,8 @@ namespace occt {
+ 
+ using namespace detail;
+ 
+-namespace {
+-
+-// Element kinds whose index maps a transform preserves.
+-constexpr ElementKind kKinds[] = {ElementKind::Solid, ElementKind::Face, ElementKind::Edge,
+-                                  ElementKind::Vertex};
++namespace detail {
+ 
+-// A planar face on `plane` that covers the projection of the shape's bounding box.
+ TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
+   Bnd_Box box;
+   BRepBndLib::Add(shape, box);
+@@ -48,6 +43,14 @@ TopoDS_Face covering_face(const TopoDS_Shape &shape, const gp_Pln &plane) {
+   return maker.Face();
+ }
+ 
++}  // namespace detail
++
++namespace {
++
++// Element kinds whose index maps a transform preserves.
++constexpr ElementKind kKinds[] = {ElementKind::Solid, ElementKind::Face, ElementKind::Edge,
++                                  ElementKind::Vertex};
++
+ // The solids of `split_solids` copied apart, so that the pieces share no sub-shapes, with the
+ // copies' history merged into `history`. `polls` polls before each copy and the merge.
+ TopoDS_Shape separated_pieces(const TopoDS_Shape &split_solids,
+diff --git a/crates/partsmith-occt-sys/src/error.rs b/crates/partsmith-occt-sys/src/error.rs
+index 0b35a61..5ab2082 100644
+--- a/crates/partsmith-occt-sys/src/error.rs
++++ b/crates/partsmith-occt-sys/src/error.rs
+@@ -101,6 +101,10 @@ pub enum Operation {
+     ReadBrep,
+     /// [`crate::wait_for_interrupt`].
+     WaitForInterrupt,
++    /// [`crate::project_on_plane`] and [`crate::project_by_prism`], the projection spike's.
++    Project,
++    /// [`crate::silhouette_exact`] and [`crate::silhouette_from_mesh`], the projection spike's.
++    Silhouette,
+ }
+ 
+ impl Operation {
+@@ -133,6 +137,8 @@ impl Operation {
+             Operation::WriteBrep => "write_brep",
+             Operation::ReadBrep => "read_brep",
+             Operation::WaitForInterrupt => "wait_for_interrupt",
++            Operation::Project => "project",
++            Operation::Silhouette => "silhouette",
+         }
+     }
+ 
+@@ -177,6 +183,8 @@ impl Operation {
+             Operation::WaitForInterrupt => {
+                 "The test wait could not run; report it with the details."
+             }
++            Operation::Project => "The edges could not be projected onto the plane.",
++            Operation::Silhouette => "The outline of the body could not be found.",
+         }
+     }
+ 
+@@ -209,7 +217,9 @@ impl Operation {
+             | Operation::ReadStep
+             | Operation::WriteBrep
+             | Operation::ReadBrep
+-            | Operation::WaitForInterrupt => None,
++            | Operation::WaitForInterrupt
++            | Operation::Project
++            | Operation::Silhouette => None,
+         }
+     }
+ }
+diff --git a/crates/partsmith-occt-sys/src/ffi.rs b/crates/partsmith-occt-sys/src/ffi.rs
+index 1cb2283..decf2eb 100644
+--- a/crates/partsmith-occt-sys/src/ffi.rs
++++ b/crates/partsmith-occt-sys/src/ffi.rs
+@@ -282,6 +282,65 @@ pub(crate) mod bridge {
+         warnings: Vec<String>,
+     }
+ 
++    /// The polls of one call of the projection spike with an interrupt that is never requested,
++    /// in milliseconds (kernel spec section 8.1 item 4).
++    #[derive(Debug, Clone, Copy)]
++    struct PollData {
++        count: u64,
++        first: f64,
++        longest: f64,
++        longest_after: u64,
++        last: f64,
++        total: f64,
++    }
++
++    /// How an element of the projection spike's curves came from an input element, in
++    /// `CurveRelation` order.
++    #[derive(Debug, Clone, Copy)]
++    enum RelationType {
++        Kept,
++        Modified,
++        Generated,
++        Projected,
++        Outlined,
++    }
++
++    /// One edge or vertex of the projection spike's curves and an input element it came from.
++    #[derive(Debug, Clone, Copy)]
++    struct OriginData {
++        element: SubShapeData,
++        input: SubShapeData,
++        relation: RelationType,
++    }
++
++    /// A source edge whose projection is a point.
++    #[derive(Debug, Clone, Copy)]
++    struct ProjectedPointData {
++        edge: u32,
++        point: Vec3,
++    }
++
++    /// A source edge that a projection could not turn into an edge, with the exception it raised
++    /// or the status it reported.
++    struct EdgeFailureData {
++        edge: u32,
++        message: String,
++    }
++
++    /// The curves of one projection, section or silhouette of the projection spike (kernel spec
++    /// section 8.7).
++    struct CurveSetData {
++        shape: SharedPtr<Shape>,
++        origins: Vec<OriginData>,
++        drawn: SharedPtr<Shape>,
++        drawn_origins: Vec<OriginData>,
++        points: Vec<ProjectedPointData>,
++        failures: Vec<EdgeFailureData>,
++        tolerance: f64,
++        whole_edges: u32,
++        polls: PollData,
++    }
++
+     extern "Rust" {
+         /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+         /// requested and keeps it only for the call that received it (kernel spec section 3.13
+@@ -410,6 +469,45 @@ pub(crate) mod bridge {
+         fn transform(shape: &Shape, matrix: &[f64]) -> Result<OpResultData>;
+         fn split(shape: &Shape, plane: &Frame, interrupt: &Interrupt) -> Result<SplitData>;
+         fn section(shape: &Shape, plane: &Frame) -> Result<SharedPtr<Shape>>;
++
++        fn project_on_plane(
++            shape: &Shape,
++            edges: &[u32],
++            plane: &Frame,
++            keep_parametrization: bool,
++            interrupt: &Interrupt,
++        ) -> Result<CurveSetData>;
++        fn project_by_prism(
++            shape: &Shape,
++            edges: &[u32],
++            plane: &Frame,
++            interrupt: &Interrupt,
++        ) -> Result<CurveSetData>;
++        fn section_by_plane(
++            shape: &Shape,
++            plane: &Frame,
++            approximation: bool,
++            interrupt: &Interrupt,
++        ) -> Result<CurveSetData>;
++        fn silhouette_exact(
++            shape: &Shape,
++            plane: &Frame,
++            edges_on_outline: bool,
++            interrupt: &Interrupt,
++        ) -> Result<CurveSetData>;
++        fn silhouette_from_mesh(
++            shape: &Shape,
++            plane: &Frame,
++            edges_on_outline: bool,
++            interrupt: &Interrupt,
++        ) -> Result<CurveSetData>;
++        fn edge_samples(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Vec3>>;
++        fn element_distances(
++            shape: &Shape,
++            kind: ElementKind,
++            index: u32,
++            points: &[Vec3],
++        ) -> Result<Vec<f64>>;
+         fn compound(shapes: &[ShapeHandle]) -> Result<OpResultData>;
+ 
+         fn write_step(
+diff --git a/crates/partsmith-occt-sys/src/lib.rs b/crates/partsmith-occt-sys/src/lib.rs
+index 9435ed2..7494215 100644
+--- a/crates/partsmith-occt-sys/src/lib.rs
++++ b/crates/partsmith-occt-sys/src/lib.rs
+@@ -15,6 +15,7 @@ mod history;
+ mod interrupt;
+ mod primitives;
+ mod profiles;
++mod projection;
+ mod shape;
+ mod step_check;
+ mod sweeps;
+@@ -40,6 +41,11 @@ pub use primitives::{
+ pub use profiles::{
+     PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, TaggedCurve, make_profile,
+ };
++pub use projection::{
++    CurveOrigin, CurveRelation, CurveSet, EdgeFailure, PollRecord, ProjectedPoint, edge_samples,
++    element_distances, project_by_prism, project_on_plane, section_by_plane, silhouette_exact,
++    silhouette_from_mesh,
++};
+ pub use shape::{Shape, ShapeKind, SubShape, SubShapeKind};
+ pub use sweeps::{SweepFace, SweepResult, extrude, revolve};
+ pub use tessellation::ElementDisplay;
+diff --git a/crates/partsmith-occt-sys/src/projection.rs b/crates/partsmith-occt-sys/src/projection.rs
+new file mode 100644
+index 0000000..062fdd5
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/projection.rs
+@@ -0,0 +1,338 @@
++//! The projection spike (kernel spec section 8.7): edges of a body projected onto a plane, the
++//! section of a body by a plane and a body's silhouette along a plane's normal, with what the spike
++//! measures of each call. Spike code: it lives on the branch `spike/kernel-projection` and never
++//! merges (section 8.1).
++
++use std::time::Duration;
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::interrupt::Interrupt;
++use crate::shape::{Shape, SubShape, SubShapeKind};
++use crate::values::{Plane, Point, check_finite};
++
++/// How an edge or a vertex of a spike's curves came from an input element.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum CurveRelation {
++    /// The input element itself is in the result (OCCT's history: unchanged).
++    Kept,
++    /// In the input element's `Modified` list of the builder's history.
++    Modified,
++    /// In the input element's `Generated` list of the builder's history.
++    Generated,
++    /// Made by the shim's own call for that input edge: no OCCT history names it.
++    Projected,
++    /// Drawn by HLR's extractor for that input face alone: no OCCT history names it.
++    Outlined,
++}
++
++/// One edge or vertex of a spike's curves and an input element it came from.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub struct CurveOrigin {
++    /// The edge or vertex of the curves.
++    pub element: SubShape,
++    /// The element of the input it came from.
++    pub input: SubShape,
++    /// How it came from it.
++    pub relation: CurveRelation,
++}
++
++/// A source edge whose projection is shorter than the modeling tolerance: a point.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct ProjectedPoint {
++    /// The source edge.
++    pub edge: u32,
++    /// Where it projects.
++    pub point: Point,
++}
++
++/// A source edge that a projection could not turn into an edge.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct EdgeFailure {
++    /// The source edge.
++    pub edge: u32,
++    /// The exception OCCT raised or the status it reported.
++    pub message: String,
++}
++
++/// The polls of one call with an interrupt that is never requested (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct PollRecord {
++    /// The number of `UserBreak` calls.
++    pub count: u64,
++    /// From the call's start to its first poll.
++    pub first: Duration,
++    /// The longest gap between two polls.
++    pub longest: Duration,
++    /// How many polls came before the longest gap: it ends at poll `longest_after + 1`.
++    pub longest_after: u64,
++    /// From the last poll to the call's end.
++    pub last: Duration,
++    /// The whole call in the shim.
++    pub total: Duration,
++}
++
++/// The curves one projection, section or silhouette made, with what the spike measures of them.
++#[derive(Debug, Clone)]
++pub struct CurveSet {
++    /// A compound of edges on the plane.
++    pub shape: Shape,
++    /// Each input element an edge or a vertex of `shape` came from, ascending.
++    pub origins: Vec<CurveOrigin>,
++    /// For the exact silhouette with edges on the outline, a compound of the edges HLR drew in 3D,
++    /// which the call projects onto the plane; an empty compound otherwise.
++    pub drawn: Shape,
++    /// Each edge of `shape` projected from an edge of `drawn`, as an origin whose input is that
++    /// edge of `drawn`, in the order the edges were drawn.
++    pub drawn_origins: Vec<CurveOrigin>,
++    /// The source edges whose projection is a point.
++    pub points: Vec<ProjectedPoint>,
++    /// The source edges the projection could not turn into an edge.
++    pub failures: Vec<EdgeFailure>,
++    /// The largest tolerance of an edge or a vertex of `shape`.
++    pub tolerance: f64,
++    /// For a silhouette, the edges of the extractor's compound of the whole shape, which the
++    /// compounds of each face add up to; for a section, its edges; 0 for a projection.
++    pub whole_edges: u32,
++    /// The polls of the call.
++    pub polls: PollRecord,
++}
++
++const EMPTY_SHAPE_MESSAGE: &str = "The shape has no faces to cut or outline.";
++
++/// The milliseconds the shim reports, as a duration.
++fn duration(milliseconds: f64) -> Duration {
++    Duration::from_secs_f64(milliseconds.max(0.0) / 1000.0)
++}
++
++impl PollRecord {
++    fn from_ffi(data: sys::PollData) -> PollRecord {
++        PollRecord {
++            count: data.count,
++            first: duration(data.first),
++            longest: duration(data.longest),
++            longest_after: data.longest_after,
++            last: duration(data.last),
++            total: duration(data.total),
++        }
++    }
++}
++
++impl CurveRelation {
++    fn from_ffi(
++        operation: Operation,
++        relation: sys::RelationType,
++    ) -> Result<CurveRelation, KernelError> {
++        match relation {
++            sys::RelationType::Kept => Ok(CurveRelation::Kept),
++            sys::RelationType::Modified => Ok(CurveRelation::Modified),
++            sys::RelationType::Generated => Ok(CurveRelation::Generated),
++            sys::RelationType::Projected => Ok(CurveRelation::Projected),
++            sys::RelationType::Outlined => Ok(CurveRelation::Outlined),
++            _ => Err(KernelError::unknown_from_shim(
++                operation,
++                "relation",
++                relation.repr,
++            )),
++        }
++    }
++}
++
++/// A sub-shape the shim reports.
++fn sub_shape(operation: Operation, data: sys::SubShapeData) -> Result<SubShape, KernelError> {
++    Ok(SubShape {
++        kind: SubShapeKind::from_ffi(operation, data.kind)?,
++        index: data.index,
++    })
++}
++
++/// The origins the shim reports.
++fn origins(
++    operation: Operation,
++    origins: &[sys::OriginData],
++) -> Result<Vec<CurveOrigin>, KernelError> {
++    origins
++        .iter()
++        .map(|origin| {
++            Ok(CurveOrigin {
++                element: sub_shape(operation, origin.element)?,
++                input: sub_shape(operation, origin.input)?,
++                relation: CurveRelation::from_ffi(operation, origin.relation)?,
++            })
++        })
++        .collect()
++}
++
++impl CurveSet {
++    fn from_ffi(operation: Operation, data: sys::CurveSetData) -> Result<CurveSet, KernelError> {
++        Ok(CurveSet {
++            shape: Shape::from_ffi(operation, data.shape)?,
++            origins: origins(operation, &data.origins)?,
++            drawn: Shape::from_ffi(operation, data.drawn)?,
++            drawn_origins: origins(operation, &data.drawn_origins)?,
++            points: data
++                .points
++                .iter()
++                .map(|point| ProjectedPoint {
++                    edge: point.edge,
++                    point: Point::from_ffi(point.point),
++                })
++                .collect(),
++            failures: data
++                .failures
++                .into_iter()
++                .map(|failure| EdgeFailure {
++                    edge: failure.edge,
++                    message: failure.message,
++                })
++                .collect(),
++            tolerance: data.tolerance,
++            whole_edges: data.whole_edges,
++            polls: PollRecord::from_ffi(data.polls),
++        })
++    }
++}
++
++/// Checks the source edges of a projection.
++fn check_edges(shape: &Shape, edges: &[u32]) -> Result<(), KernelError> {
++    edges
++        .iter()
++        .try_for_each(|edge| shape.check_index(Operation::Project, SubShapeKind::Edge, *edge))
++}
++
++/// Checks that a section or a silhouette has faces to work on.
++fn check_faces(operation: Operation, shape: &Shape) -> Result<(), KernelError> {
++    if shape.count(SubShapeKind::Face) == 0 {
++        Err(KernelError::invalid_input(operation, EMPTY_SHAPE_MESSAGE))
++    } else {
++        Ok(())
++    }
++}
++
++/// Projects each of `edges` of `shape` onto `plane` along its normal with
++/// `GeomProjLib::ProjectOnPlane` of the edge's curve, one call per edge, keeping each curve's
++/// parametrization or not (its `KeepParametrization`).
++pub fn project_on_plane(
++    shape: &Shape,
++    edges: &[u32],
++    plane: &Plane,
++    keep_parametrization: bool,
++    interrupt: &Interrupt,
++) -> Result<CurveSet, KernelError> {
++    let operation = Operation::Project;
++    let frame = plane.frame(operation)?;
++    check_edges(shape, edges)?;
++    let data = call(operation, || {
++        sys::project_on_plane(
++            shape.inner(),
++            edges,
++            &frame.to_ffi(),
++            keep_parametrization,
++            interrupt,
++        )
++    })?;
++    CurveSet::from_ffi(operation, data)
++}
++
++/// Projects each of `edges` of `shape` onto `plane` along its normal with `BRepProj_Projection`,
++/// the section of the edge's prism by a face on the plane, one call per edge.
++pub fn project_by_prism(
++    shape: &Shape,
++    edges: &[u32],
++    plane: &Plane,
++    interrupt: &Interrupt,
++) -> Result<CurveSet, KernelError> {
++    let operation = Operation::Project;
++    let frame = plane.frame(operation)?;
++    check_edges(shape, edges)?;
++    let data = call(operation, || {
++        sys::project_by_prism(shape.inner(), edges, &frame.to_ffi(), interrupt)
++    })?;
++    CurveSet::from_ffi(operation, data)
++}
++
++/// The section of `shape` by `plane` with `BRepAlgoAPI_Section`, its curves approximated or not.
++pub fn section_by_plane(
++    shape: &Shape,
++    plane: &Plane,
++    approximation: bool,
++    interrupt: &Interrupt,
++) -> Result<CurveSet, KernelError> {
++    let operation = Operation::Section;
++    let frame = plane.frame(operation)?;
++    check_faces(operation, shape)?;
++    let data = call(operation, || {
++        sys::section_by_plane(shape.inner(), &frame.to_ffi(), approximation, interrupt)
++    })?;
++    CurveSet::from_ffi(operation, data)
++}
++
++/// The visible outlines of `shape` seen along `plane`'s normal, placed on `plane`, with
++/// `HLRBRep_Algo`: the outlines inside faces, `HLRBRep_HLRToShape::OutLineVCompound` of each
++/// face; with `edges_on_outline`, also the edges on the outline, `OutLineVCompound3d` of the
++/// whole shape with each edge projected onto `plane` by `GeomProjLib::ProjectOnPlane`, the drawn
++/// edges in [`CurveSet::drawn`].
++pub fn silhouette_exact(
++    shape: &Shape,
++    plane: &Plane,
++    edges_on_outline: bool,
++    interrupt: &Interrupt,
++) -> Result<CurveSet, KernelError> {
++    let operation = Operation::Silhouette;
++    let frame = plane.frame(operation)?;
++    check_faces(operation, shape)?;
++    let data = call(operation, || {
++        sys::silhouette_exact(shape.inner(), &frame.to_ffi(), edges_on_outline, interrupt)
++    })?;
++    CurveSet::from_ffi(operation, data)
++}
++
++/// The visible outlines of `shape` seen along `plane`'s normal, placed on `plane`, with
++/// `HLRBRep_PolyAlgo` on a mesh at 0.05 mm and 5 degrees: the outlines inside faces,
++/// `HLRBRep_PolyHLRToShape::OutLineVCompound` of each face; with `edges_on_outline`, also the
++/// edges on the outline, read from the algorithm's segments.
++pub fn silhouette_from_mesh(
++    shape: &Shape,
++    plane: &Plane,
++    edges_on_outline: bool,
++    interrupt: &Interrupt,
++) -> Result<CurveSet, KernelError> {
++    let operation = Operation::Silhouette;
++    let frame = plane.frame(operation)?;
++    check_faces(operation, shape)?;
++    let data = call(operation, || {
++        sys::silhouette_from_mesh(shape.inner(), &frame.to_ffi(), edges_on_outline, interrupt)
++    })?;
++    CurveSet::from_ffi(operation, data)
++}
++
++/// `count` points of `edge`'s curve at evenly spaced parameters from its first to its last, for
++/// the spike's checks.
++pub fn edge_samples(shape: &Shape, edge: u32, count: u32) -> Result<Vec<Point>, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Edge, edge)?;
++    let samples = call(operation, || sys::edge_samples(shape.inner(), edge, count))?;
++    Ok(samples.into_iter().map(Point::from_ffi).collect())
++}
++
++/// The distance from each of `points` to the element `index` of `kind` of `shape`, for the
++/// spike's checks.
++pub fn element_distances(
++    shape: &Shape,
++    kind: SubShapeKind,
++    index: u32,
++    points: &[Point],
++) -> Result<Vec<f64>, KernelError> {
++    let operation = Operation::Query;
++    Shape::check_element_kind(operation, kind)?;
++    shape.check_index(operation, kind, index)?;
++    let coordinates: Vec<f64> = points
++        .iter()
++        .flat_map(|point| [point.x, point.y, point.z])
++        .collect();
++    check_finite(operation, &coordinates)?;
++    let points: Vec<sys::Vec3> = points.iter().map(|point| point.to_ffi()).collect();
++    call(operation, || {
++        sys::element_distances(shape.inner(), kind.to_ffi(), index, &points)
++    })
++}
+diff --git a/crates/partsmith-occt-sys/tests/integration.rs b/crates/partsmith-occt-sys/tests/integration.rs
+index fd98155..9b79dae 100644
+--- a/crates/partsmith-occt-sys/tests/integration.rs
++++ b/crates/partsmith-occt-sys/tests/integration.rs
+@@ -11,6 +11,8 @@ mod exchange;
+ mod interrupts;
+ mod primitives_and_queries;
+ mod profiles_and_sweeps;
++mod projection;
++mod projection_inputs;
+ mod tessellation;
+ mod transforms_and_split;
+ mod values;
+diff --git a/crates/partsmith-occt-sys/tests/projection.rs b/crates/partsmith-occt-sys/tests/projection.rs
+new file mode 100644
+index 0000000..985c4b6
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/projection.rs
+@@ -0,0 +1,636 @@
++//! The projection spike (kernel spec section 8.7): for each input and construction, the checks of
++//! section 8.1 item 4 that run in a test, printed as measurements. Lines starting `PARITY` are the
++//! canonical summary that the native and the WebAssembly runs compare (ADR 0042). Each test also
++//! holds the construction to the outcome the spike recorded for it.
++
++use std::collections::BTreeMap;
++
++use partsmith_mesh::{TessellationTolerance, WELD_TOLERANCE};
++use partsmith_occt_sys::{
++    CurveOrigin, CurveRelation, CurveSet, EdgeFailure, GeometryKind, Interrupt, Plane, Point,
++    ProjectedPoint, Shape, SubShape, SubShapeKind, Vector, edge_samples, element_distances,
++};
++
++use super::projection_inputs::{Construction, INPUT_NAMES, Input, Outline, input};
++
++/// The points sampled on each edge (section 8.7).
++const SAMPLES: u32 = 20;
++
++/// The point check's tolerance (section 8.7).
++const POINT_TOLERANCE: f64 = 1e-6;
++
++/// A direction is along another within this cosine.
++const PARALLEL: f64 = 1e-9;
++
++/// The closed-mesh check's tolerance, 0.05 mm and 5 degrees (section 8.1 item 4).
++const FINE: TessellationTolerance = TessellationTolerance {
++    chord_deviation: 0.05,
++    angular_deviation: 5.0_f64.to_radians(),
++};
++
++/// What a source edge projects to, from its geometry.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++enum Expected {
++    /// A line along the direction.
++    Point,
++    /// A line across it.
++    Line,
++    /// A circle in a plane across the direction.
++    Circle,
++    /// A circle in a plane oblique to the direction.
++    Ellipse,
++    /// A circle in a plane along the direction: a segment.
++    Segment,
++}
++
++/// What one construction gave for one input, with the section 8.7 checks.
++struct Outcome {
++    /// Every failure of a check, empty when the input passes.
++    failures: Vec<String>,
++    /// The checks as the spike reads them for degenerate projections, where they differ.
++    geometric_failures: Vec<String>,
++}
++
++impl Outcome {
++    /// Adds a failure that both readings share.
++    fn fail(&mut self, failure: String) {
++        self.geometric_failures.push(failure.clone());
++        self.failures.push(failure);
++    }
++}
++
++/// The source edges of a projection, with what the projection made of each.
++struct Sources<'a> {
++    /// The shape the source edges belong to.
++    shape: &'a Shape,
++    /// The source edges.
++    edges: &'a [u32],
++    /// The origins that name each projected edge by its source edge.
++    origins: &'a [CurveOrigin],
++    /// The source edges that project to a point.
++    points: &'a [ProjectedPoint],
++    /// The source edges the projection could not project.
++    failures: &'a [EdgeFailure],
++}
++
++/// The unit normal of a plane.
++fn unit_normal(plane: &Plane) -> Vector {
++    plane.normal.normalized().expect("the plane is valid")
++}
++
++/// `point` less `origin`, as a vector.
++fn difference(point: Point, origin: Point) -> Vector {
++    Vector::new(point.x - origin.x, point.y - origin.y, point.z - origin.z)
++}
++
++/// The part of `vector` across the unit vector `axis`.
++fn across(vector: Vector, axis: Vector) -> Vector {
++    let along = axis.scaled(vector.dot(axis));
++    Vector::new(vector.x - along.x, vector.y - along.y, vector.z - along.z)
++}
++
++/// `point` projected onto `plane` along its normal.
++fn projected(point: Point, plane: &Plane) -> Point {
++    let normal = unit_normal(plane);
++    let height = difference(point, plane.origin).dot(normal);
++    point.offset(normal.scaled(-height))
++}
++
++/// The kind a source edge projects to along `normal`, or `None` for a kind section 8.7 does not
++/// name.
++fn expected_kind(shape: &Shape, edge: u32, normal: Vector) -> Option<Expected> {
++    let geometry = shape
++        .element(SubShapeKind::Edge, edge)
++        .expect("edges can be read");
++    let along = geometry
++        .direction
++        .map(|direction| direction.dot(normal).abs());
++    match (geometry.kind, along) {
++        (GeometryKind::Line, Some(along)) if along > 1.0 - PARALLEL => Some(Expected::Point),
++        (GeometryKind::Line, Some(_)) => Some(Expected::Line),
++        (GeometryKind::Circle, Some(along)) if along > 1.0 - PARALLEL => Some(Expected::Circle),
++        (GeometryKind::Circle, Some(along)) if along < PARALLEL => Some(Expected::Segment),
++        (GeometryKind::Circle, Some(_)) => Some(Expected::Ellipse),
++        _ => None,
++    }
++}
++
++/// The edges that `origins` name as coming from `input`, ascending.
++fn edges_from(origins: &[CurveOrigin], input: SubShape) -> Vec<u32> {
++    origins
++        .iter()
++        .filter(|origin| origin.input == input && origin.element.kind == SubShapeKind::Edge)
++        .map(|origin| origin.element.index)
++        .collect()
++}
++
++/// The kind of each edge of a shape.
++fn kinds(shape: &Shape) -> Vec<GeometryKind> {
++    shape
++        .elements(SubShapeKind::Edge)
++        .expect("edges can be read")
++        .iter()
++        .map(|edge| edge.kind)
++        .collect()
++}
++
++/// The largest distance from each of `points` to the nearest of `edges` of `shape`.
++fn largest_distance(shape: &Shape, edges: &[u32], points: &[Point]) -> f64 {
++    let mut nearest = vec![f64::INFINITY; points.len()];
++    for edge in edges {
++        let distances = element_distances(shape, SubShapeKind::Edge, *edge, points)
++            .expect("distances can be measured");
++        for (best, distance) in nearest.iter_mut().zip(distances) {
++            *best = best.min(distance);
++        }
++    }
++    nearest.into_iter().fold(0.0, f64::max)
++}
++
++/// Section 8.7's checks of one projection onto `plane` along its normal: the kind of each source
++/// edge's projection, as written (lines to lines, circles to circles or ellipses) and with the
++/// degenerate projections read geometrically (a line along the direction to a point, a circle
++/// seen edge on to a segment), and the 20 sampled points of each source edge within 1e-6 mm of its
++/// projection.
++fn check_projection(
++    sources: &Sources,
++    plane: &Plane,
++    curves: &CurveSet,
++    kinds_of: &[GeometryKind],
++) -> Outcome {
++    let normal = unit_normal(plane);
++    let mut outcome = Outcome {
++        failures: Vec::new(),
++        geometric_failures: Vec::new(),
++    };
++    for edge in sources.edges {
++        let source = SubShape {
++            kind: SubShapeKind::Edge,
++            index: *edge,
++        };
++        let made = edges_from(sources.origins, source);
++        let point = sources.points.iter().find(|point| point.edge == *edge);
++        let failure = sources
++            .failures
++            .iter()
++            .find(|failure| failure.edge == *edge);
++        let expected = expected_kind(sources.shape, *edge, normal);
++        let made_kinds: Vec<GeometryKind> = made
++            .iter()
++            .map(|index| kinds_of[*index as usize - 1])
++            .collect();
++        let all = |wanted: &[GeometryKind]| {
++            !made_kinds.is_empty() && made_kinds.iter().all(|kind| wanted.contains(kind))
++        };
++        let source = sources
++            .shape
++            .element(SubShapeKind::Edge, *edge)
++            .expect("edges can be read");
++        let gave = format!(
++            "edge {edge} ({expected:?}, {:?} along {:?}) gave {made_kinds:?}, point {}, failure {:?}",
++            source.kind,
++            source.direction,
++            point.is_some(),
++            failure.map(|failure| failure.message.as_str())
++        );
++        let as_written = match expected {
++            Some(Expected::Point | Expected::Line) => all(&[GeometryKind::Line]),
++            Some(Expected::Circle | Expected::Ellipse | Expected::Segment) => {
++                all(&[GeometryKind::Circle, GeometryKind::Ellipse])
++            }
++            None => true,
++        };
++        if !as_written {
++            outcome.failures.push(format!("kind as written: {gave}"));
++        }
++        let geometric = match expected {
++            Some(Expected::Point) => made.is_empty() && point.is_some(),
++            Some(Expected::Line | Expected::Segment) => all(&[GeometryKind::Line]),
++            Some(Expected::Circle) => all(&[GeometryKind::Circle]),
++            Some(Expected::Ellipse) => all(&[GeometryKind::Ellipse]),
++            None => true,
++        };
++        if !geometric {
++            outcome
++                .geometric_failures
++                .push(format!("kind read geometrically: {gave}"));
++        }
++        let samples: Vec<Point> = edge_samples(sources.shape, *edge, SAMPLES)
++            .expect("the source edge can be sampled")
++            .into_iter()
++            .map(|sample| projected(sample, plane))
++            .collect();
++        let deviation = match (made.is_empty(), point) {
++            (false, _) => largest_distance(&curves.shape, &made, &samples),
++            (true, Some(point)) => samples
++                .iter()
++                .map(|sample| sample.distance(point.point))
++                .fold(0.0, f64::max),
++            (true, None) => f64::INFINITY,
++        };
++        println!("  edge {edge}: {gave}, points within {deviation:?}");
++        if deviation > POINT_TOLERANCE {
++            outcome.fail(format!("points: edge {edge} within {deviation:?}"));
++        }
++    }
++    outcome
++}
++
++/// Section 8.7's checks of the section by the sketch plane, read for a section: each edge is a
++/// line, a circle or an ellipse, and its 20 sampled points lie on the plane and on a face of the
++/// body within 1e-6 mm.
++fn check_section(input: &Input, curves: &CurveSet, kinds_of: &[GeometryKind]) -> Outcome {
++    let normal = unit_normal(&input.plane);
++    let mut failures = Vec::new();
++    let faces: Vec<u32> = (1..=input.shape.count(SubShapeKind::Face)).collect();
++    for (position, kind) in kinds_of.iter().enumerate() {
++        let edge = u32::try_from(position + 1).expect("few edges");
++        if !matches!(
++            kind,
++            GeometryKind::Line | GeometryKind::Circle | GeometryKind::Ellipse
++        ) {
++            failures.push(format!("kind: edge {edge} is {kind:?}"));
++        }
++        let samples = edge_samples(&curves.shape, edge, SAMPLES).expect("the edge can be sampled");
++        let off_plane = samples
++            .iter()
++            .map(|sample| difference(*sample, input.plane.origin).dot(normal).abs())
++            .fold(0.0, f64::max);
++        let mut nearest = vec![f64::INFINITY; samples.len()];
++        for face in &faces {
++            let distances = element_distances(&input.shape, SubShapeKind::Face, *face, &samples)
++                .expect("distances can be measured");
++            for (best, distance) in nearest.iter_mut().zip(distances) {
++                *best = best.min(distance);
++            }
++        }
++        let off_body = nearest.into_iter().fold(0.0, f64::max);
++        println!("  edge {edge}: {kind:?}, off the plane {off_plane:?}, off the body {off_body:?}");
++        if off_plane > POINT_TOLERANCE || off_body > POINT_TOLERANCE {
++            failures.push(format!(
++                "points: edge {edge} off the plane {off_plane:?} and the body {off_body:?}"
++            ));
++        }
++    }
++    Outcome {
++        geometric_failures: failures.clone(),
++        failures,
++    }
++}
++
++/// The value of `outline`'s signed distance function at `point`: 0 on the surface.
++fn surface_distance(outline: &Outline, point: Point) -> f64 {
++    match *outline {
++        Outline::Cylinder {
++            origin,
++            axis,
++            radius,
++        } => across(difference(point, origin), axis).length() - radius,
++        Outline::Sphere { center, radius } => point.distance(center) - radius,
++        Outline::Torus {
++            center,
++            axis,
++            major_radius,
++            minor_radius,
++        } => {
++            let offset = difference(point, center);
++            let height = offset.dot(axis);
++            let radial = across(offset, axis).length();
++            (radial - major_radius).hypot(height) - minor_radius
++        }
++        Outline::Cone {
++            apex,
++            axis,
++            half_angle,
++        } => {
++            let offset = difference(point, apex);
++            let height = offset.dot(axis);
++            let radial = across(offset, axis).length();
++            radial * half_angle.cos() - height * half_angle.sin()
++        }
++        Outline::RoundedRectangle { min, max, radius } => {
++            let half = ((max.0 - min.0) / 2.0, (max.1 - min.1) / 2.0);
++            let center = ((max.0 + min.0) / 2.0, (max.1 + min.1) / 2.0);
++            let corner = (
++                (point.x - center.0).abs() - (half.0 - radius),
++                (point.y - center.1).abs() - (half.1 - radius),
++            );
++            corner.0.max(0.0).hypot(corner.1.max(0.0)) + corner.0.max(corner.1).min(0.0) - radius
++        }
++    }
++}
++
++/// How far `point`, a point of a silhouette on the plane, is from the exact silhouette: the
++/// line through it along the view touches the surface where the surface's distance function
++/// along it has an extremum of 0, so this is the extremum closest to 0, in absolute value.
++fn silhouette_deviation(outline: &Outline, point: Point, normal: Vector) -> f64 {
++    if let Outline::RoundedRectangle { .. } = outline {
++        return surface_distance(outline, point).abs();
++    }
++    let along = |parameter: f64| surface_distance(outline, point.offset(normal.scaled(parameter)));
++    let step = 0.05;
++    let reach = 100.0;
++    let count = (2.0 * reach / step) as usize;
++    let values: Vec<f64> = (0..=count)
++        .map(|sample| along(-reach + step * sample as f64))
++        .collect();
++    let mut closest = f64::INFINITY;
++    for sample in 1..count {
++        let (before, here, after) = (values[sample - 1], values[sample], values[sample + 1]);
++        let minimum = here <= before && here <= after;
++        let maximum = here >= before && here >= after;
++        if !minimum && !maximum {
++            continue;
++        }
++        // Golden section search for the extremum between the neighbors.
++        let sign = if minimum { 1.0 } else { -1.0 };
++        let golden = (5f64.sqrt() - 1.0) / 2.0;
++        let (mut low, mut high) = (
++            -reach + step * (sample - 1) as f64,
++            -reach + step * (sample + 1) as f64,
++        );
++        while high - low > 1e-12 {
++            let first = high - golden * (high - low);
++            let second = low + golden * (high - low);
++            if sign * along(first) < sign * along(second) {
++                high = second;
++            } else {
++                low = first;
++            }
++        }
++        closest = closest.min(along((low + high) / 2.0).abs());
++    }
++    closest
++}
++
++/// Section 8.7's silhouette checks: a cylinder seen across its axis gives two lines. A silhouette
++/// that projects edges HLR drew in 3D onto the plane (the exact silhouette with edges on the
++/// outline) also gets the checks of a projection, with the drawn edges as its source edges. The
++/// largest deviation from the exact silhouette is printed as a measurement.
++fn check_silhouette(input: &Input, curves: &CurveSet, kinds_of: &[GeometryKind]) -> Outcome {
++    let outline = input.outline.expect("a silhouette input has an outline");
++    let normal = unit_normal(&input.plane);
++    let mut deviation: f64 = 0.0;
++    let geometry = curves
++        .shape
++        .elements(SubShapeKind::Edge)
++        .expect("edges can be read");
++    for (position, element) in geometry.iter().enumerate() {
++        let edge = u32::try_from(position + 1).expect("few edges");
++        let samples = edge_samples(&curves.shape, edge, SAMPLES).expect("the edge can be sampled");
++        let largest = samples
++            .into_iter()
++            .map(|sample| silhouette_deviation(&outline, sample, normal))
++            .fold(0.0, f64::max);
++        if position < 12 {
++            println!(
++                "  edge {edge}: {:?} centroid {:?} length {:?} deviation {largest:?}",
++                element.kind, element.centroid, element.measure
++            );
++        }
++        deviation = deviation.max(largest);
++    }
++    println!("  deviation from the exact silhouette {deviation:?}");
++    let drawn_edges: Vec<u32> = (1..=curves.drawn.count(SubShapeKind::Edge)).collect();
++    let drawn = Sources {
++        shape: &curves.drawn,
++        edges: &drawn_edges,
++        origins: &curves.drawn_origins,
++        points: &[],
++        failures: &[],
++    };
++    let mut outcome = check_projection(&drawn, &input.plane, curves, kinds_of);
++    if input.name == "cylinder-perpendicular" && kinds_of != [GeometryKind::Line; 2] {
++        outcome.fail(format!("two lines: the silhouette is {kinds_of:?}"));
++    }
++    outcome
++}
++
++/// Test 138's check: `shape` tessellated at 0.05 mm and 5 degrees and welded with
++/// `WELD_TOLERANCE`, as the number of triangles and of undirected edges not used by exactly two
++/// of them.
++fn closed_mesh(shape: &Shape) -> Result<(usize, usize), String> {
++    let welded = shape
++        .tessellate(&FINE, &Interrupt::new())
++        .map_err(|error| error.detail())?
++        .weld(WELD_TOLERANCE)
++        .map_err(|error| error.to_string())?
++        .mesh;
++    let mut uses: BTreeMap<(u32, u32), usize> = BTreeMap::new();
++    for [first, second, third] in welded.triangles() {
++        for (start, end) in [(*first, *second), (*second, *third), (*third, *first)] {
++            *uses.entry((start.min(end), start.max(end))).or_default() += 1;
++        }
++    }
++    let open = uses.values().filter(|count| **count != 2).count();
++    Ok((welded.triangle_count(), open))
++}
++
++/// The relations that name each edge and vertex of `curves`, with the count of elements each
++/// set of relations names, and the elements no origin names.
++fn history_summary(curves: &CurveSet) -> String {
++    let mut relations: BTreeMap<SubShape, Vec<(SubShapeKind, CurveRelation)>> = BTreeMap::new();
++    for origin in &curves.origins {
++        relations
++            .entry(origin.element)
++            .or_default()
++            .push((origin.input.kind, origin.relation));
++    }
++    let mut counts: BTreeMap<String, u32> = BTreeMap::new();
++    for kind in [SubShapeKind::Edge, SubShapeKind::Vertex] {
++        for index in 1..=curves.shape.count(kind) {
++            let mut named = relations
++                .get(&SubShape { kind, index })
++                .cloned()
++                .unwrap_or_default();
++            named.sort();
++            named.dedup();
++            *counts.entry(format!("{kind:?} by {named:?}")).or_default() += 1;
++        }
++    }
++    format!("{counts:?}")
++}
++
++/// The failures the spike recorded for `construction` on input `name`: of the checks as written,
++/// and with the degenerate projections read geometrically. Each counts one source edge and check
++/// (kinds or points; for a silhouette's projection step, one drawn edge), or the silhouette's
++/// two-line check.
++fn recorded(name: &str, construction: Construction) -> (usize, usize) {
++    match (name, construction) {
++        ("box-xy", _) => (4, 0),
++        ("box-011", Construction::CurveOnPlaneKeepingParameters) => (8, 8),
++        ("circle-30", Construction::Prism) => (1, 1),
++        ("rounded-xy", Construction::CurveOnPlane) => (28, 20),
++        ("rounded-xy", Construction::CurveOnPlaneKeepingParameters) => (24, 16),
++        ("rounded-xy", Construction::Prism) => (24, 0),
++        (
++            "cylinder-perpendicular",
++            Construction::SilhouetteExact
++            | Construction::SilhouetteMesh
++            | Construction::SilhouetteMeshWithEdges,
++        ) => (1, 1),
++        ("rounded-z", Construction::SilhouetteExactWithEdges) => (2, 2),
++        _ => (0, 0),
++    }
++}
++
++/// Runs every construction of input `name`, prints its measurements and asserts the failures the
++/// spike recorded for each.
++fn measure(name: &'static str) {
++    let input = input(name);
++    println!(
++        "{name}: input {:?}, {} source edges",
++        input.shape,
++        input.edges.len()
++    );
++    for construction in input.constructions {
++        let label = format!("{name} {}", construction.name());
++        let curves = match construction.run(&input, &Interrupt::new()) {
++            Ok(curves) => curves,
++            Err(error) => panic!("{label} failed: {}", error.detail()),
++        };
++        let shape = &curves.shape;
++        let kinds_of = kinds(shape);
++        let validity = shape.is_valid().map_err(|error| error.detail());
++        let mesh = closed_mesh(shape);
++        println!(
++            "{label}: {shape:?}, valid {validity:?}, closed mesh (triangles, open edges) {mesh:?}, \
++             tolerance {:?}, whole edges {}, drawn edges {}, points {}, failures {:?}",
++            curves.tolerance,
++            curves.whole_edges,
++            curves.drawn.count(SubShapeKind::Edge),
++            curves.points.len(),
++            curves.failures
++        );
++        println!("{label}: kinds {kinds_of:?}");
++        println!("{label}: history {}", history_summary(&curves));
++        println!(
++            "{label}: polls {} (debug build) longest {:?}",
++            curves.polls.count, curves.polls.longest
++        );
++        let mut outcome = if !input.edges.is_empty() {
++            let sources = Sources {
++                shape: &input.shape,
++                edges: &input.edges,
++                origins: &curves.origins,
++                points: &curves.points,
++                failures: &curves.failures,
++            };
++            check_projection(&sources, &input.plane, &curves, &kinds_of)
++        } else if input.outline.is_some() {
++            check_silhouette(&input, &curves, &kinds_of)
++        } else {
++            check_section(&input, &curves, &kinds_of)
++        };
++        if validity != Ok(true) {
++            outcome.fail(format!("validity: {validity:?}"));
++        }
++        if !mesh.as_ref().is_ok_and(|(_, open)| *open == 0) {
++            outcome.fail(format!("closed mesh: {mesh:?}"));
++        }
++        println!("{label}: failures as written {:?}", outcome.failures);
++        println!(
++            "{label}: failures read geometrically {:?}",
++            outcome.geometric_failures
++        );
++        print_parity(&label, &curves, &kinds_of);
++        assert_eq!(
++            (outcome.failures.len(), outcome.geometric_failures.len()),
++            recorded(name, *construction),
++            "{label}: the failures the spike recorded"
++        );
++    }
++}
++
++/// Prints the canonical summary of `curves` that the native and WebAssembly runs compare.
++fn print_parity(label: &str, curves: &CurveSet, kinds_of: &[GeometryKind]) {
++    let shape = &curves.shape;
++    let length: f64 = shape
++        .elements(SubShapeKind::Edge)
++        .expect("edges can be read")
++        .iter()
++        .map(|edge| edge.measure)
++        .sum();
++    let bounds = shape
++        .bounding_box()
++        .map(|bounds| format!("{:?} {:?}", bounds.min, bounds.max))
++        .unwrap_or_else(|error| error.detail());
++    println!(
++        "PARITY {label} faces {} edges {} vertices {} volume {:?} area {:?} length {length:?} \
++         bounds {bounds} kinds {kinds_of:?} points {:?} failures {}",
++        shape.count(SubShapeKind::Face),
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        shape.volume().map_err(|error| error.detail()),
++        shape.area().map_err(|error| error.detail()),
++        curves
++            .points
++            .iter()
++            .map(|point| (point.edge, point.point))
++            .collect::<Vec<_>>(),
++        curves.failures.len()
++    );
++}
++
++#[test]
++fn every_input_is_listed_once() {
++    let mut names = INPUT_NAMES.to_vec();
++    names.sort_unstable();
++    names.dedup();
++    assert_eq!(names.len(), 11);
++}
++
++#[test]
++fn box_onto_xy() {
++    measure("box-xy");
++}
++
++#[test]
++fn box_onto_plane_011() {
++    measure("box-011");
++}
++
++#[test]
++fn circle_onto_plane_at_30_degrees() {
++    measure("circle-30");
++}
++
++#[test]
++fn rounded_box_onto_xy() {
++    measure("rounded-xy");
++}
++
++#[test]
++fn part_by_its_sketch_plane() {
++    measure("part-section");
++}
++
++#[test]
++fn cylinder_seen_obliquely() {
++    measure("cylinder-oblique");
++}
++
++#[test]
++fn cylinder_seen_across_its_axis() {
++    measure("cylinder-perpendicular");
++}
++
++#[test]
++fn sphere_seen_obliquely() {
++    measure("sphere-oblique");
++}
++
++#[test]
++fn torus_seen_obliquely() {
++    measure("torus-oblique");
++}
++
++#[test]
++fn cone_seen_obliquely() {
++    measure("cone-oblique");
++}
++
++#[test]
++fn rounded_box_seen_along_z() {
++    measure("rounded-z");
++}
+diff --git a/crates/partsmith-occt-sys/tests/projection_inputs.rs b/crates/partsmith-occt-sys/tests/projection_inputs.rs
+new file mode 100644
+index 0000000..74c1cdf
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/projection_inputs.rs
+@@ -0,0 +1,383 @@
++//! The inputs of the projection spike (kernel spec section 8.7) and the constructions each input
++//! runs, shared by `tests/projection.rs` and the spike's rows in `benches/budgets.rs`, which
++//! includes this module with `#[path]`.
++
++// The tests and the bench each use only some of these items.
++#![allow(dead_code)]
++
++use std::time::Duration;
++
++use partsmith_occt_sys::{
++    CurveSet, EdgeRadius, GeometryKind, Interrupt, KernelError, PlanarLoop, PlanarRegion, Plane,
++    Point, Shape, SubShapeKind, Vector, cut, extrude, fillet, make_cone, make_cylinder,
++    make_profile, make_torus, project_by_prism, project_on_plane, section_by_plane, shell,
++    silhouette_exact, silhouette_from_mesh,
++};
++
++use super::common;
++
++/// One construction of section 8.7.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Construction {
++    /// `GeomProjLib::ProjectOnPlane` of each edge's curve.
++    CurveOnPlane,
++    /// The same with its option `KeepParametrization` on.
++    CurveOnPlaneKeepingParameters,
++    /// `BRepProj_Projection` of each edge.
++    Prism,
++    /// `BRepAlgoAPI_Section` with approximation on, as the facade's `section` runs it.
++    SectionApproximated,
++    /// `BRepAlgoAPI_Section` with approximation off.
++    SectionExact,
++    /// `HLRBRep_Algo` with `HLRBRep_HLRToShape::OutLineVCompound`.
++    SilhouetteExact,
++    /// `HLRBRep_Algo` with the edges on the outline too (`OutLineVCompound3d`, projected).
++    SilhouetteExactWithEdges,
++    /// `HLRBRep_PolyAlgo` with `HLRBRep_PolyHLRToShape::OutLineVCompound`.
++    SilhouetteMesh,
++    /// `HLRBRep_PolyAlgo` with the edges on the outline too.
++    SilhouetteMeshWithEdges,
++}
++
++/// The constructions of edge projections.
++pub const PROJECTIONS: &[Construction] = &[
++    Construction::CurveOnPlane,
++    Construction::CurveOnPlaneKeepingParameters,
++    Construction::Prism,
++];
++/// The constructions of the section by the sketch plane.
++pub const SECTIONS: &[Construction] = &[
++    Construction::SectionApproximated,
++    Construction::SectionExact,
++];
++/// The constructions of silhouettes.
++pub const SILHOUETTES: &[Construction] = &[
++    Construction::SilhouetteExact,
++    Construction::SilhouetteExactWithEdges,
++    Construction::SilhouetteMesh,
++    Construction::SilhouetteMeshWithEdges,
++];
++
++impl Construction {
++    /// The construction's name in test output and bench rows.
++    pub fn name(self) -> &'static str {
++        match self {
++            Construction::CurveOnPlane => "curve-on-plane",
++            Construction::CurveOnPlaneKeepingParameters => "curve-on-plane-keeping-parameters",
++            Construction::Prism => "prism",
++            Construction::SectionApproximated => "section-approximated",
++            Construction::SectionExact => "section-exact",
++            Construction::SilhouetteExact => "silhouette-exact",
++            Construction::SilhouetteExactWithEdges => "silhouette-exact-with-edges",
++            Construction::SilhouetteMesh => "silhouette-mesh",
++            Construction::SilhouetteMeshWithEdges => "silhouette-mesh-with-edges",
++        }
++    }
++
++    /// Runs the construction on `input`.
++    pub fn run(self, input: &Input, interrupt: &Interrupt) -> Result<CurveSet, KernelError> {
++        let (shape, edges, plane) = (&input.shape, input.edges.as_slice(), &input.plane);
++        match self {
++            Construction::CurveOnPlane => project_on_plane(shape, edges, plane, false, interrupt),
++            Construction::CurveOnPlaneKeepingParameters => {
++                project_on_plane(shape, edges, plane, true, interrupt)
++            }
++            Construction::Prism => project_by_prism(shape, edges, plane, interrupt),
++            Construction::SectionApproximated => section_by_plane(shape, plane, true, interrupt),
++            Construction::SectionExact => section_by_plane(shape, plane, false, interrupt),
++            Construction::SilhouetteExact => silhouette_exact(shape, plane, false, interrupt),
++            Construction::SilhouetteExactWithEdges => {
++                silhouette_exact(shape, plane, true, interrupt)
++            }
++            Construction::SilhouetteMesh => silhouette_from_mesh(shape, plane, false, interrupt),
++            Construction::SilhouetteMeshWithEdges => {
++                silhouette_from_mesh(shape, plane, true, interrupt)
++            }
++        }
++    }
++}
++
++/// The exact silhouette of a silhouette input, for the deviation the spike measures.
++#[derive(Debug, Clone, Copy)]
++pub enum Outline {
++    /// A cylinder of `radius` around the axis through `origin` along `axis`.
++    Cylinder {
++        origin: Point,
++        axis: Vector,
++        radius: f64,
++    },
++    /// A sphere.
++    Sphere { center: Point, radius: f64 },
++    /// A torus around the axis through `center` along `axis`.
++    Torus {
++        center: Point,
++        axis: Vector,
++        major_radius: f64,
++        minor_radius: f64,
++    },
++    /// A cone with its apex at `apex`, opening along `axis` at `half_angle`.
++    Cone {
++        apex: Point,
++        axis: Vector,
++        half_angle: f64,
++    },
++    /// Seen along Z: the rectangle from `min` to `max` in X and Y with corners rounded at `radius`.
++    RoundedRectangle {
++        min: (f64, f64),
++        max: (f64, f64),
++        radius: f64,
++    },
++}
++
++/// One input of section 8.7 with the constructions it runs.
++pub struct Input {
++    /// The input's name in test output and bench rows.
++    pub name: &'static str,
++    /// The body.
++    pub shape: Shape,
++    /// The edges a projection projects; none for a section or a silhouette.
++    pub edges: Vec<u32>,
++    /// The sketch plane: the projections run along its normal, the section is by it, and the
++    /// silhouette is seen along its normal and placed on it.
++    pub plane: Plane,
++    /// The constructions the input runs.
++    pub constructions: &'static [Construction],
++    /// The exact silhouette of a silhouette input.
++    pub outline: Option<Outline>,
++    /// Section 8.7's time natively, for the 56 edges of test 45's result (section 8.7 counts 50).
++    pub budget: Option<Duration>,
++}
++
++/// The plane through the origin with `normal` and x axis +X.
++fn plane_with_normal(normal: Vector) -> Plane {
++    Plane {
++        origin: common::ORIGIN,
++        normal,
++        x_axis: Vector::new(1.0, 0.0, 0.0),
++    }
++}
++
++/// Every edge of `shape`, ascending.
++fn every_edge(shape: &Shape) -> Vec<u32> {
++    (1..=shape.count(SubShapeKind::Edge)).collect()
++}
++
++/// The direction oblique to the primitives' Z axes: 45 degrees from it, (0, 1, 1).
++const OBLIQUE: Vector = Vector::new(0.0, 1.0, 1.0);
++
++/// The top circle of test 10's cylinder, at z = 10.
++fn top_circle(cylinder: &Shape) -> u32 {
++    let circles = common::elements_where(cylinder, SubShapeKind::Edge, |edge| {
++        edge.kind == GeometryKind::Circle && (edge.centroid.z - 10.0).abs() < 1e-9
++    });
++    assert_eq!(circles.len(), 1, "the cylinder has one top circle");
++    circles[0]
++}
++
++/// The part of spec section 5, as `benches/budgets.rs` builds it: the 80 x 50 x 30 extrude of
++/// naming spec test 81 with its four vertical edges rounded (radius 5), a hole and a slot cut
++/// through it, then shelled to 2 mm walls with the top face removed. Its sketch plane is
++/// `Plane::XY`, the plane of the extrude's profile.
++pub fn section_five_part() -> Shape {
++    let interrupt = Interrupt::new();
++    let rectangle = make_profile(
++        &Plane::XY,
++        &[common::region(common::rectangle((0.0, 0.0), (80.0, 50.0)))],
++    )
++    .expect("the rectangle is a profile");
++    let block = extrude(&rectangle, common::UP, 0.0, 30.0, &interrupt)
++        .expect("the block extrudes")
++        .shape;
++    let vertical: Vec<EdgeRadius> = common::elements_where(&block, SubShapeKind::Edge, |edge| {
++        edge.direction
++            .is_some_and(|direction| direction.z.abs() > 0.5)
++    })
++    .into_iter()
++    .map(|edge| EdgeRadius { edge, radius: 5.0 })
++    .collect();
++    let rounded = fillet(&block, &vertical, &interrupt)
++        .expect("the vertical edges round")
++        .shape;
++    let hole = make_cylinder(&common::xy_plane_at(20.0, 25.0, -1.0), 5.0, 32.0)
++        .expect("the hole cylinder builds")
++        .shape;
++    let slot_outline = PlanarLoop {
++        curves: vec![
++            common::line(1, (50.0, 21.0), (65.0, 21.0)),
++            common::arc(2, (65.0, 25.0), 4.0, (65.0, 21.0), (65.0, 29.0)),
++            common::line(3, (65.0, 29.0), (50.0, 29.0)),
++            common::arc(4, (50.0, 25.0), 4.0, (50.0, 29.0), (50.0, 21.0)),
++        ],
++    };
++    let slot_profile = make_profile(
++        &Plane::XY,
++        &[PlanarRegion {
++            outer: slot_outline,
++            holes: Vec::new(),
++        }],
++    )
++    .expect("the slot is a profile");
++    let slot = extrude(&slot_profile, common::UP, -1.0, 31.0, &interrupt)
++        .expect("the slot extrudes")
++        .shape;
++    let drilled = cut(&rounded, &[hole, slot], &interrupt)
++        .expect("the hole and slot cut")
++        .shape;
++    let top = common::elements_where(&drilled, SubShapeKind::Face, |face| {
++        face.kind == GeometryKind::Plane
++            && face
++                .direction
++                .is_some_and(|direction| direction.dot(common::UP) > 1.0 - 1e-9)
++            && (face.centroid.z - 30.0).abs() < 1e-9
++    });
++    shell(&drilled, &top, 2.0, &interrupt)
++        .expect("the part shells")
++        .shape
++}
++
++/// The names of the inputs of section 8.7, in its order.
++pub const INPUT_NAMES: &[&str] = &[
++    "box-xy",
++    "box-011",
++    "circle-30",
++    "rounded-xy",
++    "part-section",
++    "cylinder-oblique",
++    "cylinder-perpendicular",
++    "sphere-oblique",
++    "torus-oblique",
++    "cone-oblique",
++    "rounded-z",
++];
++
++/// An input of edge projections.
++fn projection(name: &'static str, shape: Shape, edges: Vec<u32>, plane: Plane) -> Input {
++    Input {
++        name,
++        shape,
++        edges,
++        plane,
++        constructions: PROJECTIONS,
++        outline: None,
++        budget: None,
++    }
++}
++
++/// An input of silhouettes.
++fn silhouette(name: &'static str, shape: Shape, plane: Plane, outline: Outline) -> Input {
++    Input {
++        name,
++        shape,
++        edges: Vec::new(),
++        plane,
++        constructions: SILHOUETTES,
++        outline: Some(outline),
++        budget: None,
++    }
++}
++
++/// A cylinder outline around the Z axis through the origin.
++fn z_cylinder(radius: f64) -> Outline {
++    Outline::Cylinder {
++        origin: common::ORIGIN,
++        axis: Vector::new(0.0, 0.0, 1.0),
++        radius,
++    }
++}
++
++/// The input of section 8.7 named `name`, one of `INPUT_NAMES`.
++pub fn input(name: &'static str) -> Input {
++    match name {
++        "box-xy" | "box-011" => {
++            let block = common::box_primitive().shape;
++            let edges = every_edge(&block);
++            let plane = if name == "box-xy" {
++                Plane::XY
++            } else {
++                plane_with_normal(OBLIQUE)
++            };
++            projection(name, block, edges, plane)
++        }
++        "circle-30" => {
++            let cylinder = common::cylinder_primitive().shape;
++            let circle = top_circle(&cylinder);
++            let thirty = 30f64.to_radians();
++            let plane = plane_with_normal(Vector::new(0.0, thirty.sin(), thirty.cos()));
++            projection(name, cylinder, vec![circle], plane)
++        }
++        "rounded-xy" => {
++            let rounded = common::fully_rounded_box();
++            let edges = every_edge(&rounded);
++            Input {
++                budget: Some(Duration::from_millis(20)),
++                ..projection(name, rounded, edges, Plane::XY)
++            }
++        }
++        "part-section" => Input {
++            name,
++            shape: section_five_part(),
++            edges: Vec::new(),
++            plane: Plane::XY,
++            constructions: SECTIONS,
++            outline: None,
++            budget: None,
++        },
++        "cylinder-oblique" => silhouette(
++            name,
++            common::cylinder_primitive().shape,
++            plane_with_normal(OBLIQUE),
++            z_cylinder(5.0),
++        ),
++        "cylinder-perpendicular" => silhouette(
++            name,
++            common::cylinder_primitive().shape,
++            plane_with_normal(Vector::new(0.0, 1.0, 0.0)),
++            z_cylinder(5.0),
++        ),
++        "sphere-oblique" => silhouette(
++            name,
++            common::sphere_primitive().shape,
++            plane_with_normal(OBLIQUE),
++            Outline::Sphere {
++                center: common::ORIGIN,
++                radius: 10.0,
++            },
++        ),
++        "torus-oblique" => silhouette(
++            name,
++            make_torus(&Plane::XY, 10.0, 3.0)
++                .expect("the torus builds")
++                .shape,
++            plane_with_normal(OBLIQUE),
++            Outline::Torus {
++                center: common::ORIGIN,
++                axis: Vector::new(0.0, 0.0, 1.0),
++                major_radius: 10.0,
++                minor_radius: 3.0,
++            },
++        ),
++        "cone-oblique" => silhouette(
++            name,
++            make_cone(&Plane::XY, 10.0, 5.0, 20.0)
++                .expect("the frustum builds")
++                .shape,
++            plane_with_normal(OBLIQUE),
++            Outline::Cone {
++                apex: Point::new(0.0, 0.0, 40.0),
++                axis: Vector::new(0.0, 0.0, -1.0),
++                half_angle: (10.0f64 / 40.0).atan(),
++            },
++        ),
++        "rounded-z" => silhouette(
++            name,
++            common::fully_rounded_box(),
++            Plane::XY,
++            Outline::RoundedRectangle {
++                min: (0.0, 0.0),
++                max: (10.0, 20.0),
++                radius: 1.0,
++            },
++        ),
++        _ => panic!("no input named {name}"),
++    }
++}
+diff --git a/crates/partsmith-wasm/Cargo.toml b/crates/partsmith-wasm/Cargo.toml
+index 4e7f5cb..a61bac6 100644
+--- a/crates/partsmith-wasm/Cargo.toml
++++ b/crates/partsmith-wasm/Cargo.toml
+@@ -30,6 +30,8 @@ harness = false
+ 
+ [dependencies]
+ partsmith-engine.workspace = true
++# The projection spike's calls in `main` (kernel spec section 8.1 item 2).
++partsmith-occt-sys.workspace = true
+ 
+ [dev-dependencies]
+ partsmith-budgets.workspace = true
+diff --git a/crates/partsmith-wasm/src/main.rs b/crates/partsmith-wasm/src/main.rs
+index fa319e9..7b81b1c 100644
+--- a/crates/partsmith-wasm/src/main.rs
++++ b/crates/partsmith-wasm/src/main.rs
+@@ -1,6 +1,40 @@
+ //! The web core module `partsmith_core`: an Emscripten executable whose runtime stays alive after `main` returns, so JavaScript can call `ps_alloc`, `ps_free` and `ps_call` (protocol.md section 2.10, ADR 0009).
+ 
++use std::hint::black_box;
++
++use partsmith_occt_sys::{
++    Interrupt, Plane, Vector, make_box, make_cylinder, project_by_prism, project_on_plane,
++    section_by_plane, silhouette_exact, silhouette_from_mesh,
++};
++
+ fn main() {
+     // Creating the session here pays its setup cost while the module is instantiated. Calling into the library also keeps it, and with it the three exports, in the link.
+     partsmith_wasm::initialize_session();
++    keep_projection_spike();
++}
++
++/// Calls the projection spike's functions on small inputs so the linker keeps their code for the size measurement (kernel spec section 8.1 items 2 and 4): each construction once, so each function with each value of its option, the projections and the section on a 1 x 2 x 3 mm box and the silhouettes on a cylinder of radius 1 and height 2, each by or along the plane through the origin with normal (0, 1, 1).
++fn keep_projection_spike() {
++    let (Ok(block), Ok(cylinder)) = (
++        make_box(&Plane::XY, 1.0, 2.0, 3.0),
++        make_cylinder(&Plane::XY, 1.0, 2.0),
++    ) else {
++        return;
++    };
++    let (block, cylinder) = (block.shape, cylinder.shape);
++    let plane = Plane {
++        normal: Vector::new(0.0, 1.0, 1.0),
++        ..Plane::XY
++    };
++    let edges = [1, 2, 3];
++    let interrupt = Interrupt::new();
++    let _ = black_box(project_on_plane(&block, &edges, &plane, false, &interrupt));
++    let _ = black_box(project_on_plane(&block, &edges, &plane, true, &interrupt));
++    let _ = black_box(project_by_prism(&block, &edges, &plane, &interrupt));
++    let _ = black_box(section_by_plane(&block, &plane, true, &interrupt));
++    let _ = black_box(section_by_plane(&block, &plane, false, &interrupt));
++    let _ = black_box(silhouette_exact(&cylinder, &plane, false, &interrupt));
++    let _ = black_box(silhouette_exact(&cylinder, &plane, true, &interrupt));
++    let _ = black_box(silhouette_from_mesh(&cylinder, &plane, false, &interrupt));
++    let _ = black_box(silhouette_from_mesh(&cylinder, &plane, true, &interrupt));
+ }

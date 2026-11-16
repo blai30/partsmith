@@ -1,0 +1,3051 @@
+Kernel spike loft-rails: loft with rails.
+
+Spec: docs/spec/kernel.md section 8.4 (M2 wave 1, ADR 0071).
+Branch: spike/kernel-loft-rails, kept only in the development container and never pushed.
+Last commit: 34ef52f (34ef52f95baf2a21eccd62a3a45d61ac74bae676).
+Base commit: 2c56ff9 (2c56ff91a8e96f07b1ac1ec2407e469ce2da6437).
+
+This file is git diff 2c56ff9 34ef52f. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7b9cf6..a51467e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2702,6 +2702,7 @@ dependencies = [
+  "partsmith-budgets",
+  "partsmith-engine",
+  "partsmith-model",
++ "partsmith-occt-sys",
+  "partsmith-protocol",
+  "proptest",
+  "serde_json",
+diff --git a/crates/partsmith-occt-sys/benches/budgets.rs b/crates/partsmith-occt-sys/benches/budgets.rs
+index 4ff165b..9bc9672 100644
+--- a/crates/partsmith-occt-sys/benches/budgets.rs
++++ b/crates/partsmith-occt-sys/benches/budgets.rs
+@@ -9,10 +9,14 @@
+ //! three times these and are not measured here, except the rows of interrupts whose names end in
+ //! `web`, which have budgets of their own and run only in the WebAssembly build under Node:
+ //! `cargo bench -p partsmith-occt-sys --target wasm32-unknown-emscripten --bench budgets -- web`.
+-//! The cancel latencies without a budget are printed, for kernel spec open issue 17.
++//! The cancel latencies without a budget are printed, for kernel spec open issue 17. The rows of
++//! the loft-rails spike (kernel spec section 8.4) run on both targets; their names start with
++//! `loft-rails`.
+ 
+ #[path = "../tests/common/mod.rs"]
+ mod common;
++#[path = "../tests/loft_inputs.rs"]
++mod loft_inputs;
+ 
+ #[cfg(not(target_os = "emscripten"))]
+ use std::cell::LazyCell;
+@@ -25,15 +29,16 @@ use std::sync::atomic::AtomicU64;
+ use std::thread;
+ use std::time::{Duration, Instant};
+ 
++use loft_inputs::runs;
+ use partsmith_budgets::{Report, median, median_mean_time, median_time_of};
+ use partsmith_mesh::TessellationTolerance;
+ #[cfg(not(target_os = "emscripten"))]
+ use partsmith_occt_sys::split;
+ use partsmith_occt_sys::{
+     Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+-    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+-    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+-    make_torus, read_step, shell, transform, write_step,
++    PlanarRegion, Plane, Point, Point2, PollRecord, Shape, SubShapeKind, TaggedCurve, Transform,
++    Vector, cut, extrude, fillet, fuse, loft, make_box, make_cone, make_cylinder, make_profile,
++    make_sphere, make_torus, read_step, shell, transform, write_step,
+ };
+ 
+ /// Times each operation runs; the median counts.
+@@ -471,6 +476,64 @@ fn measure_web_interrupts(report: &mut Report) {
+     );
+ }
+ 
++/// The runs of each row of the loft-rails spike (kernel spec section 8.1 item 4).
++const SPIKE_RUNS: usize = 5;
++
++/// The time section 8.4 gives the three-section loft, natively.
++const THREE_SECTION_BUDGET: Duration = Duration::from_millis(100);
++
++/// The median of a value over a row's runs, and its largest value.
++fn median_and_most(values: impl IntoIterator<Item = Duration>) -> (Duration, Duration) {
++    let mut values: Vec<Duration> = values.into_iter().collect();
++    values.sort();
++    (values[values.len() / 2], values[values.len() - 1])
++}
++
++/// The rows of the loft-rails spike: for each input and construction, the median of 5 runs of
++/// the loft with its check and names, and the polls of those runs with an interrupt that is
++/// never requested, with the time each run spends in the facade outside the shim, whose polls
++/// cover only the call inside it. Natively the rows of the three-section loft have section 8.4's
++/// 100 ms; the other rows, and every row under Node, print their medians.
++fn measure_loft_rails(report: &mut Report) {
++    for run in runs() {
++        let row = format!("loft-rails {} {}", run.input, run.construction);
++        if !report.includes(&row) {
++            continue;
++        }
++        let mut polls: Vec<PollRecord> = Vec::with_capacity(SPIKE_RUNS);
++        let mut outside = Vec::with_capacity(SPIKE_RUNS);
++        let time = median(SPIKE_RUNS, |_| {
++            let start = Instant::now();
++            let result = loft(&run.spec, &Interrupt::new());
++            let elapsed = start.elapsed();
++            match result {
++                Ok(result) => {
++                    outside.push(elapsed.saturating_sub(result.polls.total));
++                    polls.push(result.polls);
++                }
++                Err(error) => println!("{row}: {}", error.detail()),
++            }
++            elapsed
++        });
++        if !polls.is_empty() {
++            let (longest, most) = median_and_most(polls.iter().map(|record| record.longest));
++            let (first, _) = median_and_most(polls.iter().map(|record| record.first));
++            let (last, last_most) = median_and_most(polls.iter().map(|record| record.last));
++            let (outside, outside_most) = median_and_most(outside);
++            let after: Vec<u64> = polls.iter().map(|record| record.longest_after).collect();
++            println!(
++                "{row}: polls {} first {first:.3?} longest {longest:.3?} (most {most:.3?}, after polls {after:?}) last {last:.3?} (most {last_most:.3?}) outside the shim {outside:.3?} (most {outside_most:.3?})",
++                polls[0].count
++            );
++        }
++        if cfg!(not(target_os = "emscripten")) && run.timed {
++            report.record_time(&row, time, THREE_SECTION_BUDGET);
++        } else {
++            println!("{row}: median {time:.3?} (no budget)");
++        }
++    }
++}
++
+ fn main() -> ExitCode {
+     let mut report = Report::from_arguments();
+ 
+@@ -754,6 +817,7 @@ fn main() -> ExitCode {
+     }
+     #[cfg(target_os = "emscripten")]
+     measure_web_interrupts(&mut report);
++    measure_loft_rails(&mut report);
+ 
+     report.finish()
+ }
+diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs
+index f8596a7..b77fb4f 100644
+--- a/crates/partsmith-occt-sys/build.rs
++++ b/crates/partsmith-occt-sys/build.rs
+@@ -54,6 +54,7 @@ const SOURCES: &[&str] = &[
+     "cpp/validity.cpp",
+     "cpp/history.cpp",
+     "cpp/interrupt.cpp",
++    "cpp/loft.cpp",
+ ];
+ 
+ fn main() {
+diff --git a/crates/partsmith-occt-sys/cpp/internal.h b/crates/partsmith-occt-sys/cpp/internal.h
+index fe181aa..52bb6b9 100644
+--- a/crates/partsmith-occt-sys/cpp/internal.h
++++ b/crates/partsmith-occt-sys/cpp/internal.h
+@@ -70,6 +70,8 @@ class Polls {
+   Polls() : Polls(Handle(Interruption)()) {}
+   // The polls of a call that stops once `interrupt` is requested.
+   explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
++  // The polls of a call through `indicator`, for the loft-rails spike's recording indicator.
++  explicit Polls(const Handle(Interruption) &indicator);
+   Polls(const Polls &) = delete;
+   Polls &operator=(const Polls &) = delete;
+ 
+@@ -96,8 +98,6 @@ class Polls {
+   }
+ 
+  private:
+-  explicit Polls(const Handle(Interruption) &indicator);
+-
+   // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+   void stop_if_answered(const char *algorithm) const;
+ 
+@@ -256,6 +256,12 @@ void store_result_pcurves(CheckInputs &inputs, const TopoDS_Shape &result);
+ // unchanged face of an input.
+ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
+ 
++// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
++// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
++// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
++// Otherwise leaves both as they were and returns false. `polls` polls before each step.
++bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls);
++
+ // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
+ // it ran on, with the checks of BRepCheck_Analyzer (the whole result when no unchanged face of
+ // an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
+diff --git a/crates/partsmith-occt-sys/cpp/loft.cpp b/crates/partsmith-occt-sys/cpp/loft.cpp
+new file mode 100644
+index 0000000..1361e50
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/loft.cpp
+@@ -0,0 +1,796 @@
++// The loft of the loft-rails spike (kernel spec section 8.4): BRepOffsetAPI_ThruSections, ruled or
++// smooth, through sections that may end in a point, and BRepOffsetAPI_MakePipeShell with the
++// sections along a centerline spine and an optional guide rail. End conditions are met by extra
++// sections offset along the end's tangent, or by BRepOffsetAPI_MakeFilling faces constrained to
++// the side faces of a neighbor prism at each end. The spike's indicator records when it is polled
++// (section 8.1 item 4).
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <optional>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include <BRepAdaptor_Curve.hxx>
++#include <BRepAdaptor_Surface.hxx>
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepBuilderAPI_MakeSolid.hxx>
++#include <BRepBuilderAPI_MakeVertex.hxx>
++#include <BRepBuilderAPI_Sewing.hxx>
++#include <BRepBuilderAPI_Transform.hxx>
++#include <BRepCheck_Analyzer.hxx>
++#include <BRepExtrema_DistShapeShape.hxx>
++#include <BRepLib.hxx>
++#include <BRepOffsetAPI_MakeFilling.hxx>
++#include <BRepOffsetAPI_MakePipeShell.hxx>
++#include <BRepOffsetAPI_ThruSections.hxx>
++#include <BRepPrimAPI_MakePrism.hxx>
++#include <BRep_Builder.hxx>
++#include <BRep_Tool.hxx>
++#include <Geom2d_Curve.hxx>
++#include <Geom_BSplineCurve.hxx>
++#include <Geom_Circle.hxx>
++#include <Geom_Line.hxx>
++#include <GeomProjLib.hxx>
++#include <TColStd_Array1OfInteger.hxx>
++#include <TColStd_Array1OfReal.hxx>
++#include <TColgp_Array1OfPnt.hxx>
++#include <TopExp.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopTools_DataMapOfShapeShape.hxx>
++#include <TopTools_IndexedMapOfShape.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Iterator.hxx>
++#include <TopoDS_Shell.hxx>
++#include <TopoDS_Solid.hxx>
++#include <TopoDS_Vertex.hxx>
++#include <TopoDS_Wire.hxx>
++#include <gp_Trsf.hxx>
++#include <gp_Vec.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++using Clock = std::chrono::steady_clock;
++
++// The milliseconds of a duration.
++double milliseconds(Clock::duration duration) {
++  return std::chrono::duration<double, std::milli>(duration).count();
++}
++
++// The spike's indicator: answers as the shim's indicator does, and records the time of each
++// poll, so the spike can report the polls of a call and the longest gap between them.
++class PollRecorder : public Interruption {
++ public:
++  explicit PollRecorder(const Interrupt &interrupt)
++      : Interruption(interrupt), start_(Clock::now()), last_(start_) {}
++
++  Standard_Boolean UserBreak() override {
++    const Clock::time_point now = Clock::now();
++    if (count_ == 0) {
++      first_ = now - start_;
++    } else if (now - last_ > longest_) {
++      longest_ = now - last_;
++      longest_after_ = count_;
++    }
++    last_ = now;
++    ++count_;
++    return Interruption::UserBreak();
++  }
++
++  // The polls so far, with the time from the last one to now as the end of the call.
++  PollData data() const {
++    const Clock::time_point now = Clock::now();
++    return PollData{count_,         milliseconds(first_),      milliseconds(longest_),
++                    longest_after_, milliseconds(now - last_), milliseconds(now - start_)};
++  }
++
++ private:
++  Clock::time_point start_;
++  Clock::time_point last_;
++  Clock::duration first_{};
++  Clock::duration longest_{};
++  std::uint64_t longest_after_ = 0;
++  std::uint64_t count_ = 0;
++};
++
++// How far a neighbor prism reaches from the end it continues, in millimeters.
++constexpr double kNeighborLength = 10.0;
++
++// The angular tolerance of the pipe shell's approximation and of the filling's tangency.
++constexpr double kAngularTolerance = 1e-6;
++
++// The largest cosine between an arc's axis and the vector from its center to its start.
++constexpr double kPerpendicularTolerance = 1e-9;
++
++// A curve of the loft's input with the parameter range it runs over.
++struct InputCurve {
++  Handle(Geom_Curve) curve;
++  double first;
++  double last;
++
++  gp_Pnt start() const { return curve->Value(first); }
++  gp_Pnt end() const { return curve->Value(last); }
++};
++
++// The curve a loft curve describes, from its start to its end. Raises Partsmith_InvalidInput for
++// a line whose ends coincide, an arc whose start lies on its center or off its plane, or a
++// B-spline OCCT refuses.
++InputCurve input_curve(const LoftCurveData &data) {
++  switch (data.kind) {
++    case LoftCurveType::Line: {
++      const gp_Pnt start = to_point(data.start);
++      const gp_Pnt end = to_point(data.end);
++      const double length = start.Distance(end);
++      if (length < kLinear) {
++        raise_invalid_input("A loft line needs two distinct ends.");
++      }
++      return {new Geom_Line(start, gp_Dir(gp_Vec(start, end))), 0.0, length};
++    }
++    case LoftCurveType::Arc: {
++      const gp_Pnt center = to_point(data.center);
++      const gp_Vec radial(center, to_point(data.start));
++      const gp_Dir axis = to_direction(data.axis);
++      if (radial.Magnitude() < kLinear ||
++          std::abs(gp_Dir(radial).Dot(axis)) > kPerpendicularTolerance) {
++        raise_invalid_input("A loft arc needs a start off its center, in the plane of its axis.");
++      }
++      return {new Geom_Circle(gp_Ax2(center, axis, gp_Dir(radial)), radial.Magnitude()), 0.0,
++              data.sweep};
++    }
++    case LoftCurveType::Bspline: {
++      TColgp_Array1OfPnt poles(1, static_cast<int>(data.poles.size()));
++      for (std::size_t pole = 0; pole < data.poles.size(); ++pole) {
++        poles.SetValue(static_cast<int>(pole) + 1, to_point(data.poles[pole]));
++      }
++      TColStd_Array1OfReal knots(1, static_cast<int>(data.knots.size()));
++      TColStd_Array1OfInteger multiplicities(1, static_cast<int>(data.knots.size()));
++      for (std::size_t knot = 0; knot < data.knots.size(); ++knot) {
++        knots.SetValue(static_cast<int>(knot) + 1, data.knots[knot]);
++        multiplicities.SetValue(static_cast<int>(knot) + 1,
++                                static_cast<int>(data.multiplicities[knot]));
++      }
++      const Handle(Geom_BSplineCurve) curve =
++          new Geom_BSplineCurve(poles, knots, multiplicities, static_cast<int>(data.degree));
++      return {Handle(Geom_Curve)(curve), curve->FirstParameter(), curve->LastParameter()};
++    }
++  }
++  raise_invalid_input("The loft curve has an unknown kind.");
++}
++
++// A wire of the input with its edges in curve order and its vertices at each curve's start (and
++// at the last curve's end when it is open), or a point section's vertex.
++struct Path {
++  TopoDS_Shape shape;
++  std::vector<TopoDS_Shape> edges;
++  std::vector<TopoDS_Shape> vertices;
++};
++
++// The wire of `count` curves from `first`, consecutive curves sharing the vertex where they meet,
++// closed when the last curve ends where the first starts. Raises Partsmith_InvalidInput when
++// consecutive curves do not meet within the modeling tolerance.
++Path wire_of(rust::Slice<const LoftCurveData> curves, std::size_t first, std::size_t count) {
++  std::vector<InputCurve> parts;
++  for (std::size_t position = 0; position < count; ++position) {
++    parts.push_back(input_curve(curves[first + position]));
++  }
++  for (std::size_t position = 0; position + 1 < count; ++position) {
++    if (parts[position].end().Distance(parts[position + 1].start()) > kLinear) {
++      raise_invalid_input("The curves of a loft section, spine or rail must meet end to end.");
++    }
++  }
++  const bool closed = parts.back().end().Distance(parts.front().start()) <= kLinear;
++  Path path;
++  for (const InputCurve &part : parts) {
++    path.vertices.push_back(BRepBuilderAPI_MakeVertex(part.start()).Vertex());
++  }
++  if (!closed) {
++    path.vertices.push_back(BRepBuilderAPI_MakeVertex(parts.back().end()).Vertex());
++  }
++  BRep_Builder builder;
++  TopoDS_Wire wire;
++  builder.MakeWire(wire);
++  for (std::size_t position = 0; position < count; ++position) {
++    const TopoDS_Shape &next = path.vertices[closed ? (position + 1) % count : position + 1];
++    BRepBuilderAPI_MakeEdge edge(parts[position].curve, TopoDS::Vertex(path.vertices[position]),
++                                 TopoDS::Vertex(next), parts[position].first,
++                                 parts[position].last);
++    if (!edge.IsDone()) {
++      raise_not_done("BRepBuilderAPI_MakeEdge failed with status " +
++                     std::to_string(static_cast<int>(edge.Error())));
++    }
++    builder.Add(wire, edge.Edge());
++    path.edges.push_back(edge.Edge());
++  }
++  wire.Closed(closed);
++  path.shape = wire;
++  return path;
++}
++
++// A section of the loft as its builder gets it, with what it is.
++struct Section {
++  Path path;
++  LoftOriginType origin;
++  std::uint32_t owner;
++};
++
++// The given sections in order: a closed wire of their curves, or a vertex. Advances `next` past
++// their curves. Raises Partsmith_InvalidInput for a section that is not closed.
++std::vector<Section> given_sections(rust::Slice<const LoftSectionData> sections,
++                                    rust::Slice<const LoftCurveData> curves, std::size_t &next) {
++  std::vector<Section> given;
++  for (const LoftSectionData &section : sections) {
++    const auto owner = static_cast<std::uint32_t>(given.size() + 1);
++    if (section.count == 0) {
++      const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(to_point(section.point)).Vertex();
++      given.push_back({Path{vertex, {}, {vertex}}, LoftOriginType::Section, owner});
++      continue;
++    }
++    Path path = wire_of(curves, next, section.count);
++    next += section.count;
++    if (!path.shape.Closed()) {
++      raise_invalid_input("A loft section must be a closed loop of curves.");
++    }
++    given.push_back({std::move(path), LoftOriginType::Section, owner});
++  }
++  return given;
++}
++
++// A copy of `section` moved by `offset`, an extra section of the end it copies.
++Section moved(const Section &section, const gp_Vec &offset) {
++  gp_Trsf shift;
++  shift.SetTranslation(offset);
++  BRepBuilderAPI_Transform transform(section.path.shape, shift, Standard_True);
++  Path path{transform.Shape(), {}, {}};
++  for (const TopoDS_Shape &edge : section.path.edges) {
++    path.edges.push_back(transform.ModifiedShape(edge));
++  }
++  for (const TopoDS_Shape &vertex : section.path.vertices) {
++    path.vertices.push_back(transform.ModifiedShape(vertex));
++  }
++  return {std::move(path), LoftOriginType::ExtraSection, section.owner};
++}
++
++// The sections with the extra sections of each end condition: one copy of the end section
++// offset by `spec.offset` along the end's tangent into the loft for a tangent condition, two
++// (at the offset and twice it) for a curvature condition.
++std::vector<Section> with_extra_sections(const std::vector<Section> &given,
++                                         const LoftSpecData &spec, Polls &polls) {
++  const int copies = spec.curvature ? 2 : 1;
++  std::vector<Section> sections{given.front()};
++  if (spec.start_condition) {
++    const gp_Vec direction(to_direction(spec.start_direction));
++    for (int copy = 1; copy <= copies; ++copy) {
++      polls.before("BRepBuilderAPI_Transform");
++      sections.push_back(moved(given.front(), direction * (copy * spec.offset)));
++    }
++  }
++  sections.insert(sections.end(), given.begin() + 1, given.end() - 1);
++  if (spec.end_condition) {
++    const gp_Vec direction(to_direction(spec.end_direction));
++    for (int copy = copies; copy >= 1; --copy) {
++      polls.before("BRepBuilderAPI_Transform");
++      sections.push_back(moved(given.back(), direction * (-copy * spec.offset)));
++    }
++  }
++  sections.push_back(given.back());
++  return sections;
++}
++
++// One name of one element of the loft (see LoftRoleData).
++struct Role {
++  TopoDS_Shape element;
++  LoftOriginType origin;
++  std::uint32_t owner;
++  ElementKind input_kind;
++  std::uint32_t input;
++  LoftSourceType source;
++  bool filled;
++};
++
++// Names the elements of `result` that are the elements of `path` themselves or that `generated`
++// lists for them.
++template <class Generated>
++void add_roles(const TopTools_IndexedMapOfShape &elements, const Path &path, LoftOriginType origin,
++               std::uint32_t owner, Generated &&generated, std::vector<Role> &roles) {
++  auto name = [&](const TopoDS_Shape &input, ElementKind kind, std::size_t position) {
++    const auto number = static_cast<std::uint32_t>(position + 1);
++    if (elements.Contains(input)) {
++      roles.push_back({input, origin, owner, kind, number, LoftSourceType::Itself, false});
++    }
++    for (const TopoDS_Shape &image : generated(input)) {
++      if (elements.Contains(image)) {
++        roles.push_back({image, origin, owner, kind, number, LoftSourceType::Generated, false});
++      }
++    }
++  };
++  for (std::size_t position = 0; position < path.edges.size(); ++position) {
++    name(path.edges[position], ElementKind::Edge, position);
++  }
++  for (std::size_t position = 0; position < path.vertices.size(); ++position) {
++    name(path.vertices[position], ElementKind::Vertex, position);
++  }
++}
++
++// The kind of a face, edge or vertex; nothing for other types.
++std::optional<ElementKind> element_kind(TopAbs_ShapeEnum type) {
++  switch (type) {
++    case TopAbs_FACE:
++      return ElementKind::Face;
++    case TopAbs_EDGE:
++      return ElementKind::Edge;
++    case TopAbs_VERTEX:
++      return ElementKind::Vertex;
++    default:
++      return std::nullopt;
++  }
++}
++
++// The face of `result` that closes the end `end` (a face, or the wire a pipe shell gives): `end`
++// itself when it is a face of the result, else the face whose edges are all edges of `end`; a
++// null shape for a punctual end. Names it, its edges and its vertices by `source`.
++TopoDS_Shape end_face(const TopoDS_Shape &result, const TopoDS_Shape &end, std::uint32_t owner,
++                      LoftSourceType source, std::vector<Role> &roles) {
++  if (end.IsNull()) {
++    return TopoDS_Shape();
++  }
++  TopTools_IndexedMapOfShape end_edges;
++  TopExp::MapShapes(end, TopAbs_EDGE, end_edges);
++  TopoDS_Shape face;
++  for (TopExp_Explorer explorer(result, TopAbs_FACE); explorer.More() && face.IsNull();
++       explorer.Next()) {
++    bool bounded = true;
++    bool any = false;
++    for (TopExp_Explorer edges(explorer.Current(), TopAbs_EDGE); edges.More(); edges.Next()) {
++      any = true;
++      bounded = bounded && end_edges.Contains(edges.Current());
++    }
++    if (any && bounded) {
++      face = explorer.Current();
++    }
++  }
++  if (face.IsNull()) {
++    return face;
++  }
++  TopTools_IndexedMapOfShape elements;
++  TopExp::MapShapes(face, elements);
++  for (int index = 1; index <= elements.Extent(); ++index) {
++    const TopoDS_Shape &element = elements(index);
++    if (const std::optional<ElementKind> kind = element_kind(element.ShapeType())) {
++      roles.push_back({element, LoftOriginType::Section, owner, *kind, 0, source, false});
++    }
++  }
++  return face;
++}
++
++// The loft's shape with its end faces and the error its builder reports on its surfaces.
++struct Built {
++  TopoDS_Shape shape;
++  TopoDS_Shape first;
++  TopoDS_Shape last;
++  double surface_error;
++};
++
++// BRepOffsetAPI_ThruSections through `sections` as a solid, ruled or smooth, with the wires'
++// compatibility checked (CheckCompatibility), and the roles its history gives.
++Built thru_sections(const std::vector<Section> &sections, bool ruled, std::vector<Role> &roles,
++                    Polls &polls) {
++  BRepOffsetAPI_ThruSections maker(Standard_True, ruled ? Standard_True : Standard_False, kLinear);
++  maker.CheckCompatibility(Standard_True);
++  for (const Section &section : sections) {
++    if (section.path.shape.ShapeType() == TopAbs_VERTEX) {
++      maker.AddVertex(TopoDS::Vertex(section.path.shape));
++    } else {
++      maker.AddWire(TopoDS::Wire(section.path.shape));
++    }
++  }
++  polls.run("BRepOffsetAPI_ThruSections",
++            [&](const Message_ProgressRange &range) { maker.Build(range); });
++  if (!maker.IsDone()) {
++    raise_not_done("BRepOffsetAPI_ThruSections failed with status " +
++                   std::to_string(static_cast<int>(maker.GetStatus())));
++  }
++  const TopoDS_Shape shape = maker.Shape();
++  polls.before("BRepOffsetAPI_ThruSections::Generated");
++  TopTools_IndexedMapOfShape elements;
++  TopExp::MapShapes(shape, elements);
++  for (const Section &section : sections) {
++    add_roles(
++        elements, section.path, section.origin, section.owner,
++        [&](const TopoDS_Shape &input) { return TopTools_ListOfShape(maker.Generated(input)); },
++        roles);
++  }
++  const TopoDS_Shape first =
++      end_face(shape, maker.FirstShape(), 1, LoftSourceType::FirstShape, roles);
++  const TopoDS_Shape last = end_face(shape, maker.LastShape(), sections.back().owner,
++                                     LoftSourceType::LastShape, roles);
++  return {shape, first, last, 0.0};
++}
++
++// The guide rail's mode of BRepOffsetAPI_MakePipeShell::SetMode.
++BRepFill_TypeOfContact contact_of(RailContactType contact) {
++  switch (contact) {
++    case RailContactType::Contact:
++      return BRepFill_Contact;
++    case RailContactType::ContactOnBorder:
++      return BRepFill_ContactOnBorder;
++    default:
++      return BRepFill_NoContact;
++  }
++}
++
++// BRepOffsetAPI_MakePipeShell along `spine` with each section added at the point of the spine the
++// builder finds for it, guided by `rail` in the spec's mode when there is one, approximated
++// within the modeling tolerance and made a solid, and the roles its history gives.
++Built pipe_shell(const std::vector<Section> &sections, const Path &spine,
++                 const std::optional<Path> &rail, const LoftSpecData &spec,
++                 std::vector<Role> &roles, Polls &polls) {
++  BRepOffsetAPI_MakePipeShell maker(TopoDS::Wire(spine.shape));
++  if (rail) {
++    maker.SetMode(TopoDS::Wire(rail->shape), spec.curvilinear ? Standard_True : Standard_False,
++                  contact_of(spec.contact));
++  }
++  maker.SetTolerance(kLinear, kLinear, kAngularTolerance);
++  for (const Section &section : sections) {
++    maker.Add(section.path.shape);
++  }
++  polls.run("BRepOffsetAPI_MakePipeShell",
++            [&](const Message_ProgressRange &range) { maker.Build(range); });
++  if (!maker.IsDone()) {
++    raise_not_done("BRepOffsetAPI_MakePipeShell failed with status " +
++                   std::to_string(static_cast<int>(maker.GetStatus())));
++  }
++  polls.before("BRepOffsetAPI_MakePipeShell::MakeSolid");
++  if (!maker.MakeSolid()) {
++    raise_not_done("BRepOffsetAPI_MakePipeShell::MakeSolid could not close the shell");
++  }
++  const TopoDS_Shape shape = maker.Shape();
++  polls.before("BRepOffsetAPI_MakePipeShell::Generated");
++  TopTools_IndexedMapOfShape elements;
++  TopExp::MapShapes(shape, elements);
++  auto generated = [&](const TopoDS_Shape &input) {
++    return TopTools_ListOfShape(maker.Generated(input));
++  };
++  for (const Section &section : sections) {
++    add_roles(elements, section.path, section.origin, section.owner, generated, roles);
++  }
++  add_roles(elements, spine, LoftOriginType::Spine, 0, generated, roles);
++  if (rail) {
++    add_roles(elements, *rail, LoftOriginType::Rail, 0, generated, roles);
++  }
++  const TopoDS_Shape first =
++      end_face(shape, maker.FirstShape(), 1, LoftSourceType::FirstShape, roles);
++  const TopoDS_Shape last = end_face(shape, maker.LastShape(), sections.back().owner,
++                                     LoftSourceType::LastShape, roles);
++  return {shape, first, last, maker.ErrorOnSurface()};
++}
++
++// The prism the loft continues at an end: its end face swept `kNeighborLength` along `outward`,
++// built on a copy. Records the side face of the prism along each edge of the end face in
++// `supports`.
++TopoDS_Shape neighbor(const TopoDS_Shape &end, const gp_Dir &outward,
++                      TopTools_DataMapOfShapeShape &supports, Polls &polls) {
++  polls.before("BRepPrimAPI_MakePrism");
++  BRepPrimAPI_MakePrism prism(end, gp_Vec(outward) * kNeighborLength, Standard_True,
++                              Standard_True);
++  if (!prism.IsDone()) {
++    raise_not_done("BRepPrimAPI_MakePrism could not sweep the loft's end face");
++  }
++  for (TopExp_Explorer explorer(end, TopAbs_EDGE); explorer.More(); explorer.Next()) {
++    for (const TopoDS_Shape &side : prism.Generated(explorer.Current())) {
++      if (side.ShapeType() == TopAbs_FACE) {
++        supports.Bind(explorer.Current(), side);
++      }
++    }
++  }
++  return prism.Shape();
++}
++
++// Gives `edge` a curve on `face` when it has none, projected from its 3D curve:
++// BRepOffsetAPI_MakeFilling reads the curve of each constrained edge on its support face, which
++// OCCT computes on the fly only on planes, and dereferences a missing one. Writes to the edge, an
++// edge of the loft this call built.
++void ensure_curve_on_face(const TopoDS_Edge &edge, const TopoDS_Face &face) {
++  double first = 0.0;
++  double last = 0.0;
++  if (!BRep_Tool::CurveOnSurface(edge, face, first, last).IsNull()) {
++    return;
++  }
++  const Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
++  double tolerance = kLinear;
++  const Handle(Geom2d_Curve) projected =
++      GeomProjLib::Curve2d(curve, first, last, BRep_Tool::Surface(face), tolerance);
++  if (projected.IsNull()) {
++    raise_not_done("GeomProjLib could not project an end edge onto its neighbor face");
++  }
++  BRep_Builder().UpdateEdge(edge, projected, face,
++                            std::max(tolerance, BRep_Tool::Tolerance(edge)));
++}
++
++// The largest errors the fillings report: distance, angle and curvature.
++struct FillingErrors {
++  double distance = 0.0;
++  double angle = 0.0;
++  double curvature = 0.0;
++};
++
++// Replaces each face of `built` but its end faces with an edge in `supports` by a
++// BRepOffsetAPI_MakeFilling face bounded by the same edges: each such edge constrained to its
++// neighbor's side face at `order`, every other edge at C0. Sews the faces, kept and filled, into
++// a shell within the largest distance error of the fillings and makes it a solid. The roles of
++// the replaced faces move to their fillings, and every role follows the fillings' and the
++// sewing's histories.
++TopoDS_Shape filled(const Built &built, const TopTools_DataMapOfShapeShape &supports,
++                    GeomAbs_Shape order, std::vector<Role> &roles, FillingErrors &errors,
++                    Polls &polls) {
++  TopTools_IndexedMapOfShape faces;
++  TopExp::MapShapes(built.shape, TopAbs_FACE, faces);
++  TopTools_DataMapOfShapeShape images;
++  std::vector<TopoDS_Shape> kept;
++  for (int index = 1; index <= faces.Extent(); ++index) {
++    const TopoDS_Shape &face = faces(index);
++    TopTools_IndexedMapOfShape edges;
++    TopExp::MapShapes(face, TopAbs_EDGE, edges);
++    const bool closes_an_end = face.IsSame(built.first) || face.IsSame(built.last);
++    const bool constrained =
++        std::any_of(edges.cbegin(), edges.cend(),
++                    [&](const TopoDS_Shape &edge) { return supports.IsBound(edge); });
++    if (closes_an_end || !constrained) {
++      kept.push_back(face);
++      continue;
++    }
++    BRepOffsetAPI_MakeFilling filling(3, 15, 2, Standard_False, 1e-5, kLinear, kAngularTolerance);
++    for (int position = 1; position <= edges.Extent(); ++position) {
++      const TopoDS_Shape &edge = edges(position);
++      if (BRep_Tool::Degenerated(TopoDS::Edge(edge))) {
++        continue;
++      }
++      if (supports.IsBound(edge)) {
++        const TopoDS_Face &support = TopoDS::Face(supports.Find(edge));
++        polls.before("GeomProjLib::Curve2d");
++        ensure_curve_on_face(TopoDS::Edge(edge), support);
++        filling.Add(TopoDS::Edge(edge), support, order);
++      } else {
++        filling.Add(TopoDS::Edge(edge), GeomAbs_C0);
++      }
++    }
++    polls.run("BRepOffsetAPI_MakeFilling",
++              [&](const Message_ProgressRange &range) { filling.Build(range); });
++    if (!filling.IsDone()) {
++      raise_not_done("BRepOffsetAPI_MakeFilling could not fill a face of the loft");
++    }
++    errors.distance = std::max(errors.distance, filling.G0Error());
++    errors.angle = std::max(errors.angle, filling.G1Error());
++    if (order != GeomAbs_G1) {
++      errors.curvature = std::max(errors.curvature, filling.G2Error());
++    }
++    images.Bind(face, filling.Shape());
++    for (TopExp_Explorer explorer(face, TopAbs_EDGE); explorer.More(); explorer.Next()) {
++      for (const TopoDS_Shape &image : filling.Generated(explorer.Current())) {
++        images.Bind(explorer.Current(), image);
++      }
++    }
++    for (TopExp_Explorer explorer(face, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
++      for (const TopoDS_Shape &image : filling.Generated(explorer.Current())) {
++        images.Bind(explorer.Current(), image);
++      }
++    }
++    kept.push_back(filling.Shape());
++  }
++  BRepBuilderAPI_Sewing sewing(std::max(kLinear, errors.distance));
++  for (const TopoDS_Shape &face : kept) {
++    sewing.Add(face);
++  }
++  polls.run("BRepBuilderAPI_Sewing",
++            [&](const Message_ProgressRange &range) { sewing.Perform(range); });
++  const TopoDS_Shape sewn = sewing.SewedShape();
++  if (sewn.ShapeType() != TopAbs_SHELL) {
++    raise_not_done("BRepBuilderAPI_Sewing left the filled loft's faces apart");
++  }
++  polls.before("BRepBuilderAPI_MakeSolid");
++  BRepBuilderAPI_MakeSolid solid(TopoDS::Shell(sewn));
++  if (!solid.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeSolid could not close the filled loft");
++  }
++  TopoDS_Solid result = solid.Solid();
++  BRepLib::OrientClosedSolid(result);
++  for (Role &role : roles) {
++    if (images.IsBound(role.element)) {
++      role.element = images.Find(role.element);
++      role.filled = true;
++    }
++    if (sewing.IsModifiedSubShape(role.element)) {
++      role.element = sewing.ModifiedSubShape(role.element);
++    }
++  }
++  return result;
++}
++
++// Replaces each role's element by its images in `history`, dropping removed elements.
++void follow(std::vector<Role> &roles, const Handle(BRepTools_History) &history) {
++  std::vector<Role> followed;
++  for (const Role &role : roles) {
++    if (history->IsRemoved(role.element)) {
++      continue;
++    }
++    const TopTools_ListOfShape &images = history->Modified(role.element);
++    if (images.IsEmpty()) {
++      followed.push_back(role);
++    }
++    for (const TopoDS_Shape &image : images) {
++      Role moved_role = role;
++      moved_role.element = image;
++      followed.push_back(moved_role);
++    }
++  }
++  roles = std::move(followed);
++}
++
++// Checks a whole shape and repairs it when it is not valid, as section 3.5 does, recording which.
++ValidityType check_and_repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
++                              Polls &polls) {
++  polls.before("BRepCheck_Analyzer");
++  if (BRepCheck_Analyzer(shape).IsValid()) {
++    return ValidityType::AsBuilt;
++  }
++  return repair(shape, history, polls) ? ValidityType::AfterRepair : ValidityType::Invalid;
++}
++
++// The order of the filling's constraints along each end edge: G1 for a tangent condition; G2,
++// or for `FillingOrderTwo` GeomAbs_C1, which OCCT 7.9.3 hands to the plate as its order 2
++// (BRepFill_Filling::AddConstraints passes the GeomAbs_Shape value as the order), for a
++// curvature condition.
++GeomAbs_Shape filling_order(const LoftSpecData &spec) {
++  if (!spec.curvature) {
++    return GeomAbs_G1;
++  }
++  return spec.method == EndMethodType::FillingOrderTwo ? GeomAbs_C1 : GeomAbs_G2;
++}
++
++}  // namespace
++
++LoftData loft(const LoftSpecData &spec, rust::Slice<const LoftSectionData> sections,
++              rust::Slice<const LoftCurveData> curves, const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  polls.before("BRepBuilderAPI_MakeWire");
++  std::size_t next = 0;
++  const std::vector<Section> given = given_sections(sections, curves, next);
++  std::optional<Path> spine;
++  if (spec.spine > 0) {
++    spine = wire_of(curves, next, spec.spine);
++    next += spec.spine;
++  }
++  std::optional<Path> rail;
++  if (spec.rail > 0) {
++    rail = wire_of(curves, next, spec.rail);
++  }
++  const std::vector<Section> all = spec.method == EndMethodType::ExtraSection
++                                       ? with_extra_sections(given, spec, polls)
++                                       : given;
++
++  if (spec.construction == LoftType::PipeShell && !spine) {
++    raise_invalid_input("A pipe shell needs a spine.");
++  }
++  std::vector<Role> roles;
++  Built built = spec.construction == LoftType::PipeShell
++                    ? pipe_shell(all, *spine, rail, spec, roles, polls)
++                    : thru_sections(all, spec.construction == LoftType::Ruled, roles, polls);
++
++  std::vector<TopoDS_Shape> prisms;
++  TopTools_DataMapOfShapeShape supports;
++  if (spec.start_condition && !built.first.IsNull()) {
++    prisms.push_back(
++        neighbor(built.first, to_direction(spec.start_direction).Reversed(), supports, polls));
++  }
++  if (spec.end_condition && !built.last.IsNull()) {
++    prisms.push_back(neighbor(built.last, to_direction(spec.end_direction), supports, polls));
++  }
++
++  FillingErrors errors;
++  TopoDS_Shape shape = built.shape;
++  if (spec.method == EndMethodType::Filling || spec.method == EndMethodType::FillingOrderTwo) {
++    shape = filled(built, supports, filling_order(spec), roles, errors, polls);
++    built.surface_error = errors.distance;
++  }
++  Handle(BRepTools_History) history = new BRepTools_History;
++  const ValidityType validity = check_and_repair(shape, history, polls);
++  polls.before("BRepTools_History");
++  follow(roles, history);
++
++  const std::shared_ptr<Shape> result = make_shape(shape);
++  rust::Vec<LoftRoleData> role_data;
++  for (const Role &role : roles) {
++    const std::optional<ElementKind> kind = element_kind(role.element.ShapeType());
++    const int index = kind ? result->map(*kind).FindIndex(role.element) : 0;
++    if (index > 0) {
++      role_data.push_back(LoftRoleData{*kind, static_cast<std::uint32_t>(index), role.origin,
++                                       role.owner, role.input_kind, role.input, role.source,
++                                       role.filled});
++    }
++  }
++  return LoftData{result,
++                  make_shape(compound_of(prisms)),
++                  std::move(role_data),
++                  validity,
++                  recorder->data(),
++                  built.surface_error,
++                  errors.angle,
++                  errors.curvature};
++}
++
++rust::Vec<double> face_distances(const Shape &shape, rust::Slice<const std::uint32_t> faces,
++                                 rust::Slice<const Vec3> points) {
++  std::vector<TopoDS_Shape> chosen;
++  for (const std::uint32_t face : faces) {
++    chosen.push_back(element_at(shape, ElementKind::Face, face));
++  }
++  BRepExtrema_DistShapeShape distance;
++  distance.LoadS2(compound_of(chosen));
++  rust::Vec<double> distances;
++  for (const Vec3 &point : points) {
++    distance.LoadS1(BRepBuilderAPI_MakeVertex(to_point(point)).Vertex());
++    if (!distance.Perform()) {
++      raise_not_done("BRepExtrema_DistShapeShape found no distance to the faces");
++    }
++    distances.push_back(distance.Value());
++  }
++  return distances;
++}
++
++double normal_curvature_across(const Shape &shape, std::uint32_t face, std::uint32_t edge) {
++  const TopoDS_Face &surface_face = TopoDS::Face(element_at(shape, ElementKind::Face, face));
++  const TopoDS_Edge &curve_edge = TopoDS::Edge(element_at(shape, ElementKind::Edge, edge));
++  double first = 0.0;
++  double last = 0.0;
++  const Handle(Geom2d_Curve) pcurve =
++      BRep_Tool::CurveOnSurface(curve_edge, surface_face, first, last);
++  if (pcurve.IsNull()) {
++    raise_invalid_input("Edge " + std::to_string(edge) + " is not an edge of face " +
++                        std::to_string(face) + ".");
++  }
++  const double middle = (first + last) / 2.0;
++  const gp_Pnt2d parameters = pcurve->Value(middle);
++  const BRepAdaptor_Surface surface(surface_face);
++  gp_Pnt point;
++  gp_Vec along_u;
++  gp_Vec along_v;
++  gp_Vec second_u;
++  gp_Vec second_v;
++  gp_Vec mixed;
++  surface.D2(parameters.X(), parameters.Y(), point, along_u, along_v, second_u, second_v, mixed);
++  gp_Vec normal = along_u.Crossed(along_v);
++  normal.Normalize();
++  gp_Pnt curve_point;
++  gp_Vec tangent;
++  BRepAdaptor_Curve(curve_edge).D1(middle, curve_point, tangent);
++  gp_Vec across = normal.Crossed(tangent);
++  across.Normalize();
++  // The direction across the edge in the surface's parameters, through its first fundamental
++  // form, then the second fundamental form along it.
++  const double u_squared = along_u.Dot(along_u);
++  const double u_by_v = along_u.Dot(along_v);
++  const double v_squared = along_v.Dot(along_v);
++  const double across_u = across.Dot(along_u);
++  const double across_v = across.Dot(along_v);
++  const double determinant = u_squared * v_squared - u_by_v * u_by_v;
++  const double step_u = (across_u * v_squared - across_v * u_by_v) / determinant;
++  const double step_v = (across_v * u_squared - across_u * u_by_v) / determinant;
++  const double second_form = step_u * step_u * second_u.Dot(normal) +
++                             2.0 * step_u * step_v * mixed.Dot(normal) +
++                             step_v * step_v * second_v.Dot(normal);
++  const double first_form = step_u * step_u * u_squared + 2.0 * step_u * step_v * u_by_v +
++                            step_v * step_v * v_squared;
++  const double curvature = second_form / first_form;
++  return surface_face.Orientation() == TopAbs_REVERSED ? -curvature : curvature;
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/shim.h b/crates/partsmith-occt-sys/cpp/shim.h
+index d540d25..d9ab486 100644
+--- a/crates/partsmith-occt-sys/cpp/shim.h
++++ b/crates/partsmith-occt-sys/cpp/shim.h
+@@ -89,6 +89,10 @@ struct SplitData;
+ struct MeshData;
+ struct StepBodyData;
+ struct StepImportData;
++struct LoftCurveData;
++struct LoftSectionData;
++struct LoftSpecData;
++struct LoftData;
+ enum class ElementKind : std::uint8_t;
+ enum class ContinuityType : std::uint8_t;
+ enum class ShapeType : std::uint8_t;
+@@ -185,6 +189,13 @@ SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interru
+ std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
+ OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+ 
++// loft.cpp
++LoftData loft(const LoftSpecData &spec, rust::Slice<const LoftSectionData> sections,
++              rust::Slice<const LoftCurveData> curves, const Interrupt &interrupt);
++rust::Vec<double> face_distances(const Shape &shape, rust::Slice<const std::uint32_t> faces,
++                                 rust::Slice<const Vec3> points);
++double normal_curvature_across(const Shape &shape, std::uint32_t face, std::uint32_t edge);
++
+ // interrupt.cpp
+ void wait_for_interrupt(const Interrupt &interrupt, double limit);
+ #ifdef __EMSCRIPTEN__
+diff --git a/crates/partsmith-occt-sys/cpp/validity.cpp b/crates/partsmith-occt-sys/cpp/validity.cpp
+index fd88ff3..e182bb0 100644
+--- a/crates/partsmith-occt-sys/cpp/validity.cpp
++++ b/crates/partsmith-occt-sys/cpp/validity.cpp
+@@ -445,12 +445,6 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
+   }
+ }
+ 
+-namespace {
+-
+-// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
+-// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
+-// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
+-// Otherwise leaves both as they were and returns false. `polls` polls before each step.
+ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls) {
+   initialize();
+   polls.before("BRepBuilderAPI_Copy");
+@@ -474,6 +468,8 @@ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls
+   return true;
+ }
+ 
++namespace {
++
+ // The message of a result that stays invalid after repair.
+ std::string stays_invalid(const char *algorithm) {
+   return std::string(algorithm) + " produced a shape that stays invalid after ShapeFix_Shape";
+diff --git a/crates/partsmith-occt-sys/src/error.rs b/crates/partsmith-occt-sys/src/error.rs
+index 0b35a61..be81ab6 100644
+--- a/crates/partsmith-occt-sys/src/error.rs
++++ b/crates/partsmith-occt-sys/src/error.rs
+@@ -101,6 +101,8 @@ pub enum Operation {
+     ReadBrep,
+     /// [`crate::wait_for_interrupt`].
+     WaitForInterrupt,
++    /// [`crate::loft`].
++    Loft,
+ }
+ 
+ impl Operation {
+@@ -133,6 +135,7 @@ impl Operation {
+             Operation::WriteBrep => "write_brep",
+             Operation::ReadBrep => "read_brep",
+             Operation::WaitForInterrupt => "wait_for_interrupt",
++            Operation::Loft => "loft",
+         }
+     }
+ 
+@@ -177,6 +180,7 @@ impl Operation {
+             Operation::WaitForInterrupt => {
+                 "The test wait could not run; report it with the details."
+             }
++            Operation::Loft => "Fewer or simpler sections may work.",
+         }
+     }
+ 
+@@ -200,6 +204,7 @@ impl Operation {
+             Operation::Shell => Some("shell"),
+             Operation::Transform => Some("moved or copied body"),
+             Operation::Split => Some("split"),
++            Operation::Loft => Some("loft"),
+             Operation::Section
+             | Operation::Compound
+             | Operation::Measure
+diff --git a/crates/partsmith-occt-sys/src/ffi.rs b/crates/partsmith-occt-sys/src/ffi.rs
+index 1cb2283..1028d79 100644
+--- a/crates/partsmith-occt-sys/src/ffi.rs
++++ b/crates/partsmith-occt-sys/src/ffi.rs
+@@ -282,6 +282,153 @@ pub(crate) mod bridge {
+         warnings: Vec<String>,
+     }
+ 
++    /// The kind of a curve of a loft's sections, spine or rail (the loft-rails spike, kernel spec
++    /// section 8.4).
++    #[derive(Debug, Clone, Copy)]
++    enum LoftCurveType {
++        Line,
++        Arc,
++        Bspline,
++    }
++
++    /// One curve of a loft: a line from `start` to `end`; an arc about `center` and `axis` from
++    /// `start` through `sweep` radians, counterclockwise about the axis (a whole circle at 2 pi);
++    /// or a B-spline of `degree` with its `poles`, `knots` and `multiplicities`. Fields another
++    /// kind uses are zero or empty.
++    #[derive(Debug, Clone)]
++    struct LoftCurveData {
++        kind: LoftCurveType,
++        start: Vec3,
++        end: Vec3,
++        center: Vec3,
++        axis: Vec3,
++        sweep: f64,
++        degree: u32,
++        poles: Vec<Vec3>,
++        knots: Vec<f64>,
++        multiplicities: Vec<u32>,
++    }
++
++    /// One section of a loft: the next `count` curves of the curve list in chain order, or the
++    /// point `point` when `count` is 0.
++    #[derive(Debug, Clone, Copy)]
++    struct LoftSectionData {
++        point: Vec3,
++        count: u32,
++    }
++
++    /// The construction of a loft, in `LoftConstruction` order.
++    #[derive(Debug, Clone, Copy)]
++    enum LoftType {
++        Ruled,
++        Smooth,
++        PipeShell,
++    }
++
++    /// How a guide rail holds the sections of a pipe shell, in `RailContact` order.
++    #[derive(Debug, Clone, Copy)]
++    enum RailContactType {
++        Free,
++        Contact,
++        ContactOnBorder,
++    }
++
++    /// How a loft meets its end conditions, in `EndMethod` order.
++    #[derive(Debug, Clone, Copy)]
++    enum EndMethodType {
++        Measured,
++        ExtraSection,
++        Filling,
++        FillingOrderTwo,
++    }
++
++    /// A loft: its construction, the numbers of spine and rail curves that follow the sections'
++    /// curves, the rail's mode, and the end conditions with the loft's tangent at each end that
++    /// has one.
++    #[derive(Debug, Clone, Copy)]
++    struct LoftSpecData {
++        construction: LoftType,
++        spine: u32,
++        rail: u32,
++        contact: RailContactType,
++        curvilinear: bool,
++        method: EndMethodType,
++        curvature: bool,
++        start_condition: bool,
++        start_direction: Vec3,
++        end_condition: bool,
++        end_direction: Vec3,
++        offset: f64,
++    }
++
++    /// What a loft's input element belongs to, in `LoftOrigin` order.
++    #[derive(Debug, Clone, Copy)]
++    enum LoftOriginType {
++        Section,
++        ExtraSection,
++        Spine,
++        Rail,
++    }
++
++    /// Which builder call names an output element, in `LoftSource` order.
++    #[derive(Debug, Clone, Copy)]
++    enum LoftSourceType {
++        Itself,
++        Generated,
++        FirstShape,
++        LastShape,
++    }
++
++    /// One name of one element of a loft: the output element, the input element it comes from
++    /// (its owner, a section or extra section numbered from 1, and its kind and 1-based place in
++    /// its wire, or 0 for the whole section), the builder call that names it and whether a
++    /// filling face replaced it.
++    #[derive(Debug, Clone, Copy)]
++    struct LoftRoleData {
++        kind: ElementKind,
++        index: u32,
++        origin: LoftOriginType,
++        owner: u32,
++        input_kind: ElementKind,
++        input: u32,
++        source: LoftSourceType,
++        filled: bool,
++    }
++
++    /// Whether a shape was valid as built, valid after repair, or invalid.
++    #[derive(Debug, Clone, Copy)]
++    enum ValidityType {
++        AsBuilt,
++        AfterRepair,
++        Invalid,
++    }
++
++    /// The polls of one call, in milliseconds: from its start to the first, the longest gap
++    /// between two and how many polls came before it, from the last to its end, and the whole
++    /// call.
++    #[derive(Debug, Clone, Copy)]
++    struct PollData {
++        count: u64,
++        first: f64,
++        longest: f64,
++        longest_after: u64,
++        last: f64,
++        total: f64,
++    }
++
++    /// A loft with the neighbor prisms of its end conditions, its names, its check, its polls
++    /// and the errors its builders report.
++    struct LoftData {
++        shape: SharedPtr<Shape>,
++        neighbors: SharedPtr<Shape>,
++        roles: Vec<LoftRoleData>,
++        validity: ValidityType,
++        polls: PollData,
++        surface_error: f64,
++        tangency_error: f64,
++        curvature_error: f64,
++    }
++
+     extern "Rust" {
+         /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+         /// requested and keeps it only for the call that received it (kernel spec section 3.13
+@@ -418,6 +565,15 @@ pub(crate) mod bridge {
+         ) -> Result<UniquePtr<CxxString>>;
+         fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImportData>;
+ 
++        fn loft(
++            spec: &LoftSpecData,
++            sections: &[LoftSectionData],
++            curves: &[LoftCurveData],
++            interrupt: &Interrupt,
++        ) -> Result<LoftData>;
++        fn face_distances(shape: &Shape, faces: &[u32], points: &[Vec3]) -> Result<Vec<f64>>;
++        fn normal_curvature_across(shape: &Shape, face: u32, edge: u32) -> Result<f64>;
++
+         /// Polls `interrupt` about once per millisecond until it is requested or `limit`
+         /// milliseconds have passed (kernel spec section 3.13 item 8).
+         fn wait_for_interrupt(interrupt: &Interrupt, limit: f64) -> Result<()>;
+diff --git a/crates/partsmith-occt-sys/src/lib.rs b/crates/partsmith-occt-sys/src/lib.rs
+index 9435ed2..a5b4bfa 100644
+--- a/crates/partsmith-occt-sys/src/lib.rs
++++ b/crates/partsmith-occt-sys/src/lib.rs
+@@ -13,6 +13,7 @@ mod exchange;
+ mod ffi;
+ mod history;
+ mod interrupt;
++mod loft;
+ mod primitives;
+ mod profiles;
+ mod shape;
+@@ -34,6 +35,11 @@ pub use error::{KernelError, KernelErrorKind, Operation};
+ pub use exchange::{StepBody, StepImport, read_step, write_step};
+ pub use history::{ElementFate, History, InputHistory, OpResult, Origin};
+ pub use interrupt::{Interrupt, wait_for_interrupt};
++pub use loft::{
++    EndConditions, EndMethod, EndOrder, GuideRail, LoftConstruction, LoftCurve, LoftOrigin,
++    LoftResult, LoftRole, LoftSection, LoftSource, LoftSpec, PollRecord, RailContact, Validity,
++    face_distances, loft, normal_curvature_across,
++};
+ pub use primitives::{
+     Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
+ };
+diff --git a/crates/partsmith-occt-sys/src/loft.rs b/crates/partsmith-occt-sys/src/loft.rs
+new file mode 100644
+index 0000000..df79471
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/loft.rs
+@@ -0,0 +1,711 @@
++//! The loft of the loft-rails spike (kernel spec section 8.4): `BRepOffsetAPI_ThruSections`,
++//! ruled or smooth, between sections that may end in a point, and
++//! `BRepOffsetAPI_MakePipeShell` with several sections along a centerline spine and an optional
++//! guide rail, with tangent or curvature end conditions met by extra sections or by
++//! `BRepOffsetAPI_MakeFilling`. The result reports the names OCCT's history gives each element,
++//! the check of the whole shape, the call's polls and the errors the builders report.
++
++use std::time::Duration;
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::interrupt::Interrupt;
++use crate::shape::{Shape, SubShape, SubShapeKind};
++use crate::values::{Point, Vector, check_finite, is_positive_length};
++
++/// One curve of a loft's sections, spine or rail.
++#[derive(Debug, Clone, PartialEq)]
++pub enum LoftCurve {
++    /// A line from `start` to `end`.
++    Line {
++        /// Where the line starts.
++        start: Point,
++        /// Where the line ends.
++        end: Point,
++    },
++    /// An arc about `center` from `start` through `sweep` radians, counterclockwise about
++    /// `axis`; a whole circle when `sweep` is 2 pi.
++    Arc {
++        /// The arc's center.
++        center: Point,
++        /// The arc's axis, perpendicular to its plane.
++        axis: Vector,
++        /// Where the arc starts.
++        start: Point,
++        /// The angle the arc runs through, greater than 0 and at most 2 pi.
++        sweep: f64,
++    },
++    /// A B-spline curve.
++    Bspline {
++        /// Its degree.
++        degree: u32,
++        /// Its poles.
++        poles: Vec<Point>,
++        /// Its distinct knots, increasing.
++        knots: Vec<f64>,
++        /// The multiplicity of each knot.
++        multiplicities: Vec<u32>,
++    },
++}
++
++/// A section of a loft: a closed loop of curves in chain order, or a point (first or last only).
++#[derive(Debug, Clone, PartialEq)]
++pub enum LoftSection {
++    /// A closed loop of curves, each running from its start to the next one's start.
++    Wire(Vec<LoftCurve>),
++    /// A point end.
++    Point(Point),
++}
++
++/// How a guide rail holds a pipe shell's sections (`BRepFill_TypeOfContact`).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum RailContact {
++    /// `BRepFill_NoContact`: the rail sets the sections' normal only.
++    Free,
++    /// `BRepFill_Contact`: the sections turn about the spine to touch the rail.
++    Contact,
++    /// `BRepFill_ContactOnBorder`: the section is scaled so its border runs along the rail.
++    ContactOnBorder,
++}
++
++/// A guide rail of a pipe shell, its auxiliary spine (`SetMode`).
++#[derive(Debug, Clone, PartialEq)]
++pub struct GuideRail {
++    /// The rail's curves in chain order.
++    pub curves: Vec<LoftCurve>,
++    /// How it holds the sections.
++    pub contact: RailContact,
++    /// Whether a point of the spine finds its point of the rail by the same share of their
++    /// lengths (`CurvilinearEquivalence`), rather than in the plane normal to the spine.
++    pub curvilinear: bool,
++}
++
++/// The construction of a loft (section 8.4's Constructions).
++#[derive(Debug, Clone, PartialEq)]
++pub enum LoftConstruction {
++    /// `BRepOffsetAPI_ThruSections` as a solid with ruled faces.
++    Ruled,
++    /// `BRepOffsetAPI_ThruSections` as a solid with faces smoothed by approximation.
++    Smooth,
++    /// `BRepOffsetAPI_MakePipeShell` along a centerline, with an optional guide rail.
++    PipeShell {
++        /// The centerline's curves in chain order.
++        spine: Vec<LoftCurve>,
++        /// The guide rail.
++        rail: Option<GuideRail>,
++    },
++}
++
++/// What an end condition asks of the loft's faces along an end edge.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum EndOrder {
++    /// Tangent to the neighbor face (G1).
++    Tangent,
++    /// Tangent and of the same curvature as the neighbor face (G2).
++    Curvature,
++}
++
++/// How a loft meets its end conditions.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub enum EndMethod {
++    /// Not at all: the neighbor prisms are built only to measure the plain loft against them.
++    Measured,
++    /// One extra section (two for curvature, at the offset and twice it) moved from the end
++    /// section by `offset` along the end's tangent, into the loft.
++    ExtraSection {
++        /// How far the extra section lies from its end section.
++        offset: f64,
++    },
++    /// Each face along a constrained end replaced by a `BRepOffsetAPI_MakeFilling` face with its
++    /// end edges constrained to the neighbor's side faces, G1 for a tangent condition and G2 for
++    /// a curvature condition, and its other edges at C0.
++    Filling,
++    /// As `Filling`, with `GeomAbs_C1` as the order of a curvature condition's constraints,
++    /// which OCCT 7.9.3 hands to the plate as its order 2 where `GeomAbs_G2` throws.
++    FillingOrderTwo,
++}
++
++/// The end conditions of a loft: the neighbor at each constrained end is a prism of the loft's
++/// end face 10 mm long, away from the loft, and the condition asks the loft's faces along that
++/// end to continue the prism's side faces.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct EndConditions {
++    /// What the condition asks.
++    pub order: EndOrder,
++    /// How the loft meets it.
++    pub method: EndMethod,
++    /// The loft's tangent leaving its first section, when that end has a condition.
++    pub start: Option<Vector>,
++    /// The loft's tangent arriving at its last section, when that end has a condition.
++    pub end: Option<Vector>,
++}
++
++/// A loft: its sections in order, its construction and its end conditions.
++#[derive(Debug, Clone, PartialEq)]
++pub struct LoftSpec {
++    /// The sections, at least two, at least one of them a wire; a point only first or last.
++    pub sections: Vec<LoftSection>,
++    /// The construction.
++    pub construction: LoftConstruction,
++    /// The end conditions.
++    pub end_conditions: Option<EndConditions>,
++}
++
++/// What a loft's input element belongs to.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum LoftOrigin {
++    /// A given section.
++    Section,
++    /// An extra section of an end condition.
++    ExtraSection,
++    /// The spine.
++    Spine,
++    /// The guide rail.
++    Rail,
++}
++
++/// Which call of the loft's builder names an output element.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum LoftSource {
++    /// The input element itself, in the result.
++    Itself,
++    /// The builder's `Generated` of the input element.
++    Generated,
++    /// The builder's `FirstShape`: the first end face, its edges and its vertices.
++    FirstShape,
++    /// The builder's `LastShape`: the last end face, its edges and its vertices.
++    LastShape,
++}
++
++/// One name of one element of a loft.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct LoftRole {
++    /// The element of the loft.
++    pub element: SubShape,
++    /// What the input element belongs to.
++    pub origin: LoftOrigin,
++    /// The section it belongs to, numbered from 1 in `LoftSpec::sections` order (an extra
++    /// section has the number of the section it copies); 0 for the spine and the rail.
++    pub owner: u32,
++    /// The input element: an edge or a vertex of its wire with its 1-based place (edges in curve
++    /// order, vertices at each curve's start), or `None` for the end face as a whole.
++    pub input: Option<(SubShapeKind, u32)>,
++    /// The builder call that names it.
++    pub source: LoftSource,
++    /// Whether a filling face replaced the element the builder named.
++    pub filled: bool,
++}
++
++/// How a shape passed the checks of `BRepCheck_Analyzer` (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum Validity {
++    /// Valid as built.
++    AsBuilt,
++    /// Valid after `ShapeFix_Shape`.
++    AfterRepair,
++    /// Invalid after `ShapeFix_Shape`.
++    Invalid,
++}
++
++/// The polls of one call with an interrupt that is never requested (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct PollRecord {
++    /// The number of `UserBreak` calls.
++    pub count: u64,
++    /// From the call's start to its first poll.
++    pub first: Duration,
++    /// The longest gap between two polls.
++    pub longest: Duration,
++    /// How many polls came before the longest gap: it ends at poll `longest_after + 1`.
++    pub longest_after: u64,
++    /// From the last poll to the call's end.
++    pub last: Duration,
++    /// The whole call in the shim.
++    pub total: Duration,
++}
++
++/// A loft with what the spike measures of it.
++#[derive(Debug, Clone)]
++pub struct LoftResult {
++    /// The loft, repaired when it was not valid as built.
++    pub shape: Shape,
++    /// The neighbor prisms of its end conditions, a compound (empty without end conditions).
++    pub neighbors: Shape,
++    /// The names of its elements.
++    pub roles: Vec<LoftRole>,
++    /// The check of the whole loft.
++    pub validity: Validity,
++    /// The polls of the call.
++    pub polls: PollRecord,
++    /// The pipe shell's `ErrorOnSurface`, or the fillings' largest `G0Error`; 0 otherwise.
++    pub surface_error: f64,
++    /// The fillings' largest `G1Error`; 0 otherwise.
++    pub tangency_error: f64,
++    /// The fillings' largest `G2Error` for a curvature condition; 0 otherwise.
++    pub curvature_error: f64,
++}
++
++const SECTIONS_MESSAGE: &str = "A loft needs at least two sections, at least one of them a wire.";
++const POINT_MESSAGE: &str = "A loft's point section must be its first or its last.";
++const EMPTY_MESSAGE: &str = "A loft's sections, spine and rail need at least one curve each.";
++const SWEEP_MESSAGE: &str = "A loft arc must sweep more than 0 and at most 360 degrees.";
++const DIRECTION_MESSAGE: &str = "A loft direction needs to be nonzero.";
++const BSPLINE_MESSAGE: &str = "A loft B-spline needs a degree of at least 1, more poles than its degree and a multiplicity for each knot.";
++const OFFSET_MESSAGE: &str = "A loft's extra section needs an offset greater than 0 mm.";
++const END_AT_POINT_MESSAGE: &str = "A loft's end condition needs a wire at its end, not a point.";
++
++impl LoftCurve {
++    /// Checks the curve (section 3.1 items 4 to 6) and returns its bridge form.
++    fn to_ffi(&self, operation: Operation) -> Result<sys::LoftCurveData, KernelError> {
++        let zero = Point::new(0.0, 0.0, 0.0).to_ffi();
++        let mut data = sys::LoftCurveData {
++            kind: sys::LoftCurveType::Line,
++            start: zero,
++            end: zero,
++            center: zero,
++            axis: zero,
++            sweep: 0.0,
++            degree: 0,
++            poles: Vec::new(),
++            knots: Vec::new(),
++            multiplicities: Vec::new(),
++        };
++        match self {
++            LoftCurve::Line { start, end } => {
++                check_finite(operation, &[start.x, start.y, start.z, end.x, end.y, end.z])?;
++                data.start = start.to_ffi();
++                data.end = end.to_ffi();
++            }
++            LoftCurve::Arc {
++                center,
++                axis,
++                start,
++                sweep,
++            } => {
++                check_finite(
++                    operation,
++                    &[
++                        center.x, center.y, center.z, axis.x, axis.y, axis.z, start.x, start.y,
++                        start.z, *sweep,
++                    ],
++                )?;
++                let axis = axis
++                    .normalized()
++                    .ok_or_else(|| KernelError::invalid_input(operation, DIRECTION_MESSAGE))?;
++                if *sweep <= crate::ANGULAR_TOLERANCE || *sweep > std::f64::consts::TAU {
++                    return Err(KernelError::invalid_input(operation, SWEEP_MESSAGE));
++                }
++                data.kind = sys::LoftCurveType::Arc;
++                data.center = center.to_ffi();
++                data.axis = axis.to_ffi();
++                data.start = start.to_ffi();
++                data.sweep = *sweep;
++            }
++            LoftCurve::Bspline {
++                degree,
++                poles,
++                knots,
++                multiplicities,
++            } => {
++                let coordinates: Vec<f64> = poles
++                    .iter()
++                    .flat_map(|pole| [pole.x, pole.y, pole.z])
++                    .chain(knots.iter().copied())
++                    .collect();
++                check_finite(operation, &coordinates)?;
++                if *degree == 0
++                    || poles.len() <= *degree as usize
++                    || knots.len() < 2
++                    || knots.len() != multiplicities.len()
++                {
++                    return Err(KernelError::invalid_input(operation, BSPLINE_MESSAGE));
++                }
++                data.kind = sys::LoftCurveType::Bspline;
++                data.degree = *degree;
++                data.poles = poles.iter().map(|pole| pole.to_ffi()).collect();
++                data.knots = knots.clone();
++                data.multiplicities = multiplicities.clone();
++            }
++        }
++        Ok(data)
++    }
++}
++
++/// The bridge form of a spec: the spec, its sections and every curve in order (the sections',
++/// then the spine's, then the rail's).
++struct Bridged {
++    spec: sys::LoftSpecData,
++    sections: Vec<sys::LoftSectionData>,
++    curves: Vec<sys::LoftCurveData>,
++}
++
++/// A count of curves as the bridge takes it.
++fn count(length: usize) -> u32 {
++    u32::try_from(length).expect("a loft has fewer than 2^32 curves")
++}
++
++/// Appends the bridge form of `curves`, refusing an empty list, and returns how many there are.
++fn push_curves(
++    operation: Operation,
++    curves: &[LoftCurve],
++    bridged: &mut Vec<sys::LoftCurveData>,
++) -> Result<u32, KernelError> {
++    if curves.is_empty() {
++        return Err(KernelError::invalid_input(operation, EMPTY_MESSAGE));
++    }
++    for curve in curves {
++        bridged.push(curve.to_ffi(operation)?);
++    }
++    Ok(count(curves.len()))
++}
++
++/// The unit direction of an end condition's tangent, or nothing.
++fn end_direction(
++    operation: Operation,
++    direction: Option<Vector>,
++    section: &LoftSection,
++) -> Result<Option<Vector>, KernelError> {
++    let Some(direction) = direction else {
++        return Ok(None);
++    };
++    check_finite(operation, &[direction.x, direction.y, direction.z])?;
++    if matches!(section, LoftSection::Point(_)) {
++        return Err(KernelError::invalid_input(operation, END_AT_POINT_MESSAGE));
++    }
++    direction
++        .normalized()
++        .map(Some)
++        .ok_or_else(|| KernelError::invalid_input(operation, DIRECTION_MESSAGE))
++}
++
++impl LoftSpec {
++    /// Checks the spec (section 3.1 items 4 to 6) and returns its bridge form. The shim checks
++    /// what needs geometry: that consecutive curves meet and that each section is closed.
++    fn to_ffi(&self, operation: Operation) -> Result<Bridged, KernelError> {
++        let last = self.sections.len().saturating_sub(1);
++        let wires = self
++            .sections
++            .iter()
++            .filter(|section| matches!(section, LoftSection::Wire(_)))
++            .count();
++        if self.sections.len() < 2 || wires == 0 {
++            return Err(KernelError::invalid_input(operation, SECTIONS_MESSAGE));
++        }
++        let mut curves = Vec::new();
++        let mut sections = Vec::new();
++        for (place, section) in self.sections.iter().enumerate() {
++            match section {
++                LoftSection::Wire(loop_curves) => sections.push(sys::LoftSectionData {
++                    point: Point::new(0.0, 0.0, 0.0).to_ffi(),
++                    count: push_curves(operation, loop_curves, &mut curves)?,
++                }),
++                LoftSection::Point(point) => {
++                    if place != 0 && place != last {
++                        return Err(KernelError::invalid_input(operation, POINT_MESSAGE));
++                    }
++                    check_finite(operation, &[point.x, point.y, point.z])?;
++                    sections.push(sys::LoftSectionData {
++                        point: point.to_ffi(),
++                        count: 0,
++                    });
++                }
++            }
++        }
++        let mut spec = sys::LoftSpecData {
++            construction: sys::LoftType::Ruled,
++            spine: 0,
++            rail: 0,
++            contact: sys::RailContactType::Free,
++            curvilinear: false,
++            method: sys::EndMethodType::Measured,
++            curvature: false,
++            start_condition: false,
++            start_direction: Vector::new(0.0, 0.0, 1.0).to_ffi(),
++            end_condition: false,
++            end_direction: Vector::new(0.0, 0.0, 1.0).to_ffi(),
++            offset: 0.0,
++        };
++        match &self.construction {
++            LoftConstruction::Ruled => {}
++            LoftConstruction::Smooth => spec.construction = sys::LoftType::Smooth,
++            LoftConstruction::PipeShell { spine, rail } => {
++                spec.construction = sys::LoftType::PipeShell;
++                spec.spine = push_curves(operation, spine, &mut curves)?;
++                if let Some(rail) = rail {
++                    spec.rail = push_curves(operation, &rail.curves, &mut curves)?;
++                    spec.contact = match rail.contact {
++                        RailContact::Free => sys::RailContactType::Free,
++                        RailContact::Contact => sys::RailContactType::Contact,
++                        RailContact::ContactOnBorder => sys::RailContactType::ContactOnBorder,
++                    };
++                    spec.curvilinear = rail.curvilinear;
++                }
++            }
++        }
++        if let Some(conditions) = &self.end_conditions {
++            spec.curvature = conditions.order == EndOrder::Curvature;
++            spec.method = match conditions.method {
++                EndMethod::Measured => sys::EndMethodType::Measured,
++                EndMethod::ExtraSection { offset } => {
++                    check_finite(operation, &[offset])?;
++                    if !is_positive_length(offset) {
++                        return Err(KernelError::invalid_input(operation, OFFSET_MESSAGE));
++                    }
++                    spec.offset = offset;
++                    sys::EndMethodType::ExtraSection
++                }
++                EndMethod::Filling => sys::EndMethodType::Filling,
++                EndMethod::FillingOrderTwo => sys::EndMethodType::FillingOrderTwo,
++            };
++            if let Some(start) = end_direction(operation, conditions.start, &self.sections[0])? {
++                spec.start_condition = true;
++                spec.start_direction = start.to_ffi();
++            }
++            if let Some(end) = end_direction(operation, conditions.end, &self.sections[last])? {
++                spec.end_condition = true;
++                spec.end_direction = end.to_ffi();
++            }
++        }
++        Ok(Bridged {
++            spec,
++            sections,
++            curves,
++        })
++    }
++}
++
++impl Validity {
++    fn from_ffi(
++        operation: Operation,
++        validity: sys::ValidityType,
++    ) -> Result<Validity, KernelError> {
++        match validity {
++            sys::ValidityType::AsBuilt => Ok(Validity::AsBuilt),
++            sys::ValidityType::AfterRepair => Ok(Validity::AfterRepair),
++            sys::ValidityType::Invalid => Ok(Validity::Invalid),
++            _ => Err(KernelError::unknown_from_shim(
++                operation,
++                "validity",
++                validity.repr,
++            )),
++        }
++    }
++}
++
++impl PollRecord {
++    fn from_ffi(polls: sys::PollData) -> PollRecord {
++        let duration = |milliseconds: f64| Duration::from_secs_f64(milliseconds.max(0.0) / 1000.0);
++        PollRecord {
++            count: polls.count,
++            first: duration(polls.first),
++            longest: duration(polls.longest),
++            longest_after: polls.longest_after,
++            last: duration(polls.last),
++            total: duration(polls.total),
++        }
++    }
++}
++
++impl LoftRole {
++    fn from_ffi(operation: Operation, role: sys::LoftRoleData) -> Result<LoftRole, KernelError> {
++        let origin = match role.origin {
++            sys::LoftOriginType::Section => LoftOrigin::Section,
++            sys::LoftOriginType::ExtraSection => LoftOrigin::ExtraSection,
++            sys::LoftOriginType::Spine => LoftOrigin::Spine,
++            sys::LoftOriginType::Rail => LoftOrigin::Rail,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "loft origin",
++                    role.origin.repr,
++                ));
++            }
++        };
++        let source = match role.source {
++            sys::LoftSourceType::Itself => LoftSource::Itself,
++            sys::LoftSourceType::Generated => LoftSource::Generated,
++            sys::LoftSourceType::FirstShape => LoftSource::FirstShape,
++            sys::LoftSourceType::LastShape => LoftSource::LastShape,
++            _ => {
++                return Err(KernelError::unknown_from_shim(
++                    operation,
++                    "loft source",
++                    role.source.repr,
++                ));
++            }
++        };
++        let input = if role.input == 0 {
++            None
++        } else {
++            Some((
++                SubShapeKind::from_ffi(operation, role.input_kind)?,
++                role.input,
++            ))
++        };
++        Ok(LoftRole {
++            element: SubShape {
++                kind: SubShapeKind::from_ffi(operation, role.kind)?,
++                index: role.index,
++            },
++            origin,
++            owner: role.owner,
++            input,
++            source,
++            filled: role.filled,
++        })
++    }
++}
++
++/// Builds the loft of `spec` with its construction, meets its end conditions by their method,
++/// checks the whole loft and repairs it when invalid, and names its elements from the builders'
++/// histories. A loft that stays invalid after repair reports `Validity::Invalid`.
++pub fn loft(spec: &LoftSpec, interrupt: &Interrupt) -> Result<LoftResult, KernelError> {
++    let operation = Operation::Loft;
++    let bridged = spec.to_ffi(operation)?;
++    let data = call(operation, || {
++        sys::loft(&bridged.spec, &bridged.sections, &bridged.curves, interrupt)
++    })?;
++    Ok(LoftResult {
++        shape: Shape::from_ffi(operation, data.shape)?,
++        neighbors: Shape::from_ffi(operation, data.neighbors)?,
++        roles: data
++            .roles
++            .into_iter()
++            .map(|role| LoftRole::from_ffi(operation, role))
++            .collect::<Result<_, KernelError>>()?,
++        validity: Validity::from_ffi(operation, data.validity)?,
++        polls: PollRecord::from_ffi(data.polls),
++        surface_error: data.surface_error,
++        tangency_error: data.tangency_error,
++        curvature_error: data.curvature_error,
++    })
++}
++
++/// The distance from each of `points` to the nearest of faces `faces` of `shape` (1-based), their
++/// boundaries included, by `BRepExtrema_DistShapeShape`.
++pub fn face_distances(
++    shape: &Shape,
++    faces: &[u32],
++    points: &[Point],
++) -> Result<Vec<f64>, KernelError> {
++    let operation = Operation::Query;
++    for &face in faces {
++        shape.check_index(operation, SubShapeKind::Face, face)?;
++    }
++    let points: Vec<sys::Vec3> = points.iter().map(|point| point.to_ffi()).collect();
++    call(operation, || {
++        sys::face_distances(shape.inner(), faces, &points)
++    })
++}
++
++/// The normal curvature of face `face` of `shape` across its edge `edge` at the edge's middle:
++/// along the direction in the face's tangent plane perpendicular to the edge, positive where the
++/// face bends toward its outward normal.
++pub fn normal_curvature_across(shape: &Shape, face: u32, edge: u32) -> Result<f64, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Face, face)?;
++    shape.check_index(operation, SubShapeKind::Edge, edge)?;
++    call(operation, || {
++        sys::normal_curvature_across(shape.inner(), face, edge)
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::KernelErrorKind;
++
++    fn square(z: f64) -> LoftSection {
++        let corners = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
++        LoftSection::Wire(
++            (0..corners.len())
++                .map(|corner| {
++                    let (x, y) = corners[corner];
++                    let (next_x, next_y) = corners[(corner + 1) % corners.len()];
++                    LoftCurve::Line {
++                        start: Point::new(x, y, z),
++                        end: Point::new(next_x, next_y, z),
++                    }
++                })
++                .collect(),
++        )
++    }
++
++    fn spec(sections: Vec<LoftSection>) -> LoftSpec {
++        LoftSpec {
++            sections,
++            construction: LoftConstruction::Ruled,
++            end_conditions: None,
++        }
++    }
++
++    fn refusal(spec: &LoftSpec) -> KernelError {
++        loft(spec, &Interrupt::new()).expect_err("the spec is refused")
++    }
++
++    #[test]
++    fn a_loft_of_one_section_is_refused() {
++        let error = refusal(&spec(vec![square(0.0)]));
++
++        assert_eq!(error.message, SECTIONS_MESSAGE);
++        assert_eq!(error.kind, KernelErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn a_point_between_sections_is_refused() {
++        let error = refusal(&spec(vec![
++            square(0.0),
++            LoftSection::Point(Point::new(0.0, 0.0, 1.0)),
++            square(2.0),
++        ]));
++
++        assert_eq!(error.message, POINT_MESSAGE);
++    }
++
++    #[test]
++    fn an_end_condition_at_a_point_is_refused() {
++        let mut point_end = spec(vec![
++            square(0.0),
++            LoftSection::Point(Point::new(0.0, 0.0, 1.0)),
++        ]);
++        point_end.end_conditions = Some(EndConditions {
++            order: EndOrder::Tangent,
++            method: EndMethod::Filling,
++            start: None,
++            end: Some(Vector::new(0.0, 0.0, 1.0)),
++        });
++
++        let error = refusal(&point_end);
++
++        assert_eq!(error.message, END_AT_POINT_MESSAGE);
++    }
++
++    #[test]
++    fn an_extra_section_without_offset_is_refused() {
++        let mut extra = spec(vec![square(0.0), square(1.0)]);
++        extra.end_conditions = Some(EndConditions {
++            order: EndOrder::Tangent,
++            method: EndMethod::ExtraSection { offset: 0.0 },
++            start: Some(Vector::new(0.0, 0.0, 1.0)),
++            end: None,
++        });
++
++        let error = refusal(&extra);
++
++        assert_eq!(error.message, OFFSET_MESSAGE);
++    }
++
++    #[test]
++    fn an_arc_without_sweep_is_refused() {
++        let circle = LoftSection::Wire(vec![LoftCurve::Arc {
++            center: Point::new(0.0, 0.0, 1.0),
++            axis: Vector::new(0.0, 0.0, 1.0),
++            start: Point::new(1.0, 0.0, 1.0),
++            sweep: 0.0,
++        }]);
++
++        let error = refusal(&spec(vec![square(0.0), circle]));
++
++        assert_eq!(error.message, SWEEP_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/integration.rs b/crates/partsmith-occt-sys/tests/integration.rs
+index fd98155..5cf8128 100644
+--- a/crates/partsmith-occt-sys/tests/integration.rs
++++ b/crates/partsmith-occt-sys/tests/integration.rs
+@@ -9,6 +9,8 @@ mod booleans;
+ mod determinism_and_concurrency;
+ mod exchange;
+ mod interrupts;
++mod loft_inputs;
++mod loft_rails;
+ mod primitives_and_queries;
+ mod profiles_and_sweeps;
+ mod tessellation;
+diff --git a/crates/partsmith-occt-sys/tests/loft_inputs.rs b/crates/partsmith-occt-sys/tests/loft_inputs.rs
+new file mode 100644
+index 0000000..99ab18e
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/loft_inputs.rs
+@@ -0,0 +1,341 @@
++//! The inputs and constructions of the loft-rails spike (kernel spec section 8.4), shared by its
++//! tests and the bench's rows.
++
++use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
++
++use partsmith_occt_sys::{
++    EndConditions, EndMethod, EndOrder, GuideRail, LoftConstruction, LoftCurve, LoftSection,
++    LoftSpec, Point, RailContact, Vector,
++};
++
++/// The axis the straight lofts run along.
++pub const UP: Vector = Vector::new(0.0, 0.0, 1.0);
++
++/// The offsets of an end condition's extra sections that the spike tries, in millimeters.
++pub const OFFSETS: [f64; 3] = [1.0, 0.1, 0.01];
++
++/// One input of section 8.4.
++#[derive(Debug, Clone)]
++pub struct Input {
++    /// The row's name.
++    pub name: &'static str,
++    /// The sections in order.
++    pub sections: Vec<LoftSection>,
++    /// The centerline from the first section to the last, the pipe shell's spine.
++    pub centerline: Vec<LoftCurve>,
++    /// The guide rail.
++    pub rail: Option<Vec<LoftCurve>>,
++    /// The loft's tangent at its first and last wire sections, where end conditions are asked
++    /// or measured.
++    pub start: Option<Vector>,
++    /// See `start`.
++    pub end: Option<Vector>,
++    /// The end condition asked, or none when the input only measures the plain loft.
++    pub order: Option<EndOrder>,
++    /// Whether the input is the three-section loft that section 8.4 times.
++    pub three_sections: bool,
++}
++
++/// One construction tried on one input.
++#[derive(Debug, Clone)]
++pub struct Run {
++    /// The input's name.
++    pub input: &'static str,
++    /// The construction's name.
++    pub construction: String,
++    /// The loft to build.
++    pub spec: LoftSpec,
++    /// Whether section 8.4's 100 ms applies to it natively.
++    pub timed: bool,
++}
++
++/// A closed polygon through `corners`, one line per side.
++fn polygon(corners: &[Point]) -> LoftSection {
++    LoftSection::Wire(
++        (0..corners.len())
++            .map(|corner| LoftCurve::Line {
++                start: corners[corner],
++                end: corners[(corner + 1) % corners.len()],
++            })
++            .collect(),
++    )
++}
++
++/// The corners of a regular polygon of `count` corners about the Z axis at height `z`, `radius`
++/// from the axis, the first at angle `angle`, counterclockwise.
++fn regular_corners(count: usize, radius: f64, z: f64, angle: f64) -> Vec<Point> {
++    (0..count)
++        .map(|corner| {
++            let at = angle + TAU * corner as f64 / count as f64;
++            Point::new(radius * at.cos(), radius * at.sin(), z)
++        })
++        .collect()
++}
++
++/// A square of side `side` centered on the Z axis at height `z`, turned by `turn` about it (0:
++/// sides along X and Y).
++fn square(side: f64, z: f64, turn: f64) -> LoftSection {
++    polygon(&regular_corners(
++        4,
++        side / 2.0_f64.sqrt(),
++        z,
++        turn + FRAC_PI_4,
++    ))
++}
++
++/// A circle of radius `radius` about `axis` through `center`, starting at `start`.
++fn circle(center: Point, axis: Vector, start: Point) -> LoftSection {
++    LoftSection::Wire(vec![LoftCurve::Arc {
++        center,
++        axis,
++        start,
++        sweep: TAU,
++    }])
++}
++
++/// The line along the Z axis from height 0 to `height`.
++fn z_line(height: f64) -> Vec<LoftCurve> {
++    vec![LoftCurve::Line {
++        start: Point::new(0.0, 0.0, 0.0),
++        end: Point::new(0.0, 0.0, height),
++    }]
++}
++
++/// The inputs of section 8.4, with the dimensions it leaves open (see the spike's record): the
++/// three sections, the square to a point, the two squares with a rail, the square and circle
++/// along an arc, and the square to a triangle; then the first, second and fifth with a tangent
++/// and with a curvature condition at each wire end.
++pub fn inputs() -> Vec<Input> {
++    let three = Input {
++        name: "three-sections",
++        sections: vec![
++            square(40.0, 0.0, 0.0),
++            circle(Point::new(0.0, 0.0, 30.0), UP, Point::new(15.0, 0.0, 30.0)),
++            square(20.0, 60.0, FRAC_PI_4),
++        ],
++        centerline: z_line(60.0),
++        rail: None,
++        start: Some(UP),
++        end: Some(UP),
++        order: None,
++        three_sections: true,
++    };
++    let point = Input {
++        name: "point-end",
++        sections: vec![
++            square(40.0, 0.0, 0.0),
++            LoftSection::Point(Point::new(0.0, 0.0, 40.0)),
++        ],
++        centerline: z_line(40.0),
++        rail: None,
++        start: Some(UP),
++        end: None,
++        order: None,
++        three_sections: false,
++    };
++    let rail = Input {
++        name: "guide-rail",
++        sections: vec![square(40.0, 0.0, 0.0), square(20.0, 40.0, 0.0)],
++        centerline: z_line(40.0),
++        rail: Some(vec![LoftCurve::Bspline {
++            degree: 3,
++            poles: vec![
++                Point::new(20.0, 20.0, 0.0),
++                Point::new(26.0, 26.0, 12.0),
++                Point::new(18.0, 18.0, 28.0),
++                Point::new(10.0, 10.0, 40.0),
++            ],
++            knots: vec![0.0, 1.0],
++            multiplicities: vec![4, 4],
++        }]),
++        start: None,
++        end: None,
++        order: None,
++        three_sections: false,
++    };
++    let arc = Input {
++        name: "arc-centerline",
++        sections: vec![
++            square(20.0, 0.0, 0.0),
++            circle(
++                Point::new(60.0, 0.0, 60.0),
++                Vector::new(1.0, 0.0, 0.0),
++                Point::new(60.0, 0.0, 70.0),
++            ),
++        ],
++        centerline: vec![LoftCurve::Arc {
++            center: Point::new(60.0, 0.0, 0.0),
++            axis: Vector::new(0.0, 1.0, 0.0),
++            start: Point::new(0.0, 0.0, 0.0),
++            sweep: FRAC_PI_2,
++        }],
++        rail: None,
++        start: None,
++        end: None,
++        order: None,
++        three_sections: false,
++    };
++    let four_to_three = Input {
++        name: "four-to-three",
++        sections: vec![
++            square(40.0, 0.0, 0.0),
++            polygon(&regular_corners(3, 20.0, 40.0, FRAC_PI_2)),
++        ],
++        centerline: z_line(40.0),
++        rail: None,
++        start: Some(UP),
++        end: Some(UP),
++        order: None,
++        three_sections: false,
++    };
++    let mut inputs = vec![
++        three.clone(),
++        point.clone(),
++        rail,
++        arc,
++        four_to_three.clone(),
++    ];
++    for (base, tangent, curvature) in [
++        (three, "three-sections tangent", "three-sections curvature"),
++        (point, "point-end tangent", "point-end curvature"),
++        (
++            four_to_three,
++            "four-to-three tangent",
++            "four-to-three curvature",
++        ),
++    ] {
++        for (name, order) in [
++            (tangent, EndOrder::Tangent),
++            (curvature, EndOrder::Curvature),
++        ] {
++            inputs.push(Input {
++                name,
++                order: Some(order),
++                three_sections: false,
++                ..base.clone()
++            });
++        }
++    }
++    inputs
++}
++
++/// A loft of `input` by `construction` with end conditions by `method`.
++fn spec(input: &Input, construction: LoftConstruction, method: EndMethod) -> LoftSpec {
++    let end_conditions = (input.start.is_some() || input.end.is_some()).then_some(EndConditions {
++        order: input.order.unwrap_or(EndOrder::Tangent),
++        method,
++        start: input.start,
++        end: input.end,
++    });
++    LoftSpec {
++        sections: input.sections.clone(),
++        construction,
++        end_conditions,
++    }
++}
++
++/// The pipe shell of `input` along its centerline, guided by its rail with `contact`.
++fn pipe_shell(input: &Input, contact: RailContact, curvilinear: bool) -> LoftConstruction {
++    LoftConstruction::PipeShell {
++        spine: input.centerline.clone(),
++        rail: input.rail.as_ref().map(|curves| GuideRail {
++            curves: curves.clone(),
++            contact,
++            curvilinear,
++        }),
++    }
++}
++
++/// The name of an offset in millimeters as a row shows it.
++fn offset_name(offset: f64) -> String {
++    format!("{offset}")
++}
++
++/// Every construction section 8.4 names on every input it applies to: `BRepOffsetAPI_ThruSections`
++/// ruled and smooth between profiles (not along a rail or a curved centerline, which it cannot
++/// follow), the pipe shell along the centerline, in each of the rail's six modes on the rail's
++/// input; and on the inputs with end conditions, the extra sections at each offset on the three
++/// lofts and the filling on the smooth loft, with the filling's plate order 2 besides for the
++/// curvature conditions.
++pub fn runs() -> Vec<Run> {
++    let mut runs = Vec::new();
++    for input in inputs() {
++        let mut add = |construction: String, spec: LoftSpec, timed: bool| {
++            runs.push(Run {
++                input: input.name,
++                construction,
++                spec,
++                timed,
++            });
++        };
++        let bases = [
++            ("ruled", LoftConstruction::Ruled),
++            ("smooth", LoftConstruction::Smooth),
++            ("pipe-shell", pipe_shell(&input, RailContact::Free, false)),
++        ];
++        match input.order {
++            None if input.rail.is_some() => {
++                for (contact, contact_name) in [
++                    (RailContact::Free, "free"),
++                    (RailContact::Contact, "contact"),
++                    (RailContact::ContactOnBorder, "border"),
++                ] {
++                    for curvilinear in [false, true] {
++                        let name = if curvilinear {
++                            format!("pipe-shell {contact_name} curvilinear")
++                        } else {
++                            format!("pipe-shell {contact_name}")
++                        };
++                        let construction = pipe_shell(&input, contact, curvilinear);
++                        add(name, spec(&input, construction, EndMethod::Measured), false);
++                    }
++                }
++            }
++            None if input.name == "arc-centerline" => {
++                let construction = pipe_shell(&input, RailContact::Free, false);
++                add(
++                    "pipe-shell".to_owned(),
++                    spec(&input, construction, EndMethod::Measured),
++                    false,
++                );
++            }
++            None => {
++                for (name, construction) in bases {
++                    add(
++                        name.to_owned(),
++                        spec(&input, construction, EndMethod::Measured),
++                        input.three_sections,
++                    );
++                }
++            }
++            Some(order) => {
++                for (name, construction) in bases {
++                    for offset in OFFSETS {
++                        add(
++                            format!("{name} extra {}", offset_name(offset)),
++                            spec(
++                                &input,
++                                construction.clone(),
++                                EndMethod::ExtraSection { offset },
++                            ),
++                            false,
++                        );
++                    }
++                }
++                add(
++                    "smooth filling".to_owned(),
++                    spec(&input, LoftConstruction::Smooth, EndMethod::Filling),
++                    false,
++                );
++                if order == EndOrder::Curvature {
++                    add(
++                        "smooth filling order 2".to_owned(),
++                        spec(&input, LoftConstruction::Smooth, EndMethod::FillingOrderTwo),
++                        false,
++                    );
++                }
++            }
++        }
++    }
++    runs
++}
+diff --git a/crates/partsmith-occt-sys/tests/loft_rails.rs b/crates/partsmith-occt-sys/tests/loft_rails.rs
+new file mode 100644
+index 0000000..674a0f4
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/loft_rails.rs
+@@ -0,0 +1,559 @@
++//! The loft-rails spike (kernel spec section 8.4): every construction on every input it applies
++//! to, measured as section 8.1 item 4 asks. Each test prints its measurements, with one canonical
++//! `parity` line per loft that the native and WebAssembly runs compare (ADR 0042), and pins the
++//! criteria of section 8.4's Pass but time and parity that the run fails, as the spike recorded
++//! them.
++
++use std::collections::BTreeMap;
++
++use partsmith_mesh::{TessellationTolerance, WELD_TOLERANCE};
++use partsmith_occt_sys::{
++    EndMethod, EndOrder, Interrupt, LoftConstruction, LoftCurve, LoftOrigin, LoftResult,
++    LoftSection, LoftSource, Point, Shape, SubShapeKind, Validity, Vector, face_distances, loft,
++    normal_curvature_across,
++};
++
++use crate::common::assert_closed;
++use crate::loft_inputs::{Input, Run, inputs, runs};
++
++/// The tolerance of tests 137 and 138: 0.05 mm and 5 degrees.
++const FINE: TessellationTolerance = TessellationTolerance {
++    chord_deviation: 0.05,
++    angular_deviation: 0.087_266_462_599_716_48,
++};
++
++/// The points sampled along each curve of a section and along the rail.
++const SAMPLES: usize = 20;
++
++/// How far a section or the rail may lie from the loft (section 8.4's Checks), in millimeters.
++const DISTANCE_TOLERANCE: f64 = 1e-6;
++
++/// How far the angle of an end condition may lie from the one asked for, in radians.
++const ANGLE_TOLERANCE: f64 = 1e-6;
++
++/// The angle an end condition asks between the loft's face and the neighbor's side face along
++/// an end edge: 0, the loft continuing the neighbor's side.
++const ASKED_ANGLE: f64 = 0.0;
++
++/// The canonical summary of a shape that the native and WebAssembly runs compare.
++fn parity_line(key: &str, shape: &Shape) -> String {
++    let volume = shape.volume().expect("the shape is measured");
++    let area = shape.area().expect("the shape is measured");
++    let Ok(bounds) = shape.bounding_box() else {
++        return format!("parity {key}: empty");
++    };
++    format!(
++        "parity {key}: faces={} edges={} vertices={} volume={volume:?} area={area:?} min={:?} max={:?}",
++        shape.count(SubShapeKind::Face),
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        bounds.min,
++        bounds.max
++    )
++}
++
++/// The undirected edges of the welded mesh that are not used by exactly two triangles, or the
++/// tessellation's error (test 138's check).
++fn open_mesh_edges(shape: &Shape) -> Result<usize, String> {
++    let mesh = shape
++        .tessellate(&FINE, &Interrupt::new())
++        .map_err(|error| error.detail())?;
++    let welded = mesh
++        .weld(WELD_TOLERANCE)
++        .expect("WELD_TOLERANCE is a valid weld tolerance")
++        .mesh;
++    let triangles: Vec<[usize; 3]> = welded
++        .triangles()
++        .iter()
++        .map(|corners| corners.map(|vertex| vertex as usize))
++        .collect();
++    let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
++    for [first, second, third] in &triangles {
++        for (start, end) in [(*first, *second), (*second, *third), (*third, *first)] {
++            *uses.entry((start.min(end), start.max(end))).or_insert(0) += 1;
++        }
++    }
++    let open = uses.values().filter(|count| **count != 2).count();
++    if open == 0 {
++        assert_closed(&triangles);
++    }
++    Ok(open)
++}
++
++/// The vector from `from` to `to`.
++fn between(from: Point, to: Point) -> Vector {
++    Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
++}
++
++/// `vector` turned by `angle` about the unit vector `axis` (Rodrigues' formula).
++fn turned(vector: Vector, axis: Vector, angle: f64) -> Vector {
++    let along = axis.scaled(axis.dot(vector) * (1.0 - angle.cos()));
++    let across = axis.cross(vector).scaled(angle.sin());
++    let kept = vector.scaled(angle.cos());
++    Vector::new(
++        kept.x + across.x + along.x,
++        kept.y + across.y + along.y,
++        kept.z + across.z + along.z,
++    )
++}
++
++/// The point of a single-span B-spline (a Bezier curve) at `parameter` from 0 to 1, by de
++/// Casteljau's algorithm.
++fn bezier_point(poles: &[Point], parameter: f64) -> Point {
++    let mut points = poles.to_vec();
++    for level in 1..points.len() {
++        for index in 0..points.len() - level {
++            let (first, second) = (points[index], points[index + 1]);
++            points[index] = first.offset(between(first, second).scaled(parameter));
++        }
++    }
++    points[0]
++}
++
++/// `SAMPLES` points of a curve from its start to its end, from its definition.
++fn curve_points(curve: &LoftCurve) -> Vec<Point> {
++    (0..SAMPLES)
++        .map(|sample| {
++            let parameter = sample as f64 / (SAMPLES - 1) as f64;
++            match curve {
++                LoftCurve::Line { start, end } => {
++                    start.offset(between(*start, *end).scaled(parameter))
++                }
++                LoftCurve::Arc {
++                    center,
++                    axis,
++                    start,
++                    sweep,
++                } => {
++                    let axis = axis.normalized().expect("the arc has an axis");
++                    center.offset(turned(between(*center, *start), axis, sweep * parameter))
++                }
++                LoftCurve::Bspline {
++                    poles,
++                    knots,
++                    multiplicities,
++                    degree,
++                } => {
++                    assert!(
++                        knots.len() == 2 && multiplicities.iter().all(|count| *count == degree + 1),
++                        "the spike's B-splines are single spans"
++                    );
++                    bezier_point(poles, parameter)
++                }
++            }
++        })
++        .collect()
++}
++
++/// The points sampled on a section: along each of its curves, or the point itself.
++fn section_points(section: &LoftSection) -> Vec<Point> {
++    match section {
++        LoftSection::Wire(curves) => curves.iter().flat_map(curve_points).collect(),
++        LoftSection::Point(point) => vec![*point],
++    }
++}
++
++/// The end faces of the loft, first and last, from its roles.
++fn end_faces(result: &LoftResult) -> (Option<u32>, Option<u32>) {
++    let face = |source: LoftSource| {
++        result
++            .roles
++            .iter()
++            .find(|role| role.source == source && role.element.kind == SubShapeKind::Face)
++            .map(|role| role.element.index)
++    };
++    (face(LoftSource::FirstShape), face(LoftSource::LastShape))
++}
++
++/// The largest distance from the points to the faces of `shape` but `skipped`, or NaN.
++fn largest_distance(shape: &Shape, skipped: &[u32], points: &[Point]) -> f64 {
++    let faces: Vec<u32> = (1..=shape.count(SubShapeKind::Face))
++        .filter(|face| !skipped.contains(face))
++        .collect();
++    face_distances(shape, &faces, points)
++        .map(|distances| distances.into_iter().fold(0.0, f64::max))
++        .unwrap_or(f64::NAN)
++}
++
++/// The angle between two unit normals.
++fn angle_between(first: Vector, second: Vector) -> f64 {
++    first.cross(second).length().atan2(first.dot(second))
++}
++
++/// What an end condition's check measured at one end: the largest angle between the loft's
++/// face and the neighbor's side face over the end edges (at each edge's middle, from
++/// `Shape::edge_normals`), the largest normal curvature of the loft's face across them, and how
++/// many end edges found no neighbor edge.
++#[derive(Debug, Clone, Copy, Default)]
++struct EndMeasure {
++    angle: f64,
++    curvature: f64,
++    edges: usize,
++    unmatched: usize,
++}
++
++/// Measures the loft against its neighbor at the end closed by face `end_face`, whose tangent
++/// is `direction`.
++fn measure_end(result: &LoftResult, end_face: u32, direction: Vector) -> EndMeasure {
++    let topology = result.shape.topology().expect("the loft has a topology");
++    let neighbor_edges: Vec<_> = (1..=result.neighbors.count(SubShapeKind::Edge))
++        .filter_map(|edge| result.neighbors.edge_normals(edge).ok())
++        .collect();
++    let mut measure = EndMeasure::default();
++    for &edge in &topology.faces[end_face as usize - 1].edges {
++        let normals = result
++            .shape
++            .edge_normals(edge)
++            .expect("the end edge has normals");
++        let Some(loft_face) = normals.faces.iter().find(|face| face.face != end_face) else {
++            measure.unmatched += 1;
++            continue;
++        };
++        measure.edges += 1;
++        let side = neighbor_edges
++            .iter()
++            .filter(|other| other.point.distance(normals.point) <= DISTANCE_TOLERANCE)
++            .flat_map(|other| other.faces.iter())
++            .find(|face| face.normal.dot(direction).abs() < 0.5);
++        let Some(side) = side else {
++            measure.unmatched += 1;
++            continue;
++        };
++        measure.angle = measure
++            .angle
++            .max((angle_between(loft_face.normal, side.normal) - ASKED_ANGLE).abs());
++        let curvature = normal_curvature_across(&result.shape, loft_face.face, edge)
++            .expect("the curvature is measured");
++        measure.curvature = measure.curvature.max(curvature.abs());
++    }
++    measure
++}
++
++/// The largest angle between the two faces of an edge whose middle lies at one of `offsets`
++/// from the plane through `origin` normal to `direction`: the creases the extra sections leave.
++fn crease(shape: &Shape, origin: Point, direction: Vector, offsets: &[f64]) -> f64 {
++    let mut largest: f64 = 0.0;
++    for edge in 1..=shape.count(SubShapeKind::Edge) {
++        let Ok(normals) = shape.edge_normals(edge) else {
++            continue;
++        };
++        let height = between(origin, normals.point).dot(direction);
++        if normals.faces.len() == 2
++            && offsets
++                .iter()
++                .any(|offset| (height - offset).abs() <= DISTANCE_TOLERANCE)
++        {
++            largest = largest.max(angle_between(
++                normals.faces[0].normal,
++                normals.faces[1].normal,
++            ));
++        }
++    }
++    largest
++}
++
++/// The first point of a wire section.
++fn section_origin(section: &LoftSection) -> Point {
++    match section {
++        LoftSection::Wire(curves) => match &curves[0] {
++            LoftCurve::Line { start, .. } | LoftCurve::Arc { start, .. } => *start,
++            LoftCurve::Bspline { poles, .. } => poles[0],
++        },
++        LoftSection::Point(point) => *point,
++    }
++}
++
++/// One name of a result element: what its input element belongs to, the section's number (0 for
++/// the spine and the rail), the input element's kind (none for an end face as a whole), the
++/// builder call, and whether a filling replaced it.
++type Name = (LoftOrigin, u32, Option<SubShapeKind>, LoftSource, bool);
++
++/// The names of a result element, deduplicated and sorted.
++type Names = Vec<Name>;
++
++/// For each kind, how many loft elements have each set of names (none for an unnamed element).
++fn history_counts(result: &LoftResult) -> BTreeMap<(SubShapeKind, Names), usize> {
++    let mut names: BTreeMap<(SubShapeKind, u32), Names> = BTreeMap::new();
++    for role in &result.roles {
++        names
++            .entry((role.element.kind, role.element.index))
++            .or_default()
++            .push((
++                role.origin,
++                role.owner,
++                role.input.map(|(kind, _)| kind),
++                role.source,
++                role.filled,
++            ));
++    }
++    let mut counts = BTreeMap::new();
++    for kind in [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex] {
++        for index in 1..=result.shape.count(kind) {
++            let mut element = names.get(&(kind, index)).cloned().unwrap_or_default();
++            element.sort();
++            element.dedup();
++            *counts.entry((kind, element)).or_insert(0) += 1;
++        }
++    }
++    counts
++}
++
++/// True when `value` is at most `limit`; false for NaN.
++fn within(value: f64, limit: f64) -> bool {
++    value <= limit
++}
++
++/// The end condition of a run: its order, and its method when it enforces one.
++fn enforced(run: &Run) -> Option<(EndOrder, EndMethod)> {
++    let conditions = run.spec.end_conditions?;
++    (conditions.method != EndMethod::Measured).then_some((conditions.order, conditions.method))
++}
++
++/// Runs one construction on one input, prints its measurements and returns the criteria of
++/// section 8.4's Pass but time and parity that it fails (or the failure of the call).
++fn measure(input: &Input, run: &Run) -> Vec<String> {
++    let key = format!("{} {}", run.input, run.construction);
++    println!(
++        "{key}: {} sections; the three-section loft that section 8.4 times: {}",
++        run.spec.sections.len(),
++        run.timed
++    );
++    let result = match loft(&run.spec, &Interrupt::new()) {
++        Ok(result) => result,
++        Err(error) => {
++            println!("{key}: failed: {}", error.detail());
++            println!("parity {key}: failed: {}", error.detail());
++            return vec![format!("failed: {}", error.detail())];
++        }
++    };
++    let mut failures = Vec::new();
++    let valid = result.shape.is_valid().expect("the check runs");
++    let solids = result.shape.count(SubShapeKind::Solid);
++    println!(
++        "{key}: {:?} (is_valid {valid}), {solids} solids; open mesh edges {:?}; surface error {:.3e}, tangency error {:.3e}, curvature error {:.3e}",
++        result.validity,
++        open_mesh_edges(&result.shape),
++        result.surface_error,
++        result.tangency_error,
++        result.curvature_error
++    );
++    if result.validity != Validity::AsBuilt || !valid {
++        failures.push("the loft is not valid as built".to_owned());
++    }
++    if solids != 1 {
++        failures.push("the loft is not one solid".to_owned());
++    }
++
++    let (first, last) = end_faces(&result);
++    let mut section_distance: f64 = 0.0;
++    for (place, section) in run.spec.sections.iter().enumerate() {
++        let distance = largest_distance(&result.shape, &[], &section_points(section));
++        println!(
++            "{key}: section {} lies {distance:.3e} mm off the loft",
++            place + 1
++        );
++        section_distance = if distance.is_nan() {
++            f64::NAN
++        } else {
++            section_distance.max(distance)
++        };
++    }
++    if !within(section_distance, DISTANCE_TOLERANCE) {
++        failures.push("a section is off the loft".to_owned());
++    }
++    if let Some(rail) = &input.rail {
++        let ends: Vec<u32> = first.into_iter().chain(last).collect();
++        let points: Vec<Point> = rail.iter().flat_map(curve_points).collect();
++        let distance = largest_distance(&result.shape, &ends, &points);
++        println!("{key}: the rail lies {distance:.3e} mm off the lateral faces");
++        if !within(distance, DISTANCE_TOLERANCE) {
++            failures.push("the rail is off its lateral faces".to_owned());
++        }
++    }
++
++    let ends = [
++        (input.start, first, run.spec.sections.first()),
++        (input.end, last, run.spec.sections.last()),
++    ];
++    let mut angle: f64 = 0.0;
++    for (place, (direction, face, section)) in ends.into_iter().enumerate() {
++        let (Some(direction), Some(section)) = (direction, section) else {
++            continue;
++        };
++        let end = if place == 0 { "start" } else { "end" };
++        let Some(face) = face else {
++            println!("{key}: {end}: no end face");
++            angle = f64::NAN;
++            continue;
++        };
++        let measured = measure_end(&result, face, direction);
++        println!(
++            "{key}: {end}: angle to the neighbor {:.3e} rad over {} end edges ({} unmatched), curvature across {:.3e} per mm",
++            measured.angle, measured.edges, measured.unmatched, measured.curvature
++        );
++        if measured.unmatched > 0 || measured.edges == 0 {
++            angle = f64::NAN;
++        } else if !angle.is_nan() {
++            angle = angle.max(measured.angle);
++        }
++        if let Some((_, EndMethod::ExtraSection { offset })) = enforced(run) {
++            let toward = if place == 0 {
++                direction
++            } else {
++                direction.scaled(-1.0)
++            };
++            let creases = crease(
++                &result.shape,
++                section_origin(section),
++                toward,
++                &[offset, 2.0 * offset],
++            );
++            println!("{key}: {end}: crease at the extra sections {creases:.3e} rad");
++        }
++    }
++    if enforced(run).is_some() && !within(angle, ANGLE_TOLERANCE) {
++        failures.push("an end condition's angle is off".to_owned());
++    }
++
++    println!(
++        "{key}: polls {} first {:.3?} longest {:.3?} after poll {} last {:.3?} total {:.3?} (debug build)",
++        result.polls.count,
++        result.polls.first,
++        result.polls.longest,
++        result.polls.longest_after,
++        result.polls.last,
++        result.polls.total
++    );
++    for ((kind, names), count) in history_counts(&result) {
++        println!("{key}: history {kind:?} x{count} named by {names:?}");
++    }
++    println!("{}", parity_line(&key, &result.shape));
++    failures
++}
++
++/// Runs one construction on one input and checks the failures the spike recorded for it.
++fn check(input_name: &str, construction: &str, expected: &[&str]) {
++    let input = inputs()
++        .into_iter()
++        .find(|input| input.name == input_name)
++        .expect("the input exists");
++    let run = runs()
++        .into_iter()
++        .find(|run| run.input == input_name && run.construction == construction)
++        .expect("the construction runs on the input");
++    let failures = measure(&input, &run);
++    println!("{input_name} {construction}: fails {failures:?}");
++    let failures: Vec<&str> = failures
++        .iter()
++        .map(|failure| {
++            if failure.starts_with("failed: ") {
++                "failed"
++            } else {
++                failure.as_str()
++            }
++        })
++        .collect();
++    assert_eq!(failures, expected, "{input_name} {construction}");
++}
++
++#[test]
++fn every_run_has_a_test() {
++    assert_eq!(runs().len(), 79);
++    assert!(runs().iter().all(|run| !matches!(
++        run.spec.construction,
++        LoftConstruction::PipeShell { .. }
++    ) || run.construction.starts_with("pipe-shell")));
++}
++
++macro_rules! spike_tests {
++    ($($test:ident: $input:literal, $construction:literal, [$($failure:literal),*];)*) => {
++        $(
++            #[test]
++            fn $test() {
++                check($input, $construction, &[$($failure),*]);
++            }
++        )*
++    };
++}
++
++spike_tests! {
++    three_sections_ruled: "three-sections", "ruled", [];
++    three_sections_smooth: "three-sections", "smooth", [];
++    three_sections_pipe_shell: "three-sections", "pipe-shell", [];
++    point_end_ruled: "point-end", "ruled", [];
++    point_end_smooth: "point-end", "smooth", [];
++    point_end_pipe_shell: "point-end", "pipe-shell", [];
++    guide_rail_pipe_shell_free: "guide-rail", "pipe-shell free", ["the rail is off its lateral faces"];
++    guide_rail_pipe_shell_free_curvilinear: "guide-rail", "pipe-shell free curvilinear", ["the rail is off its lateral faces"];
++    guide_rail_pipe_shell_contact: "guide-rail", "pipe-shell contact", ["failed"];
++    guide_rail_pipe_shell_contact_curvilinear: "guide-rail", "pipe-shell contact curvilinear", ["failed"];
++    guide_rail_pipe_shell_border: "guide-rail", "pipe-shell border", ["failed"];
++    guide_rail_pipe_shell_border_curvilinear: "guide-rail", "pipe-shell border curvilinear", ["failed"];
++    arc_centerline_pipe_shell: "arc-centerline", "pipe-shell", [];
++    four_to_three_ruled: "four-to-three", "ruled", [];
++    four_to_three_smooth: "four-to-three", "smooth", [];
++    four_to_three_pipe_shell: "four-to-three", "pipe-shell", [];
++    three_sections_tangent_ruled_extra_1: "three-sections tangent", "ruled extra 1", [];
++    three_sections_tangent_ruled_extra_0_1: "three-sections tangent", "ruled extra 0.1", [];
++    three_sections_tangent_ruled_extra_0_01: "three-sections tangent", "ruled extra 0.01", [];
++    three_sections_tangent_smooth_extra_1: "three-sections tangent", "smooth extra 1", ["an end condition's angle is off"];
++    three_sections_tangent_smooth_extra_0_1: "three-sections tangent", "smooth extra 0.1", ["an end condition's angle is off"];
++    three_sections_tangent_smooth_extra_0_01: "three-sections tangent", "smooth extra 0.01", ["an end condition's angle is off"];
++    three_sections_tangent_pipe_shell_extra_1: "three-sections tangent", "pipe-shell extra 1", ["an end condition's angle is off"];
++    three_sections_tangent_pipe_shell_extra_0_1: "three-sections tangent", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    three_sections_tangent_pipe_shell_extra_0_01: "three-sections tangent", "pipe-shell extra 0.01", ["an end condition's angle is off"];
++    three_sections_tangent_smooth_filling: "three-sections tangent", "smooth filling", ["a section is off the loft", "an end condition's angle is off"];
++    three_sections_curvature_ruled_extra_1: "three-sections curvature", "ruled extra 1", [];
++    three_sections_curvature_ruled_extra_0_1: "three-sections curvature", "ruled extra 0.1", [];
++    three_sections_curvature_ruled_extra_0_01: "three-sections curvature", "ruled extra 0.01", [];
++    three_sections_curvature_smooth_extra_1: "three-sections curvature", "smooth extra 1", ["an end condition's angle is off"];
++    three_sections_curvature_smooth_extra_0_1: "three-sections curvature", "smooth extra 0.1", ["an end condition's angle is off"];
++    three_sections_curvature_smooth_extra_0_01: "three-sections curvature", "smooth extra 0.01", [];
++    three_sections_curvature_pipe_shell_extra_1: "three-sections curvature", "pipe-shell extra 1", ["an end condition's angle is off"];
++    three_sections_curvature_pipe_shell_extra_0_1: "three-sections curvature", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    three_sections_curvature_pipe_shell_extra_0_01: "three-sections curvature", "pipe-shell extra 0.01", ["failed"];
++    three_sections_curvature_smooth_filling: "three-sections curvature", "smooth filling", ["failed"];
++    three_sections_curvature_smooth_filling_order_2: "three-sections curvature", "smooth filling order 2", ["a section is off the loft", "an end condition's angle is off"];
++    point_end_tangent_ruled_extra_1: "point-end tangent", "ruled extra 1", [];
++    point_end_tangent_ruled_extra_0_1: "point-end tangent", "ruled extra 0.1", [];
++    point_end_tangent_ruled_extra_0_01: "point-end tangent", "ruled extra 0.01", [];
++    point_end_tangent_smooth_extra_1: "point-end tangent", "smooth extra 1", ["an end condition's angle is off"];
++    point_end_tangent_smooth_extra_0_1: "point-end tangent", "smooth extra 0.1", ["an end condition's angle is off"];
++    point_end_tangent_smooth_extra_0_01: "point-end tangent", "smooth extra 0.01", ["an end condition's angle is off"];
++    point_end_tangent_pipe_shell_extra_1: "point-end tangent", "pipe-shell extra 1", ["an end condition's angle is off"];
++    point_end_tangent_pipe_shell_extra_0_1: "point-end tangent", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    point_end_tangent_pipe_shell_extra_0_01: "point-end tangent", "pipe-shell extra 0.01", ["an end condition's angle is off"];
++    point_end_tangent_smooth_filling: "point-end tangent", "smooth filling", ["an end condition's angle is off"];
++    point_end_curvature_ruled_extra_1: "point-end curvature", "ruled extra 1", [];
++    point_end_curvature_ruled_extra_0_1: "point-end curvature", "ruled extra 0.1", [];
++    point_end_curvature_ruled_extra_0_01: "point-end curvature", "ruled extra 0.01", [];
++    point_end_curvature_smooth_extra_1: "point-end curvature", "smooth extra 1", ["an end condition's angle is off"];
++    point_end_curvature_smooth_extra_0_1: "point-end curvature", "smooth extra 0.1", ["an end condition's angle is off"];
++    point_end_curvature_smooth_extra_0_01: "point-end curvature", "smooth extra 0.01", ["an end condition's angle is off"];
++    point_end_curvature_pipe_shell_extra_1: "point-end curvature", "pipe-shell extra 1", ["an end condition's angle is off"];
++    point_end_curvature_pipe_shell_extra_0_1: "point-end curvature", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    point_end_curvature_pipe_shell_extra_0_01: "point-end curvature", "pipe-shell extra 0.01", [];
++    point_end_curvature_smooth_filling: "point-end curvature", "smooth filling", ["failed"];
++    point_end_curvature_smooth_filling_order_2: "point-end curvature", "smooth filling order 2", ["an end condition's angle is off"];
++    four_to_three_tangent_ruled_extra_1: "four-to-three tangent", "ruled extra 1", [];
++    four_to_three_tangent_ruled_extra_0_1: "four-to-three tangent", "ruled extra 0.1", [];
++    four_to_three_tangent_ruled_extra_0_01: "four-to-three tangent", "ruled extra 0.01", [];
++    four_to_three_tangent_smooth_extra_1: "four-to-three tangent", "smooth extra 1", ["an end condition's angle is off"];
++    four_to_three_tangent_smooth_extra_0_1: "four-to-three tangent", "smooth extra 0.1", ["an end condition's angle is off"];
++    four_to_three_tangent_smooth_extra_0_01: "four-to-three tangent", "smooth extra 0.01", ["an end condition's angle is off"];
++    four_to_three_tangent_pipe_shell_extra_1: "four-to-three tangent", "pipe-shell extra 1", ["an end condition's angle is off"];
++    four_to_three_tangent_pipe_shell_extra_0_1: "four-to-three tangent", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    four_to_three_tangent_pipe_shell_extra_0_01: "four-to-three tangent", "pipe-shell extra 0.01", ["an end condition's angle is off"];
++    four_to_three_tangent_smooth_filling: "four-to-three tangent", "smooth filling", ["an end condition's angle is off"];
++    four_to_three_curvature_ruled_extra_1: "four-to-three curvature", "ruled extra 1", [];
++    four_to_three_curvature_ruled_extra_0_1: "four-to-three curvature", "ruled extra 0.1", [];
++    four_to_three_curvature_ruled_extra_0_01: "four-to-three curvature", "ruled extra 0.01", [];
++    four_to_three_curvature_smooth_extra_1: "four-to-three curvature", "smooth extra 1", ["an end condition's angle is off"];
++    four_to_three_curvature_smooth_extra_0_1: "four-to-three curvature", "smooth extra 0.1", ["an end condition's angle is off"];
++    four_to_three_curvature_smooth_extra_0_01: "four-to-three curvature", "smooth extra 0.01", [];
++    four_to_three_curvature_pipe_shell_extra_1: "four-to-three curvature", "pipe-shell extra 1", ["an end condition's angle is off"];
++    four_to_three_curvature_pipe_shell_extra_0_1: "four-to-three curvature", "pipe-shell extra 0.1", ["an end condition's angle is off"];
++    four_to_three_curvature_pipe_shell_extra_0_01: "four-to-three curvature", "pipe-shell extra 0.01", [];
++    four_to_three_curvature_smooth_filling: "four-to-three curvature", "smooth filling", ["failed"];
++    four_to_three_curvature_smooth_filling_order_2: "four-to-three curvature", "smooth filling order 2", ["the loft is not valid as built", "an end condition's angle is off"];
++}
+diff --git a/crates/partsmith-wasm/Cargo.toml b/crates/partsmith-wasm/Cargo.toml
+index 4e7f5cb..7e648cb 100644
+--- a/crates/partsmith-wasm/Cargo.toml
++++ b/crates/partsmith-wasm/Cargo.toml
+@@ -30,6 +30,8 @@ harness = false
+ 
+ [dependencies]
+ partsmith-engine.workspace = true
++# The loft-rails spike's calls in `main` (kernel spec section 8.1 item 2).
++partsmith-occt-sys.workspace = true
+ 
+ [dev-dependencies]
+ partsmith-budgets.workspace = true
+diff --git a/crates/partsmith-wasm/src/main.rs b/crates/partsmith-wasm/src/main.rs
+index fa319e9..6b7cb11 100644
+--- a/crates/partsmith-wasm/src/main.rs
++++ b/crates/partsmith-wasm/src/main.rs
+@@ -1,6 +1,118 @@
+ //! The web core module `partsmith_core`: an Emscripten executable whose runtime stays alive after `main` returns, so JavaScript can call `ps_alloc`, `ps_free` and `ps_call` (protocol.md section 2.10, ADR 0009).
+ 
++use std::f64::consts::{FRAC_PI_2, TAU};
++use std::hint::black_box;
++
++use partsmith_occt_sys::{
++    EndConditions, EndMethod, EndOrder, GuideRail, Interrupt, LoftConstruction, LoftCurve,
++    LoftSection, LoftSpec, Point, RailContact, Vector, face_distances, loft,
++    normal_curvature_across,
++};
++
+ fn main() {
+     // Creating the session here pays its setup cost while the module is instantiated. Calling into the library also keeps it, and with it the three exports, in the link.
+     partsmith_wasm::initialize_session();
++    keep_loft_rails_spike();
++}
++
++/// A square 2 mm across centered on the Z axis at height `z`, counterclockwise.
++fn square(z: f64) -> LoftSection {
++    let corners = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
++    LoftSection::Wire(
++        (0..corners.len())
++            .map(|corner| {
++                let (x, y) = corners[corner];
++                let (next_x, next_y) = corners[(corner + 1) % corners.len()];
++                LoftCurve::Line {
++                    start: Point::new(x, y, z),
++                    end: Point::new(next_x, next_y, z),
++                }
++            })
++            .collect(),
++    )
++}
++
++/// Calls the loft-rails spike's functions on a small input so the linker keeps their code for the size measurement (kernel spec section 8.1 items 2 and 4): `loft` once for each construction and end method below, and the two queries on each loft that builds.
++fn keep_loft_rails_spike() {
++    let up = Vector::new(0.0, 0.0, 1.0);
++    let circle = LoftSection::Wire(vec![LoftCurve::Arc {
++        center: Point::new(0.0, 0.0, 1.0),
++        axis: up,
++        start: Point::new(1.0, 0.0, 1.0),
++        sweep: TAU,
++    }]);
++    let sections = vec![square(0.0), circle, square(2.0)];
++    let spine = vec![LoftCurve::Line {
++        start: Point::new(0.0, 0.0, 0.0),
++        end: Point::new(0.0, 0.0, 2.0),
++    }];
++    let rail = GuideRail {
++        curves: vec![LoftCurve::Bspline {
++            degree: 3,
++            poles: vec![
++                Point::new(1.0, 1.0, 0.0),
++                Point::new(1.2, 1.2, 0.6),
++                Point::new(1.1, 1.1, 1.4),
++                Point::new(1.0, 1.0, 2.0),
++            ],
++            knots: vec![0.0, 1.0],
++            multiplicities: vec![4, 4],
++        }],
++        contact: RailContact::Free,
++        curvilinear: true,
++    };
++    let arc = vec![LoftCurve::Arc {
++        center: Point::new(2.0, 0.0, 0.0),
++        axis: Vector::new(0.0, 1.0, 0.0),
++        start: Point::new(0.0, 0.0, 0.0),
++        sweep: FRAC_PI_2,
++    }];
++    let constructions = [
++        (
++            LoftConstruction::Ruled,
++            EndMethod::ExtraSection { offset: 0.1 },
++        ),
++        (LoftConstruction::Smooth, EndMethod::Filling),
++        (
++            LoftConstruction::PipeShell {
++                spine: spine.clone(),
++                rail: None,
++            },
++            EndMethod::Measured,
++        ),
++        (
++            LoftConstruction::PipeShell {
++                spine,
++                rail: Some(rail),
++            },
++            EndMethod::Measured,
++        ),
++        (
++            LoftConstruction::PipeShell {
++                spine: arc,
++                rail: None,
++            },
++            EndMethod::Measured,
++        ),
++    ];
++    for (construction, method) in constructions {
++        let spec = LoftSpec {
++            sections: sections.clone(),
++            construction,
++            end_conditions: Some(EndConditions {
++                order: EndOrder::Tangent,
++                method,
++                start: Some(up),
++                end: Some(up),
++            }),
++        };
++        if let Ok(result) = black_box(loft(&spec, &Interrupt::new())) {
++            let _ = black_box(face_distances(
++                &result.shape,
++                &[1],
++                &[Point::new(0.0, 0.0, 0.0)],
++            ));
++            let _ = black_box(normal_curvature_across(&result.shape, 1, 1));
++        }
++    }
+ }

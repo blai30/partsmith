@@ -1,0 +1,4582 @@
+{
+ "spike": "projection",
+ "section": "kernel.md 8.7",
+ "date": "2026-11-15",
+ "runs_on": "2026-11-16 UTC (round 3 at 1fe1c9a: tests 17:15 to 17:17, timed sets 17:21:38 to 17:22:40, size builds 17:23:52 to 17:54:43)",
+ "round": 3,
+ "branch": "spike/kernel-projection",
+ "commit": "1fe1c9a",
+ "commits": [
+  "48b3053",
+  "bf7f5eb",
+  "0462b1a",
+  "3ed9e02",
+  "1fe1c9a"
+ ],
+ "base": "2c56ff9",
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "ram_gb": 15,
+  "load_before_native_sets": [
+   "0.47 0.86 0.76",
+   "0.52 0.86 0.76",
+   "0.52 0.86 0.76",
+   "0.56 0.86 0.76",
+   "0.59 0.87 0.76"
+  ],
+  "load_before_node_sets": [
+   "0.62 0.87 0.76",
+   "0.65 0.87 0.77",
+   "1.00 0.94 0.79",
+   "1.30 1.01 0.81",
+   "1.25 1.01 0.82"
+  ],
+  "load_note": "no build or other test ran during a set; the bench keeps one core busy, and Node also runs its own compiler threads (ps showed node at 222 percent CPU in set 5), so the 1-minute load passes 1 during the Node sets"
+ },
+ "toolchain": {
+  "rust": "1.97.0",
+  "emscripten": "4.0.15",
+  "node": "v22.23.4",
+  "occt": "7.9.3"
+ },
+ "inputs_note": "test 45's result has 56 edges (24 lines, 24 arcs, 8 degenerated), not 50; all 56 projected. The part's sketch plane z = 0 holds its bottom face, so the section is coplanar. A cylinder seen across its axis was added for the two-line check.",
+ "checks_note": "Kinds and points checks run on every projection and, since round 2, on the projection step of silhouette-exact-with-edges (its OutLineVCompound3d edges as source edges). Validity and test 138's weld check run on every result. The deviation from the exact silhouette is a measurement, not a check.",
+ "runs": [
+  {
+   "input": "box-xy",
+   "construction": "curve-on-plane",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 8,
+   "vertices": 16,
+   "kinds": {
+    "Line": 8
+   },
+   "edge_tolerance": 1e-07,
+   "points": 4,
+   "points_check_mm": 0.0,
+   "points_check_failures": [],
+   "failures_as_written": 4,
+   "failures_geometric": 0,
+   "failed_checks": [
+    "kind as written"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.016585,
+     "set_medians_ms": [
+      0.016585,
+      0.014489,
+      0.015156,
+      0.022895,
+      0.021181
+     ],
+     "spread_ms": [
+      0.014489,
+      0.022895
+     ],
+     "fastest_run_ms": 0.013934,
+     "slowest_run_ms": 0.06462
+    },
+    "node_ms": {
+     "median_ms": 0.06903,
+     "set_medians_ms": [
+      0.06903,
+      0.062116,
+      0.075887,
+      0.058401,
+      0.077053
+     ],
+     "spread_ms": [
+      0.058401,
+      0.077053
+     ],
+     "fastest_run_ms": 0.050049,
+     "slowest_run_ms": 1.462
+    },
+    "polls_native": {
+     "count": 16,
+     "first_ms": 0.000588,
+     "first_most_ms": 0.005272,
+     "longest_ms": 0.001346,
+     "longest_set_medians_ms": [
+      0.001346,
+      0.001148,
+      0.001227,
+      0.001555,
+      0.001822
+     ],
+     "longest_most_ms": 0.026707,
+     "longest_after_poll": [
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       2,
+       12,
+       12
+      ],
+      [
+       1,
+       12,
+       7,
+       12,
+       12
+      ]
+     ],
+     "last_ms": 0.004777,
+     "last_most_ms": 0.048967,
+     "outside_the_shim_ms": 0.001118
+    }
+   }
+  },
+  {
+   "input": "box-xy",
+   "construction": "curve-on-plane-keeping-parameters",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 8,
+   "vertices": 16,
+   "kinds": {
+    "Line": 8
+   },
+   "edge_tolerance": 1e-07,
+   "points": 4,
+   "points_check_mm": 0.0,
+   "points_check_failures": [],
+   "failures_as_written": 4,
+   "failures_geometric": 0,
+   "failed_checks": [
+    "kind as written"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.016364,
+     "set_medians_ms": [
+      0.016364,
+      0.014041,
+      0.014887,
+      0.018476,
+      0.018391
+     ],
+     "spread_ms": [
+      0.014041,
+      0.018476
+     ],
+     "fastest_run_ms": 0.013676,
+     "slowest_run_ms": 0.023809
+    },
+    "node_ms": {
+     "median_ms": 0.056229,
+     "set_medians_ms": [
+      0.054971,
+      0.053972,
+      0.05663,
+      0.056229,
+      0.061342
+     ],
+     "spread_ms": [
+      0.053972,
+      0.061342
+     ],
+     "fastest_run_ms": 0.05212,
+     "slowest_run_ms": 0.099656
+    },
+    "polls_native": {
+     "count": 16,
+     "first_ms": 0.000569,
+     "first_most_ms": 0.00117,
+     "longest_ms": 0.001325,
+     "longest_set_medians_ms": [
+      0.001325,
+      0.001114,
+      0.001208,
+      0.001418,
+      0.001554
+     ],
+     "longest_most_ms": 0.006499,
+     "longest_after_poll": [
+      [
+       12,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       12,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       12,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       12,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       12,
+       12,
+       12,
+       12,
+       12
+      ]
+     ],
+     "last_ms": 0.004532,
+     "last_most_ms": 0.005313,
+     "outside_the_shim_ms": 0.001128
+    }
+   }
+  },
+  {
+   "input": "box-xy",
+   "construction": "prism",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 8,
+   "vertices": 16,
+   "kinds": {
+    "Line": 8
+   },
+   "edge_tolerance": 1.5e-07,
+   "points": 4,
+   "points_check_mm": 0.0,
+   "points_check_failures": [],
+   "failures_as_written": 4,
+   "failures_geometric": 0,
+   "failed_checks": [
+    "kind as written"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 4.995,
+     "set_medians_ms": [
+      4.482,
+      4.995,
+      3.997,
+      5.01,
+      5.093
+     ],
+     "spread_ms": [
+      3.997,
+      5.093
+     ],
+     "fastest_run_ms": 3.951,
+     "slowest_run_ms": 6.514
+    },
+    "node_ms": {
+     "median_ms": 10.217,
+     "set_medians_ms": [
+      10.137,
+      10.217,
+      10.668,
+      10.179,
+      11.335
+     ],
+     "spread_ms": [
+      10.137,
+      11.335
+     ],
+     "fastest_run_ms": 9.451,
+     "slowest_run_ms": 13.78
+    },
+    "polls_native": {
+     "count": 9,
+     "first_ms": 0.000333,
+     "first_most_ms": 0.00065,
+     "longest_ms": 0.662583,
+     "longest_set_medians_ms": [
+      0.616421,
+      0.796011,
+      0.537659,
+      0.662583,
+      0.746484
+     ],
+     "longest_most_ms": 2.209,
+     "longest_after_poll": [
+      [
+       2,
+       4,
+       8,
+       6,
+       4
+      ],
+      [
+       2,
+       2,
+       5,
+       5,
+       7
+      ],
+      [
+       2,
+       6,
+       6,
+       6,
+       3
+      ],
+      [
+       2,
+       5,
+       8,
+       7,
+       6
+      ],
+      [
+       2,
+       4,
+       4,
+       8,
+       2
+      ]
+     ],
+     "last_ms": 0.618669,
+     "last_most_ms": 0.894572,
+     "outside_the_shim_ms": 0.006661
+    }
+   }
+  },
+  {
+   "input": "box-011",
+   "construction": "curve-on-plane",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 12,
+   "vertices": 24,
+   "kinds": {
+    "Line": 12
+   },
+   "edge_tolerance": 1e-07,
+   "points": 0,
+   "points_check_mm": 7.944109290391274e-15,
+   "points_check_failures": [],
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.027429,
+     "set_medians_ms": [
+      0.024612,
+      0.028769,
+      0.022423,
+      0.027429,
+      0.027608
+     ],
+     "spread_ms": [
+      0.022423,
+      0.028769
+     ],
+     "fastest_run_ms": 0.021472,
+     "slowest_run_ms": 0.073711
+    },
+    "node_ms": {
+     "median_ms": 0.080304,
+     "set_medians_ms": [
+      0.072965,
+      0.091223,
+      0.080304,
+      0.080066,
+      0.115223
+     ],
+     "spread_ms": [
+      0.072965,
+      0.115223
+     ],
+     "fastest_run_ms": 0.062642,
+     "slowest_run_ms": 1.107
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.000463,
+     "first_most_ms": 0.003175,
+     "longest_ms": 0.001964,
+     "longest_set_medians_ms": [
+      0.001775,
+      0.001964,
+      0.001445,
+      0.002106,
+      0.002045
+     ],
+     "longest_most_ms": 0.041139,
+     "longest_after_poll": [
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       9,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       2,
+       12,
+       12,
+       12,
+       12
+      ]
+     ],
+     "last_ms": 0.007327,
+     "last_most_ms": 0.009955,
+     "outside_the_shim_ms": 0.001676
+    }
+   }
+  },
+  {
+   "input": "box-011",
+   "construction": "curve-on-plane-keeping-parameters",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 12,
+   "vertices": 24,
+   "kinds": {
+    "BsplineCurve": 8,
+    "Line": 4
+   },
+   "edge_tolerance": 1e-07,
+   "points": 0,
+   "points_check_mm": 7.944109290391274e-15,
+   "points_check_failures": [],
+   "failures_as_written": 8,
+   "failures_geometric": 8,
+   "failed_checks": [
+    "kind as written",
+    "kind read geometrically"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.035241,
+     "set_medians_ms": [
+      0.03082,
+      0.037931,
+      0.028384,
+      0.035907,
+      0.035241
+     ],
+     "spread_ms": [
+      0.028384,
+      0.037931
+     ],
+     "fastest_run_ms": 0.027906,
+     "slowest_run_ms": 0.074234
+    },
+    "node_ms": {
+     "median_ms": 0.094532,
+     "set_medians_ms": [
+      0.092648,
+      0.091626,
+      0.094532,
+      0.110672,
+      0.102278
+     ],
+     "spread_ms": [
+      0.091626,
+      0.110672
+     ],
+     "fastest_run_ms": 0.087202,
+     "slowest_run_ms": 1.52
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.000502,
+     "first_most_ms": 0.001156,
+     "longest_ms": 0.002135,
+     "longest_set_medians_ms": [
+      0.001922,
+      0.002423,
+      0.001944,
+      0.002265,
+      0.002135
+     ],
+     "longest_most_ms": 0.028401,
+     "longest_after_poll": [
+      [
+       1,
+       13,
+       13,
+       13,
+       13
+      ],
+      [
+       1,
+       13,
+       1,
+       13,
+       13
+      ],
+      [
+       1,
+       12,
+       12,
+       12,
+       12
+      ],
+      [
+       1,
+       13,
+       13,
+       12,
+       13
+      ],
+      [
+       1,
+       13,
+       12,
+       12,
+       1
+      ]
+     ],
+     "last_ms": 0.007307,
+     "last_most_ms": 0.008805,
+     "outside_the_shim_ms": 0.001723
+    }
+   }
+  },
+  {
+   "input": "box-011",
+   "construction": "prism",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 12,
+   "vertices": 24,
+   "kinds": {
+    "Line": 12
+   },
+   "edge_tolerance": 1.5000002025358413e-07,
+   "points": 0,
+   "points_check_mm": 2.0097183471152322e-14,
+   "points_check_failures": [],
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 6.162,
+     "set_medians_ms": [
+      6.162,
+      5.336,
+      5.715,
+      7.473,
+      7.16
+     ],
+     "spread_ms": [
+      5.336,
+      7.473
+     ],
+     "fastest_run_ms": 5.328,
+     "slowest_run_ms": 9.699
+    },
+    "node_ms": {
+     "median_ms": 13.823,
+     "set_medians_ms": [
+      13.782,
+      12.958,
+      13.823,
+      14.004,
+      15.206
+     ],
+     "spread_ms": [
+      12.958,
+      15.206
+     ],
+     "fastest_run_ms": 12.513,
+     "slowest_run_ms": 17.793
+    },
+    "polls_native": {
+     "count": 13,
+     "first_ms": 0.000396,
+     "first_most_ms": 0.000505,
+     "longest_ms": 0.60174,
+     "longest_set_medians_ms": [
+      0.60174,
+      0.517498,
+      0.564451,
+      0.746977,
+      0.731349
+     ],
+     "longest_most_ms": 1.128,
+     "longest_after_poll": [
+      [
+       2,
+       6,
+       4,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       8,
+       5,
+       2
+      ],
+      [
+       2,
+       9,
+       5,
+       12,
+       2
+      ],
+      [
+       2,
+       12,
+       4,
+       8,
+       2
+      ],
+      [
+       6,
+       6,
+       11,
+       4,
+       6
+      ]
+     ],
+     "last_ms": 0.487343,
+     "last_most_ms": 0.693361,
+     "outside_the_shim_ms": 0.006583
+    }
+   }
+  },
+  {
+   "input": "circle-30",
+   "construction": "curve-on-plane",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 1,
+   "kinds": {
+    "Ellipse": 1
+   },
+   "edge_tolerance": 1e-07,
+   "points": 0,
+   "points_check_mm": 4.440892098500626e-15,
+   "points_check_failures": [],
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.004589,
+     "set_medians_ms": [
+      0.004555,
+      0.00425,
+      0.004589,
+      0.005513,
+      0.005559
+     ],
+     "spread_ms": [
+      0.00425,
+      0.005559
+     ],
+     "fastest_run_ms": 0.004081,
+     "slowest_run_ms": 0.039137
+    },
+    "node_ms": {
+     "median_ms": 0.016975,
+     "set_medians_ms": [
+      0.016975,
+      0.015753,
+      0.018032,
+      0.020297,
+      0.015711
+     ],
+     "spread_ms": [
+      0.015711,
+      0.020297
+     ],
+     "fastest_run_ms": 0.014655,
+     "slowest_run_ms": 0.541297
+    },
+    "polls_native": {
+     "count": 2,
+     "first_ms": 0.000224,
+     "first_most_ms": 0.001244,
+     "longest_ms": 0.002089,
+     "longest_set_medians_ms": [
+      0.002089,
+      0.001916,
+      0.002021,
+      0.002514,
+      0.002463
+     ],
+     "longest_most_ms": 0.028317,
+     "longest_after_poll": [
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ]
+     ],
+     "last_ms": 0.001995,
+     "last_most_ms": 0.007028,
+     "outside_the_shim_ms": 0.000417
+    }
+   }
+  },
+  {
+   "input": "circle-30",
+   "construction": "curve-on-plane-keeping-parameters",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 1,
+   "kinds": {
+    "Ellipse": 1
+   },
+   "edge_tolerance": 1e-07,
+   "points": 0,
+   "points_check_mm": 2.220446049250313e-15,
+   "points_check_failures": [],
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.003878,
+     "set_medians_ms": [
+      0.003878,
+      0.003626,
+      0.003764,
+      0.00486,
+      0.004644
+     ],
+     "spread_ms": [
+      0.003626,
+      0.00486
+     ],
+     "fastest_run_ms": 0.003584,
+     "slowest_run_ms": 0.035225
+    },
+    "node_ms": {
+     "median_ms": 0.013894,
+     "set_medians_ms": [
+      0.013297,
+      0.013894,
+      0.012833,
+      0.015427,
+      0.013935
+     ],
+     "spread_ms": [
+      0.012833,
+      0.015427
+     ],
+     "fastest_run_ms": 0.012369,
+     "slowest_run_ms": 0.03381
+    },
+    "polls_native": {
+     "count": 2,
+     "first_ms": 0.000194,
+     "first_most_ms": 0.000446,
+     "longest_ms": 0.00157,
+     "longest_set_medians_ms": [
+      0.00157,
+      0.001451,
+      0.001564,
+      0.001991,
+      0.00188
+     ],
+     "longest_most_ms": 0.029995,
+     "longest_after_poll": [
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ]
+     ],
+     "last_ms": 0.001774,
+     "last_most_ms": 0.003953,
+     "outside_the_shim_ms": 0.000367
+    }
+   }
+  },
+  {
+   "input": "circle-30",
+   "construction": "prism",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 1,
+   "kinds": {
+    "BsplineCurve": 1
+   },
+   "edge_tolerance": 5.000001000000001e-06,
+   "points": 0,
+   "points_check_mm": 4.24029107832783e-07,
+   "points_check_failures": [],
+   "failures_as_written": 1,
+   "failures_geometric": 1,
+   "failed_checks": [
+    "kind as written",
+    "kind read geometrically"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 15.655,
+     "set_medians_ms": [
+      15.655,
+      13.497,
+      15.441,
+      18.193,
+      18.52
+     ],
+     "spread_ms": [
+      13.497,
+      18.52
+     ],
+     "fastest_run_ms": 13.292,
+     "slowest_run_ms": 22.477
+    },
+    "node_ms": {
+     "median_ms": 44.775,
+     "set_medians_ms": [
+      44.412,
+      44.962,
+      44.086,
+      65.282,
+      44.775
+     ],
+     "spread_ms": [
+      44.086,
+      65.282
+     ],
+     "fastest_run_ms": 36.944,
+     "slowest_run_ms": 77.544
+    },
+    "polls_native": {
+     "count": 2,
+     "first_ms": 0.000594,
+     "first_most_ms": 0.00111,
+     "longest_ms": 0.020455,
+     "longest_set_medians_ms": [
+      0.01903,
+      0.01754,
+      0.020455,
+      0.021862,
+      0.024725
+     ],
+     "longest_most_ms": 0.027092,
+     "longest_after_poll": [
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ]
+     ],
+     "last_ms": 15.604,
+     "last_most_ms": 22.458,
+     "outside_the_shim_ms": 0.006769
+    }
+   }
+  },
+  {
+   "input": "rounded-xy",
+   "construction": "curve-on-plane",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 40,
+   "vertices": 80,
+   "kinds": {
+    "Line": 16,
+    "Circle": 8,
+    "BsplineCurve": 16
+   },
+   "edge_tolerance": 1e-07,
+   "points": 16,
+   "points_check_mm": 0.7270159411276605,
+   "points_check_failures": [
+    {
+     "edge": 14,
+     "mm": 0.7270159411276605
+    },
+    {
+     "edge": 40,
+     "mm": 0.7270159411276598
+    },
+    {
+     "edge": 41,
+     "mm": 0.7270159411276598
+    },
+    {
+     "edge": 52,
+     "mm": 0.7270159411276604
+    }
+   ],
+   "failures_as_written": 28,
+   "failures_geometric": 20,
+   "failed_checks": [
+    "kind as written",
+    "kind read geometrically",
+    "points"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.212352,
+     "set_medians_ms": [
+      0.200406,
+      0.165079,
+      0.29147,
+      0.212352,
+      0.230374
+     ],
+     "spread_ms": [
+      0.165079,
+      0.29147
+     ],
+     "fastest_run_ms": 0.159106,
+     "slowest_run_ms": 0.316703
+    },
+    "node_ms": {
+     "median_ms": 0.587112,
+     "set_medians_ms": [
+      0.585984,
+      0.601175,
+      0.59892,
+      0.563277,
+      0.587112
+     ],
+     "spread_ms": [
+      0.563277,
+      0.601175
+     ],
+     "fastest_run_ms": 0.461255,
+     "slowest_run_ms": 1.735
+    },
+    "polls_native": {
+     "count": 80,
+     "first_ms": 0.009243,
+     "first_most_ms": 0.016757,
+     "longest_ms": 0.008405,
+     "longest_set_medians_ms": [
+      0.006971,
+      0.005503,
+      0.033014,
+      0.013924,
+      0.008405
+     ],
+     "longest_most_ms": 0.047285,
+     "longest_after_poll": [
+      [
+       10,
+       9,
+       69,
+       63,
+       69
+      ],
+      [
+       9,
+       9,
+       17,
+       61,
+       69
+      ],
+      [
+       9,
+       69,
+       77,
+       53,
+       9
+      ],
+      [
+       9,
+       27,
+       75,
+       13,
+       69
+      ],
+      [
+       9,
+       9,
+       61,
+       9,
+       9
+      ]
+     ],
+     "last_ms": 0.021128,
+     "last_most_ms": 0.051806,
+     "outside_the_shim_ms": 0.004553
+    }
+   }
+  },
+  {
+   "input": "rounded-xy",
+   "construction": "curve-on-plane-keeping-parameters",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 40,
+   "vertices": 80,
+   "kinds": {
+    "Line": 16,
+    "Circle": 8,
+    "BsplineCurve": 16
+   },
+   "edge_tolerance": 1e-07,
+   "points": 16,
+   "points_check_mm": 8.199663170671556e-12,
+   "points_check_failures": [],
+   "failures_as_written": 24,
+   "failures_geometric": 16,
+   "failed_checks": [
+    "kind as written",
+    "kind read geometrically"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.197537,
+     "set_medians_ms": [
+      0.181786,
+      0.164627,
+      0.240673,
+      0.200143,
+      0.197537
+     ],
+     "spread_ms": [
+      0.164627,
+      0.240673
+     ],
+     "fastest_run_ms": 0.154714,
+     "slowest_run_ms": 0.249235
+    },
+    "node_ms": {
+     "median_ms": 0.518116,
+     "set_medians_ms": [
+      0.519025,
+      0.510817,
+      0.518116,
+      0.472577,
+      0.573815
+     ],
+     "spread_ms": [
+      0.472577,
+      0.573815
+     ],
+     "fastest_run_ms": 0.449351,
+     "slowest_run_ms": 1.7
+    },
+    "polls_native": {
+     "count": 80,
+     "first_ms": 0.008766,
+     "first_most_ms": 0.010343,
+     "longest_ms": 0.00658,
+     "longest_set_medians_ms": [
+      0.006197,
+      0.005341,
+      0.008358,
+      0.007112,
+      0.00658
+     ],
+     "longest_most_ms": 0.032422,
+     "longest_after_poll": [
+      [
+       69,
+       9,
+       69,
+       61,
+       9
+      ],
+      [
+       15,
+       69,
+       69,
+       39,
+       69
+      ],
+      [
+       9,
+       15,
+       75,
+       61,
+       27
+      ],
+      [
+       69,
+       9,
+       67,
+       69,
+       69
+      ],
+      [
+       69,
+       69,
+       19,
+       69,
+       69
+      ]
+     ],
+     "last_ms": 0.020638,
+     "last_most_ms": 0.028854,
+     "outside_the_shim_ms": 0.004296
+    }
+   }
+  },
+  {
+   "input": "rounded-xy",
+   "construction": "prism",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 40,
+   "vertices": 80,
+   "kinds": {
+    "Line": 32,
+    "Circle": 8
+   },
+   "edge_tolerance": 1.5000003091991055e-07,
+   "points": 16,
+   "points_check_mm": 1.7763568394002505e-15,
+   "points_check_failures": [],
+   "failures_as_written": 24,
+   "failures_geometric": 0,
+   "failed_checks": [
+    "kind as written"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 28.492,
+     "set_medians_ms": [
+      28.492,
+      31.007,
+      27.226,
+      28.434,
+      28.599
+     ],
+     "spread_ms": [
+      27.226,
+      31.007
+     ],
+     "fastest_run_ms": 23.531,
+     "slowest_run_ms": 43.202
+    },
+    "node_ms": {
+     "median_ms": 50.3,
+     "set_medians_ms": [
+      51.412,
+      50.3,
+      49.668,
+      45.235,
+      54.736
+     ],
+     "spread_ms": [
+      45.235,
+      54.736
+     ],
+     "fastest_run_ms": 39.537,
+     "slowest_run_ms": 61.666
+    },
+    "polls_native": {
+     "count": 41,
+     "first_ms": 0.000748,
+     "first_most_ms": 0.001251,
+     "longest_ms": 1.121,
+     "longest_set_medians_ms": [
+      1.173,
+      1.325,
+      1.121,
+      0.992293,
+      0.949544
+     ],
+     "longest_most_ms": 1.959,
+     "longest_after_poll": [
+      [
+       15,
+       25,
+       40,
+       13,
+       30
+      ],
+      [
+       40,
+       4,
+       14,
+       4,
+       40
+      ],
+      [
+       40,
+       40,
+       5,
+       4,
+       13
+      ],
+      [
+       13,
+       5,
+       40,
+       4,
+       5
+      ],
+      [
+       9,
+       4,
+       13,
+       30,
+       40
+      ]
+     ],
+     "last_ms": 0.899647,
+     "last_most_ms": 1.64,
+     "outside_the_shim_ms": 0.013914
+    }
+   }
+  },
+  {
+   "input": "part-section",
+   "construction": "section-approximated",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 13,
+   "vertices": 13,
+   "kinds": {
+    "Line": 6,
+    "Circle": 7
+   },
+   "edge_tolerance": 1e-06,
+   "off_plane_largest_mm": 0.0,
+   "off_body_largest_mm": 7.105427357601002e-15,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 2.489,
+     "set_medians_ms": [
+      2.408,
+      4.155,
+      2.242,
+      2.533,
+      2.489
+     ],
+     "spread_ms": [
+      2.242,
+      4.155
+     ],
+     "fastest_run_ms": 2.148,
+     "slowest_run_ms": 4.358
+    },
+    "node_ms": {
+     "median_ms": 5.06,
+     "set_medians_ms": [
+      7.015,
+      5.452,
+      5.06,
+      4.068,
+      5.03
+     ],
+     "spread_ms": [
+      4.068,
+      7.015
+     ],
+     "fastest_run_ms": 3.83,
+     "slowest_run_ms": 13.659
+    },
+    "polls_native": {
+     "count": 525,
+     "first_ms": 0.003756,
+     "first_most_ms": 0.011126,
+     "longest_ms": 0.557102,
+     "longest_set_medians_ms": [
+      0.557102,
+      0.796517,
+      0.504975,
+      0.595102,
+      0.543096
+     ],
+     "longest_most_ms": 0.871914,
+     "longest_after_poll": [
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ]
+     ],
+     "last_ms": 0.057548,
+     "last_most_ms": 0.119375,
+     "outside_the_shim_ms": 0.074418
+    }
+   }
+  },
+  {
+   "input": "part-section",
+   "construction": "section-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 13,
+   "vertices": 13,
+   "kinds": {
+    "Line": 6,
+    "Circle": 7
+   },
+   "edge_tolerance": 1e-06,
+   "off_plane_largest_mm": 0.0,
+   "off_body_largest_mm": 7.105427357601002e-15,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 2.433,
+     "set_medians_ms": [
+      2.246,
+      4.024,
+      2.22,
+      2.433,
+      2.439
+     ],
+     "spread_ms": [
+      2.22,
+      4.024
+     ],
+     "fastest_run_ms": 2.138,
+     "slowest_run_ms": 4.327
+    },
+    "node_ms": {
+     "median_ms": 4.766,
+     "set_medians_ms": [
+      4.894,
+      4.762,
+      4.951,
+      3.928,
+      4.766
+     ],
+     "spread_ms": [
+      3.928,
+      4.951
+     ],
+     "fastest_run_ms": 3.826,
+     "slowest_run_ms": 8.602
+    },
+    "polls_native": {
+     "count": 525,
+     "first_ms": 0.003769,
+     "first_most_ms": 0.007443,
+     "longest_ms": 0.525894,
+     "longest_set_medians_ms": [
+      0.505854,
+      0.826392,
+      0.474379,
+      0.544588,
+      0.525894
+     ],
+     "longest_most_ms": 0.852784,
+     "longest_after_poll": [
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       1,
+       1,
+       1
+      ]
+     ],
+     "last_ms": 0.057187,
+     "last_most_ms": 0.13546,
+     "outside_the_shim_ms": 0.072838
+    }
+   }
+  },
+  {
+   "input": "cylinder-oblique",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 2,
+   "kinds": {
+    "Line": 1
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 1,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.303648,
+     "set_medians_ms": [
+      0.313151,
+      0.579462,
+      0.250772,
+      0.2863,
+      0.303648
+     ],
+     "spread_ms": [
+      0.250772,
+      0.579462
+     ],
+     "fastest_run_ms": 0.222082,
+     "slowest_run_ms": 0.754003
+    },
+    "node_ms": {
+     "median_ms": 0.681658,
+     "set_medians_ms": [
+      0.686419,
+      0.665497,
+      0.722714,
+      0.66022,
+      0.681658
+     ],
+     "spread_ms": [
+      0.66022,
+      0.722714
+     ],
+     "fastest_run_ms": 0.539347,
+     "slowest_run_ms": 10.864
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 0.00012,
+     "first_most_ms": 0.000482,
+     "longest_ms": 0.19463,
+     "longest_set_medians_ms": [
+      0.220943,
+      0.400384,
+      0.167143,
+      0.181272,
+      0.19463
+     ],
+     "longest_most_ms": 0.471801,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.009409,
+     "last_most_ms": 0.02935,
+     "outside_the_shim_ms": 0.009663
+    }
+   }
+  },
+  {
+   "input": "cylinder-oblique",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 2,
+   "vertices": 4,
+   "kinds": {
+    "Line": 2
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 2.6645352591003757e-15,
+   "points_check_failures": [],
+   "whole_edges": 2,
+   "drawn_edges": 2,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.244947,
+     "set_medians_ms": [
+      0.232174,
+      0.480748,
+      0.222815,
+      0.259932,
+      0.244947
+     ],
+     "spread_ms": [
+      0.222815,
+      0.480748
+     ],
+     "fastest_run_ms": 0.206547,
+     "slowest_run_ms": 0.647967
+    },
+    "node_ms": {
+     "median_ms": 0.564545,
+     "set_medians_ms": [
+      0.535816,
+      0.564545,
+      0.57611,
+      0.550754,
+      0.656132
+     ],
+     "spread_ms": [
+      0.535816,
+      0.656132
+     ],
+     "fastest_run_ms": 0.485194,
+     "slowest_run_ms": 1.258
+    },
+    "polls_native": {
+     "count": 8,
+     "first_ms": 9e-05,
+     "first_most_ms": 0.000256,
+     "longest_ms": 0.167412,
+     "longest_set_medians_ms": [
+      0.155966,
+      0.327015,
+      0.146886,
+      0.175559,
+      0.167412
+     ],
+     "longest_most_ms": 0.48408,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.003698,
+     "last_most_ms": 0.008007,
+     "outside_the_shim_ms": 0.008402
+    }
+   }
+  },
+  {
+   "input": "cylinder-oblique",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 2,
+   "kinds": {
+    "Line": 1
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 1,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 3.496,
+     "set_medians_ms": [
+      3.374,
+      3.531,
+      3.175,
+      3.561,
+      3.496
+     ],
+     "spread_ms": [
+      3.175,
+      3.561
+     ],
+     "fastest_run_ms": 3.095,
+     "slowest_run_ms": 4.021
+    },
+    "node_ms": {
+     "median_ms": 5.962,
+     "set_medians_ms": [
+      9.321,
+      5.962,
+      5.9,
+      5.814,
+      6.068
+     ],
+     "spread_ms": [
+      5.814,
+      9.321
+     ],
+     "fastest_run_ms": 4.977,
+     "slowest_run_ms": 20.939
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.000212,
+     "first_most_ms": 0.000265,
+     "longest_ms": 1.34,
+     "longest_set_medians_ms": [
+      1.298,
+      1.399,
+      1.221,
+      1.364,
+      1.34
+     ],
+     "longest_most_ms": 1.746,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.018743,
+     "last_most_ms": 0.021371,
+     "outside_the_shim_ms": 0.016938
+    }
+   }
+  },
+  {
+   "input": "cylinder-oblique",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 146,
+   "vertices": 292,
+   "kinds": {
+    "Line": 146
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 146,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 4.999999999999941,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 4.229,
+     "set_medians_ms": [
+      3.875,
+      4.229,
+      3.706,
+      4.304,
+      4.263
+     ],
+     "spread_ms": [
+      3.706,
+      4.304
+     ],
+     "fastest_run_ms": 3.681,
+     "slowest_run_ms": 4.314
+    },
+    "node_ms": {
+     "median_ms": 6.566,
+     "set_medians_ms": [
+      9.188,
+      6.391,
+      6.321,
+      6.566,
+      8.737
+     ],
+     "spread_ms": [
+      6.321,
+      9.188
+     ],
+     "fastest_run_ms": 5.505,
+     "slowest_run_ms": 9.475
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.000222,
+     "first_most_ms": 0.000367,
+     "longest_ms": 1.306,
+     "longest_set_medians_ms": [
+      1.243,
+      1.306,
+      1.153,
+      1.366,
+      1.328
+     ],
+     "longest_most_ms": 1.424,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.527768,
+     "last_most_ms": 0.66791,
+     "outside_the_shim_ms": 0.033346
+    }
+   }
+  },
+  {
+   "input": "cylinder-perpendicular",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 2,
+   "kinds": {
+    "Line": 1
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 1,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": "fails",
+   "failures_as_written": 1,
+   "failures_geometric": 1,
+   "failed_checks": [
+    "two lines"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.403692,
+     "set_medians_ms": [
+      0.39391,
+      0.439739,
+      0.356671,
+      0.403692,
+      0.437641
+     ],
+     "spread_ms": [
+      0.356671,
+      0.439739
+     ],
+     "fastest_run_ms": 0.30841,
+     "slowest_run_ms": 0.650473
+    },
+    "node_ms": {
+     "median_ms": 0.995508,
+     "set_medians_ms": [
+      0.995508,
+      1.192,
+      0.84708,
+      0.92295,
+      1.329
+     ],
+     "spread_ms": [
+      0.84708,
+      1.329
+     ],
+     "fastest_run_ms": 0.789003,
+     "slowest_run_ms": 4.751
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 0.000124,
+     "first_most_ms": 0.000335,
+     "longest_ms": 0.218148,
+     "longest_set_medians_ms": [
+      0.211199,
+      0.255615,
+      0.218148,
+      0.214236,
+      0.236764
+     ],
+     "longest_most_ms": 0.362345,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.010245,
+     "last_most_ms": 0.015246,
+     "outside_the_shim_ms": 0.010471
+    }
+   }
+  },
+  {
+   "input": "cylinder-perpendicular",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 2,
+   "vertices": 4,
+   "kinds": {
+    "Line": 2
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 0.0,
+   "points_check_failures": [],
+   "whole_edges": 2,
+   "drawn_edges": 2,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": "passes",
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.371356,
+     "set_medians_ms": [
+      0.326064,
+      0.371356,
+      0.308306,
+      0.468833,
+      0.385184
+     ],
+     "spread_ms": [
+      0.308306,
+      0.468833
+     ],
+     "fastest_run_ms": 0.293726,
+     "slowest_run_ms": 0.501447
+    },
+    "node_ms": {
+     "median_ms": 0.888844,
+     "set_medians_ms": [
+      1.05,
+      1.247,
+      0.862207,
+      0.888844,
+      0.675625
+     ],
+     "spread_ms": [
+      0.675625,
+      1.247
+     ],
+     "fastest_run_ms": 0.653205,
+     "slowest_run_ms": 1.333
+    },
+    "polls_native": {
+     "count": 8,
+     "first_ms": 8.7e-05,
+     "first_most_ms": 0.000233,
+     "longest_ms": 0.214334,
+     "longest_set_medians_ms": [
+      0.186397,
+      0.214586,
+      0.176401,
+      0.242925,
+      0.214334
+     ],
+     "longest_most_ms": 0.309042,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.004185,
+     "last_most_ms": 0.010588,
+     "outside_the_shim_ms": 0.009422
+    }
+   }
+  },
+  {
+   "input": "cylinder-perpendicular",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 2,
+   "kinds": {
+    "Line": 1
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 1,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0,
+   "two_lines": "fails",
+   "failures_as_written": 1,
+   "failures_geometric": 1,
+   "failed_checks": [
+    "two lines"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 3.437,
+     "set_medians_ms": [
+      3.281,
+      3.437,
+      3.093,
+      3.474,
+      3.501
+     ],
+     "spread_ms": [
+      3.093,
+      3.501
+     ],
+     "fastest_run_ms": 3.048,
+     "slowest_run_ms": 3.8
+    },
+    "node_ms": {
+     "median_ms": 4.965,
+     "set_medians_ms": [
+      5.487,
+      4.965,
+      4.828,
+      5.025,
+      3.812
+     ],
+     "spread_ms": [
+      3.812,
+      5.487
+     ],
+     "fastest_run_ms": 3.794,
+     "slowest_run_ms": 7.039
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.000172,
+     "first_most_ms": 0.000345,
+     "longest_ms": 1.299,
+     "longest_set_medians_ms": [
+      1.218,
+      1.299,
+      1.19,
+      1.31,
+      1.337
+     ],
+     "longest_most_ms": 1.378,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.019186,
+     "last_most_ms": 0.049756,
+     "outside_the_shim_ms": 0.016271
+    }
+   }
+  },
+  {
+   "input": "cylinder-perpendicular",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 146,
+   "vertices": 292,
+   "kinds": {
+    "Line": 146
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 146,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 4.999999999999847,
+   "two_lines": "fails",
+   "failures_as_written": 1,
+   "failures_geometric": 1,
+   "failed_checks": [
+    "two lines"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 4.147,
+     "set_medians_ms": [
+      3.852,
+      4.147,
+      3.646,
+      4.216,
+      4.204
+     ],
+     "spread_ms": [
+      3.646,
+      4.216
+     ],
+     "fastest_run_ms": 3.638,
+     "slowest_run_ms": 4.333
+    },
+    "node_ms": {
+     "median_ms": 5.84,
+     "set_medians_ms": [
+      6.234,
+      5.84,
+      5.757,
+      5.904,
+      4.686
+     ],
+     "spread_ms": [
+      4.686,
+      6.234
+     ],
+     "fastest_run_ms": 4.606,
+     "slowest_run_ms": 6.559
+    },
+    "polls_native": {
+     "count": 24,
+     "first_ms": 0.00023,
+     "first_most_ms": 0.000281,
+     "longest_ms": 1.322,
+     "longest_set_medians_ms": [
+      1.28,
+      1.322,
+      1.154,
+      1.336,
+      1.338
+     ],
+     "longest_most_ms": 1.426,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.523123,
+     "last_most_ms": 0.612648,
+     "outside_the_shim_ms": 0.033214
+    }
+   }
+  },
+  {
+   "input": "sphere-oblique",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 1,
+   "kinds": {
+    "Circle": 1
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 1,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 1.7763568394002505e-15,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.822522,
+     "set_medians_ms": [
+      0.774178,
+      0.822522,
+      0.724562,
+      0.858876,
+      0.830208
+     ],
+     "spread_ms": [
+      0.724562,
+      0.858876
+     ],
+     "fastest_run_ms": 0.693597,
+     "slowest_run_ms": 1.054
+    },
+    "node_ms": {
+     "median_ms": 1.488,
+     "set_medians_ms": [
+      1.631,
+      1.452,
+      1.488,
+      1.615,
+      1.286
+     ],
+     "spread_ms": [
+      1.286,
+      1.631
+     ],
+     "fastest_run_ms": 1.156,
+     "slowest_run_ms": 3.691
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 0.000121,
+     "first_most_ms": 0.000332,
+     "longest_ms": 0.766912,
+     "longest_set_medians_ms": [
+      0.709428,
+      0.766912,
+      0.666399,
+      0.793523,
+      0.767029
+     ],
+     "longest_most_ms": 0.917731,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.009402,
+     "last_most_ms": 0.017244,
+     "outside_the_shim_ms": 0.009753
+    }
+   }
+  },
+  {
+   "input": "sphere-oblique",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 1,
+   "vertices": 1,
+   "kinds": {
+    "Circle": 1
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 3.0256375776902757e-15,
+   "points_check_failures": [],
+   "whole_edges": 1,
+   "drawn_edges": 1,
+   "deviation_from_exact_mm": 5.329070518200751e-15,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.786859,
+     "set_medians_ms": [
+      0.861163,
+      0.780991,
+      0.685609,
+      0.847571,
+      0.786859
+     ],
+     "spread_ms": [
+      0.685609,
+      0.861163
+     ],
+     "fastest_run_ms": 0.653078,
+     "slowest_run_ms": 1.051
+    },
+    "node_ms": {
+     "median_ms": 1.344,
+     "set_medians_ms": [
+      1.431,
+      1.292,
+      1.345,
+      1.344,
+      1.063
+     ],
+     "spread_ms": [
+      1.063,
+      1.431
+     ],
+     "fastest_run_ms": 1.01,
+     "slowest_run_ms": 1.863
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 9.6e-05,
+     "first_most_ms": 0.000168,
+     "longest_ms": 0.733508,
+     "longest_set_medians_ms": [
+      0.787986,
+      0.730032,
+      0.639456,
+      0.779204,
+      0.733508
+     ],
+     "longest_most_ms": 0.96374,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.004189,
+     "last_most_ms": 0.00735,
+     "outside_the_shim_ms": 0.008321
+    }
+   }
+  },
+  {
+   "input": "sphere-oblique",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 217,
+   "vertices": 434,
+   "kinds": {
+    "Line": 217
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 217,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0055044906710506325,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 31.751,
+     "set_medians_ms": [
+      30.083,
+      31.751,
+      28.374,
+      32.189,
+      31.846
+     ],
+     "spread_ms": [
+      28.374,
+      32.189
+     ],
+     "fastest_run_ms": 27.998,
+     "slowest_run_ms": 49.719
+    },
+    "node_ms": {
+     "median_ms": 60.631,
+     "set_medians_ms": [
+      65.362,
+      60.631,
+      60.523,
+      62.565,
+      50.656
+     ],
+     "spread_ms": [
+      50.656,
+      65.362
+     ],
+     "fastest_run_ms": 48.774,
+     "slowest_run_ms": 77.174
+    },
+    "polls_native": {
+     "count": 13,
+     "first_ms": 0.000462,
+     "first_most_ms": 0.000777,
+     "longest_ms": 12.172,
+     "longest_set_medians_ms": [
+      11.471,
+      12.172,
+      10.696,
+      12.18,
+      12.309
+     ],
+     "longest_most_ms": 19.656,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       8,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.791767,
+     "last_most_ms": 0.993577,
+     "outside_the_shim_ms": 0.04948
+    }
+   }
+  },
+  {
+   "input": "sphere-oblique",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 217,
+   "vertices": 434,
+   "kinds": {
+    "Line": 217
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 217,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0055044906710506325,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 31.764,
+     "set_medians_ms": [
+      44.981,
+      32.344,
+      27.907,
+      31.764,
+      31.388
+     ],
+     "spread_ms": [
+      27.907,
+      44.981
+     ],
+     "fastest_run_ms": 27.59,
+     "slowest_run_ms": 53.211
+    },
+    "node_ms": {
+     "median_ms": 60.139,
+     "set_medians_ms": [
+      74.769,
+      59.984,
+      60.139,
+      62.215,
+      48.508
+     ],
+     "spread_ms": [
+      48.508,
+      74.769
+     ],
+     "fastest_run_ms": 48.03,
+     "slowest_run_ms": 88.862
+    },
+    "polls_native": {
+     "count": 13,
+     "first_ms": 0.000586,
+     "first_most_ms": 0.019654,
+     "longest_ms": 11.677,
+     "longest_set_medians_ms": [
+      16.978,
+      11.677,
+      10.444,
+      12.042,
+      11.575
+     ],
+     "longest_most_ms": 17.975,
+     "longest_after_poll": [
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ],
+      [
+       6,
+       6,
+       6,
+       6,
+       6
+      ]
+     ],
+     "last_ms": 0.814252,
+     "last_most_ms": 2.359,
+     "outside_the_shim_ms": 0.051014
+    }
+   }
+  },
+  {
+   "input": "torus-oblique",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 3,
+   "vertices": 5,
+   "kinds": {
+    "BsplineCurve": 3
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 3,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.0005405003030793942,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 4.825,
+     "set_medians_ms": [
+      7.225,
+      4.825,
+      4.217,
+      4.671,
+      6.243
+     ],
+     "spread_ms": [
+      4.217,
+      7.225
+     ],
+     "fastest_run_ms": 4.149,
+     "slowest_run_ms": 7.5
+    },
+    "node_ms": {
+     "median_ms": 8.879,
+     "set_medians_ms": [
+      8.971,
+      8.768,
+      8.014,
+      9.169,
+      8.879
+     ],
+     "spread_ms": [
+      8.014,
+      9.169
+     ],
+     "fastest_run_ms": 7.492,
+     "slowest_run_ms": 20.876
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 0.000287,
+     "first_most_ms": 0.000712,
+     "longest_ms": 3.953,
+     "longest_set_medians_ms": [
+      6.092,
+      3.945,
+      3.555,
+      3.953,
+      5.211
+     ],
+     "longest_most_ms": 6.311,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.032275,
+     "last_most_ms": 0.062936,
+     "outside_the_shim_ms": 0.020618
+    }
+   }
+  },
+  {
+   "input": "torus-oblique",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 3,
+   "vertices": 5,
+   "kinds": {
+    "BsplineCurve": 3
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 2.7822109252321576e-15,
+   "points_check_failures": [],
+   "whole_edges": 3,
+   "drawn_edges": 3,
+   "deviation_from_exact_mm": 0.0005405003030793942,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 5.025,
+     "set_medians_ms": [
+      6.592,
+      5.025,
+      4.758,
+      4.657,
+      6.114
+     ],
+     "spread_ms": [
+      4.657,
+      6.592
+     ],
+     "fastest_run_ms": 4.099,
+     "slowest_run_ms": 8.177
+    },
+    "node_ms": {
+     "median_ms": 8.537,
+     "set_medians_ms": [
+      8.211,
+      8.537,
+      7.933,
+      8.944,
+      8.883
+     ],
+     "spread_ms": [
+      7.933,
+      8.944
+     ],
+     "fastest_run_ms": 7.823,
+     "slowest_run_ms": 9.799
+    },
+    "polls_native": {
+     "count": 10,
+     "first_ms": 0.00025,
+     "first_most_ms": 0.000468,
+     "longest_ms": 4.114,
+     "longest_set_medians_ms": [
+      5.601,
+      4.02,
+      4.114,
+      3.952,
+      5.419
+     ],
+     "longest_most_ms": 6.64,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.007679,
+     "last_most_ms": 0.011757,
+     "outside_the_shim_ms": 0.020702
+    }
+   }
+  },
+  {
+   "input": "torus-oblique",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 535,
+   "vertices": 1070,
+   "kinds": {
+    "Line": 535
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 535,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.01545357216642751,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 204.393,
+     "set_medians_ms": [
+      204.393,
+      208.67,
+      198.55,
+      211.384,
+      191.554
+     ],
+     "spread_ms": [
+      191.554,
+      211.384
+     ],
+     "fastest_run_ms": 164.536,
+     "slowest_run_ms": 270.47
+    },
+    "node_ms": {
+     "median_ms": 578.059,
+     "set_medians_ms": [
+      625.747,
+      604.981,
+      578.059,
+      539.369,
+      559.56
+     ],
+     "spread_ms": [
+      539.369,
+      625.747
+     ],
+     "fastest_run_ms": 523.432,
+     "slowest_run_ms": 695.001
+    },
+    "polls_native": {
+     "count": 13,
+     "first_ms": 0.000615,
+     "first_most_ms": 0.001054,
+     "longest_ms": 89.182,
+     "longest_set_medians_ms": [
+      95.349,
+      89.182,
+      77.811,
+      89.844,
+      84.102
+     ],
+     "longest_most_ms": 137.44,
+     "longest_after_poll": [
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     ],
+     "last_ms": 2.059,
+     "last_most_ms": 3.162,
+     "outside_the_shim_ms": 0.57541
+    }
+   }
+  },
+  {
+   "input": "torus-oblique",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 538,
+   "vertices": 1076,
+   "kinds": {
+    "Line": 538
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 538,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.01545357216642751,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 211.989,
+     "set_medians_ms": [
+      231.134,
+      192.611,
+      189.086,
+      211.989,
+      212.99
+     ],
+     "spread_ms": [
+      189.086,
+      231.134
+     ],
+     "fastest_run_ms": 167.175,
+     "slowest_run_ms": 309.004
+    },
+    "node_ms": {
+     "median_ms": 578.413,
+     "set_medians_ms": [
+      615.779,
+      578.413,
+      554.323,
+      577.528,
+      608.742
+     ],
+     "spread_ms": [
+      554.323,
+      615.779
+     ],
+     "fastest_run_ms": 486.147,
+     "slowest_run_ms": 705.261
+    },
+    "polls_native": {
+     "count": 13,
+     "first_ms": 0.000749,
+     "first_most_ms": 0.001203,
+     "longest_ms": 89.476,
+     "longest_set_medians_ms": [
+      112.047,
+      84.001,
+      81.272,
+      90.182,
+      89.476
+     ],
+     "longest_most_ms": 151.314,
+     "longest_after_poll": [
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       6
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     ],
+     "last_ms": 2.102,
+     "last_most_ms": 3.738,
+     "outside_the_shim_ms": 0.672866
+    }
+   }
+  },
+  {
+   "input": "cone-oblique",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 2,
+   "vertices": 4,
+   "kinds": {
+    "Line": 2
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 2,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 3.552713678800501e-15,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.249936,
+     "set_medians_ms": [
+      0.227324,
+      0.211678,
+      0.26978,
+      0.249936,
+      0.30741
+     ],
+     "spread_ms": [
+      0.211678,
+      0.30741
+     ],
+     "fastest_run_ms": 0.185727,
+     "slowest_run_ms": 0.467928
+    },
+    "node_ms": {
+     "median_ms": 0.806695,
+     "set_medians_ms": [
+      0.938456,
+      0.806695,
+      0.510729,
+      0.513542,
+      1.053
+     ],
+     "spread_ms": [
+      0.510729,
+      1.053
+     ],
+     "fastest_run_ms": 0.434311,
+     "slowest_run_ms": 2.036
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 7.6e-05,
+     "first_most_ms": 0.000982,
+     "longest_ms": 0.167984,
+     "longest_set_medians_ms": [
+      0.151531,
+      0.140847,
+      0.179019,
+      0.167984,
+      0.209818
+     ],
+     "longest_most_ms": 0.302502,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.012997,
+     "last_most_ms": 0.020938,
+     "outside_the_shim_ms": 0.009929
+    }
+   }
+  },
+  {
+   "input": "cone-oblique",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 2,
+   "vertices": 4,
+   "kinds": {
+    "Line": 2
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 8.379058453350832e-15,
+   "points_check_failures": [],
+   "whole_edges": 2,
+   "drawn_edges": 2,
+   "deviation_from_exact_mm": 5.329070518200751e-15,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 0.210994,
+     "set_medians_ms": [
+      0.175846,
+      0.182371,
+      0.23411,
+      0.210994,
+      0.230661
+     ],
+     "spread_ms": [
+      0.175846,
+      0.23411
+     ],
+     "fastest_run_ms": 0.165219,
+     "slowest_run_ms": 0.274931
+    },
+    "node_ms": {
+     "median_ms": 0.545719,
+     "set_medians_ms": [
+      0.81869,
+      0.545719,
+      0.442264,
+      0.460214,
+      0.978546
+     ],
+     "spread_ms": [
+      0.442264,
+      0.978546
+     ],
+     "fastest_run_ms": 0.400499,
+     "slowest_run_ms": 1.12
+    },
+    "polls_native": {
+     "count": 8,
+     "first_ms": 5.4e-05,
+     "first_most_ms": 9.7e-05,
+     "longest_ms": 0.147676,
+     "longest_set_medians_ms": [
+      0.123262,
+      0.121748,
+      0.161541,
+      0.147676,
+      0.163798
+     ],
+     "longest_most_ms": 0.184401,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.003459,
+     "last_most_ms": 0.004713,
+     "outside_the_shim_ms": 0.008294
+    }
+   }
+  },
+  {
+   "input": "cone-oblique",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 30,
+   "vertices": 60,
+   "kinds": {
+    "Line": 30
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 30,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 2.6297349364767797e-07,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 6.435,
+     "set_medians_ms": [
+      5.866,
+      5.406,
+      6.946,
+      6.435,
+      7.078
+     ],
+     "spread_ms": [
+      5.406,
+      7.078
+     ],
+     "fastest_run_ms": 5.328,
+     "slowest_run_ms": 8.92
+    },
+    "node_ms": {
+     "median_ms": 15.913,
+     "set_medians_ms": [
+      22.083,
+      22.111,
+      15.913,
+      13.748,
+      14.867
+     ],
+     "spread_ms": [
+      13.748,
+      22.111
+     ],
+     "fastest_run_ms": 12.977,
+     "slowest_run_ms": 23.825
+    },
+    "polls_native": {
+     "count": 23,
+     "first_ms": 0.000217,
+     "first_most_ms": 0.000447,
+     "longest_ms": 1.579,
+     "longest_set_medians_ms": [
+      1.433,
+      1.302,
+      1.673,
+      1.579,
+      1.688
+     ],
+     "longest_most_ms": 2.124,
+     "longest_after_poll": [
+      [
+       5,
+       6,
+       5,
+       6,
+       5
+      ],
+      [
+       6,
+       6,
+       5,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       6,
+       5,
+       6,
+       5,
+       5
+      ],
+      [
+       6,
+       5,
+       5,
+       6,
+       5
+      ]
+     ],
+     "last_ms": 0.118875,
+     "last_most_ms": 0.202619,
+     "outside_the_shim_ms": 0.022998
+    }
+   }
+  },
+  {
+   "input": "cone-oblique",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 176,
+   "vertices": 352,
+   "kinds": {
+    "Line": 176
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 176,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 12.126781251816638,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 7.574,
+     "set_medians_ms": [
+      8.627,
+      5.878,
+      7.574,
+      6.951,
+      8.567
+     ],
+     "spread_ms": [
+      5.878,
+      8.627
+     ],
+     "fastest_run_ms": 5.853,
+     "slowest_run_ms": 9.781
+    },
+    "node_ms": {
+     "median_ms": 15.258,
+     "set_medians_ms": [
+      14.444,
+      15.258,
+      25.785,
+      14.48,
+      15.673
+     ],
+     "spread_ms": [
+      14.444,
+      25.785
+     ],
+     "fastest_run_ms": 14.282,
+     "slowest_run_ms": 26.09
+    },
+    "polls_native": {
+     "count": 23,
+     "first_ms": 0.000295,
+     "first_most_ms": 0.000477,
+     "longest_ms": 1.665,
+     "longest_set_medians_ms": [
+      2.176,
+      1.297,
+      1.665,
+      1.53,
+      2.134
+     ],
+     "longest_most_ms": 2.618,
+     "longest_after_poll": [
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ],
+      [
+       6,
+       6,
+       5,
+       6,
+       5
+      ],
+      [
+       6,
+       5,
+       6,
+       5,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       6,
+       5
+      ],
+      [
+       5,
+       5,
+       5,
+       5,
+       5
+      ]
+     ],
+     "last_ms": 0.668341,
+     "last_most_ms": 0.908337,
+     "outside_the_shim_ms": 0.038838
+    }
+   }
+  },
+  {
+   "input": "rounded-z",
+   "construction": "silhouette-exact",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 0,
+   "vertices": 0,
+   "kinds": {},
+   "edge_tolerance": 0.0,
+   "whole_edges": 0,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": null,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 3.053,
+     "set_medians_ms": [
+      2.611,
+      2.457,
+      3.234,
+      3.053,
+      4.05
+     ],
+     "spread_ms": [
+      2.457,
+      4.05
+     ],
+     "fastest_run_ms": 2.426,
+     "slowest_run_ms": 4.497
+    },
+    "node_ms": {
+     "median_ms": 6.9,
+     "set_medians_ms": [
+      5.473,
+      7.782,
+      9.239,
+      5.597,
+      6.9
+     ],
+     "spread_ms": [
+      5.473,
+      9.239
+     ],
+     "fastest_run_ms": 5.352,
+     "slowest_run_ms": 10.978
+    },
+    "polls_native": {
+     "count": 6,
+     "first_ms": 0.000279,
+     "first_most_ms": 0.000509,
+     "longest_ms": 2.031,
+     "longest_set_medians_ms": [
+      1.726,
+      1.648,
+      2.121,
+      2.031,
+      2.611
+     ],
+     "longest_most_ms": 3.034,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.005594,
+     "last_most_ms": 0.009433,
+     "outside_the_shim_ms": 0.061358
+    }
+   }
+  },
+  {
+   "input": "rounded-z",
+   "construction": "silhouette-exact-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 8,
+   "vertices": 16,
+   "kinds": {
+    "Line": 4,
+    "Circle": 4
+   },
+   "edge_tolerance": 1e-07,
+   "points_check_of_projection_step_mm": 0.7270159411276604,
+   "points_check_failures": [
+    {
+     "edge": 7,
+     "mm": 0.7270159411276598
+    },
+    {
+     "edge": 8,
+     "mm": 0.7270159411276604
+    }
+   ],
+   "whole_edges": 8,
+   "drawn_edges": 8,
+   "deviation_from_exact_mm": 1.6142127126896675,
+   "two_lines": null,
+   "failures_as_written": 2,
+   "failures_geometric": 2,
+   "failed_checks": [
+    "points"
+   ],
+   "time": {
+    "native_ms": {
+     "median_ms": 3.054,
+     "set_medians_ms": [
+      2.596,
+      2.488,
+      3.177,
+      3.054,
+      3.256
+     ],
+     "spread_ms": [
+      2.488,
+      3.256
+     ],
+     "fastest_run_ms": 2.444,
+     "slowest_run_ms": 3.4
+    },
+    "node_ms": {
+     "median_ms": 5.506,
+     "set_medians_ms": [
+      5.506,
+      5.947,
+      9.019,
+      5.426,
+      5.354
+     ],
+     "spread_ms": [
+      5.354,
+      9.019
+     ],
+     "fastest_run_ms": 5.205,
+     "slowest_run_ms": 9.273
+    },
+    "polls_native": {
+     "count": 20,
+     "first_ms": 0.000234,
+     "first_most_ms": 0.000336,
+     "longest_ms": 1.997,
+     "longest_set_medians_ms": [
+      1.695,
+      1.624,
+      2.077,
+      1.997,
+      2.158
+     ],
+     "longest_most_ms": 2.197,
+     "longest_after_poll": [
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ],
+      [
+       2,
+       2,
+       2,
+       2,
+       2
+      ]
+     ],
+     "last_ms": 0.009702,
+     "last_most_ms": 0.026889,
+     "outside_the_shim_ms": 0.054986
+    }
+   }
+  },
+  {
+   "input": "rounded-z",
+   "construction": "silhouette-mesh",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 0,
+   "vertices": 0,
+   "kinds": {},
+   "edge_tolerance": 0.0,
+   "whole_edges": 0,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": null,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 29.382,
+     "set_medians_ms": [
+      24.413,
+      24.097,
+      30.672,
+      29.382,
+      31.191
+     ],
+     "spread_ms": [
+      24.097,
+      31.191
+     ],
+     "fastest_run_ms": 23.985,
+     "slowest_run_ms": 33.709
+    },
+    "node_ms": {
+     "median_ms": 58.004,
+     "set_medians_ms": [
+      58.004,
+      59.618,
+      56.077,
+      56.137,
+      59.771
+     ],
+     "spread_ms": [
+      56.077,
+      59.771
+     ],
+     "fastest_run_ms": 45.391,
+     "slowest_run_ms": 67.861
+    },
+    "polls_native": {
+     "count": 150,
+     "first_ms": 0.000436,
+     "first_most_ms": 0.000871,
+     "longest_ms": 2.895,
+     "longest_set_medians_ms": [
+      2.598,
+      2.426,
+      3.099,
+      2.895,
+      3.18
+     ],
+     "longest_most_ms": 4.38,
+     "longest_after_poll": [
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ]
+     ],
+     "last_ms": 0.012974,
+     "last_most_ms": 0.029693,
+     "outside_the_shim_ms": 0.12021
+    }
+   }
+  },
+  {
+   "input": "rounded-z",
+   "construction": "silhouette-mesh-with-edges",
+   "valid": "as built",
+   "closed_mesh": "holds vacuously: 0 triangles, 0 open edges (test 138's weld check ran)",
+   "faces": 0,
+   "edges": 150,
+   "vertices": 300,
+   "kinds": {
+    "Line": 150
+   },
+   "edge_tolerance": 1e-07,
+   "whole_edges": 150,
+   "drawn_edges": 0,
+   "deviation_from_exact_mm": 0.00023788091240695142,
+   "two_lines": null,
+   "failures_as_written": 0,
+   "failures_geometric": 0,
+   "failed_checks": [],
+   "time": {
+    "native_ms": {
+     "median_ms": 30.709,
+     "set_medians_ms": [
+      24.579,
+      24.645,
+      31.334,
+      30.709,
+      31.633
+     ],
+     "spread_ms": [
+      24.579,
+      31.633
+     ],
+     "fastest_run_ms": 24.454,
+     "slowest_run_ms": 33.134
+    },
+    "node_ms": {
+     "median_ms": 55.215,
+     "set_medians_ms": [
+      58.899,
+      56.875,
+      55.215,
+      54.738,
+      46.145
+     ],
+     "spread_ms": [
+      46.145,
+      58.899
+     ],
+     "fastest_run_ms": 45.928,
+     "slowest_run_ms": 61.853
+    },
+    "polls_native": {
+     "count": 150,
+     "first_ms": 0.000568,
+     "first_most_ms": 0.000882,
+     "longest_ms": 2.985,
+     "longest_set_medians_ms": [
+      2.477,
+      2.463,
+      3.111,
+      2.985,
+      3.188
+     ],
+     "longest_most_ms": 3.492,
+     "longest_after_poll": [
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ],
+      [
+       147,
+       147,
+       147,
+       147,
+       147
+      ]
+     ],
+     "last_ms": 0.542022,
+     "last_most_ms": 0.623919,
+     "outside_the_shim_ms": 0.136818
+    }
+   }
+  }
+ ],
+ "parity": {
+  "measurement_lines": 686,
+  "identical": 641,
+  "parity_rows": 38,
+  "parity_rows_identical": 31,
+  "parity_rows_differing": [
+   "circle-30 prism",
+   "cone-oblique silhouette-mesh-with-edges",
+   "sphere-oblique silhouette-mesh",
+   "sphere-oblique silhouette-mesh-with-edges",
+   "torus-oblique silhouette-exact",
+   "torus-oblique silhouette-exact-with-edges",
+   "torus-oblique silhouette-mesh-with-edges"
+  ],
+  "largest_relative_gap": 4.6e-13,
+  "largest_absolute_gap": 2.8e-13,
+  "holds": true,
+  "commit": "1fe1c9a",
+  "note": "the same figures as at 3ed9e02: every measurement line and PARITY summary is unchanged by round 3"
+ },
+ "time_criterion": {
+  "rows": "rounded-xy (56 edges)",
+  "limit_ms": 20,
+  "method": "median of 5 sets, each the median of 5 runs; spread is the lowest and highest set median",
+  "curve-on-plane_ms": {
+   "median_ms": 0.212352,
+   "set_medians_ms": [
+    0.200406,
+    0.165079,
+    0.29147,
+    0.212352,
+    0.230374
+   ],
+   "spread_ms": [
+    0.165079,
+    0.29147
+   ],
+   "fastest_run_ms": 0.159106,
+   "slowest_run_ms": 0.316703
+  },
+  "curve-on-plane-keeping-parameters_ms": {
+   "median_ms": 0.197537,
+   "set_medians_ms": [
+    0.181786,
+    0.164627,
+    0.240673,
+    0.200143,
+    0.197537
+   ],
+   "spread_ms": [
+    0.164627,
+    0.240673
+   ],
+   "fastest_run_ms": 0.154714,
+   "slowest_run_ms": 0.249235
+  },
+  "prism_ms": {
+   "median_ms": 28.492,
+   "set_medians_ms": [
+    28.492,
+    31.007,
+    27.226,
+    28.434,
+    28.599
+   ],
+   "spread_ms": [
+    27.226,
+    31.007
+   ],
+   "fastest_run_ms": 23.531,
+   "slowest_run_ms": 43.202
+  },
+  "curve-on-plane_passes": true,
+  "curve-on-plane-keeping-parameters_passes": true,
+  "prism_passes": false,
+  "prism_every_run_over_limit": true
+ },
+ "size": {
+  "base_bytes": 19996965,
+  "limit_bytes": 1048576,
+  "method": "main calls each of the nine constructions once; each build keeps only one construction's call, so the optimizer drops the other value's path; the whole-branch build keeps all nine",
+  "builds": [
+   {
+    "construction": "curve-on-plane",
+    "build": "curve-on-plane only (GeomProjLib, KeepParametrization off)",
+    "bytes": 20021384,
+    "delta": 24419,
+    "sha256": "a16b730f52f9c2fc80a91a016716f3ed3664dbe36dcb16100aa2c4b4b12b0c61",
+    "passes": true,
+    "round_2_delta": 24419
+   },
+   {
+    "construction": "curve-on-plane-keeping-parameters",
+    "build": "curve-on-plane-keeping-parameters only (GeomProjLib, KeepParametrization on)",
+    "bytes": 20021370,
+    "delta": 24405,
+    "sha256": "2aceef13e3b07aff05f119dc1ac0a4a26dbde13bf020fd3fc815a5b9c847cbf5",
+    "passes": true,
+    "round_2_delta": 24405
+   },
+   {
+    "construction": "prism",
+    "build": "prism only (BRepProj_Projection)",
+    "bytes": 20024266,
+    "delta": 27301,
+    "sha256": "7065b26b42155e55594cdaa5dadb1e07723222f3939ce858b3dd07ab5ad7f14a",
+    "passes": true,
+    "round_2_delta": 27292
+   },
+   {
+    "construction": "section-approximated",
+    "build": "section-approximated only (BRepAlgoAPI_Section, approximation on)",
+    "bytes": 20031441,
+    "delta": 34476,
+    "sha256": "8710c246f3af2a6f7278ed0943694040b85d1a79e7a41f18887680714a5ad076",
+    "passes": true,
+    "round_2_delta": 34476
+   },
+   {
+    "construction": "section-exact",
+    "build": "section-exact only (BRepAlgoAPI_Section, approximation off)",
+    "bytes": 20031441,
+    "delta": 34476,
+    "sha256": "5f7342ba2a1e9b20e126df481589d2f15b28fe95cc9e749297ef00e4fb247070",
+    "passes": true,
+    "round_2_delta": 34476
+   },
+   {
+    "construction": "silhouette-exact",
+    "build": "silhouette-exact only (HLRBRep_Algo + OutLineVCompound, as named)",
+    "bytes": 20333670,
+    "delta": 336705,
+    "sha256": "61c9f442aa0487dab80516408ca30a923ee8bee261f644e51bd249e80ed3c08e",
+    "passes": true,
+    "round_2_delta": 336705
+   },
+   {
+    "construction": "silhouette-exact-with-edges",
+    "build": "silhouette-exact-with-edges only (HLRBRep_Algo + OutLineVCompound3d projected, attempt 2)",
+    "bytes": 20319872,
+    "delta": 322907,
+    "sha256": "e2462534a30595ff3d3e64d56ccdc98a77d31f920e4205f532ab6471c0ec7f8e",
+    "passes": true,
+    "round_2_delta": 322907
+   },
+   {
+    "construction": "silhouette-mesh",
+    "build": "silhouette-mesh only (HLRBRep_PolyAlgo + PolyHLRToShape::OutLineVCompound, as named)",
+    "bytes": 20083209,
+    "delta": 86244,
+    "sha256": "2e3cfea165998d215d2de44be25e96395b102a0e992b14020a0163c4d180db0d",
+    "passes": true,
+    "round_2_delta": 86244
+   },
+   {
+    "construction": "silhouette-mesh-with-edges",
+    "build": "silhouette-mesh-with-edges only (HLRBRep_PolyAlgo segments, attempt 2)",
+    "bytes": 20079029,
+    "delta": 82064,
+    "sha256": "159abd477c8accf392bcc1c1784680189c8a03cecc770c74a6de5bfd55eac110",
+    "passes": true,
+    "round_2_delta": 82064
+   },
+   {
+    "construction": "whole branch",
+    "build": "whole branch (all nine, the committed main)",
+    "bytes": 20426637,
+    "delta": 429672,
+    "sha256": "4e64fe6eecd32e9bb6819fb40bced7a70c8dd1a233c00d77ac8eac401964da45",
+    "passes": true,
+    "round_2_delta": 429663
+   }
+  ],
+  "commit": "1fe1c9a",
+  "built": "2026-11-16 17:23:52 to 17:54:43 UTC",
+  "whole_branch_compressed": {
+   "gzip_9": 7188308,
+   "brotli_quality_11_node_zlib": 5136615
+  },
+  "under_25_mib_by": 5787763,
+  "note": "sizes equal round 2 except prism and whole branch (+9 bytes each, the poll added before the covering face); every SHA-256 differs from round 2, also for builds whose code did not change"
+ },
+ "poll_gap_note": "No construction of section 8.7 has a poll-gap criterion. The longest gap is inside HLRBRep_PolyAlgo's mesher on the torus: set medians 77.8 to 95.4 ms (with edges 81.3 to 112.0), single runs up to 137.4 ms (with edges 151.3 ms) at 1fe1c9a; round 2 read 70.7 to 97.3 ms with runs up to 140.9, and the check's re-run at 0462b1a 119.1 ms with a 151.1 ms run: about 70 to 150 ms natively, exceeding 150 ms in some runs. Since round 3 the prism projection polls before its covering face (first poll under 0.001 ms after the start).",
+ "tolerances_reported": {
+  "HLRBRep_Algo": "edges 1e-7; outlines on non-quadrics approximated at 1e-4 times the outline's extent (max 0.1); measured 5.4e-4 mm on the torus",
+  "HLRBRep_PolyAlgo": "edges 1e-7; TolAngular 0.001, TolCoef 0.1; mesh 0.05 mm and 5 degrees; measured up to 0.0155 mm"
+ },
+ "history": {
+  "curve-on-plane": "none from OCCT; named by construction (one call per source edge), edges and their own vertices",
+  "prism": "none from OCCT (BRepProj_Projection hides its section's history and re-wires); named by construction",
+  "section": "BRepAlgoAPI_Section history: each edge in Modified of a part edge, each vertex in Modified of a part vertex; Generated names nothing; none unnamed",
+  "silhouette-exact": "none from OCCT; OutLineVCompound(face of the outlined shape) per face, mapped back by HLRTopoBRep_Data::NewSOldS; per-face sums equal the whole compound",
+  "silhouette-exact-with-edges": "none: every edge and vertex unnamed; drawn_origins (for the checks) name the drawn 3D edge of each projected edge, which names no input element",
+  "silhouette-mesh": "none from OCCT; PolyHLRToShape::OutLineVCompound(face) per face; per-face sums equal the whole compound",
+  "silhouette-mesh-with-edges": "HLRBRep_PolyAlgo::Hide's shape: the face (outline inside it) or the edge (on the outline)"
+ },
+ "constructions": [
+  {
+   "id": "GeomProjLib::ProjectOnPlane (KeepParametrization off, as named)",
+   "passed": false,
+   "size_delta": 24419,
+   "failures": [
+    "kinds on rounded-xy: 16 arcs seen edge on projected as B-splines; as written also the 4 vertical lines of box-xy and 8 of rounded-xy, which project to points",
+    "points on rounded-xy: the 4 arcs whose circle axis is -Z (edges 14, 40, 41, 52) come back as their 270 degree complement, 0.7270 mm off"
+   ]
+  },
+  {
+   "id": "GeomProjLib::ProjectOnPlane with KeepParametrization on (attempt 2, documented option)",
+   "passed": false,
+   "size_delta": 24405,
+   "failures": [
+    "kinds on box-011: 8 of 12 lines projected as degree-1 B-splines",
+    "kinds on rounded-xy: 16 arcs seen edge on as B-splines"
+   ]
+  },
+  {
+   "id": "BRepProj_Projection",
+   "passed": false,
+   "size_delta": 27301,
+   "failures": [
+    "kinds on circle-30: B-spline (tolerance 5.000001e-6) for the ellipse",
+    "time: the 56 edges take 28.49 ms natively (set medians 27.23 to 31.01; every one of the 25 runs over 20 ms, fastest 23.53) against 20 ms; 50.30 ms under Node"
+   ]
+  },
+  {
+   "id": "BRepAlgoAPI_Section, approximation on",
+   "passed": true,
+   "size_delta": 34476,
+   "failures": []
+  },
+  {
+   "id": "BRepAlgoAPI_Section, approximation off",
+   "passed": true,
+   "size_delta": 34476,
+   "failures": []
+  },
+  {
+   "id": "HLRBRep_Algo + HLRBRep_HLRToShape::OutLineVCompound (as named)",
+   "passed": false,
+   "size_delta": 336705,
+   "failures": [
+    "two lines: the cylinder seen across its axis at the spike's view (0, 1, 0) gives 1 line; OutLineVCompound (2D) does not draw the outline on the seam edge (+X), which that view puts on the outline"
+   ],
+   "view_dependence": "scratch check (round 3): two lines at every other perpendicular view tried (0 to 315 degrees around Z, including 89.9 and 90.1); 1 only at exactly 90 and 270. With such a view it would meet every written criterion on the inputs as built (no edge for rounded-z fails no written check)."
+  },
+  {
+   "id": "HLRBRep_Algo + OutLineVCompound3d projected by GeomProjLib (attempt 2, documented option)",
+   "passed": false,
+   "size_delta": 322907,
+   "failures": [
+    "points of its projection step on rounded-z: drawn corner arcs 7 and 8 (circle axis -Z) come back as their 270 degree complement, 0.7270159411276598 and 0.7270159411276604 mm off (GeomProjLib defect); 1.614 mm from the exact silhouette"
+   ]
+  },
+  {
+   "id": "HLRBRep_PolyAlgo + HLRBRep_PolyHLRToShape::OutLineVCompound (as named)",
+   "passed": false,
+   "size_delta": 86244,
+   "failures": [
+    "two lines: the cylinder seen across its axis at the spike's view (0, 1, 0) gives 1 line (seam outline missing)"
+   ],
+   "view_dependence": "scratch check (round 3), on the shim mesh: two lines at views 5 degrees or more from the seam view (0 to 85, 95 to 180, 225, 315); 3 or 4 collinear pieces at 87 to 92 and 269, 271 (except 90); 1 at 90 and 270"
+  },
+  {
+   "id": "HLRBRep_PolyAlgo with segments on the outline from its Hide iterator (attempt 2)",
+   "passed": false,
+   "size_delta": 82064,
+   "failures": [
+    "two lines: 146 lines on the cylinder (the end circles' segments)"
+   ]
+  }
+ ],
+ "decision": "Section: BRepAlgoAPI_Section passes (approximation on and off identical on the coplanar input); sketch.md takes it. Projection: no construction passes. Silhouette: no method passes (every silhouette construction within 1 MiB, so the size clause does not decide); the named methods fail only the two-line check, and only because the spike's view (0, 1, 0) puts the cylinder's seam on its outline: at other perpendicular views HLRBRep_Algo as named would meet every written criterion, and HLRBRep_PolyAlgo as named at views 5 degrees or more from the seam's. Section 8.7's Decision names no case where nothing passes: the records step takes projection and silhouette to the owner's rule before features/sketch.md, weighing the view dependence. No M2 plan choice is confirmed or replaced; ADR 0071 gets no note.",
+ "round_2": {
+  "P1": "fixed: attempt 2's projection step now gets the kinds and points checks with its drawn 3D edges as sources; fails points on rounded-z (0.7270 mm, drawn edges 7 and 8); pinned (2, 2)",
+  "P2": "fixed: main calls all nine constructions; one size build per construction and one whole-branch build",
+  "P3": "fixed: five sets per row, each median with its spread",
+  "P4": "fixed: the under-150 ms sentence removed; the mesher gap reported as about 70 to 150 ms",
+  "P5": "fixed: the tests run test 138's weld check (holds vacuously) and fail an invalid result",
+  "P6": "no code change; the record says why build.rs, partsmith-wasm/Cargo.toml and Cargo.lock change",
+  "disputed": []
+ },
+ "views_check": {
+  "what": "scratch test through the branch's facade (projection-views.rs beside the record, not committed), natively at 1fe1c9a: test 10's cylinder (seam at +X) seen with the view normal at angles around Z from +X (x axis +Z), the spike's two views, and three oblique views at 45 degrees to the axis",
+  "angles_degrees": [
+   0,
+   10,
+   30,
+   45,
+   60,
+   80,
+   85,
+   87,
+   88,
+   89,
+   89.5,
+   89.9,
+   90,
+   90.1,
+   91,
+   92,
+   95,
+   100,
+   135,
+   180,
+   225,
+   269,
+   270,
+   271,
+   315
+  ],
+  "silhouette-exact": {
+   "two_lines": "every angle except 90 and 270",
+   "one_line": [
+    90,
+    270
+   ],
+   "oblique": "two lines at 0 and 45 degrees around Z, 1 at 90 and at the spike's (0, 1, 1)"
+  },
+  "silhouette-mesh": {
+   "two_lines": [
+    0,
+    10,
+    30,
+    45,
+    60,
+    80,
+    85,
+    95,
+    100,
+    135,
+    180,
+    225,
+    315
+   ],
+   "four_pieces": [
+    87,
+    88,
+    89,
+    89.5,
+    91,
+    92,
+    269,
+    271
+   ],
+   "three_pieces": [
+    89.9,
+    90.1
+   ],
+   "one_line": [
+    90,
+    270
+   ],
+   "oblique": "two lines at 0 and 45 degrees around Z, 1 at 90 and at (0, 1, 1)"
+  },
+  "silhouette-exact-with-edges": "two lines at every view",
+  "silhouette-mesh-with-edges": "146 to 150 lines at every view (146 away from the seam view; 147 to 150 within 3 degrees of it)",
+  "every_result_valid": true
+ },
+ "round_3": {
+  "P1": "accepted: the named methods' two-line failure depends on the view; scratch check confirms HLRBRep_Algo gives two lines at every perpendicular view except +Y and -Y, PolyAlgo at views 5 degrees or more from the seam's (3 or 4 collinear pieces within 3 degrees); recorded in results, pass table, decision and the feature-spec list; input kept",
+  "P2": "accepted: Times now gives the spread (set medians up to 2.3x apart on rows under 2 ms, 1.9x on longer rows; medians of five sets within 26 percent of round 2 natively, 44 percent under Node); no verdict changes",
+  "P3": "accepted, no change: the existing note on build.rs, partsmith-wasm/Cargo.toml and Cargo.lock stands",
+  "P4": "fixed: u and v renamed u_parameter and v_parameter; two doc comments now say 56 edges",
+  "P5": "fixed: the silhouette-mesh polls read as totals per call with the shim's 6 and the mesher's share",
+  "P6": "fixed in code: project_by_prism polls before covering_face, as split does; polls per call 9, 13, 2, 41; start to first poll under 0.001 ms",
+  "disputed": [],
+  "commit": "1fe1c9a"
+ },
+ "final_checks": {
+  "crate_tests_native": "196 unit and 563 integration tests pass",
+  "spike_tests_node": "12 pass (Node v22.23.4, Emscripten 4.0.15)",
+  "fmt": "clean",
+  "clippy": "clean (partsmith-occt-sys, partsmith-wasm, -D warnings)",
+  "patch": "git diff 2c56ff9..1fe1c9a: 2,505 lines, 17 files, 2,213 insertions, 16 deletions, no em dash"
+ }
+}

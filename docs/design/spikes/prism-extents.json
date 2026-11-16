@@ -1,0 +1,6612 @@
+{
+ "spike": "prism-extents",
+ "section": "kernel.md 8.5",
+ "date": "2026-11-15",
+ "runs_on": "2026-11-16 UTC (40c7833 and earlier: 09:38 to 10:32; 003f9ac: 10:56 to 11:28)",
+ "branch": "spike/kernel-prism-extents",
+ "worktree": "/home/user/partsmith-spike",
+ "base": "2c56ff9",
+ "commits": {
+  "500496a": "the spike",
+  "fa9b2cd": "one shim and facade function per construction",
+  "40c7833": "test module comment",
+  "003f9ac": "rename the single-letter locals u and v of corner_parameters (check round 1); no compiled byte changes"
+ },
+ "last_commit": "003f9ac",
+ "patch": {
+  "path": "docs/design/spikes/prism-extents.patch",
+  "bytes": 111824,
+  "files": 17,
+  "lines_added": 2590,
+  "lines_removed": 13,
+  "non_ascii": 0,
+  "range": "git diff 2c56ff9..003f9ac",
+  "em_dash": 0,
+  "files_outside_code": {
+   "crates/partsmith-occt-sys/build.rs": "the new source in SOURCES",
+   "crates/partsmith-wasm/Cargo.toml": "dependency on partsmith-occt-sys so main can call the spike",
+   "Cargo.lock": "that dependency's line; no third-party crate added"
+  }
+ },
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "ram_gb": 15,
+  "loadavg_before_sets": {
+   "native 1": "0.59 1.46 1.43",
+   "native 2": "0.58 1.43 1.42",
+   "native 3": "0.56 1.40 1.41",
+   "native 4": "0.14 0.23 0.72",
+   "native 5": "0.14 0.22 0.69",
+   "native 6": "0.14 0.21 0.68",
+   "native 100-edge 4": "0.14 0.23 0.72",
+   "native 100-edge 5": "0.14 0.21 0.68",
+   "native 100-edge 6": "0.14 0.20 0.66",
+   "native 100-edge 7": "0.21 0.22 0.65",
+   "node 1": "0.56 1.40 1.41",
+   "node 2": "0.55 1.33 1.38",
+   "node 3": "0.59 1.32 1.38",
+   "native 7 (003f9ac)": "0.00 0.48 0.97"
+  },
+  "steal_during_set_7": 0
+ },
+ "toolchains": {
+  "rust": "1.97.0",
+  "emscripten": "4.0.15",
+  "node": "22.23.4",
+  "occt": "7.9.3"
+ },
+ "binaries_sha256": {
+  "native_bench": "6c436e481036734e770600a712dadced57e143d33127207aed5422ba41d0f624",
+  "node_bench_wasm": "01f955860c1c5b66da4a4a534d21fc41753e45a78ec1c75655d5e32f562f815b",
+  "rebuilt_at_003f9ac": "native bench 6c436e48... and Node bench 01f95586..., byte-identical to 40c7833's"
+ },
+ "checks_at_last_commit": {
+  "commit": "003f9ac",
+  "crate_tests_native": "202 unit and 554 integration tests passed (11:19:50 to 11:20:31)",
+  "spike_tests_native": "4 passed (--test integration prism_, --nocapture --test-threads 1)",
+  "spike_tests_node": "4 passed (--test integration prism_, --nocapture --test-threads 1)",
+  "spike_unit_tests_node": "6 passed (--lib prism_extents)",
+  "fmt": "clean (cargo fmt --all --check)",
+  "clippy": "clean (-p partsmith-occt-sys -p partsmith-wasm --all-targets -D warnings)",
+  "outputs_against_40c7833": "every measurement line, parity summary and history count equals the record's; measurement and history lines byte-identical native and Node"
+ },
+ "criteria_reading": {
+  "end_tolerance_mm": 1e-06,
+  "taper_tolerance_rad": 1e-09,
+  "mesh": "0.05 mm, 5 degrees, WELD_TOLERANCE, every undirected edge used twice",
+  "time_limits": {
+   "RECT up to a face (rect-parallel, rect-tilted, rect-cylinder)": 30,
+   "tapered 100-edge (gon-taper-out, gon-taper-in)": 60
+  },
+  "time_method": "ADR 0057: median of three runs of the release bench, each the row median of 5; sets 1-3 and repeated as sets 4-6",
+  "size_limit_bytes": 1048576,
+  "own_check": "start faces named and on the profile plane within 1e-6 mm (beyond section 8.5)"
+ },
+ "size": {
+  "base_bytes": 19996965,
+  "whole_branch_500496a": {
+   "bytes": 21421682,
+   "delta": 1424717
+  },
+  "per_construction": {
+   "feature (BRepFeat_MakePrism and BRepFeat_MakeDPrism)": {
+    "bytes": 20935752,
+    "delta": 938787,
+    "sha256": "0c4084f8c4b2e33936ed0c62b64430477143e89237e93d9552b7ef2f14a410f0",
+    "main_calls": [
+     "extrude_feature(&profile, up, &face, 0.0, FeatureBasis::Body, &interrupt)",
+     "extrude_feature(&profile, up, &body, 0.0, FeatureBasis::Nothing, &interrupt)",
+     "extrude_feature(&profile, up, &length, taper, FeatureBasis::Nothing, &interrupt)"
+    ],
+    "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+   },
+   "split": {
+    "bytes": 20034600,
+    "delta": 37635,
+    "sha256": "7740bfa44175bfcf78b634634535b998c66ed496cef161ddec034cbefc68f173",
+    "main_calls": [
+     "extrude_split(&profile, up, &face, &interrupt)",
+     "extrude_split(&profile, up, &body, &interrupt)"
+    ],
+    "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+   },
+   "draft-angle (with split for up to a face)": {
+    "bytes": 20154506,
+    "delta": 157541,
+    "sha256": "ad8749609c08a8bfc6e6319242e833c4b28792d840b11c7f84ca959b5f316e8b",
+    "main_calls": [
+     "extrude_drafted(&profile, up, &length, taper, &interrupt)",
+     "extrude_drafted(&profile, up, &face, taper, &interrupt)"
+    ],
+    "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+   },
+   "thru-sections (with split for up to a face)": {
+    "bytes": 20680742,
+    "delta": 683777,
+    "sha256": "3617ba3edff4b33a97ebdc78f4d91c510a189a0da58fc90cf42059f9a7e7f8ce",
+    "main_calls": [
+     "extrude_lofted(&profile, up, &length, taper, &interrupt)",
+     "extrude_lofted(&profile, up, &face, taper, &interrupt)"
+    ],
+    "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+   },
+   "split and draft-angle (the picked pair)": {
+    "bytes": 20158140,
+    "delta": 161175,
+    "sha256": "f90fd150165834657526fdfcf71e3a8af276aff5eb0a0f143aa0294c28117c1c",
+    "main_calls": [
+     "extrude_split(&profile, up, &face, &interrupt)",
+     "extrude_split(&profile, up, &body, &interrupt)",
+     "extrude_drafted(&profile, up, &length, taper, &interrupt)",
+     "extrude_drafted(&profile, up, &face, taper, &interrupt)"
+    ],
+    "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+   }
+  },
+  "whole_branch_fa9b2cd_40c7833_and_003f9ac": {
+   "bytes": 21430927,
+   "delta": 1433962,
+   "sha256": "9549cf73005a87e49362fa49150196152140ea9c0ca43355bce9369fa3a1e34e",
+   "rebuilt_at_003f9ac": "byte-identical (same sha256)"
+  },
+  "script": "docs/design/spikes/prism-extents-sizes.py",
+  "method": "the script keeps in main.rs's results array only the named facade functions' calls, runs scripts/build-wasm.sh, prints size and sha256, restores main.rs byte for byte; last build is the committed main.rs (all nine calls). Run at 003f9ac 10:59:58 to 11:19:36."
+ },
+ "parity": {
+  "runs": 37,
+  "lines": 37,
+  "identical_lines": 30,
+  "failures": 0,
+  "differing_lines": {
+   "gon-taper-out feature": "volume 7.3e-12 abs (1.4e-16 rel), area 1.8e-12 abs (1.4e-16 rel)",
+   "gon-taper-out draft-angle": "volume 7.3e-12 abs (1.4e-16 rel)",
+   "gon-taper-out thru-sections": "volume 7.3e-12 abs (1.4e-16 rel), area 1.8e-12 abs (1.4e-16 rel)",
+   "gon-taper-in feature": "min z near 0, 5.7e-15 abs (within the 1e-9 floor)",
+   "gon-taper-in draft-angle": "volume 7.3e-12 abs (1.5e-16 rel), area 7.3e-12 abs (5.9e-16 rel)",
+   "rect-taper-tilted feature-body": "volume 8.7e-11 abs (4.3e-16 rel), area 7.3e-12 abs (3.3e-16 rel)",
+   "rect-taper-tilted feature-nothing": "volume 8.7e-11 abs (4.3e-16 rel), area 7.3e-12 abs (3.3e-16 rel)"
+  },
+  "worst_relative_gap_numbers_at_least_1": 5.9e-16,
+  "worst_absolute_gap": 8.73e-11,
+  "rule": "ADR 0042: counts equal, numbers within max(1e-9*|native|, 1e-9)",
+  "measurement_and_history_lines": "byte-identical native and Node",
+  "commits": [
+   "40c7833",
+   "003f9ac"
+  ],
+  "note": "40c7833's count of 36 missed the first line, printed after the harness's 'test ... ' prefix; the comparison at 003f9ac strips that prefix"
+ },
+ "in_part_statuses": {
+  "feature-body": "BRepFeat_MakePrism done (status BRepFeat_OK, scratch probe: wrong solid, 10 faces, about 2.54e6 mm3); the shim check raises Partsmith_InvalidInput \"Only part of the profile reaches face 5, so the extrude cannot end on it.\"",
+  "feature-nothing": "StdFail_NotDone: BRepFeat_MakePrism failed: BRepFeat_InvShape (not specific to this case)",
+  "split": "BRepAlgoAPI_Splitter reports no error (cuts at the extended surface); the shim check raises Partsmith_InvalidInput with the message above",
+  "reading": "one reading for every construction: the status is the shim's own check (require_within) on the end faces the construction's history names, not OCCT's; it holds for any construction that returns a result whose named end faces the check can classify. Passes: split and feature-body. Not: feature-nothing (OCCT's BRepFeat_InvShape, set for any invalid cut; a supporting finding only)."
+ },
+ "constructions": [
+  {
+   "id": "up-to-face (i) BRepFeat_MakePrism Perform(Until), body basis (mode 2) and empty-compound basis (mode 1)",
+   "passed": false,
+   "failures": [
+    "Body basis, Generated check: 0 of 5 lateral faces of the result are in a profile edge's Generated list on every up-to input (rect-parallel, rect-tilted, rect-cylinder, rect-body).",
+    "Body basis, end check: LastShape and the target's Modified name no end face of the result on any up-to input.",
+    "No basis, end check: on rect-body, an input of the same construction, the faces named end lie 10.0 mm off the target (the part of the prism inside the block, z 30 to 40)."
+   ],
+   "supporting": [
+    "No basis on rect-cylinder: the part of the prism inside the cylinder (z 40 to 160, volume 465724.89, no start face); only the spike's own start check catches it.",
+    "No basis on rect-in-part: StdFail_NotDone BRepFeat_InvShape, which GlobalPerform sets for any invalid tool cut, so not a status of its own."
+   ]
+  },
+  {
+   "id": "up-to-face (ii) BRepPrimAPI_MakePrism through the body, split at the face's surface by BRepAlgoAPI_Splitter, kept on the profile's side",
+   "passed": true,
+   "failures": []
+  },
+  {
+   "id": "up-to-body (i) BRepFeat_MakePrism Perform(Until = body)",
+   "passed": false,
+   "failures": [
+    "Body basis: Generated check 0 of 5 and no end face named on rect-body.",
+    "No basis: end check, the faces named end 10.0 mm off the target on rect-body (the part inside the block, z 30 to 40, volume 40000)."
+   ],
+   "supporting": [
+    "No basis: no start face (the spike's own start check)."
+   ]
+  },
+  {
+   "id": "up-to-body (ii) prism through the body split by the body (up_to_body)",
+   "passed": true,
+   "failures": []
+  },
+  {
+   "id": "taper (i) BRepFeat_MakeDPrism",
+   "passed": false,
+   "failures": [
+    "Valid as built: the test 18 holed profile, outward and inward, reports done with a null shape (Standard_NullObject in the shim's check).",
+    "Generated and taper checks: outward tapers on RECT and the 100-edge profile give extra faces (10 instead of 6, 202 instead of 102) that no profile edge generates and that have no edge in the start cap; RECT volume 2.19 mm3 short of exact.",
+    "Taper up to the tilted face: extra faces with either basis (Generated, taper), and no end face named with the body basis (end).",
+    "Time: tapered 100-edge profile 175.12 / 163.27 ms outward and 70.76 / 69.95 ms inward (ADR 0057, sets 1-3 / 4-6) against 60 ms."
+   ]
+  },
+  {
+   "id": "taper (ii) BRepOffsetAPI_DraftAngle on the lateral faces of a prism (split for up to a face)",
+   "passed": true,
+   "failures": [],
+   "note": "100-edge 51.28/57.08 ms out and 57.41/50.65 ms in by ADR 0057 method; set 7 48.49 out, 52.01 in; 4 of 20 single set medians of sets 1-6 and the 100-edge sets over 60 ms"
+  },
+  {
+   "id": "taper (iii) BRepOffsetAPI_ThruSections between the profile and its BRepOffsetAPI_MakeOffset (holes lofted and cut)",
+   "passed": false,
+   "failures": [
+    "Time: tapered 100-edge profile outward 75.67 ms (sets 1-3) and 69.14 ms (sets 4-6) against 60 ms; set 7 60.97. Inward 58.31 / 62.70, set 7 72.09."
+   ]
+  }
+ ],
+ "decision": {
+  "up_to_face": "(ii) split",
+  "up_to_body": "(ii) split by the body (up_to_body in cpp/prism_extents.cpp, behind extrude_split)",
+  "taper": "(ii) BRepOffsetAPI_DraftAngle",
+  "rationale": "(i) BRepFeat_MakePrism fails section 8.5's checks with either basis: body basis the Generated check (0 of 5 on every up-to input) and the end check (no end face named); no basis the end check on rect-body (10.0 mm off). The spike's start check and BRepFeat_InvShape are supporting findings. (i) BRepFeat_MakeDPrism fails validity, Generated, taper and time. (iii) ThruSections fails only the 60 ms. (ii) passes every criterion."
+ },
+ "runs": [
+  {
+   "input": "rect-parallel",
+   "construction": "feature-body",
+   "outcome_pinned": "valid start closed no-end no-generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 0 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 0 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces []",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 120000.0 area 15800.0 min [0.0, 0.0, 0.0] max [80.0, 50.0, 30.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 5
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.391,
+     5.167,
+     4.194,
+     5.642,
+     5.871,
+     8.918
+    ],
+    "set_runs_ms": [
+     [
+      5.391,
+      5.257,
+      5.339,
+      6.983,
+      7.397
+     ],
+     [
+      4.972,
+      5.167,
+      6.342,
+      6.847,
+      4.977
+     ],
+     [
+      4.487,
+      4.194,
+      4.114,
+      4.117,
+      12.871
+     ],
+     [
+      7.055,
+      5.489,
+      5.305,
+      5.642,
+      5.8
+     ],
+     [
+      5.98,
+      6.135,
+      5.306,
+      5.445,
+      5.871
+     ],
+     [
+      9.457,
+      8.919,
+      8.918,
+      8.743,
+      8.902
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.167,
+    "adr_0057_median_sets_4_to_6_ms": 5.871,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.00036399999999999996,
+     "first_most_ms": 0.0011200000000000001,
+     "longest_ms": 4.943,
+     "longest_most_ms": 6.404,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.036976999999999996,
+     "last_most_ms": 0.050914,
+     "outside_ms": 0.019675,
+     "outside_most_ms": 0.042723,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 10.87,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     8.849,
+     9.212,
+     8.99
+    ],
+    "median_ms": 8.99,
+    "set_runs_ms": [
+     [
+      12.966,
+      8.92,
+      8.676,
+      8.78,
+      8.849
+     ],
+     [
+      13.035,
+      8.963,
+      9.05,
+      9.212,
+      9.485
+     ],
+     [
+      12.714,
+      8.99,
+      9.294,
+      8.835,
+      8.85
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.0010329999999999998,
+     "first_most_ms": 0.014952,
+     "longest_ms": 7.869,
+     "longest_most_ms": 10.74,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.03505,
+     "last_most_ms": 0.37945,
+     "outside_ms": 0.033131,
+     "outside_most_ms": 0.717394,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.151,
+    "runs_ms": [
+     5.901,
+     5.443,
+     5.151,
+     4.994,
+     5.027
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.00029099999999999997,
+     "first_most_ms": 0.0007689999999999999,
+     "longest_ms": 4.516,
+     "longest_most_ms": 5.281,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.032006,
+     "last_most_ms": 0.034282,
+     "outside_ms": 0.016764,
+     "outside_most_ms": 0.024314000000000002,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-parallel",
+   "construction": "feature-nothing",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 120000.0 area 15800.0 min [0.0, 0.0, 0.0] max [80.0, 50.0, 30.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     8.601,
+     6.119,
+     6.598,
+     6.3,
+     6.926,
+     10.108
+    ],
+    "set_runs_ms": [
+     [
+      8.655,
+      8.601,
+      8.56,
+      8.523,
+      9.26
+     ],
+     [
+      5.936,
+      5.447,
+      6.262,
+      6.75,
+      6.119
+     ],
+     [
+      9.464,
+      5.607,
+      6.475,
+      6.598,
+      6.778
+     ],
+     [
+      7.069,
+      6.3,
+      5.991,
+      5.981,
+      7.509
+     ],
+     [
+      7.029,
+      6.926,
+      6.962,
+      6.527,
+      6.297
+     ],
+     [
+      10.198,
+      10.27,
+      10.108,
+      10.097,
+      9.618
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 6.598,
+    "adr_0057_median_sets_4_to_6_ms": 6.926,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.000343,
+     "first_most_ms": 0.003006,
+     "longest_ms": 4.313,
+     "longest_most_ms": 4.886,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.036353,
+     "last_most_ms": 0.046659,
+     "outside_ms": 0.016696000000000003,
+     "outside_most_ms": 0.021492,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 7.073,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     11.118,
+     12.788,
+     10.192
+    ],
+    "median_ms": 11.118,
+    "set_runs_ms": [
+     [
+      12.974,
+      9.966,
+      10.822,
+      11.763,
+      11.118
+     ],
+     [
+      12.788,
+      10.569,
+      15.255,
+      15.345,
+      10.966
+     ],
+     [
+      12.643,
+      10.192,
+      10.101,
+      10.93,
+      9.088
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.000749,
+     "first_most_ms": 0.001083,
+     "longest_ms": 7.174,
+     "longest_most_ms": 8.756,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.038949,
+     "last_most_ms": 0.044978000000000004,
+     "outside_ms": 0.027582000000000002,
+     "outside_most_ms": 0.034657,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.635,
+    "runs_ms": [
+     6.635,
+     5.799,
+     6.116,
+     7.023,
+     8.422
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.000267,
+     "first_most_ms": 0.000384,
+     "longest_ms": 4.122,
+     "longest_most_ms": 5.451,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.040793,
+     "last_most_ms": 0.051465000000000004,
+     "outside_ms": 0.019376,
+     "outside_most_ms": 0.030681,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-parallel",
+   "construction": "split",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 120000.0 area 15800.0 min [0.0, 0.0, 0.0] max [80.0, 50.0, 30.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     7.402,
+     5.086,
+     5.742,
+     6.76,
+     6.801,
+     7.704
+    ],
+    "set_runs_ms": [
+     [
+      7.439,
+      7.305,
+      7.402,
+      7.349,
+      7.509
+     ],
+     [
+      5.813,
+      4.566,
+      5.086,
+      4.529,
+      5.147
+     ],
+     [
+      5.693,
+      5.708,
+      5.977,
+      5.742,
+      5.941
+     ],
+     [
+      5.484,
+      5.885,
+      7.183,
+      7.213,
+      6.76
+     ],
+     [
+      6.808,
+      6.394,
+      6.732,
+      6.866,
+      6.801
+     ],
+     [
+      7.394,
+      7.815,
+      7.704,
+      7.669,
+      7.77
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.742,
+    "adr_0057_median_sets_4_to_6_ms": 6.801,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 400,
+     "first_ms": 0.000379,
+     "first_most_ms": 0.000454,
+     "longest_ms": 1.809,
+     "longest_most_ms": 2.016,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.053606,
+     "last_most_ms": 0.055902,
+     "outside_ms": 0.029409,
+     "outside_most_ms": 0.032148,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 2.228,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.574,
+     12.683,
+     8.375
+    ],
+    "median_ms": 10.574,
+    "set_runs_ms": [
+     [
+      13.923,
+      9.971,
+      12.484,
+      10.574,
+      10.065
+     ],
+     [
+      14.975,
+      10.722,
+      10.811,
+      13.015,
+      12.683
+     ],
+     [
+      10.493,
+      8.227,
+      8.375,
+      10.095,
+      7.582
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 400,
+     "first_ms": 0.000815,
+     "first_most_ms": 0.001648,
+     "longest_ms": 2.779,
+     "longest_most_ms": 3.501,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.048703,
+     "last_most_ms": 0.075188,
+     "outside_ms": 0.045925,
+     "outside_most_ms": 0.26255500000000004,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.804,
+    "runs_ms": [
+     7.031,
+     7.193,
+     6.804,
+     5.74,
+     5.138
+    ],
+    "polls": {
+     "polls": 400,
+     "first_ms": 0.000329,
+     "first_most_ms": 0.000589,
+     "longest_ms": 1.872,
+     "longest_most_ms": 1.958,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.049896,
+     "last_most_ms": 0.056562,
+     "outside_ms": 0.029320000000000002,
+     "outside_most_ms": 0.034744,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-tilted",
+   "construction": "feature-body",
+   "outcome_pinned": "valid start closed no-end no-generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 0 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 0 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces []",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 180073.4515385645 area 19961.485439910342 min [0.0, -6.661338147750939e-16, 0.0] max [80.0, 50.00000000000001, 54.11761874129619]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 5
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     7.671,
+     5.423,
+     6.306,
+     5.505,
+     7.24,
+     7.853
+    ],
+    "set_runs_ms": [
+     [
+      7.728,
+      7.668,
+      7.671,
+      7.66,
+      7.759
+     ],
+     [
+      5.423,
+      5.075,
+      5.112,
+      6.112,
+      6.398
+     ],
+     [
+      6.306,
+      6.144,
+      6.185,
+      6.401,
+      6.81
+     ],
+     [
+      5.679,
+      5.471,
+      5.563,
+      5.423,
+      5.505
+     ],
+     [
+      7.24,
+      7.374,
+      7.283,
+      7.118,
+      7.236
+     ],
+     [
+      8.356,
+      7.853,
+      8.122,
+      7.46,
+      7.628
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 6.306,
+    "adr_0057_median_sets_4_to_6_ms": 7.24,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.000376,
+     "first_most_ms": 0.00043999999999999996,
+     "longest_ms": 4.916,
+     "longest_most_ms": 4.994,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.034873,
+     "last_most_ms": 0.051802,
+     "outside_ms": 0.015434,
+     "outside_most_ms": 0.017422999999999998,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 7.41,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     9.359,
+     9.722,
+     7.083
+    ],
+    "median_ms": 9.359,
+    "set_runs_ms": [
+     [
+      10.147,
+      9.359,
+      9.983,
+      9.356,
+      8.853
+     ],
+     [
+      9.722,
+      9.65,
+      11.849,
+      11.404,
+      8.783
+     ],
+     [
+      7.955,
+      7.032,
+      7.083,
+      6.937,
+      7.371
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.00081,
+     "first_most_ms": 0.010130000000000002,
+     "longest_ms": 8.439,
+     "longest_most_ms": 8.936,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.035473,
+     "last_most_ms": 0.063447,
+     "outside_ms": 0.029976,
+     "outside_most_ms": 0.041018,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.999,
+    "runs_ms": [
+     7.281,
+     6.999,
+     7.121,
+     5.074,
+     4.987
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.00032399999999999996,
+     "first_most_ms": 0.000381,
+     "longest_ms": 6.19,
+     "longest_most_ms": 6.417,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.034829,
+     "last_most_ms": 0.045313000000000006,
+     "outside_ms": 0.020803000000000002,
+     "outside_most_ms": 0.027989999999999998,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-tilted",
+   "construction": "feature-nothing",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.944109290391274e-15 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 180073.4515385645 area 19961.485439910342 min [0.0, -6.661338147750939e-16, 0.0] max [80.0, 50.00000000000001, 54.11761874129619]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     6.225,
+     5.444,
+     6.649,
+     6.342,
+     8.373,
+     9.38
+    ],
+    "set_runs_ms": [
+     [
+      8.679,
+      8.429,
+      5.696,
+      5.711,
+      6.225
+     ],
+     [
+      6.951,
+      5.468,
+      5.391,
+      5.444,
+      5.378
+     ],
+     [
+      7.633,
+      7.121,
+      6.183,
+      6.12,
+      6.649
+     ],
+     [
+      6.128,
+      6.789,
+      6.311,
+      6.342,
+      6.352
+     ],
+     [
+      8.373,
+      8.375,
+      8.334,
+      8.424,
+      8.251
+     ],
+     [
+      9.358,
+      9.381,
+      9.319,
+      9.399,
+      9.38
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 6.225,
+    "adr_0057_median_sets_4_to_6_ms": 8.373,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.000325,
+     "first_most_ms": 0.000357,
+     "longest_ms": 4.362,
+     "longest_most_ms": 4.677,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.035741,
+     "last_most_ms": 0.037207000000000004,
+     "outside_ms": 0.017869,
+     "outside_most_ms": 0.022908,
+     "end_distance_mm": 7.944109290391274e-15
+    },
+    "longest_gap_most_any_set_ms": 6.386,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.472,
+     9.966,
+     8.206
+    ],
+    "median_ms": 9.966,
+    "set_runs_ms": [
+     [
+      10.28,
+      10.426,
+      11.845,
+      10.85,
+      10.472
+     ],
+     [
+      9.966,
+      10.034,
+      9.898,
+      9.777,
+      13.779
+     ],
+     [
+      8.261,
+      8.244,
+      8.11,
+      7.951,
+      8.206
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.000837,
+     "first_most_ms": 0.001045,
+     "longest_ms": 7.11,
+     "longest_most_ms": 7.525,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.039126,
+     "last_most_ms": 0.051876,
+     "outside_ms": 0.025567,
+     "outside_most_ms": 0.036075,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.446,
+    "runs_ms": [
+     5.472,
+     5.445,
+     5.389,
+     5.446,
+     7.013
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.00026399999999999997,
+     "first_most_ms": 0.00027499999999999996,
+     "longest_ms": 3.663,
+     "longest_most_ms": 4.565,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.031778,
+     "last_most_ms": 0.034138,
+     "outside_ms": 0.015552,
+     "outside_most_ms": 0.028114999999999998,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   }
+  },
+  {
+   "input": "rect-tilted",
+   "construction": "split",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.944109290391274e-15 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 180073.4515385645 area 19961.485439910342 min [0.0, -6.661338147750939e-16, 0.0] max [80.0, 50.00000000000001, 54.11761874129619]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     4.888,
+     4.657,
+     5.308,
+     5.304,
+     5.344,
+     8.028
+    ],
+    "set_runs_ms": [
+     [
+      4.888,
+      4.779,
+      4.715,
+      4.962,
+      5.094
+     ],
+     [
+      4.612,
+      4.568,
+      4.657,
+      5.387,
+      4.737
+     ],
+     [
+      5.733,
+      5.307,
+      5.224,
+      5.308,
+      5.335
+     ],
+     [
+      5.386,
+      5.304,
+      5.306,
+      5.299,
+      5.269
+     ],
+     [
+      7.178,
+      6.469,
+      5.154,
+      5.344,
+      5.113
+     ],
+     [
+      8.055,
+      7.918,
+      8.028,
+      8.025,
+      8.04
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 4.888,
+    "adr_0057_median_sets_4_to_6_ms": 5.344,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 400,
+     "first_ms": 0.000269,
+     "first_most_ms": 0.00046699999999999997,
+     "longest_ms": 1.394,
+     "longest_most_ms": 1.428,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.040072,
+     "last_most_ms": 0.04572,
+     "outside_ms": 0.022101,
+     "outside_most_ms": 0.023293,
+     "end_distance_mm": 7.944109290391274e-15
+    },
+    "longest_gap_most_any_set_ms": 2.066,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     9.909,
+     9.87,
+     7.443
+    ],
+    "median_ms": 9.87,
+    "set_runs_ms": [
+     [
+      9.902,
+      10.824,
+      9.909,
+      9.467,
+      11.117
+     ],
+     [
+      8.725,
+      9.412,
+      9.87,
+      11.873,
+      11.757
+     ],
+     [
+      7.617,
+      7.936,
+      7.181,
+      7.443,
+      7.133
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 400,
+     "first_ms": 0.0008939999999999999,
+     "first_most_ms": 0.009210000000000001,
+     "longest_ms": 2.7,
+     "longest_most_ms": 2.821,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.046395000000000006,
+     "last_most_ms": 0.058564,
+     "outside_ms": 0.044044,
+     "outside_most_ms": 0.052287,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.145,
+    "runs_ms": [
+     5.813,
+     5.141,
+     5.328,
+     5.145,
+     4.802
+    ],
+    "polls": {
+     "polls": 400,
+     "first_ms": 0.000278,
+     "first_most_ms": 0.000416,
+     "longest_ms": 1.287,
+     "longest_most_ms": 1.519,
+     "longest_after_polls": [
+      398,
+      398,
+      398,
+      398,
+      398
+     ],
+     "last_ms": 0.037236,
+     "last_most_ms": 0.042502000000000005,
+     "outside_ms": 0.021555,
+     "outside_most_ms": 0.041290999999999994,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   }
+  },
+  {
+   "input": "rect-cylinder",
+   "construction": "feature-body",
+   "outcome_pinned": "valid start closed no-end no-generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 0 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 0 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces []",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 167137.55463793885 area 19577.313314763363 min [0.0, 0.0, 0.0] max [80.0, 50.00000000000003, 45.45643942682144]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 5
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.572,
+     5.725,
+     6.249,
+     6.021,
+     6.044,
+     7.236
+    ],
+    "set_runs_ms": [
+     [
+      5.697,
+      5.572,
+      5.504,
+      5.534,
+      5.662
+     ],
+     [
+      5.733,
+      5.241,
+      5.725,
+      5.639,
+      6.137
+     ],
+     [
+      6.249,
+      6.079,
+      5.94,
+      7.033,
+      6.251
+     ],
+     [
+      6.482,
+      6.021,
+      6.166,
+      5.548,
+      5.948
+     ],
+     [
+      6.044,
+      5.615,
+      5.843,
+      6.143,
+      6.443
+     ],
+     [
+      9.713,
+      9.004,
+      6.021,
+      6.081,
+      7.236
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.725,
+    "adr_0057_median_sets_4_to_6_ms": 6.044,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.00033999999999999997,
+     "first_most_ms": 0.00037299999999999996,
+     "longest_ms": 5.45,
+     "longest_most_ms": 5.873,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.029074000000000003,
+     "last_most_ms": 0.030466,
+     "outside_ms": 0.013038000000000001,
+     "outside_most_ms": 0.048159999999999994,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 8.771,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.702,
+     10.182,
+     7.881
+    ],
+    "median_ms": 10.182,
+    "set_runs_ms": [
+     [
+      12.256,
+      10.152,
+      10.702,
+      10.409,
+      13.319
+     ],
+     [
+      12.625,
+      10.182,
+      10.934,
+      9.21,
+      9.146
+     ],
+     [
+      9.596,
+      7.8,
+      7.976,
+      7.664,
+      7.881
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.000718,
+     "first_most_ms": 0.000861,
+     "longest_ms": 9.837,
+     "longest_most_ms": 11.994,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.028865,
+     "last_most_ms": 0.029564,
+     "outside_ms": 0.021655,
+     "outside_most_ms": 0.022526,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.606,
+    "runs_ms": [
+     6.536,
+     5.31,
+     5.453,
+     5.606,
+     5.656
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.00030199999999999997,
+     "first_most_ms": 0.000365,
+     "longest_ms": 5.078,
+     "longest_most_ms": 5.958,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.027328,
+     "last_most_ms": 0.055386000000000005,
+     "outside_ms": 0.013054000000000001,
+     "outside_most_ms": 0.080951,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-cylinder",
+   "construction": "feature-nothing",
+   "outcome_pinned": "valid no-start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 0 start faces at most 0.0 mm from the profile's plane, 3 end faces at most 1.5888218580782548e-14 mm from the target's surface, 3 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [], end faces [2, 4, 7]",
+   "parity_summary_native": "faces 7 edges 15 vertices 10 volume 465724.8907241221 area 37348.74993256712 min [0.0, 0.0, 40.0] max [80.0, 50.00000000000003, 160.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 7,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 15,
+     "unnamed": 15
+    },
+    "vertices": {
+     "total": 10,
+     "unnamed": 10
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     10.687,
+     11.237,
+     11.608,
+     10.675,
+     11.064,
+     12.376
+    ],
+    "set_runs_ms": [
+     [
+      10.576,
+      10.687,
+      11.92,
+      11.01,
+      10.65
+     ],
+     [
+      10.656,
+      10.334,
+      12.032,
+      11.497,
+      11.237
+     ],
+     [
+      11.608,
+      11.707,
+      11.498,
+      14.006,
+      11.317
+     ],
+     [
+      12.605,
+      10.457,
+      10.436,
+      10.675,
+      11.106
+     ],
+     [
+      11.964,
+      11.546,
+      10.931,
+      10.54,
+      11.064
+     ],
+     [
+      12.376,
+      12.425,
+      12.267,
+      12.363,
+      12.736
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 11.237,
+    "adr_0057_median_sets_4_to_6_ms": 11.064,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.000314,
+     "first_most_ms": 0.000363,
+     "longest_ms": 5.993,
+     "longest_most_ms": 6.412,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.034131,
+     "last_most_ms": 0.037666,
+     "outside_ms": 0.013496000000000001,
+     "outside_most_ms": 0.015381,
+     "end_distance_mm": 1.5888218580782548e-14
+    },
+    "longest_gap_most_any_set_ms": 7.341,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     20.265,
+     18.564,
+     15.275
+    ],
+    "median_ms": 18.564,
+    "set_runs_ms": [
+     [
+      20.662,
+      20.418,
+      19.773,
+      20.265,
+      19.119
+     ],
+     [
+      18.168,
+      20.496,
+      18.564,
+      18.797,
+      17.308
+     ],
+     [
+      15.275,
+      15.38,
+      15.202,
+      15.426,
+      14.525
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.0005459999999999999,
+     "first_most_ms": 0.001016,
+     "longest_ms": 11.128,
+     "longest_most_ms": 11.468,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.03325,
+     "last_most_ms": 0.035686,
+     "outside_ms": 0.027893,
+     "outside_most_ms": 0.031960999999999996,
+     "end_distance_mm": 1.5888218580782548e-14
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 10.8,
+    "runs_ms": [
+     11.1,
+     10.779,
+     10.385,
+     10.8,
+     10.853
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.000317,
+     "first_most_ms": 0.000329,
+     "longest_ms": 6.168,
+     "longest_most_ms": 6.246,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.032992,
+     "last_most_ms": 0.041485999999999995,
+     "outside_ms": 0.014787000000000002,
+     "outside_most_ms": 0.01625,
+     "end_distance_mm": 1.5888218580782548e-14
+    }
+   }
+  },
+  {
+   "input": "rect-cylinder",
+   "construction": "split",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 1.5888218580782548e-14 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 167137.55463793885 area 19577.313314763363 min [0.0, 0.0, 0.0] max [80.0, 50.00000000000003, 45.45643942682144]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     6.909,
+     7.283,
+     7.388,
+     6.656,
+     6.99,
+     6.898
+    ],
+    "set_runs_ms": [
+     [
+      6.732,
+      6.924,
+      6.897,
+      7.135,
+      6.909
+     ],
+     [
+      7.225,
+      7.076,
+      7.578,
+      7.289,
+      7.283
+     ],
+     [
+      7.175,
+      7.344,
+      7.556,
+      7.388,
+      8.404
+     ],
+     [
+      6.754,
+      6.633,
+      6.611,
+      6.757,
+      6.656
+     ],
+     [
+      7.064,
+      7.262,
+      6.99,
+      6.817,
+      6.935
+     ],
+     [
+      7.088,
+      6.857,
+      6.854,
+      7.2,
+      6.898
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 7.283,
+    "adr_0057_median_sets_4_to_6_ms": 6.898,
+    "limit_ms": 30.0,
+    "polls_set_4": {
+     "polls": 557,
+     "first_ms": 0.000345,
+     "first_most_ms": 0.000412,
+     "longest_ms": 1.32,
+     "longest_most_ms": 1.345,
+     "longest_after_polls": [
+      555,
+      555,
+      555,
+      555,
+      555
+     ],
+     "last_ms": 0.034574,
+     "last_most_ms": 0.06314,
+     "outside_ms": 0.019916,
+     "outside_most_ms": 0.032074,
+     "end_distance_mm": 1.5888218580782548e-14
+    },
+    "longest_gap_most_any_set_ms": 1.775,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     12.837,
+     12.444,
+     9.956
+    ],
+    "median_ms": 12.444,
+    "set_runs_ms": [
+     [
+      14.572,
+      13.064,
+      12.655,
+      12.837,
+      12.77
+     ],
+     [
+      12.444,
+      11.524,
+      13.877,
+      12.125,
+      15.031
+     ],
+     [
+      11.085,
+      9.893,
+      10.201,
+      9.719,
+      9.956
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 557,
+     "first_ms": 0.0005589999999999999,
+     "first_most_ms": 0.001002,
+     "longest_ms": 2.594,
+     "longest_most_ms": 2.74,
+     "longest_after_polls": [
+      555,
+      555,
+      555,
+      555,
+      555
+     ],
+     "last_ms": 0.039535,
+     "last_most_ms": 0.043222000000000003,
+     "outside_ms": 0.044595,
+     "outside_most_ms": 0.049296,
+     "end_distance_mm": 1.5888218580782548e-14
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.878,
+    "runs_ms": [
+     6.861,
+     6.878,
+     6.886,
+     7.007,
+     6.723
+    ],
+    "polls": {
+     "polls": 557,
+     "first_ms": 0.000292,
+     "first_most_ms": 0.000444,
+     "longest_ms": 1.35,
+     "longest_most_ms": 1.509,
+     "longest_after_polls": [
+      555,
+      555,
+      555,
+      555,
+      555
+     ],
+     "last_ms": 0.033088,
+     "last_most_ms": 0.034527999999999996,
+     "outside_ms": 0.021557,
+     "outside_most_ms": 0.022701000000000002,
+     "end_distance_mm": 1.5888218580782548e-14
+    }
+   }
+  },
+  {
+   "input": "rect-in-part",
+   "construction": "feature-body",
+   "outcome_pinned": "own-status",
+   "measurements_native_and_node": "extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it.",
+   "parity_summary_native": "fails extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it.",
+   "history_unnamed": {},
+   "native": {
+    "set_medians_ms": [
+     5.235,
+     6.045,
+     5.598,
+     6.111,
+     5.782,
+     5.451
+    ],
+    "set_runs_ms": [
+     [
+      5.62,
+      5.222,
+      5.137,
+      5.235,
+      5.377
+     ],
+     [
+      6.485,
+      6.05,
+      5.619,
+      6.045,
+      5.594
+     ],
+     [
+      5.771,
+      5.583,
+      5.598,
+      5.528,
+      5.639
+     ],
+     [
+      6.267,
+      8.259,
+      6.111,
+      5.349,
+      5.389
+     ],
+     [
+      5.555,
+      5.823,
+      5.64,
+      5.853,
+      5.782
+     ],
+     [
+      5.81,
+      5.451,
+      5.515,
+      5.218,
+      5.337
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.598,
+    "adr_0057_median_sets_4_to_6_ms": 5.782,
+    "limit_ms": null,
+    "polls_set_4": null,
+    "longest_gap_most_any_set_ms": null,
+    "errors": [
+     "fails, as it must: extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it."
+    ]
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.197,
+     10.062,
+     7.068
+    ],
+    "median_ms": 10.062,
+    "set_runs_ms": [
+     [
+      10.668,
+      9.069,
+      9.281,
+      10.197,
+      10.203
+     ],
+     [
+      11.908,
+      10.062,
+      8.789,
+      8.222,
+      11.32
+     ],
+     [
+      7.784,
+      6.818,
+      7.068,
+      6.795,
+      7.964
+     ]
+    ],
+    "polls_set_1": null
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.754,
+    "runs_ms": [
+     7.134,
+     5.838,
+     5.716,
+     5.634,
+     5.754
+    ],
+    "errors": [
+     "fails, as it must: extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it."
+    ]
+   }
+  },
+  {
+   "input": "rect-in-part",
+   "construction": "feature-nothing",
+   "outcome_pinned": "no-own-status StdFail_NotDone",
+   "measurements_native_and_node": "extrude_to failed: StdFail_NotDone: BRepFeat_MakePrism failed: BRepFeat_InvShape",
+   "parity_summary_native": "fails extrude_to failed: StdFail_NotDone: BRepFeat_MakePrism failed: BRepFeat_InvShape",
+   "history_unnamed": {},
+   "native": {
+    "set_medians_ms": [
+     3.119,
+     3.291,
+     3.267,
+     3.132,
+     3.425,
+     3.087
+    ],
+    "set_runs_ms": [
+     [
+      3.074,
+      3.119,
+      3.056,
+      3.342,
+      3.349
+     ],
+     [
+      3.291,
+      3.312,
+      3.277,
+      3.244,
+      3.294
+     ],
+     [
+      3.301,
+      3.314,
+      3.267,
+      3.25,
+      3.242
+     ],
+     [
+      3.706,
+      3.331,
+      3.131,
+      3.132,
+      3.099
+     ],
+     [
+      3.485,
+      3.326,
+      3.425,
+      3.654,
+      3.282
+     ],
+     [
+      3.12,
+      3.087,
+      3.037,
+      3.019,
+      3.233
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 3.267,
+    "adr_0057_median_sets_4_to_6_ms": 3.132,
+    "limit_ms": null,
+    "polls_set_4": null,
+    "longest_gap_most_any_set_ms": null,
+    "errors": [
+     "fails, as it must: extrude_to failed: StdFail_NotDone: BRepFeat_MakePrism failed: BRepFeat_InvShape"
+    ]
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     7.449,
+     5.128,
+     5.437
+    ],
+    "median_ms": 5.437,
+    "set_runs_ms": [
+     [
+      8.713,
+      7.449,
+      7.314,
+      7.18,
+      7.541
+     ],
+     [
+      6.769,
+      5.028,
+      5.16,
+      5.128,
+      4.968
+     ],
+     [
+      6.861,
+      5.437,
+      5.097,
+      5.416,
+      5.876
+     ]
+    ],
+    "polls_set_1": null
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 3.307,
+    "runs_ms": [
+     3.374,
+     3.299,
+     3.308,
+     3.28,
+     3.307
+    ],
+    "errors": [
+     "fails, as it must: extrude_to failed: StdFail_NotDone: BRepFeat_MakePrism failed: BRepFeat_InvShape"
+    ]
+   }
+  },
+  {
+   "input": "rect-in-part",
+   "construction": "split",
+   "outcome_pinned": "own-status",
+   "measurements_native_and_node": "extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it.",
+   "parity_summary_native": "fails extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it.",
+   "history_unnamed": {},
+   "native": {
+    "set_medians_ms": [
+     3.448,
+     3.685,
+     3.78,
+     3.601,
+     3.773,
+     3.503
+    ],
+    "set_runs_ms": [
+     [
+      3.496,
+      3.436,
+      3.448,
+      3.646,
+      3.33
+     ],
+     [
+      3.685,
+      3.533,
+      3.981,
+      3.739,
+      3.634
+     ],
+     [
+      4.876,
+      4.073,
+      3.78,
+      3.684,
+      3.563
+     ],
+     [
+      3.863,
+      3.374,
+      3.702,
+      3.351,
+      3.601
+     ],
+     [
+      3.816,
+      3.719,
+      3.745,
+      3.778,
+      3.773
+     ],
+     [
+      3.615,
+      3.364,
+      3.893,
+      3.495,
+      3.503
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 3.685,
+    "adr_0057_median_sets_4_to_6_ms": 3.601,
+    "limit_ms": null,
+    "polls_set_4": null,
+    "longest_gap_most_any_set_ms": null,
+    "errors": [
+     "fails, as it must: extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it."
+    ]
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     6.964,
+     5.977,
+     6.89
+    ],
+    "median_ms": 6.89,
+    "set_runs_ms": [
+     [
+      7.612,
+      6.964,
+      6.398,
+      7.104,
+      6.551
+     ],
+     [
+      6.31,
+      6.223,
+      5.966,
+      5.63,
+      5.977
+     ],
+     [
+      6.89,
+      7.305,
+      7.77,
+      6.407,
+      6.678
+     ]
+    ],
+    "polls_set_1": null
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 3.579,
+    "runs_ms": [
+     3.678,
+     3.572,
+     3.55,
+     3.579,
+     3.629
+    ],
+    "errors": [
+     "fails, as it must: extrude_to invalid_input: Partsmith_InvalidInput: Only part of the profile reaches face 5, so the extrude cannot end on it."
+    ]
+   }
+  },
+  {
+   "input": "rect-body",
+   "construction": "feature-body",
+   "outcome_pinned": "valid start closed no-end no-generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 0 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 0 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces []",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 120000.0 area 15800.0 min [0.0, 0.0, 0.0] max [80.0, 50.0, 30.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 5
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 8
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.581,
+     5.811,
+     5.442,
+     5.499,
+     5.758,
+     5.588
+    ],
+    "set_runs_ms": [
+     [
+      5.894,
+      5.753,
+      5.224,
+      5.581,
+      5.212
+     ],
+     [
+      5.573,
+      5.465,
+      6.003,
+      5.811,
+      6.293
+     ],
+     [
+      5.52,
+      5.464,
+      5.442,
+      5.433,
+      5.395
+     ],
+     [
+      5.731,
+      5.303,
+      5.519,
+      5.499,
+      5.272
+     ],
+     [
+      5.668,
+      5.68,
+      5.819,
+      5.812,
+      5.758
+     ],
+     [
+      5.644,
+      5.343,
+      5.717,
+      5.588,
+      5.532
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.581,
+    "adr_0057_median_sets_4_to_6_ms": 5.588,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 5,
+     "first_ms": 0.000338,
+     "first_most_ms": 0.00034399999999999996,
+     "longest_ms": 4.762,
+     "longest_most_ms": 5.048,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.034265000000000004,
+     "last_most_ms": 0.046219,
+     "outside_ms": 0.015287000000000002,
+     "outside_most_ms": 0.02517,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 5.647,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.532,
+     9.488,
+     8.731
+    ],
+    "median_ms": 9.488,
+    "set_runs_ms": [
+     [
+      13.335,
+      13.83,
+      10.532,
+      8.983,
+      8.794
+     ],
+     [
+      9.93,
+      8.639,
+      9.488,
+      9.747,
+      8.653
+     ],
+     [
+      9.311,
+      8.793,
+      8.731,
+      8.719,
+      8.584
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 5,
+     "first_ms": 0.0007019999999999999,
+     "first_most_ms": 0.000963,
+     "longest_ms": 8.695,
+     "longest_most_ms": 11.656,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.036051,
+     "last_most_ms": 0.331765,
+     "outside_ms": 0.047047,
+     "outside_most_ms": 0.261886,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.446,
+    "runs_ms": [
+     5.565,
+     5.446,
+     5.444,
+     5.459,
+     5.426
+    ],
+    "polls": {
+     "polls": 5,
+     "first_ms": 0.000299,
+     "first_most_ms": 0.000384,
+     "longest_ms": 4.842,
+     "longest_most_ms": 4.875,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.035209000000000004,
+     "last_most_ms": 0.037966,
+     "outside_ms": 0.015585000000000002,
+     "outside_most_ms": 0.019321,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-body",
+   "construction": "feature-nothing",
+   "outcome_pinned": "valid no-start closed no-end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 0 start faces at most 0.0 mm from the profile's plane, 2 end faces at most 10.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [], end faces [2, 4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 40000.0 area 10600.0 min [0.0, 0.0, 30.0] max [80.0, 50.0, 40.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 12
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 8
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     6.097,
+     6.65,
+     6.558,
+     6.536,
+     6.752,
+     6.279
+    ],
+    "set_runs_ms": [
+     [
+      6.097,
+      6.023,
+      6.27,
+      6.083,
+      6.252
+     ],
+     [
+      7.009,
+      6.65,
+      7.504,
+      6.21,
+      6.276
+     ],
+     [
+      7.169,
+      8.702,
+      6.558,
+      6.506,
+      6.434
+     ],
+     [
+      6.536,
+      6.904,
+      6.197,
+      6.557,
+      6.271
+     ],
+     [
+      9.568,
+      7.77,
+      6.752,
+      6.656,
+      6.651
+     ],
+     [
+      6.817,
+      6.279,
+      7.05,
+      6.053,
+      6.089
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 6.558,
+    "adr_0057_median_sets_4_to_6_ms": 6.536,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 5,
+     "first_ms": 0.000289,
+     "first_most_ms": 0.00042699999999999997,
+     "longest_ms": 5.801,
+     "longest_most_ms": 6.334,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.032923,
+     "last_most_ms": 0.055363,
+     "outside_ms": 0.017464,
+     "outside_most_ms": 0.022888000000000002,
+     "end_distance_mm": 10.0
+    },
+    "longest_gap_most_any_set_ms": 8.683,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.818,
+     10.193,
+     10.358
+    ],
+    "median_ms": 10.358,
+    "set_runs_ms": [
+     [
+      10.715,
+      10.818,
+      10.896,
+      11.132,
+      10.333
+     ],
+     [
+      10.193,
+      10.917,
+      10.857,
+      10.125,
+      9.857
+     ],
+     [
+      10.752,
+      10.657,
+      10.248,
+      10.358,
+      10.217
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 5,
+     "first_ms": 0.000585,
+     "first_most_ms": 0.000725,
+     "longest_ms": 9.873,
+     "longest_most_ms": 10.183,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.03576700000000001,
+     "last_most_ms": 0.040077,
+     "outside_ms": 0.028027000000000003,
+     "outside_most_ms": 0.035425,
+     "end_distance_mm": 10.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.519,
+    "runs_ms": [
+     6.519,
+     6.458,
+     6.426,
+     7.278,
+     6.622
+    ],
+    "polls": {
+     "polls": 5,
+     "first_ms": 0.0003,
+     "first_most_ms": 0.000316,
+     "longest_ms": 5.898,
+     "longest_most_ms": 6.686,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.034865,
+     "last_most_ms": 0.058463,
+     "outside_ms": 0.017485,
+     "outside_most_ms": 0.019644,
+     "end_distance_mm": 10.0
+    }
+   }
+  },
+  {
+   "input": "rect-body",
+   "construction": "split",
+   "outcome_pinned": "valid start closed end generated",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, no taper; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 120000.0 area 15800.0 min [0.0, 0.0, 0.0] max [80.0, 50.0, 30.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.475,
+     5.583,
+     6.019,
+     5.565,
+     6.013,
+     5.608
+    ],
+    "set_runs_ms": [
+     [
+      5.596,
+      5.625,
+      5.471,
+      5.441,
+      5.475
+     ],
+     [
+      5.532,
+      6.425,
+      5.583,
+      5.467,
+      5.585
+     ],
+     [
+      6.019,
+      5.908,
+      8.201,
+      6.047,
+      5.806
+     ],
+     [
+      5.916,
+      5.547,
+      5.524,
+      5.934,
+      5.565
+     ],
+     [
+      6.003,
+      6.013,
+      5.918,
+      6.159,
+      6.364
+     ],
+     [
+      5.503,
+      5.608,
+      5.614,
+      5.776,
+      5.584
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.583,
+    "adr_0057_median_sets_4_to_6_ms": 5.608,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 663,
+     "first_ms": 0.000327,
+     "first_most_ms": 0.000365,
+     "longest_ms": 0.576827,
+     "longest_most_ms": 0.601171,
+     "longest_after_polls": [
+      662,
+      662,
+      662,
+      662,
+      662
+     ],
+     "last_ms": 0.03893,
+     "last_most_ms": 0.041365000000000006,
+     "outside_ms": 0.022947,
+     "outside_most_ms": 0.051585,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 1.074,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.959,
+     9.722,
+     10.338
+    ],
+    "median_ms": 10.338,
+    "set_runs_ms": [
+     [
+      10.1,
+      10.025,
+      11.519,
+      12.767,
+      10.959
+     ],
+     [
+      9.762,
+      9.722,
+      9.75,
+      9.632,
+      9.375
+     ],
+     [
+      12.005,
+      11.369,
+      10.338,
+      8.707,
+      8.91
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 663,
+     "first_ms": 0.0005589999999999999,
+     "first_most_ms": 0.000914,
+     "longest_ms": 0.917405,
+     "longest_most_ms": 1.854,
+     "longest_after_polls": [
+      662,
+      662,
+      662,
+      660,
+      662
+     ],
+     "last_ms": 0.044149,
+     "last_most_ms": 0.204777,
+     "outside_ms": 0.043614,
+     "outside_most_ms": 0.107499,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.927,
+    "runs_ms": [
+     5.927,
+     5.891,
+     5.947,
+     5.95,
+     5.886
+    ],
+    "polls": {
+     "polls": 663,
+     "first_ms": 0.000327,
+     "first_most_ms": 0.000406,
+     "longest_ms": 0.609154,
+     "longest_most_ms": 0.6239600000000001,
+     "longest_after_polls": [
+      662,
+      662,
+      662,
+      662,
+      662
+     ],
+     "last_ms": 0.042277999999999996,
+     "last_most_ms": 0.04664,
+     "outside_ms": 0.022527000000000002,
+     "outside_most_ms": 0.02345,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-out",
+   "construction": "feature",
+   "outcome_pinned": "valid start closed end no-generated no-taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 8 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error inf rad; start faces [1], end faces [10]",
+   "parity_summary_native": "faces 10 edges 24 vertices 12 volume 41145.36815470557 area 10867.397125365707 min [-0.87488663525924, -0.8748866352592402, -1.287390997221875e-17] max [80.87488663525926, 50.87488663525926, 10.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 10,
+     "unnamed": 4
+    },
+    "edges": {
+     "total": 24,
+     "unnamed": 24
+    },
+    "vertices": {
+     "total": 12,
+     "unnamed": 12
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.816,
+     5.377,
+     5.466,
+     5.631,
+     5.487,
+     5.071
+    ],
+    "set_runs_ms": [
+     [
+      5.442,
+      5.308,
+      5.816,
+      6.92,
+      9.774
+     ],
+     [
+      5.982,
+      5.234,
+      5.06,
+      5.397,
+      5.377
+     ],
+     [
+      5.727,
+      5.327,
+      5.405,
+      5.466,
+      5.494
+     ],
+     [
+      7.254,
+      5.631,
+      5.121,
+      5.104,
+      6.006
+     ],
+     [
+      5.957,
+      5.682,
+      5.486,
+      5.487,
+      5.416
+     ],
+     [
+      5.298,
+      5.071,
+      5.03,
+      4.953,
+      5.895
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 5.466,
+    "adr_0057_median_sets_4_to_6_ms": 5.487,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 4,
+     "first_ms": 0.000346,
+     "first_most_ms": 0.00036199999999999996,
+     "longest_ms": 3.76,
+     "longest_most_ms": 5.519,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.057006,
+     "last_most_ms": 0.057441000000000006,
+     "outside_ms": 0.01923,
+     "outside_most_ms": 0.020354,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 6.768,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     10.059,
+     9.15,
+     8.432
+    ],
+    "median_ms": 9.15,
+    "set_runs_ms": [
+     [
+      43.704,
+      9.281,
+      9.055,
+      11.271,
+      10.059
+     ],
+     [
+      36.266,
+      8.722,
+      9.15,
+      9.28,
+      8.58
+     ],
+     [
+      34.454,
+      8.432,
+      8.837,
+      8.145,
+      8.188
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 4,
+     "first_ms": 0.0005409999999999999,
+     "first_most_ms": 0.000673,
+     "longest_ms": 7.316,
+     "longest_most_ms": 40.974,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.05357,
+     "last_most_ms": 0.06747,
+     "outside_ms": 0.019317,
+     "outside_most_ms": 0.021036000000000003,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.597,
+    "runs_ms": [
+     10.268,
+     5.417,
+     5.971,
+     5.597,
+     5.419
+    ],
+    "polls": {
+     "polls": 4,
+     "first_ms": 0.00029499999999999996,
+     "first_most_ms": 0.000318,
+     "longest_ms": 3.793,
+     "longest_most_ms": 8.453,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.059295,
+     "last_most_ms": 0.059651,
+     "outside_ms": 0.020533000000000003,
+     "outside_most_ms": 0.022751,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-out",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 1.249000902703301e-16 rad; start faces [5], end faces [6]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 41147.558314164424 area 10875.592951681321 min [-0.8748866352592414, -0.8748866352592457, -4.440892098500626e-16] max [80.87488663525926, 50.87488663525925, 10.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     2.596,
+     1.291,
+     1.385,
+     1.588,
+     1.376,
+     1.28
+    ],
+    "set_runs_ms": [
+     [
+      2.603,
+      2.526,
+      2.596,
+      2.457,
+      2.607
+     ],
+     [
+      1.381,
+      1.291,
+      1.347,
+      1.263,
+      1.248
+     ],
+     [
+      1.449,
+      1.441,
+      1.355,
+      1.385,
+      1.343
+     ],
+     [
+      2.556,
+      1.588,
+      3.787,
+      1.393,
+      1.343
+     ],
+     [
+      1.466,
+      1.376,
+      1.362,
+      1.718,
+      1.201
+     ],
+     [
+      1.383,
+      1.294,
+      1.28,
+      1.247,
+      1.267
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 1.385,
+    "adr_0057_median_sets_4_to_6_ms": 1.376,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.00033,
+     "first_most_ms": 0.0005499999999999999,
+     "longest_ms": 0.9234289999999999,
+     "longest_most_ms": 2.261,
+     "longest_after_polls": [
+      4,
+      4,
+      6,
+      4,
+      4
+     ],
+     "last_ms": 0.02758,
+     "last_most_ms": 0.033676000000000005,
+     "outside_ms": 0.021875000000000002,
+     "outside_most_ms": 0.043475,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 2.261,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     2.431,
+     2.142,
+     2.651
+    ],
+    "median_ms": 2.431,
+    "set_runs_ms": [
+     [
+      9.824,
+      2.413,
+      2.247,
+      2.431,
+      2.712
+     ],
+     [
+      9.166,
+      2.076,
+      2.084,
+      2.142,
+      2.573
+     ],
+     [
+      9.287,
+      2.501,
+      2.284,
+      2.651,
+      2.892
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.000585,
+     "first_most_ms": 0.002384,
+     "longest_ms": 1.388,
+     "longest_most_ms": 7.057,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.030559000000000003,
+     "last_most_ms": 0.054418999999999995,
+     "outside_ms": 0.028114,
+     "outside_most_ms": 0.561961,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 1.42,
+    "runs_ms": [
+     2.153,
+     1.447,
+     1.342,
+     1.329,
+     1.42
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.000327,
+     "first_most_ms": 0.000384,
+     "longest_ms": 0.803122,
+     "longest_most_ms": 0.856682,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.027185,
+     "last_most_ms": 0.050749,
+     "outside_ms": 0.019352,
+     "outside_most_ms": 0.030748,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-out",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 4.3021142204224816e-16 rad; start faces [5], end faces [6]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 41147.55831416443 area 10875.59295168132 min [-0.8748867352592443, -0.8748867352592442, -1e-7] max [80.87488673525924, 50.87488673525924, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     4.273,
+     2.27,
+     2.323,
+     2.337,
+     1.959,
+     2.178
+    ],
+    "set_runs_ms": [
+     [
+      4.545,
+      4.307,
+      4.273,
+      4.056,
+      4.114
+     ],
+     [
+      2.404,
+      2.194,
+      2.255,
+      2.27,
+      2.496
+     ],
+     [
+      2.506,
+      2.323,
+      2.392,
+      2.285,
+      2.289
+     ],
+     [
+      4.029,
+      3.037,
+      2.306,
+      2.337,
+      2.246
+     ],
+     [
+      2.134,
+      1.923,
+      1.959,
+      1.841,
+      1.995
+     ],
+     [
+      2.381,
+      2.234,
+      2.178,
+      2.139,
+      2.164
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 2.323,
+    "adr_0057_median_sets_4_to_6_ms": 2.178,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 7,
+     "first_ms": 0.000294,
+     "first_most_ms": 0.000356,
+     "longest_ms": 1.285,
+     "longest_most_ms": 2.897,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.03081,
+     "last_most_ms": 0.031385,
+     "outside_ms": 0.015857,
+     "outside_most_ms": 0.016081,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 2.897,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     6.376,
+     5.427,
+     4.496
+    ],
+    "median_ms": 5.427,
+    "set_runs_ms": [
+     [
+      28.173,
+      6.775,
+      6.376,
+      6.007,
+      5.966
+     ],
+     [
+      24.332,
+      5.903,
+      5.427,
+      5.329,
+      5.278
+     ],
+     [
+      26.917,
+      7.138,
+      4.496,
+      4.167,
+      4.121
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 7,
+     "first_ms": 0.001147,
+     "first_most_ms": 0.0025099999999999996,
+     "longest_ms": 3.819,
+     "longest_most_ms": 20.549,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.037889000000000006,
+     "last_most_ms": 0.152982,
+     "outside_ms": 0.022101,
+     "outside_most_ms": 0.6913210000000001,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 2.39,
+    "runs_ms": [
+     3.598,
+     2.39,
+     2.397,
+     2.357,
+     2.343
+    ],
+    "polls": {
+     "polls": 7,
+     "first_ms": 0.000281,
+     "first_most_ms": 0.000375,
+     "longest_ms": 1.3,
+     "longest_most_ms": 2.535,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.032374,
+     "last_most_ms": 0.032637,
+     "outside_ms": 0.016642,
+     "outside_most_ms": 0.018539000000000003,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-in",
+   "construction": "feature",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 4.973799150320701e-14 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 0.0 rad; start faces [1], end faces [6]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 38872.85306249042 area 10350.393616540534 min [0.0, 0.0, 0.0] max [80.0, 50.0, 10.00000000000005]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 12
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 8
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     5.586,
+     3.003,
+     3.11,
+     3.048,
+     2.565,
+     2.97
+    ],
+    "set_runs_ms": [
+     [
+      5.851,
+      5.553,
+      5.51,
+      5.613,
+      5.586
+     ],
+     [
+      3.003,
+      2.879,
+      4.242,
+      3.106,
+      2.912
+     ],
+     [
+      3.379,
+      3.11,
+      3.033,
+      3.221,
+      3.105
+     ],
+     [
+      3.737,
+      3.048,
+      2.947,
+      2.974,
+      3.196
+     ],
+     [
+      2.609,
+      2.457,
+      2.565,
+      2.642,
+      2.432
+     ],
+     [
+      2.992,
+      2.873,
+      2.881,
+      3.066,
+      2.97
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 3.11,
+    "adr_0057_median_sets_4_to_6_ms": 2.97,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 4,
+     "first_ms": 0.000312,
+     "first_most_ms": 0.00035999999999999997,
+     "longest_ms": 2.031,
+     "longest_most_ms": 2.173,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.036676,
+     "last_most_ms": 0.037485,
+     "outside_ms": 0.014263999999999999,
+     "outside_most_ms": 0.029868,
+     "end_distance_mm": 4.973799150320701e-14
+    },
+    "longest_gap_most_any_set_ms": 3.995,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     7.576,
+     6.345,
+     5.081
+    ],
+    "median_ms": 6.345,
+    "set_runs_ms": [
+     [
+      7.576,
+      7.576,
+      7.643,
+      7.729,
+      6.376
+     ],
+     [
+      6.666,
+      6.41,
+      6.34,
+      6.345,
+      5.728
+     ],
+     [
+      5.472,
+      5.081,
+      5.049,
+      5.069,
+      5.091
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 4,
+     "first_ms": 0.000727,
+     "first_most_ms": 0.001288,
+     "longest_ms": 5.549,
+     "longest_most_ms": 5.688,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.046667,
+     "last_most_ms": 0.063167,
+     "outside_ms": 0.018213,
+     "outside_most_ms": 0.02333,
+     "end_distance_mm": 4.973799150320701e-14
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 3.157,
+    "runs_ms": [
+     3.282,
+     3.151,
+     3.091,
+     3.157,
+     3.353
+    ],
+    "polls": {
+     "polls": 4,
+     "first_ms": 0.00033299999999999996,
+     "first_most_ms": 0.00040199999999999996,
+     "longest_ms": 2.13,
+     "longest_most_ms": 2.313,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.037121,
+     "last_most_ms": 0.03801,
+     "outside_ms": 0.015032,
+     "outside_most_ms": 0.029764,
+     "end_distance_mm": 4.973799150320701e-14
+    }
+   }
+  },
+  {
+   "input": "rect-taper-in",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 9.71445146547012e-17 rad; start faces [5], end faces [6]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 38872.8530624904 area 10350.393616540532 min [-5.551115123125783e-17, -3.58046925441613e-15, -4.440892098500626e-16] max [80.00000000000001, 50.00000000000001, 10.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     2.55,
+     1.328,
+     1.378,
+     1.475,
+     1.154,
+     1.371
+    ],
+    "set_runs_ms": [
+     [
+      2.606,
+      2.518,
+      2.55,
+      2.425,
+      2.559
+     ],
+     [
+      1.42,
+      1.393,
+      1.259,
+      1.26,
+      1.328
+     ],
+     [
+      1.478,
+      1.378,
+      1.349,
+      1.374,
+      1.464
+     ],
+     [
+      1.475,
+      1.31,
+      1.479,
+      5.242,
+      1.47
+     ],
+     [
+      1.279,
+      1.111,
+      1.154,
+      1.172,
+      1.066
+     ],
+     [
+      1.484,
+      1.378,
+      1.283,
+      1.296,
+      1.371
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 1.378,
+    "adr_0057_median_sets_4_to_6_ms": 1.371,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.000269,
+     "first_most_ms": 0.00046899999999999996,
+     "longest_ms": 0.805727,
+     "longest_most_ms": 4.495,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.028826,
+     "last_most_ms": 0.038848999999999995,
+     "outside_ms": 0.024337,
+     "outside_most_ms": 0.028009000000000003,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 4.495,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     2.237,
+     2.23,
+     2.219
+    ],
+    "median_ms": 2.23,
+    "set_runs_ms": [
+     [
+      2.643,
+      2.216,
+      2.237,
+      2.16,
+      2.254
+     ],
+     [
+      2.312,
+      2.23,
+      2.385,
+      2.174,
+      2.226
+     ],
+     [
+      2.332,
+      2.219,
+      2.289,
+      2.183,
+      2.113
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.000493,
+     "first_most_ms": 0.000913,
+     "longest_ms": 1.271,
+     "longest_most_ms": 1.552,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.025027999999999998,
+     "last_most_ms": 0.027651000000000002,
+     "outside_ms": 0.021937,
+     "outside_most_ms": 0.025465,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 2.141,
+    "runs_ms": [
+     2.234,
+     2.052,
+     2.0,
+     2.174,
+     2.141
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.00039799999999999997,
+     "first_most_ms": 0.0010400000000000001,
+     "longest_ms": 1.136,
+     "longest_most_ms": 1.199,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.039225,
+     "last_most_ms": 0.100278,
+     "outside_ms": 0.035338,
+     "outside_most_ms": 0.056883,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-in",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 4.3021142204224816e-16 rad; start faces [5], end faces [6]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 38872.853062490394 area 10350.393616540532 min [-1e-7, -1e-7, -1e-7] max [80.0000001, 50.0000001, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 4
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     4.317,
+     2.263,
+     2.407,
+     2.463,
+     1.935,
+     2.291
+    ],
+    "set_runs_ms": [
+     [
+      4.325,
+      4.406,
+      4.173,
+      4.274,
+      4.317
+     ],
+     [
+      2.386,
+      2.263,
+      2.173,
+      2.118,
+      2.423
+     ],
+     [
+      2.497,
+      2.365,
+      2.39,
+      2.408,
+      2.407
+     ],
+     [
+      2.879,
+      2.463,
+      2.344,
+      2.362,
+      2.522
+     ],
+     [
+      2.079,
+      1.949,
+      1.935,
+      1.878,
+      1.888
+     ],
+     [
+      2.322,
+      2.221,
+      2.166,
+      2.291,
+      2.353
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 2.407,
+    "adr_0057_median_sets_4_to_6_ms": 2.291,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 7,
+     "first_ms": 0.000339,
+     "first_most_ms": 0.000372,
+     "longest_ms": 1.348,
+     "longest_most_ms": 1.618,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.032003000000000004,
+     "last_most_ms": 0.033429,
+     "outside_ms": 0.017056,
+     "outside_most_ms": 0.145803,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 2.471,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     4.302,
+     4.126,
+     4.187
+    ],
+    "median_ms": 4.187,
+    "set_runs_ms": [
+     [
+      4.752,
+      4.243,
+      4.302,
+      4.63,
+      4.093
+     ],
+     [
+      4.723,
+      4.104,
+      4.178,
+      4.126,
+      3.967
+     ],
+     [
+      4.741,
+      4.187,
+      4.2,
+      3.99,
+      3.926
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 7,
+     "first_ms": 0.000596,
+     "first_most_ms": 0.000752,
+     "longest_ms": 2.398,
+     "longest_most_ms": 2.927,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.025797,
+     "last_most_ms": 0.06647499999999999,
+     "outside_ms": 0.013799,
+     "outside_most_ms": 0.015195,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 3.442,
+    "runs_ms": [
+     3.979,
+     3.429,
+     3.39,
+     3.442,
+     3.59
+    ],
+    "polls": {
+     "polls": 7,
+     "first_ms": 0.000425,
+     "first_most_ms": 0.000529,
+     "longest_ms": 1.887,
+     "longest_most_ms": 2.343,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.041615000000000006,
+     "last_most_ms": 0.045589,
+     "outside_ms": 0.022626999999999998,
+     "outside_most_ms": 0.024795,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "hole-taper-out",
+   "construction": "feature",
+   "outcome_pinned": "fails Standard_NullObject",
+   "measurements_native_and_node": "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape",
+   "parity_summary_native": "fails extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape",
+   "history_unnamed": {},
+   "native": {
+    "set_medians_ms": [
+     11.49,
+     6.245,
+     6.438,
+     6.777,
+     5.253,
+     6.102
+    ],
+    "set_runs_ms": [
+     [
+      12.121,
+      11.444,
+      11.67,
+      11.49,
+      10.392
+     ],
+     [
+      6.034,
+      6.245,
+      6.097,
+      6.499,
+      6.286
+     ],
+     [
+      6.635,
+      6.425,
+      6.332,
+      6.46,
+      6.438
+     ],
+     [
+      8.107,
+      6.564,
+      6.777,
+      7.176,
+      6.639
+     ],
+     [
+      5.246,
+      5.253,
+      8.356,
+      5.315,
+      5.035
+     ],
+     [
+      6.09,
+      6.184,
+      6.884,
+      6.102,
+      6.015
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 6.438,
+    "adr_0057_median_sets_4_to_6_ms": 6.102,
+    "limit_ms": null,
+    "polls_set_4": null,
+    "longest_gap_most_any_set_ms": null,
+    "errors": [
+     "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape"
+    ]
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     16.114,
+     9.672,
+     11.733
+    ],
+    "median_ms": 11.733,
+    "set_runs_ms": [
+     [
+      20.497,
+      16.114,
+      11.75,
+      16.785,
+      10.575
+     ],
+     [
+      15.375,
+      9.497,
+      9.957,
+      9.506,
+      9.672
+     ],
+     [
+      15.69,
+      11.733,
+      11.851,
+      11.499,
+      11.549
+     ]
+    ],
+    "polls_set_1": null
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 9.797,
+    "runs_ms": [
+     11.494,
+     9.778,
+     9.797,
+     10.341,
+     7.857
+    ],
+    "errors": [
+     "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape"
+    ]
+   }
+  },
+  {
+   "input": "hole-taper-out",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 5 are in the Generated list of exactly one profile edge, taper error 1.249000902703301e-16 rad; start faces [6], end faces [7]",
+   "parity_summary_native": "faces 7 edges 15 vertices 10 volume 40491.57149320114 area 11031.36297339216 min [-0.8748866352592414, -0.8748866352592457, -4.440892098500626e-16] max [80.87488663525926, 50.87488663525925, 10.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 7,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 15,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 10,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     2.115,
+     1.762,
+     1.925,
+     1.973,
+     1.629,
+     1.791
+    ],
+    "set_runs_ms": [
+     [
+      2.023,
+      2.461,
+      2.109,
+      2.151,
+      2.115
+     ],
+     [
+      1.906,
+      1.84,
+      1.762,
+      1.76,
+      1.753
+     ],
+     [
+      2.07,
+      1.904,
+      1.947,
+      1.925,
+      1.87
+     ],
+     [
+      2.218,
+      1.973,
+      1.921,
+      2.063,
+      1.937
+     ],
+     [
+      1.751,
+      1.572,
+      1.65,
+      1.629,
+      1.458
+     ],
+     [
+      1.913,
+      1.791,
+      1.757,
+      1.803,
+      1.738
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 1.925,
+    "adr_0057_median_sets_4_to_6_ms": 1.791,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.000314,
+     "first_most_ms": 0.000392,
+     "longest_ms": 1.093,
+     "longest_most_ms": 1.268,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.035624,
+     "last_most_ms": 0.037232999999999995,
+     "outside_ms": 0.025646000000000002,
+     "outside_most_ms": 0.039329,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 1.272,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     2.665,
+     3.142,
+     2.966
+    ],
+    "median_ms": 2.966,
+    "set_runs_ms": [
+     [
+      3.416,
+      2.665,
+      2.627,
+      2.604,
+      5.552
+     ],
+     [
+      4.164,
+      2.359,
+      2.318,
+      3.166,
+      3.142
+     ],
+     [
+      3.985,
+      3.006,
+      2.916,
+      2.952,
+      2.966
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.00042699999999999997,
+     "first_most_ms": 0.000602,
+     "longest_ms": 1.483,
+     "longest_most_ms": 3.47,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      7
+     ],
+     "last_ms": 0.02628,
+     "last_most_ms": 0.214897,
+     "outside_ms": 0.023370000000000002,
+     "outside_most_ms": 0.121972,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 1.539,
+    "runs_ms": [
+     2.181,
+     1.564,
+     1.497,
+     1.539,
+     1.491
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.000214,
+     "first_most_ms": 0.0005769999999999999,
+     "longest_ms": 0.845893,
+     "longest_most_ms": 1.372,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.029016,
+     "last_most_ms": 0.031053,
+     "outside_ms": 0.0233,
+     "outside_most_ms": 0.035931,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "hole-taper-out",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 5 are in the Generated list of exactly one profile edge, taper error 4.3021142204224816e-16 rad; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 7 edges 15 vertices 10 volume 40491.57149320115 area 11031.362973392157 min [-0.8748867352592443, -0.8748867352592442, -1e-7] max [80.87488673525924, 50.87488673525924, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 7,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 15,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 10,
+     "unnamed": 5
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     7.662,
+     7.646,
+     7.811,
+     8.579,
+     6.036,
+     7.212
+    ],
+    "set_runs_ms": [
+     [
+      7.662,
+      7.594,
+      7.3,
+      8.139,
+      7.999
+     ],
+     [
+      7.265,
+      7.646,
+      7.24,
+      8.813,
+      9.197
+     ],
+     [
+      7.918,
+      7.583,
+      7.617,
+      7.811,
+      8.342
+     ],
+     [
+      8.579,
+      7.828,
+      8.691,
+      8.052,
+      10.163
+     ],
+     [
+      6.292,
+      6.036,
+      6.015,
+      6.322,
+      5.928
+     ],
+     [
+      7.514,
+      7.212,
+      7.071,
+      7.431,
+      6.955
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 7.662,
+    "adr_0057_median_sets_4_to_6_ms": 7.212,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 320,
+     "first_ms": 0.000278,
+     "first_most_ms": 0.00031499999999999996,
+     "longest_ms": 1.322,
+     "longest_most_ms": 2.715,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      319
+     ],
+     "last_ms": 0.040157,
+     "last_most_ms": 0.041369,
+     "outside_ms": 0.024049,
+     "outside_most_ms": 0.026939,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 2.715,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     17.403,
+     10.692,
+     12.882
+    ],
+    "median_ms": 12.882,
+    "set_runs_ms": [
+     [
+      22.019,
+      17.46,
+      17.403,
+      12.833,
+      13.019
+     ],
+     [
+      16.421,
+      10.266,
+      10.692,
+      10.324,
+      12.229
+     ],
+     [
+      18.907,
+      13.517,
+      12.63,
+      12.882,
+      12.566
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 320,
+     "first_ms": 0.001099,
+     "first_most_ms": 0.001397,
+     "longest_ms": 3.251,
+     "longest_most_ms": 4.817,
+     "longest_after_polls": [
+      7,
+      319,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.038532,
+     "last_most_ms": 0.114329,
+     "outside_ms": 0.028051,
+     "outside_most_ms": 0.059290999999999996,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.242,
+    "runs_ms": [
+     8.151,
+     6.829,
+     6.242,
+     6.002,
+     6.233
+    ],
+    "polls": {
+     "polls": 320,
+     "first_ms": 0.00027,
+     "first_most_ms": 0.000443,
+     "longest_ms": 1.053,
+     "longest_most_ms": 1.269,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      319
+     ],
+     "last_ms": 0.033185000000000006,
+     "last_most_ms": 0.035811,
+     "outside_ms": 0.022796,
+     "outside_most_ms": 0.030635000000000003,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "hole-taper-in",
+   "construction": "feature",
+   "outcome_pinned": "fails Standard_NullObject",
+   "measurements_native_and_node": "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape",
+   "parity_summary_native": "fails extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape",
+   "history_unnamed": {},
+   "native": {
+    "set_medians_ms": [
+     5.339,
+     4.104,
+     4.61,
+     5.251,
+     3.814,
+     4.303
+    ],
+    "set_runs_ms": [
+     [
+      5.406,
+      4.701,
+      4.646,
+      5.687,
+      5.339
+     ],
+     [
+      4.104,
+      4.238,
+      4.006,
+      4.102,
+      4.31
+     ],
+     [
+      4.615,
+      4.516,
+      4.536,
+      4.661,
+      4.61
+     ],
+     [
+      5.139,
+      5.543,
+      4.918,
+      6.396,
+      5.251
+     ],
+     [
+      3.832,
+      3.609,
+      3.58,
+      3.909,
+      3.814
+     ],
+     [
+      4.367,
+      4.303,
+      4.185,
+      4.151,
+      4.449
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 4.61,
+    "adr_0057_median_sets_4_to_6_ms": 4.303,
+    "limit_ms": null,
+    "polls_set_4": null,
+    "longest_gap_most_any_set_ms": null,
+    "errors": [
+     "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape"
+    ]
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     9.733,
+     7.537,
+     7.903
+    ],
+    "median_ms": 7.903,
+    "set_runs_ms": [
+     [
+      8.953,
+      9.526,
+      9.792,
+      9.733,
+      10.686
+     ],
+     [
+      8.836,
+      7.186,
+      7.188,
+      7.537,
+      7.611
+     ],
+     [
+      8.38,
+      7.842,
+      7.903,
+      7.974,
+      7.857
+     ]
+    ],
+    "polls_set_1": null
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 3.717,
+    "runs_ms": [
+     3.709,
+     3.974,
+     3.717,
+     3.571,
+     3.887
+    ],
+    "errors": [
+     "extrude_to failed: Standard_NullObject: BRepCheck_Analyzer::Init() - NULL shape"
+    ]
+   }
+  },
+  {
+   "input": "hole-taper-in",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 5 are in the Generated list of exactly one profile edge, taper error 9.71445146547012e-17 rad; start faces [6], end faces [7]",
+   "parity_summary_native": "faces 7 edges 15 vertices 10 volume 37942.012498921686 area 10506.373617580359 min [-5.551115123125783e-17, -3.58046925441613e-15, -4.440892098500626e-16] max [80.00000000000001, 50.00000000000001, 10.0]",
+   "history_unnamed": {
+    "faces": {
+     "total": 7,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 15,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 10,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     2.074,
+     1.801,
+     1.916,
+     2.539,
+     1.519,
+     1.772
+    ],
+    "set_runs_ms": [
+     [
+      2.199,
+      1.962,
+      2.126,
+      2.074,
+      2.053
+     ],
+     [
+      2.598,
+      1.801,
+      1.809,
+      1.696,
+      1.651
+     ],
+     [
+      2.072,
+      1.892,
+      2.031,
+      1.916,
+      1.912
+     ],
+     [
+      2.276,
+      2.991,
+      2.978,
+      2.539,
+      2.056
+     ],
+     [
+      1.706,
+      1.504,
+      1.519,
+      1.528,
+      1.497
+     ],
+     [
+      2.484,
+      1.772,
+      1.825,
+      1.761,
+      1.745
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 1.916,
+    "adr_0057_median_sets_4_to_6_ms": 1.772,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.00045599999999999997,
+     "first_most_ms": 0.000464,
+     "longest_ms": 1.527,
+     "longest_most_ms": 1.654,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.074809,
+     "last_most_ms": 0.08711100000000001,
+     "outside_ms": 0.037908000000000004,
+     "outside_most_ms": 0.050127000000000005,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 1.654,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     4.063,
+     2.771,
+     2.991
+    ],
+    "median_ms": 2.991,
+    "set_runs_ms": [
+     [
+      4.259,
+      4.197,
+      4.063,
+      3.915,
+      3.921
+     ],
+     [
+      2.911,
+      2.771,
+      2.79,
+      2.715,
+      2.593
+     ],
+     [
+      3.27,
+      3.104,
+      2.987,
+      2.991,
+      2.928
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.000726,
+     "first_most_ms": 0.0009019999999999999,
+     "longest_ms": 2.292,
+     "longest_most_ms": 2.397,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.04489,
+     "last_most_ms": 0.078904,
+     "outside_ms": 0.043053,
+     "outside_most_ms": 0.064459,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 1.571,
+    "runs_ms": [
+     1.64,
+     1.676,
+     1.571,
+     1.506,
+     1.541
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.00023099999999999998,
+     "first_most_ms": 0.000277,
+     "longest_ms": 0.8635280000000001,
+     "longest_most_ms": 0.926353,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.028663,
+     "last_most_ms": 0.033225000000000005,
+     "outside_ms": 0.02104,
+     "outside_most_ms": 0.037091,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "hole-taper-in",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 5 lateral faces of which 5 are in the Generated list of exactly one profile edge, taper error 4.3021142204224816e-16 rad; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 7 edges 15 vertices 10 volume 37942.01249892168 area 10506.373617580359 min [-1e-7, -1e-7, -1e-7] max [80.0000001, 50.0000001, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 7,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 15,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 10,
+     "unnamed": 5
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     8.4,
+     7.636,
+     8.092,
+     8.347,
+     6.259,
+     7.699
+    ],
+    "set_runs_ms": [
+     [
+      8.822,
+      8.4,
+      8.191,
+      8.72,
+      8.149
+     ],
+     [
+      7.457,
+      7.202,
+      7.642,
+      7.636,
+      8.392
+     ],
+     [
+      10.303,
+      8.092,
+      8.068,
+      7.781,
+      8.205
+     ],
+     [
+      8.292,
+      9.108,
+      8.515,
+      8.347,
+      8.347
+     ],
+     [
+      6.641,
+      6.259,
+      6.4,
+      6.213,
+      6.194
+     ],
+     [
+      7.889,
+      8.048,
+      7.699,
+      7.338,
+      7.453
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 8.092,
+    "adr_0057_median_sets_4_to_6_ms": 7.699,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 320,
+     "first_ms": 0.000316,
+     "first_most_ms": 0.000363,
+     "longest_ms": 1.414,
+     "longest_most_ms": 1.474,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.040293999999999996,
+     "last_most_ms": 0.041148000000000004,
+     "outside_ms": 0.027735,
+     "outside_most_ms": 0.028556,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 1.647,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     15.207,
+     12.275,
+     13.307
+    ],
+    "median_ms": 13.307,
+    "set_runs_ms": [
+     [
+      19.002,
+      14.246,
+      14.474,
+      16.704,
+      15.207
+     ],
+     [
+      12.282,
+      12.275,
+      12.118,
+      11.868,
+      17.326
+     ],
+     [
+      13.922,
+      13.307,
+      12.979,
+      13.309,
+      12.885
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 320,
+     "first_ms": 0.0006439999999999999,
+     "first_most_ms": 0.001193,
+     "longest_ms": 2.53,
+     "longest_most_ms": 3.267,
+     "longest_after_polls": [
+      4,
+      4,
+      319,
+      4,
+      4
+     ],
+     "last_ms": 0.036236,
+     "last_most_ms": 0.048935000000000006,
+     "outside_ms": 0.027477,
+     "outside_most_ms": 0.032715,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 6.827,
+    "runs_ms": [
+     6.869,
+     6.827,
+     6.372,
+     7.286,
+     6.747
+    ],
+    "polls": {
+     "polls": 320,
+     "first_ms": 0.000257,
+     "first_most_ms": 0.000307,
+     "longest_ms": 1.088,
+     "longest_most_ms": 1.293,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.032378000000000004,
+     "last_most_ms": 0.038549,
+     "outside_ms": 0.022563,
+     "outside_most_ms": 0.023592,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "gon-taper-out",
+   "construction": "feature",
+   "outcome_pinned": "valid start closed end no-generated no-taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 5.329070518200751e-15 mm from the target's surface, 1 faces on that surface, 200 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error inf rad; start faces [1], end faces [202]",
+   "parity_summary_native": "faces 202 edges 600 vertices 300 volume 51339.66528515135 area 12818.784419835765 min [-40.87488663525924, -40.87488663525924, -5.934006575127617e-16] max [40.87488663525924, 40.874886635259244, 10.000000000000005]",
+   "history_unnamed": {
+    "faces": {
+     "total": 202,
+     "unnamed": 100
+    },
+    "edges": {
+     "total": 600,
+     "unnamed": 600
+    },
+    "vertices": {
+     "total": 300,
+     "unnamed": 300
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     152.364,
+     177.372,
+     175.123,
+     163.269,
+     141.475,
+     173.179
+    ],
+    "set_runs_ms": [
+     [
+      171.827,
+      155.562,
+      152.364,
+      147.143,
+      151.553
+     ],
+     [
+      179.625,
+      174.495,
+      174.47,
+      182.391,
+      177.372
+     ],
+     [
+      175.123,
+      223.703,
+      181.775,
+      167.835,
+      164.807
+     ],
+     [
+      163.269,
+      178.069,
+      152.991,
+      152.552,
+      170.136
+     ],
+     [
+      134.452,
+      133.398,
+      158.456,
+      196.468,
+      141.475
+     ],
+     [
+      196.606,
+      167.235,
+      173.179,
+      171.069,
+      178.103
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 175.123,
+    "adr_0057_median_sets_4_to_6_ms": 163.269,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 4,
+     "first_ms": 0.0008169999999999999,
+     "first_most_ms": 0.0009599999999999999,
+     "longest_ms": 110.31,
+     "longest_most_ms": 123.279,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.924497,
+     "last_most_ms": 1.022,
+     "outside_ms": 0.12305,
+     "outside_most_ms": 0.35327800000000004,
+     "end_distance_mm": 5.329070518200751e-15
+    },
+    "longest_gap_most_any_set_ms": 137.429,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    166.647,
+    183.873,
+    182.609,
+    201.747
+   ],
+   "node": {
+    "set_medians_ms": [
+     222.37,
+     238.221,
+     199.596
+    ],
+    "median_ms": 222.37,
+    "set_runs_ms": [
+     [
+      235.282,
+      239.511,
+      222.37,
+      195.63,
+      194.345
+     ],
+     [
+      258.927,
+      238.221,
+      220.489,
+      217.067,
+      241.512
+     ],
+     [
+      221.621,
+      199.694,
+      199.596,
+      168.052,
+      185.357
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 4,
+     "first_ms": 0.001148,
+     "first_most_ms": 0.006025000000000001,
+     "longest_ms": 163.713,
+     "longest_most_ms": 173.945,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.820584,
+     "last_most_ms": 0.8707910000000001,
+     "outside_ms": 0.047844000000000005,
+     "outside_most_ms": 0.048795000000000005,
+     "end_distance_mm": 5.329070518200751e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 174.283,
+    "runs_ms": [
+     160.821,
+     174.283,
+     179.24,
+     156.558,
+     179.681
+    ],
+    "polls": {
+     "polls": 4,
+     "first_ms": 0.000789,
+     "first_most_ms": 0.001105,
+     "longest_ms": 112.937,
+     "longest_most_ms": 117.746,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 1.032,
+     "last_most_ms": 1.436,
+     "outside_ms": 0.11410100000000001,
+     "outside_most_ms": 0.31778300000000004,
+     "end_distance_mm": 5.329070518200751e-15
+    }
+   }
+  },
+  {
+   "input": "gon-taper-out",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 9.860761315262648e-32 mm from the profile's plane, 1 end faces at most 1.7763568394002505e-15 mm from the target's surface, 1 faces on that surface, 100 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error 1.5265566588595902e-16 rad; start faces [101], end faces [102]",
+   "parity_summary_native": "faces 102 edges 300 vertices 200 volume 51339.66792319611 area 12818.79429169993 min [-40.87531855212548, -40.87531855212548, -2.0816681711721685e-16] max [40.87531855212548, 40.87531855212548, 10.000000000000002]",
+   "history_unnamed": {
+    "faces": {
+     "total": 102,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 300,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 200,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     45.766,
+     51.856,
+     51.283,
+     57.081,
+     40.371,
+     66.431
+    ],
+    "set_runs_ms": [
+     [
+      46.756,
+      45.766,
+      46.519,
+      45.597,
+      45.308
+     ],
+     [
+      51.891,
+      51.856,
+      51.664,
+      51.357,
+      57.219
+     ],
+     [
+      51.283,
+      50.412,
+      50.87,
+      75.886,
+      77.613
+     ],
+     [
+      63.844,
+      57.081,
+      54.003,
+      51.277,
+      60.556
+     ],
+     [
+      40.883,
+      55.787,
+      40.367,
+      40.354,
+      40.371
+     ],
+     [
+      53.204,
+      52.541,
+      66.431,
+      81.709,
+      79.709
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 51.283,
+    "adr_0057_median_sets_4_to_6_ms": 57.081,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.00101,
+     "first_most_ms": 0.001593,
+     "longest_ms": 36.826,
+     "longest_most_ms": 39.053,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 1.101,
+     "last_most_ms": 1.315,
+     "outside_ms": 0.44096100000000005,
+     "outside_most_ms": 0.625811,
+     "end_distance_mm": 1.7763568394002505e-15
+    },
+    "longest_gap_most_any_set_ms": 54.304,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    50.314,
+    71.636,
+    52.873,
+    63.125
+   ],
+   "node": {
+    "set_medians_ms": [
+     60.718,
+     61.81,
+     58.64
+    ],
+    "median_ms": 60.718,
+    "set_runs_ms": [
+     [
+      61.17,
+      60.699,
+      61.123,
+      60.126,
+      60.718
+     ],
+     [
+      61.173,
+      60.139,
+      63.941,
+      70.457,
+      61.81
+     ],
+     [
+      56.934,
+      57.525,
+      58.829,
+      58.64,
+      63.968
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.0009519999999999999,
+     "first_most_ms": 0.0026070000000000004,
+     "longest_ms": 41.648,
+     "longest_most_ms": 41.811,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.390651,
+     "last_most_ms": 0.47060700000000005,
+     "outside_ms": 0.35746100000000003,
+     "outside_most_ms": 0.362784,
+     "end_distance_mm": 1.7763568394002505e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 48.491,
+    "runs_ms": [
+     50.857,
+     48.491,
+     47.188,
+     45.601,
+     67.784
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.000792,
+     "first_most_ms": 0.001345,
+     "longest_ms": 33.443,
+     "longest_most_ms": 45.005,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.75786,
+     "last_most_ms": 1.116,
+     "outside_ms": 0.354418,
+     "outside_most_ms": 0.565252,
+     "end_distance_mm": 1.7763568394002505e-15
+    }
+   }
+  },
+  {
+   "input": "gon-taper-out",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 100 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error 1.0269562977782698e-15 rad; start faces [101], end faces [102]",
+   "parity_summary_native": "faces 102 edges 300 vertices 200 volume 51339.66792319608 area 12818.794291699929 min [-40.87531865212547, -40.87531865212547, -1e-7] max [40.87531865212547, 40.87531865212547, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 102,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 300,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 200,
+     "unnamed": 100
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     54.278,
+     75.668,
+     77.981,
+     74.362,
+     63.914,
+     69.139
+    ],
+    "set_runs_ms": [
+     [
+      56.184,
+      55.996,
+      51.418,
+      53.813,
+      54.278
+     ],
+     [
+      75.668,
+      82.716,
+      77.675,
+      68.558,
+      64.823
+     ],
+     [
+      77.981,
+      77.423,
+      95.178,
+      94.943,
+      73.261
+     ],
+     [
+      88.084,
+      89.777,
+      74.362,
+      61.518,
+      61.454
+     ],
+     [
+      71.011,
+      61.418,
+      63.182,
+      63.914,
+      65.715
+     ],
+     [
+      97.961,
+      94.291,
+      67.151,
+      69.139,
+      66.623
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 75.668,
+    "adr_0057_median_sets_4_to_6_ms": 69.139,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 7,
+     "first_ms": 0.000993,
+     "first_most_ms": 0.0011819999999999999,
+     "longest_ms": 44.448,
+     "longest_most_ms": 44.818,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.922975,
+     "last_most_ms": 1.435,
+     "outside_ms": 0.105215,
+     "outside_most_ms": 0.270596,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 51.666,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    60.496,
+    66.907,
+    66.518,
+    74.531
+   ],
+   "node": {
+    "set_medians_ms": [
+     84.889,
+     90.808,
+     96.546
+    ],
+    "median_ms": 90.808,
+    "set_runs_ms": [
+     [
+      83.707,
+      96.348,
+      105.586,
+      84.889,
+      81.074
+     ],
+     [
+      94.85,
+      94.095,
+      80.627,
+      84.28,
+      90.808
+     ],
+     [
+      110.747,
+      96.546,
+      104.459,
+      91.618,
+      83.87
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 7,
+     "first_ms": 0.001203,
+     "first_most_ms": 0.0016790000000000002,
+     "longest_ms": 49.031,
+     "longest_most_ms": 65.608,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.296084,
+     "last_most_ms": 0.530756,
+     "outside_ms": 0.062068,
+     "outside_most_ms": 0.10559600000000001,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 60.969,
+    "runs_ms": [
+     68.534,
+     56.342,
+     61.855,
+     60.703,
+     60.969
+    ],
+    "polls": {
+     "polls": 7,
+     "first_ms": 0.000851,
+     "first_most_ms": 0.0010840000000000001,
+     "longest_ms": 32.363,
+     "longest_most_ms": 41.772,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.825106,
+     "last_most_ms": 0.867302,
+     "outside_ms": 0.056805999999999995,
+     "outside_most_ms": 0.09917100000000001,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "gon-taper-in",
+   "construction": "feature",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.283063041541027e-14 mm from the target's surface, 1 faces on that surface, 100 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error 6.938893903907228e-17 rad; start faces [1], end faces [102]",
+   "parity_summary_native": "faces 102 edges 300 vertices 200 volume 49141.1996575319 area 12323.901749815519 min [-40.0, -40.0, -4.012589896336131e-14] max [40.0, 40.0, 10.000000000000075]",
+   "history_unnamed": {
+    "faces": {
+     "total": 102,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 300,
+     "unnamed": 300
+    },
+    "vertices": {
+     "total": 200,
+     "unnamed": 200
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     64.899,
+     75.457,
+     70.757,
+     69.949,
+     74.197,
+     64.345
+    ],
+    "set_runs_ms": [
+     [
+      61.992,
+      64.899,
+      63.876,
+      72.914,
+      85.15
+     ],
+     [
+      72.181,
+      72.778,
+      75.457,
+      85.714,
+      97.231
+     ],
+     [
+      72.512,
+      71.548,
+      70.757,
+      62.181,
+      55.527
+     ],
+     [
+      69.021,
+      69.227,
+      69.949,
+      70.167,
+      70.377
+     ],
+     [
+      70.453,
+      89.372,
+      74.197,
+      73.228,
+      76.448
+     ],
+     [
+      76.827,
+      74.95,
+      64.345,
+      59.306,
+      61.204
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 70.757,
+    "adr_0057_median_sets_4_to_6_ms": 69.949,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 4,
+     "first_ms": 0.0009029999999999999,
+     "first_most_ms": 0.0010249999999999999,
+     "longest_ms": 40.489,
+     "longest_most_ms": 40.899,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 1.044,
+     "last_most_ms": 1.109,
+     "outside_ms": 0.068643,
+     "outside_most_ms": 0.16131800000000002,
+     "end_distance_mm": 7.283063041541027e-14
+    },
+    "longest_gap_most_any_set_ms": 66.193,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    69.556,
+    70.957,
+    71.784,
+    83.983
+   ],
+   "node": {
+    "set_medians_ms": [
+     94.734,
+     86.009,
+     92.645
+    ],
+    "median_ms": 92.645,
+    "set_runs_ms": [
+     [
+      93.77,
+      93.321,
+      105.601,
+      94.734,
+      105.194
+     ],
+     [
+      96.352,
+      85.827,
+      86.009,
+      103.523,
+      82.15
+     ],
+     [
+      92.645,
+      104.101,
+      107.656,
+      89.841,
+      89.359
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 4,
+     "first_ms": 0.001097,
+     "first_most_ms": 0.002601,
+     "longest_ms": 67.349,
+     "longest_most_ms": 74.899,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 0.458409,
+     "last_most_ms": 0.61373,
+     "outside_ms": 0.052427,
+     "outside_most_ms": 0.07105700000000001,
+     "end_distance_mm": 7.283063041541027e-14
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 74.048,
+    "runs_ms": [
+     66.107,
+     74.048,
+     73.004,
+     74.114,
+     75.247
+    ],
+    "polls": {
+     "polls": 4,
+     "first_ms": 0.0010580000000000001,
+     "first_most_ms": 0.0011259999999999998,
+     "longest_ms": 41.909,
+     "longest_most_ms": 44.608,
+     "longest_after_polls": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "last_ms": 1.277,
+     "last_most_ms": 2.183,
+     "outside_ms": 0.109761,
+     "outside_most_ms": 0.189858,
+     "end_distance_mm": 7.283063041541027e-14
+    }
+   }
+  },
+  {
+   "input": "gon-taper-in",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 9.860761315262648e-32 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 100 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error 1.1102230246251565e-16 rad; start faces [101], end faces [102]",
+   "parity_summary_native": "faces 102 edges 300 vertices 200 volume 49141.19965753193 area 12323.901749815537 min [-40.000000000000014, -40.000000000000014, -1.7824283715661693e-16] max [40.000000000000014, 40.000000000000014, 10.000000000000002]",
+   "history_unnamed": {
+    "faces": {
+     "total": 102,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 300,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 200,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     57.413,
+     59.157,
+     47.534,
+     50.654,
+     78.894,
+     41.201
+    ],
+    "set_runs_ms": [
+     [
+      60.051,
+      60.014,
+      57.413,
+      39.68,
+      41.675
+     ],
+     [
+      52.908,
+      60.569,
+      71.647,
+      59.157,
+      53.343
+     ],
+     [
+      40.499,
+      41.46,
+      58.666,
+      48.655,
+      47.534
+     ],
+     [
+      50.66,
+      50.654,
+      50.521,
+      50.636,
+      51.08
+     ],
+     [
+      66.983,
+      69.833,
+      78.894,
+      83.945,
+      86.591
+     ],
+     [
+      40.578,
+      39.923,
+      43.803,
+      41.201,
+      41.776
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 57.413,
+    "adr_0057_median_sets_4_to_6_ms": 50.654,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 8,
+     "first_ms": 0.00083,
+     "first_most_ms": 0.00111,
+     "longest_ms": 34.665,
+     "longest_most_ms": 34.853,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.731978,
+     "last_most_ms": 0.803363,
+     "outside_ms": 0.302091,
+     "outside_most_ms": 0.344929,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 54.422,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    49.926,
+    51.633,
+    46.867,
+    52.846
+   ],
+   "node": {
+    "set_medians_ms": [
+     46.708,
+     54.962,
+     67.691
+    ],
+    "median_ms": 54.962,
+    "set_runs_ms": [
+     [
+      47.342,
+      46.708,
+      46.462,
+      46.989,
+      46.102
+     ],
+     [
+      56.16,
+      55.627,
+      52.712,
+      52.246,
+      54.962
+     ],
+     [
+      65.952,
+      61.288,
+      75.643,
+      67.691,
+      71.326
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 8,
+     "first_ms": 0.000992,
+     "first_most_ms": 0.0022719999999999997,
+     "longest_ms": 31.783,
+     "longest_most_ms": 32.342,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.315047,
+     "last_most_ms": 0.330793,
+     "outside_ms": 0.277596,
+     "outside_most_ms": 0.34231900000000004,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 52.013,
+    "runs_ms": [
+     53.128,
+     51.571,
+     51.649,
+     52.013,
+     54.717
+    ],
+    "polls": {
+     "polls": 8,
+     "first_ms": 0.0010600000000000002,
+     "first_most_ms": 0.0014570000000000002,
+     "longest_ms": 35.016,
+     "longest_most_ms": 36.301,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.800765,
+     "last_most_ms": 0.9923780000000001,
+     "outside_ms": 0.312171,
+     "outside_most_ms": 0.43941600000000003,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "gon-taper-in",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 100 lateral faces of which 100 are in the Generated list of exactly one profile edge, taper error 9.71445146547012e-16 rad; start faces [101], end faces [102]",
+   "parity_summary_native": "faces 102 edges 300 vertices 200 volume 49141.19965753196 area 12323.901749815534 min [-40.0000001, -40.0000001, -1e-7] max [40.0000001, 40.0000001, 10.0000001]",
+   "history_unnamed": {
+    "faces": {
+     "total": 102,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 300,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 200,
+     "unnamed": 100
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     58.313,
+     61.114,
+     57.814,
+     62.703,
+     66.451,
+     52.895
+    ],
+    "set_runs_ms": [
+     [
+      49.433,
+      61.694,
+      63.533,
+      58.313,
+      55.73
+     ],
+     [
+      73.382,
+      61.114,
+      56.567,
+      57.45,
+      64.474
+     ],
+     [
+      57.284,
+      57.377,
+      60.668,
+      57.833,
+      57.814
+     ],
+     [
+      61.952,
+      62.952,
+      62.703,
+      62.719,
+      62.574
+     ],
+     [
+      69.847,
+      64.578,
+      71.824,
+      66.451,
+      64.402
+     ],
+     [
+      52.872,
+      55.789,
+      53.936,
+      52.895,
+      49.952
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 58.313,
+    "adr_0057_median_sets_4_to_6_ms": 62.703,
+    "limit_ms": 60.0,
+    "polls_set_4": {
+     "polls": 7,
+     "first_ms": 0.0011200000000000001,
+     "first_most_ms": 0.001312,
+     "longest_ms": 33.204,
+     "longest_most_ms": 33.335,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.874644,
+     "last_most_ms": 0.9147500000000001,
+     "outside_ms": 0.11963599999999999,
+     "outside_most_ms": 0.261653,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 41.455,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": [
+    60.98,
+    60.097,
+    58.57,
+    74.414
+   ],
+   "node": {
+    "set_medians_ms": [
+     65.648,
+     83.39,
+     87.507
+    ],
+    "median_ms": 83.39,
+    "set_runs_ms": [
+     [
+      65.759,
+      64.939,
+      65.206,
+      65.648,
+      66.298
+     ],
+     [
+      83.39,
+      80.459,
+      93.032,
+      93.505,
+      79.473
+     ],
+     [
+      86.934,
+      90.367,
+      87.507,
+      92.04,
+      84.99
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 7,
+     "first_ms": 0.000986,
+     "first_most_ms": 0.001433,
+     "longest_ms": 36.844,
+     "longest_most_ms": 37.248,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.231517,
+     "last_most_ms": 0.252756,
+     "outside_ms": 0.04877600000000001,
+     "outside_most_ms": 0.070522,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 72.095,
+    "runs_ms": [
+     64.523,
+     66.826,
+     72.095,
+     84.083,
+     74.078
+    ],
+    "polls": {
+     "polls": 7,
+     "first_ms": 0.0009509999999999999,
+     "first_most_ms": 0.001178,
+     "longest_ms": 34.761,
+     "longest_most_ms": 42.887,
+     "longest_after_polls": [
+      4,
+      4,
+      4,
+      4,
+      4
+     ],
+     "last_ms": 0.9777920000000001,
+     "last_most_ms": 1.435,
+     "outside_ms": 0.075563,
+     "outside_most_ms": 0.194199,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-tilted",
+   "construction": "feature-body",
+   "outcome_pinned": "valid start closed no-end no-generated no-taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 0 end faces at most 0.0 mm from the target's surface, 1 faces on that surface, 9 lateral faces of which 0 are in the Generated list of exactly one profile edge, taper error inf rad; start faces [1], end faces []",
+   "parity_summary_native": "faces 10 edges 24 vertices 12 volume 204862.07533276404 area 21801.857810693193 min [-4.73708043111569, -3.045534881353447, -1.287390997221875e-17] max [84.7370804311157, 54.89040460809231, 55.89758045216006]",
+   "history_unnamed": {
+    "faces": {
+     "total": 10,
+     "unnamed": 9
+    },
+    "edges": {
+     "total": 24,
+     "unnamed": 24
+    },
+    "vertices": {
+     "total": 12,
+     "unnamed": 12
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     18.527,
+     21.948,
+     19.219,
+     20.652,
+     31.267,
+     16.17
+    ],
+    "set_runs_ms": [
+     [
+      18.948,
+      18.231,
+      18.663,
+      18.216,
+      18.527
+     ],
+     [
+      22.027,
+      21.215,
+      21.633,
+      21.948,
+      22.406
+     ],
+     [
+      19.219,
+      24.709,
+      18.619,
+      18.24,
+      20.403
+     ],
+     [
+      22.287,
+      20.652,
+      20.53,
+      21.005,
+      20.434
+     ],
+     [
+      23.543,
+      31.267,
+      34.674,
+      31.902,
+      25.274
+     ],
+     [
+      17.125,
+      16.17,
+      16.113,
+      16.054,
+      17.657
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 19.219,
+    "adr_0057_median_sets_4_to_6_ms": 20.652,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.00062,
+     "first_most_ms": 0.001031,
+     "longest_ms": 18.836,
+     "longest_most_ms": 20.417,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.06439,
+     "last_most_ms": 0.07133,
+     "outside_ms": 0.028440000000000003,
+     "outside_most_ms": 0.033552,
+     "end_distance_mm": 0.0
+    },
+    "longest_gap_most_any_set_ms": 30.091,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     25.053,
+     34.844,
+     34.533
+    ],
+    "median_ms": 34.533,
+    "set_runs_ms": [
+     [
+      28.97,
+      25.053,
+      24.259,
+      24.646,
+      26.48
+     ],
+     [
+      34.844,
+      29.147,
+      29.723,
+      38.027,
+      35.084
+     ],
+     [
+      40.14,
+      31.624,
+      34.533,
+      36.307,
+      32.746
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.000601,
+     "first_most_ms": 0.001767,
+     "longest_ms": 23.106,
+     "longest_most_ms": 26.95,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.046155,
+     "last_most_ms": 0.049460000000000004,
+     "outside_ms": 0.037172,
+     "outside_most_ms": 0.044556,
+     "end_distance_mm": 0.0
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 23.596,
+    "runs_ms": [
+     23.596,
+     22.721,
+     26.786,
+     27.43,
+     21.035
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.0007289999999999999,
+     "first_most_ms": 0.001454,
+     "longest_ms": 21.582,
+     "longest_most_ms": 25.571,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.06635200000000001,
+     "last_most_ms": 0.069468,
+     "outside_ms": 0.031533,
+     "outside_most_ms": 0.04157,
+     "end_distance_mm": 0.0
+    }
+   }
+  },
+  {
+   "input": "rect-taper-tilted",
+   "construction": "feature-nothing",
+   "outcome_pinned": "valid start closed end no-generated no-taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.944109290391274e-15 mm from the target's surface, 1 faces on that surface, 8 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error inf rad; start faces [1], end faces [7]",
+   "parity_summary_native": "faces 10 edges 24 vertices 12 volume 204862.07533276404 area 21801.857810693193 min [-4.73708043111569, -3.045534881353447, -1.287390997221875e-17] max [84.7370804311157, 54.89040460809231, 55.89758045216006]",
+   "history_unnamed": {
+    "faces": {
+     "total": 10,
+     "unnamed": 4
+    },
+    "edges": {
+     "total": 24,
+     "unnamed": 24
+    },
+    "vertices": {
+     "total": 12,
+     "unnamed": 12
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     17.902,
+     22.709,
+     17.703,
+     20.269,
+     21.41,
+     16.125
+    ],
+    "set_runs_ms": [
+     [
+      18.275,
+      17.736,
+      17.877,
+      19.725,
+      17.902
+     ],
+     [
+      22.709,
+      24.083,
+      26.719,
+      20.107,
+      19.474
+     ],
+     [
+      17.703,
+      17.63,
+      17.88,
+      17.555,
+      18.471
+     ],
+     [
+      20.269,
+      20.055,
+      20.408,
+      20.571,
+      20.15
+     ],
+     [
+      23.047,
+      21.41,
+      20.748,
+      21.442,
+      20.917
+     ],
+     [
+      15.998,
+      15.802,
+      16.125,
+      17.98,
+      31.803
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 17.902,
+    "adr_0057_median_sets_4_to_6_ms": 20.269,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 6,
+     "first_ms": 0.0006299999999999999,
+     "first_most_ms": 0.000712,
+     "longest_ms": 16.001,
+     "longest_most_ms": 16.371,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.06745699999999999,
+     "last_most_ms": 0.06925400000000001,
+     "outside_ms": 0.026359000000000004,
+     "outside_most_ms": 0.030509,
+     "end_distance_mm": 7.944109290391274e-15
+    },
+    "longest_gap_most_any_set_ms": 23.696,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     23.913,
+     31.631,
+     29.288
+    ],
+    "median_ms": 29.288,
+    "set_runs_ms": [
+     [
+      23.821,
+      27.428,
+      23.848,
+      23.913,
+      25.545
+     ],
+     [
+      31.631,
+      34.112,
+      30.889,
+      34.195,
+      28.795
+     ],
+     [
+      28.848,
+      28.715,
+      29.437,
+      29.288,
+      29.318
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 6,
+     "first_ms": 0.000522,
+     "first_most_ms": 0.0007909999999999999,
+     "longest_ms": 19.017,
+     "longest_most_ms": 22.058,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.049599,
+     "last_most_ms": 0.06444799999999999,
+     "outside_ms": 0.028962,
+     "outside_most_ms": 0.032081000000000005,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 20.494,
+    "runs_ms": [
+     20.494,
+     20.479,
+     20.347,
+     20.868,
+     20.697
+    ],
+    "polls": {
+     "polls": 6,
+     "first_ms": 0.000641,
+     "first_most_ms": 0.000763,
+     "longest_ms": 16.332,
+     "longest_most_ms": 16.632,
+     "longest_after_polls": [
+      3,
+      3,
+      3,
+      3,
+      3
+     ],
+     "last_ms": 0.06747199999999999,
+     "last_most_ms": 0.068165,
+     "outside_ms": 0.026144,
+     "outside_most_ms": 0.027754,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   }
+  },
+  {
+   "input": "rect-taper-tilted",
+   "construction": "draft-angle",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.444291678311382e-15 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 1.249000902703301e-16 rad; start faces [2], end faces [4]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 205096.3948748889 area 21981.329406109646 min [-4.890404608092304, -3.0455348813534564, -4.440892098500626e-16] max [84.89040460809233, 54.890404608092325, 55.89758045216006]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     4.712,
+     5.658,
+     4.753,
+     5.314,
+     5.388,
+     5.798
+    ],
+    "set_runs_ms": [
+     [
+      4.973,
+      4.745,
+      4.712,
+      4.631,
+      4.684
+     ],
+     [
+      7.822,
+      5.823,
+      5.658,
+      5.302,
+      5.321
+     ],
+     [
+      4.834,
+      4.753,
+      4.688,
+      4.544,
+      5.009
+     ],
+     [
+      5.565,
+      5.341,
+      5.314,
+      5.259,
+      5.312
+     ],
+     [
+      5.941,
+      5.328,
+      5.487,
+      5.348,
+      5.388
+     ],
+     [
+      5.798,
+      6.609,
+      5.131,
+      5.708,
+      9.75
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 4.753,
+    "adr_0057_median_sets_4_to_6_ms": 5.388,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 404,
+     "first_ms": 0.000326,
+     "first_most_ms": 0.0005639999999999999,
+     "longest_ms": 1.342,
+     "longest_most_ms": 1.413,
+     "longest_after_polls": [
+      402,
+      402,
+      402,
+      402,
+      402
+     ],
+     "last_ms": 0.040334,
+     "last_most_ms": 0.042183,
+     "outside_ms": 0.030819,
+     "outside_most_ms": 0.038761000000000004,
+     "end_distance_mm": 7.444291678311382e-15
+    },
+    "longest_gap_most_any_set_ms": 1.792,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     8.448,
+     7.752,
+     7.739
+    ],
+    "median_ms": 7.752,
+    "set_runs_ms": [
+     [
+      8.523,
+      8.326,
+      8.448,
+      8.211,
+      8.485
+     ],
+     [
+      7.752,
+      8.003,
+      7.652,
+      7.578,
+      8.451
+     ],
+     [
+      8.054,
+      7.739,
+      7.679,
+      7.543,
+      8.291
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 404,
+     "first_ms": 0.000603,
+     "first_most_ms": 0.001038,
+     "longest_ms": 2.143,
+     "longest_most_ms": 2.248,
+     "longest_after_polls": [
+      402,
+      402,
+      402,
+      402,
+      402
+     ],
+     "last_ms": 0.041703000000000004,
+     "last_most_ms": 0.044637,
+     "outside_ms": 0.050319,
+     "outside_most_ms": 0.053016,
+     "end_distance_mm": 7.444291678311382e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 5.607,
+    "runs_ms": [
+     5.697,
+     5.979,
+     5.56,
+     5.607,
+     5.376
+    ],
+    "polls": {
+     "polls": 404,
+     "first_ms": 0.00039099999999999996,
+     "first_most_ms": 0.0008039999999999999,
+     "longest_ms": 1.457,
+     "longest_most_ms": 1.508,
+     "longest_after_polls": [
+      402,
+      402,
+      402,
+      402,
+      402
+     ],
+     "last_ms": 0.043558,
+     "last_most_ms": 0.08363899999999999,
+     "outside_ms": 0.03731,
+     "outside_most_ms": 0.040478,
+     "end_distance_mm": 7.444291678311382e-15
+    }
+   }
+  },
+  {
+   "input": "rect-taper-tilted",
+   "construction": "thru-sections",
+   "outcome_pinned": "valid start closed end generated taper",
+   "measurements_native_and_node": "AsBuilt, is_valid true, 0 open mesh edges, 1 start faces at most 0.0 mm from the profile's plane, 1 end faces at most 7.944109290391274e-15 mm from the target's surface, 1 faces on that surface, 4 lateral faces of which 4 are in the Generated list of exactly one profile edge, taper error 4.163336342344337e-17 rad; start faces [5], end faces [3]",
+   "parity_summary_native": "faces 6 edges 12 vertices 8 volume 205096.39487501807 area 21981.329406119337 min [-4.890404708092298, -3.0455349813534665, -1e-7] max [84.89040470809229, 54.890404708092326, 55.897580552160065]",
+   "history_unnamed": {
+    "faces": {
+     "total": 6,
+     "unnamed": 0
+    },
+    "edges": {
+     "total": 12,
+     "unnamed": 0
+    },
+    "vertices": {
+     "total": 8,
+     "unnamed": 0
+    }
+   },
+   "native": {
+    "set_medians_ms": [
+     19.128,
+     22.57,
+     19.207,
+     21.678,
+     22.743,
+     21.656
+    ],
+    "set_runs_ms": [
+     [
+      19.139,
+      18.616,
+      18.708,
+      19.128,
+      21.33
+     ],
+     [
+      22.57,
+      23.677,
+      24.304,
+      22.214,
+      21.702
+     ],
+     [
+      19.668,
+      19.966,
+      19.207,
+      18.556,
+      18.181
+     ],
+     [
+      22.967,
+      21.946,
+      21.453,
+      21.678,
+      21.501
+     ],
+     [
+      23.106,
+      26.1,
+      22.382,
+      22.127,
+      22.743
+     ],
+     [
+      21.656,
+      20.74,
+      22.235,
+      20.736,
+      25.299
+     ]
+    ],
+    "adr_0057_median_sets_1_to_3_ms": 19.207,
+    "adr_0057_median_sets_4_to_6_ms": 21.678,
+    "limit_ms": null,
+    "polls_set_4": {
+     "polls": 415,
+     "first_ms": 0.000388,
+     "first_most_ms": 0.000542,
+     "longest_ms": 3.114,
+     "longest_most_ms": 3.343,
+     "longest_after_polls": [
+      69,
+      71,
+      71,
+      71,
+      71
+     ],
+     "last_ms": 0.045191,
+     "last_most_ms": 0.05603,
+     "outside_ms": 0.03408,
+     "outside_most_ms": 0.036137999999999997,
+     "end_distance_mm": 7.944109290391274e-15
+    },
+    "longest_gap_most_any_set_ms": 4.955,
+    "errors": null
+   },
+   "native_100_edge_sets_4_to_7_medians_ms": null,
+   "node": {
+    "set_medians_ms": [
+     36.462,
+     38.386,
+     40.738
+    ],
+    "median_ms": 38.386,
+    "set_runs_ms": [
+     [
+      55.148,
+      37.524,
+      36.36,
+      36.462,
+      36.098
+     ],
+     [
+      58.683,
+      37.138,
+      38.386,
+      38.927,
+      36.314
+     ],
+     [
+      50.481,
+      39.8,
+      40.521,
+      40.738,
+      43.658
+     ]
+    ],
+    "polls_set_1": {
+     "polls": 415,
+     "first_ms": 0.0007,
+     "first_most_ms": 0.001011,
+     "longest_ms": 5.504,
+     "longest_most_ms": 11.744,
+     "longest_after_polls": [
+      68,
+      69,
+      69,
+      69,
+      69
+     ],
+     "last_ms": 0.04525,
+     "last_most_ms": 0.141632,
+     "outside_ms": 0.052941,
+     "outside_most_ms": 0.06904,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   },
+   "native_set_7_at_003f9ac": {
+    "median_ms": 22.276,
+    "runs_ms": [
+     24.098,
+     21.629,
+     25.014,
+     22.276,
+     19.817
+    ],
+    "polls": {
+     "polls": 415,
+     "first_ms": 0.0006079999999999999,
+     "first_most_ms": 0.000823,
+     "longest_ms": 3.115,
+     "longest_most_ms": 3.724,
+     "longest_after_polls": [
+      69,
+      71,
+      71,
+      71,
+      71
+     ],
+     "last_ms": 0.044486,
+     "last_most_ms": 0.060222000000000005,
+     "outside_ms": 0.033176000000000004,
+     "outside_most_ms": 0.0748,
+     "end_distance_mm": 7.944109290391274e-15
+    }
+   }
+  }
+ ],
+ "interrupts_summary": {
+  "gap_criterion": "none in section 8.5 (section 8.1 item 5's 150 ms is for the thread and the label)",
+  "not_every_gap_under_150_ms": "BRepFeat_MakeDPrism's unpolled builder, gon-taper-out: 137.4 ms in its slowest run of native sets 1-6, 117.7 ms at most in set 7, 171.9 ms in one run of the check's round 1",
+  "picked_constructions": "split longest gap at most 2.23 ms in sets 1-6 and 1.96 ms in set 7 (about 2.6 ms in the check's runs); DraftAngle at most 54.4 ms (33 to 37 ms in a median run on the 100-edge profile)",
+  "set_7_poll_counts": "equal to set 4's on every row"
+ },
+ "check_round_1": {
+  "checked_commit": "40c7833",
+  "blocking": [],
+  "problems": {
+   "parity-count": "agreed; 37 lines, 30 identical, all within ADR 0042",
+   "gap-claim": "agreed; claim qualified with 137.4 ms (sets 1-6), 117.7 ms (set 7) and the check's 171.9 ms for BRepFeat_MakeDPrism",
+   "single-run-noise": "agreed; noise note added with the measured spread (set medians of a row span up to a factor of 2.2, median 41 percent), more than the check's 'about 60 percent'",
+   "in-part-reading": "agreed; one reading, the shim's check; removed from (i)'s failures; no outcome changes",
+   "decision-rationale": "agreed; Decision cites section 8.5 criteria; start check and InvShape supporting",
+   "scope-extra-files": "agreed; build.rs, partsmith-wasm/Cargo.toml and Cargo.lock named as build plumbing",
+   "style-uv": "fixed in 003f9ac (u_parameter, v_parameter); bench binaries and web cores byte-identical",
+   "size-reproducibility": "fixed; prism-extents-sizes.py and the call lists; all six builds byte-identical at 003f9ac"
+  },
+  "not_reproduced": "the check's split gap of about 2.6 ms: set 7 1.96 ms, sets 1-6 2.23 ms"
+ }
+}

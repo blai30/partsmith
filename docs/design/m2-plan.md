@@ -83,7 +83,7 @@ In the order of the table:
 27. TrueType text, straight or along a path, is usable as profiles. It has user value 5 and is the input to printed labels. Text uses the built-in font or a user font stored as a content-hashed asset (section 7.3 item 13). It needs this milestone's B-spline profile curves. A user font on the desktop needs `ttf` and `otf` in `ASSET_EXTENSIONS` (`desktop/src-tauri/src/files.rs`, `step` only in M1) and a font file kind for the pick dialog, by an amendment of ADR 0037. Labels on flat faces work by extruding text, and curved faces use emboss.
 28. A rib or web thickens an open sketch profile up to the body, on wave 1's open profiles and the up-to-body extent (section 7.3 item 19). The ribbed bracket among the success-criteria parts needs it.
 29. Thin-wall extrude makes an open or closed profile into a wall of a given thickness, inside, outside or both sides. It uses the same open-profile thickening as the rib. Thin-wall extrude is in the parity matrix. Thin-wall revolve is not. It waits for M3.
-30. A loft runs between profiles with rails, a centerline, point ends and tangent or curvature end conditions, on this milestone's spline and conic profiles. It is built with OCCT's own loft and multi-section sweep (section 7.3 item 18) once wave 1's spike has settled rails, the hard case. None of gate 1's four parts uses a loft. All of loft heads the cut line (section 6 item 11).
+30. A loft runs between profiles, with a centerline and point ends, on this milestone's spline and conic profiles. It is built with OCCT's own loft and multi-section sweep (section 7.3 item 18). Wave 1's spike found no construction for guide rails, or for tangent and curvature end conditions. ADR 0075 moves both to M3 under section 6 item 11. None of gate 1's four parts uses a loft. All of loft heads the cut line (section 6 item 11).
 31. Emboss raises or recesses text and profiles onto faces. It wraps exactly onto cylinders and cones (knobs, bottles, the threaded cap's side) and projects with a warning elsewhere (section 7.3 item 17). The design calls emboss critical for printed labels. It needs this milestone's text and projection. It reuses the threads' parameter-plane mapping. Emboss presets with stroke checks come with M3's print-aware presets.
 32. Sweep, coil, thread, tapped holes, rib, thin wall, extents, loft and emboss get commands, inspectors and the new path, rail and section selection kinds. They are generated from each feature's params schema and manifest hints (item 6). Each feature's UI ships with the feature.
 33. One API, two front ends: `Ellipse`, `Spline`, `Text`, `Slot`, `Polygon`, `Rectangle(rounded=)` and the other shapes, the modify operations with offset and grid, projection, the `+`, `-` and `&` part operators, hole and thread tables (`Hole.counterbore(M3)`), and a constructor for every new feature. Each has twins in the examples and the GUI to Python to `.ptsm` round trip (ADR 0048).
@@ -138,7 +138,7 @@ A checkpoint after wave 2 compares the pace with this plan. An overrun of more t
 - Projected and reference geometry, with model edges as snap and dimension targets (item 26)
 - Sketch text (item 27) with the built-in font and font assets, and the font reader's fuzz target (item 8)
 - Rib and web (item 28), and thin-wall extrude (item 29)
-- Loft (item 30) with rails, centerline, point ends and end conditions, per the wave 1 spike (first in the cut order)
+- Loft (item 30) with centerline and point ends, per the wave 1 spike (first in the cut order); its rails and end conditions moved to M3 by ADR 0075
 - Python shapes, modify operations, offset and grid (item 33), each landing with its tool
 
 Why now: trim, extend, offset and 2D fillet need wave 2's curve intersections, offsets and constraints. Text needs its B-spline profile curves. Projection needs the direct-generator edge names (item 2), the kernel's projection and the new entity types: a circle seen at an angle projects to an ellipse, and a general edge to a B-spline. Rib and thin wall need wave 1's open profiles and wave 2's up-to-body extent. Loft takes wave 2's spline and conic profiles.
@@ -200,7 +200,7 @@ Every check below holds at the gate. The automated checks run on one gate commit
 
 ## 5. Deferred
 
-Everything below stays out of M2. M3 and M4 follow the planner's split in section 7.2. Rows are sized by the legend of section 2. That gives the re-size of M3 and M4 at the M2 gate (section 6 item 16) a baseline: M2 holds 7 XL, 16 L, 6 M and 4 S items, M3 as routed 8 XL and 8 L rows, and M4 8 XL rows. As routed, M4 alone holds the work of several milestones the size of M1.
+Everything below stays out of M2. M3 and M4 follow the planner's split in section 7.2. Rows are sized by the legend of section 2. That gives the re-size of M3 and M4 at the M2 gate (section 6 item 16) a baseline: M2 holds 7 XL, 16 L, 6 M and 4 S items, M3 as routed 8 XL and 8 L rows (and since ADR 0075 a ninth L row, moved from M2), and M4 8 XL rows. As routed, M4 alone holds the work of several milestones the size of M1.
 
 ### 5.1 To M3
 
@@ -221,6 +221,7 @@ Everything below stays out of M2. M3 and M4 follow the planner's split in sectio
 | Datum axes, points, coordinate systems, more plane modes and sketch attachment offsets | technical design 8 and 13; features.md 1 (Later); features/datum_plane.md and features/sketch.md (Later); sketch.md 1.2 | L | They share ADR 0023's frame rules and are specified together. M2's helix and revolve use M1's axis references (origin axes, straight edges, round faces). |
 | Scale, move and copy modes, split options, more primitives and input modes, boolean options, revolve about an axis outside the plane, thin-wall revolve, and holes on curved faces with per-hole settings | technical design 8; features.md 1 (Later); the Later lists of features/move_body.md, split_body.md, box.md, cylinder.md, cone.md, sphere.md, torus.md, boolean.md, revolve.md and hole.md; features/revolve.md and features/cylinder.md open issue 1; kernel.md 1 (Explicitly later) and 3.4.4 | XL | They finish the solid rows of the parity matrix. Split by surface, surface extrusion and booleans with mesh bodies wait for M4. |
 | Canvas images, DXF and SVG, curve drags, ranked removal suggestions, stored label positions, the explicit tangent mode and the write-back rule | technical design 7 and 12; sketch.md 1.2 and open issues 4 and 9; features/sketch.md (Later); ui.md 1.2, 3.16 and open issues 1 and 7; io.md 1.2; protocol.md 1 (Later) and open issue 2 | XL | Canvas images and DXF and SVG import and export are sketch inputs from files. They need M2's splines and parser dependencies with their own ADR. The other items are polish on M2's settled entities. The write-back rule needs an ADR: recompute never writes the document. |
+| Loft guide rails and tangent and curvature end conditions | technical design 8; kernel.md 8.4; ADR 0075 | L | Wave 1's loft spike found no construction that follows a rail, or that keeps an end tangent or curvature continuous without a crease before the next profile (kernel.md 8.4). M3 measures new constructions against criteria fixed first: for rails the pipe shell with a scaling law or surfaces filled with `GeomFill` (ADR 0075). |
 | Opening files from the OS and desktop end-to-end tests | desktop.md 1.2 and open issues 7 and 8; delivery.md 1.2; technical design 16 | L | Opening files from the OS shares one desktop capability review with slicer launching. Handoff is desktop-only behavior that needs automated desktop tests. |
 
 ### 5.2 To M4
@@ -379,6 +380,7 @@ Two planning choices rest on the planner's recommendation alone. The M2 gate re-
 15. Helix and modeled thread construction. Accepted (owner's rule of 2026-11-05).
     - Options: (a) helical edges as lines on the parameter plane of a cylinder or cone, made exact with `BRepLib`, and thread faces built by ThruSections between helical wires, the construction of OCCT's own bottle tutorial; (b) a pipe-shell sweep of the thread profile along an approximated helix
     - Picked: (a), confirmed or replaced by wave 1's spike on a corpus of thread sizes, with the result in kernel.md and an ADR
+    - Result: no construction passed kernel.md 8.2. ADR 0074 takes (a) with one edge per turn, divided per turn, and accepts its measured M8 x 1.25 x 20 time.
     - Safest: an exact helix keeps native and web results comparable. Lofted faces avoid the pipe shell's self-intersections.
     - Industry standard: OCCT's documented method. The same mapping serves coils and wrap emboss.
 16. Thread and hole tables. Accepted (owner's rule of 2026-11-05).
@@ -394,6 +396,7 @@ Two planning choices rest on the planner's recommendation alone. The M2 gate re-
 18. Loft construction. Accepted (owner's rule of 2026-11-05).
     - Options: (a) `BRepOffsetAPI_ThruSections` for lofts between profiles with point ends, and `BRepOffsetAPI_MakePipeShell` with several sections along a spine for rails and a centerline; (b) surfaces filled by hand with `GeomFill`
     - Picked: (a), confirmed by wave 1's spike for rails and end conditions, the hard cases
+    - Result: the spike confirmed (a) for lofts between profiles, point ends and a centerline (kernel.md 8.4). ADR 0075 moves rails and tangent and curvature end conditions to M3.
     - Industry standard: FreeCAD's loft and multi-section sweep use these two OCCT algorithms.
     - Safest: no hand-built surfaces.
 19. Rib and web construction. Accepted (owner's rule of 2026-11-05).

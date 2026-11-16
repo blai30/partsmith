@@ -1,0 +1,3363 @@
+Kernel spike rib: the rib construction.
+
+Spec: docs/spec/kernel.md section 8.6 (M2 wave 1, ADR 0071).
+Branch: spike/kernel-rib, kept only in the development container and never pushed.
+Last commit: 0cf0d87 (0cf0d87e13004334599aa44898d5ac6779afa6af).
+Base commit: 2c56ff9 (2c56ff91a8e96f07b1ac1ec2407e469ce2da6437).
+
+This file is git diff 2c56ff9 0cf0d87. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7b9cf6..a51467e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2702,6 +2702,7 @@ dependencies = [
+  "partsmith-budgets",
+  "partsmith-engine",
+  "partsmith-model",
++ "partsmith-occt-sys",
+  "partsmith-protocol",
+  "proptest",
+  "serde_json",
+diff --git a/crates/partsmith-occt-sys/benches/budgets.rs b/crates/partsmith-occt-sys/benches/budgets.rs
+index 4ff165b..e048ee1 100644
+--- a/crates/partsmith-occt-sys/benches/budgets.rs
++++ b/crates/partsmith-occt-sys/benches/budgets.rs
+@@ -9,10 +9,13 @@
+ //! three times these and are not measured here, except the rows of interrupts whose names end in
+ //! `web`, which have budgets of their own and run only in the WebAssembly build under Node:
+ //! `cargo bench -p partsmith-occt-sys --target wasm32-unknown-emscripten --bench budgets -- web`.
+-//! The cancel latencies without a budget are printed, for kernel spec open issue 17.
++//! The cancel latencies without a budget are printed, for kernel spec open issue 17. The rows of
++//! the rib spike (kernel spec section 8.6) run on both targets; their names start with `rib`.
+ 
+ #[path = "../tests/common/mod.rs"]
+ mod common;
++#[path = "../tests/rib_inputs.rs"]
++mod rib_inputs;
+ 
+ #[cfg(not(target_os = "emscripten"))]
+ use std::cell::LazyCell;
+@@ -31,9 +34,9 @@ use partsmith_mesh::TessellationTolerance;
+ use partsmith_occt_sys::split;
+ use partsmith_occt_sys::{
+     Axis, EdgeRadius, GeometryKind, Interrupt, PlanarCurve, PlanarLoop, PlanarProfile,
+-    PlanarRegion, Plane, Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut,
+-    extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+-    make_torus, read_step, shell, transform, write_step,
++    PlanarRegion, Plane, Point, Point2, PollRecord, Shape, SubShapeKind, TaggedCurve, Transform,
++    Vector, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile,
++    make_sphere, make_torus, read_step, rib, shell, transform, write_step,
+ };
+ 
+ /// Times each operation runs; the median counts.
+@@ -471,6 +474,75 @@ fn measure_web_interrupts(report: &mut Report) {
+     );
+ }
+ 
++/// The runs of each row of the rib spike (kernel spec section 8.1 item 4).
++const SPIKE_RUNS: usize = 5;
++
++/// The median of a row's values over its runs, and the largest.
++fn median_and_most(values: impl IntoIterator<Item = Duration>) -> (Duration, Duration) {
++    let mut values: Vec<Duration> = values.into_iter().collect();
++    values.sort();
++    (values[values.len() / 2], values[values.len() - 1])
++}
++
++/// The rows of the rib spike: for each input and construction, the median of 5 runs of the call,
++/// and the polls of those runs with an interrupt that is never requested, with the time each run
++/// spends in the facade outside the shim, whose polls cover only the call inside it. Natively the
++/// row of construction (b) on the bracket has section 8.6's limit; the other rows, and every row
++/// under Node, print their medians. A run that fails prints its error. A row that builds also
++/// prints its result's volume in the build it times, next to the one its input describes.
++fn measure_ribs(report: &mut Report) {
++    for run in rib_inputs::runs() {
++        let row = format!("rib {} {}", run.input, run.construction);
++        if !report.includes(&row) {
++            continue;
++        }
++        let mut polls: Vec<PollRecord> = Vec::with_capacity(SPIKE_RUNS);
++        let mut outside = Vec::with_capacity(SPIKE_RUNS);
++        let mut times = Vec::with_capacity(SPIKE_RUNS);
++        let mut last = None;
++        let time = median(SPIKE_RUNS, |_| {
++            let start = Instant::now();
++            let result = rib(&run.body, &run.spec, run.kind, &Interrupt::new());
++            let elapsed = start.elapsed();
++            match result {
++                Ok(result) => {
++                    outside.push(elapsed.saturating_sub(result.polls.total));
++                    polls.push(result.polls);
++                    last = Some(result);
++                }
++                Err(error) => println!("{row}: {}", error.detail()),
++            }
++            times.push(elapsed);
++            elapsed
++        });
++        if !polls.is_empty() {
++            let (longest, most) = median_and_most(polls.iter().map(|record| record.longest));
++            let (first, first_most) = median_and_most(polls.iter().map(|record| record.first));
++            let (last, last_most) = median_and_most(polls.iter().map(|record| record.last));
++            let (outside, outside_most) = median_and_most(outside);
++            let after: Vec<u64> = polls.iter().map(|record| record.longest_after).collect();
++            println!(
++                "{row}: polls {} first {first:.3?} (most {first_most:.3?}) longest {longest:.3?} (most {most:.3?}, after polls {after:?}) last {last:.3?} (most {last_most:.3?}) outside the shim {outside:.3?} (most {outside_most:.3?})",
++                polls[0].count
++            );
++        }
++        println!("{row}: runs {times:.3?}");
++        if let Some(result) = last {
++            let volume = result.shape.volume().expect("the rib has a volume");
++            println!(
++                "{row}: volume {volume:?} against {:?} described",
++                run.volume
++            );
++        }
++        match run.budget {
++            Some(budget) if cfg!(not(target_os = "emscripten")) => {
++                report.record_time(&row, time, budget);
++            }
++            _ => println!("{row}: median {time:.3?} (no limit)"),
++        }
++    }
++}
++
+ fn main() -> ExitCode {
+     let mut report = Report::from_arguments();
+ 
+@@ -754,6 +826,7 @@ fn main() -> ExitCode {
+     }
+     #[cfg(target_os = "emscripten")]
+     measure_web_interrupts(&mut report);
++    measure_ribs(&mut report);
+ 
+     report.finish()
+ }
+diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs
+index f8596a7..37f73d5 100644
+--- a/crates/partsmith-occt-sys/build.rs
++++ b/crates/partsmith-occt-sys/build.rs
+@@ -54,6 +54,8 @@ const SOURCES: &[&str] = &[
+     "cpp/validity.cpp",
+     "cpp/history.cpp",
+     "cpp/interrupt.cpp",
++    "cpp/prism_extents.cpp",
++    "cpp/rib.cpp",
+ ];
+ 
+ fn main() {
+diff --git a/crates/partsmith-occt-sys/cpp/internal.h b/crates/partsmith-occt-sys/cpp/internal.h
+index fe181aa..6accc9e 100644
+--- a/crates/partsmith-occt-sys/cpp/internal.h
++++ b/crates/partsmith-occt-sys/cpp/internal.h
+@@ -1,6 +1,8 @@
+ // Helpers shared by the shim's source files; not part of the bridge.
+ #pragma once
+ 
++#include <chrono>
++#include <cstdint>
+ #include <memory>
+ #include <optional>
+ #include <sstream>
+@@ -10,7 +12,9 @@
+ 
+ #include <BOPAlgo_Operation.hxx>
+ #include <BRepAdaptor_Surface.hxx>
++#include <BRepFeat_StatusError.hxx>
+ #include <BRepTools_History.hxx>
++#include <Draft_ErrorStatus.hxx>
+ #include <Message_ProgressIndicator.hxx>
+ #include <Message_ProgressRange.hxx>
+ #include <Message_ProgressScope.hxx>
+@@ -26,6 +30,7 @@
+ #include <gp_Ax3.hxx>
+ #include <gp_Dir.hxx>
+ #include <gp_Pnt.hxx>
++#include <gp_Vec.hxx>
+ 
+ #include "partsmith-occt-sys/src/ffi.rs.h"
+ 
+@@ -70,6 +75,8 @@ class Polls {
+   Polls() : Polls(Handle(Interruption)()) {}
+   // The polls of a call that stops once `interrupt` is requested.
+   explicit Polls(const Interrupt &interrupt) : Polls(Handle(Interruption)(new Interruption(interrupt))) {}
++  // The polls of a call through `indicator`, for the prism-extents spike's recording indicator.
++  explicit Polls(const Handle(Interruption) &indicator);
+   Polls(const Polls &) = delete;
+   Polls &operator=(const Polls &) = delete;
+ 
+@@ -96,8 +103,6 @@ class Polls {
+   }
+ 
+  private:
+-  explicit Polls(const Handle(Interruption) &indicator);
+-
+   // Raises Partsmith_Canceled naming `algorithm` when the indicator has answered true.
+   void stop_if_answered(const char *algorithm) const;
+ 
+@@ -256,6 +261,12 @@ void store_result_pcurves(CheckInputs &inputs, const TopoDS_Shape &result);
+ // unchanged face of an input.
+ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
+ 
++// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
++// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
++// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
++// Otherwise leaves both as they were and returns false. `polls` polls before each step.
++bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls);
++
+ // Checks what the operation produced or changed in its result relative to `inputs`, the shapes
+ // it ran on, with the checks of BRepCheck_Analyzer (the whole result when no unchanged face of
+ // an input is in it). An invalid result is repaired with ShapeFix_Shape (on a copy, so shared
+@@ -343,6 +354,93 @@ Handle(IMeshTools_MeshAlgoFactory) mesh_algorithm_factory();
+ // printers so OCCT writes nothing to standard output (kernel spec section 3.10).
+ void initialize();
+ 
++// prism_extents.cpp: the parts of the prism-extents spike's extents (kernel spec section 8.5)
++// that the rib spike reuses (section 8.6).
++
++// The spikes' indicator: answers as the shim's indicator does, and records the time of each
++// poll, so a spike can report the polls of a call and the longest gap between them.
++class PollRecorder : public Interruption {
++ public:
++  explicit PollRecorder(const Interrupt &interrupt)
++      : Interruption(interrupt), start_(Clock::now()), last_(start_) {}
++
++  Standard_Boolean UserBreak() override {
++    const Clock::time_point now = Clock::now();
++    if (count_ == 0) {
++      first_ = now - start_;
++    } else if (now - last_ > longest_) {
++      longest_ = now - last_;
++      longest_after_ = count_;
++    }
++    last_ = now;
++    ++count_;
++    return Interruption::UserBreak();
++  }
++
++  // The polls so far, with the time from the last one to now as the end of the call.
++  PollData data() const {
++    const Clock::time_point now = Clock::now();
++    return PollData{count_,         milliseconds(first_),      milliseconds(longest_),
++                    longest_after_, milliseconds(now - last_), milliseconds(now - start_)};
++  }
++
++ private:
++  using Clock = std::chrono::steady_clock;
++
++  // The milliseconds of a duration.
++  static double milliseconds(Clock::duration duration) {
++    return std::chrono::duration<double, std::milli>(duration).count();
++  }
++
++  Clock::time_point start_;
++  Clock::time_point last_;
++  Clock::duration first_{};
++  Clock::duration longest_{};
++  std::uint64_t longest_after_ = 0;
++  std::uint64_t count_ = 0;
++};
++
++// An edge or a vertex that a builder names as the start or the end of a profile edge or vertex.
++struct Cap {
++  TopoDS_Shape element;
++  TopoDS_Shape input;
++  bool end;
++};
++
++// An extent as its construction built it, before the check: the shape, the history of the
++// profile's and the body's copies, the faces its builders name as its start and its end, and
++// the edges and vertices they name as the start or the end of a profile element.
++struct Built {
++  TopoDS_Shape shape;
++  Handle(BRepTools_History) history = new BRepTools_History;
++  TopTools_ListOfShape start;
++  TopTools_ListOfShape end;
++  std::vector<Cap> caps;
++};
++
++// The names of the statuses of the BRepFeat builders and of the draft.
++const char *status_name(BRepFeat_StatusError status);
++const char *status_name(Draft_ErrorStatus status);
++
++// The length of a prism of `profile` along `direction` that passes through `body`: to the
++// farthest corner of their bounding box, and 1 mm past it.
++double through_length(const TopoDS_Face &profile, const TopoDS_Shape &body,
++                      const gp_Dir &direction);
++
++// A prism of `profile` along `along` (BRepPrimAPI_MakePrism, which copies the profile), with its
++// history, its two caps and their edges and vertices (FirstShape and LastShape).
++Built make_prism(const TopoDS_Face &profile, const gp_Vec &along, Polls &polls);
++
++// The extent up to the body: `prism` passes through the body, which splits it
++// (BRepAlgoAPI_Splitter); the pieces on the side of the profile stay, so the prism ends on the
++// first faces of the body it meets. The splitter's history is merged into the prism's.
++void up_to_body(Built &prism, const TopoDS_Shape &body, Polls &polls);
++
++// Checks a whole shape with BRepCheck_Analyzer and repairs it with ShapeFix_Shape when it is not
++// valid, as kernel spec section 3.5 does, recording which.
++ValidityType check_and_repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
++                              Polls &polls);
++
+ }  // namespace detail
+ }  // namespace occt
+ }  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/prism_extents.cpp b/crates/partsmith-occt-sys/cpp/prism_extents.cpp
+new file mode 100644
+index 0000000..2eab6a1
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/prism_extents.cpp
+@@ -0,0 +1,814 @@
++// The extents of the prism-extents spike (kernel spec section 8.5): a prism of a planar profile up
++// to a face of a body or up to the body, and a tapered prism, by each construction the spike
++// compares. Up to a face: BRepFeat_MakePrism, or a prism through the body split at the face's
++// surface by BRepAlgoAPI_Splitter. Up to the body: the same two, with the body in place of the
++// face (`up_to_body`, which the rib spike reuses). Taper: BRepFeat_MakeDPrism,
++// BRepOffsetAPI_DraftAngle on a prism's lateral faces, or BRepOffsetAPI_ThruSections between the
++// profile and its offset. The spike's indicator records when it is polled (section 8.1 item 4).
++#include <algorithm>
++#include <cmath>
++#include <optional>
++#include <string>
++#include <tuple>
++#include <vector>
++
++#include <BRepAdaptor_Curve.hxx>
++#include <BRepAdaptor_Surface.hxx>
++#include <BRepAlgoAPI_Splitter.hxx>
++#include <BRepBndLib.hxx>
++#include <BRepBuilderAPI_MakeFace.hxx>
++#include <BRepBuilderAPI_MakeWire.hxx>
++#include <BRepCheck_Analyzer.hxx>
++#include <BRepClass_FaceClassifier.hxx>
++#include <BRepFeat_MakeDPrism.hxx>
++#include <BRepFeat_MakePrism.hxx>
++#include <BRepOffsetAPI_DraftAngle.hxx>
++#include <BRepOffsetAPI_MakeOffset.hxx>
++#include <BRepOffsetAPI_ThruSections.hxx>
++#include <BRepPrimAPI_MakePrism.hxx>
++#include <BRepTools.hxx>
++#include <BRepTools_WireExplorer.hxx>
++#include <BRep_Builder.hxx>
++#include <BRep_Tool.hxx>
++#include <Bnd_Box.hxx>
++#include <ElSLib.hxx>
++#include <GeomAPI_ProjectPointOnSurf.hxx>
++#include <Geom_RectangularTrimmedSurface.hxx>
++#include <TopExp.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopTools_IndexedMapOfShape.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Iterator.hxx>
++#include <TopoDS_Wire.hxx>
++#include <gp_Pln.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++// How far a prism through the body reaches past the farthest corner of the body's bounding box.
++constexpr double kThroughMargin = 1.0;
++
++// How far a cutting face reaches past the prism it cuts, in its surface's parameters.
++constexpr double kCuttingMargin = 1.0;
++
++// The points sampled along each edge of a face, and across each direction of its parameters.
++constexpr int kEdgeSamples = 10;
++constexpr int kGridSamples = 8;
++
++}  // namespace
++
++// The name of a status of the BRepFeat builders.
++const char *detail::status_name(BRepFeat_StatusError status) {
++  switch (status) {
++    case BRepFeat_OK:
++      return "BRepFeat_OK";
++    case BRepFeat_BadDirect:
++      return "BRepFeat_BadDirect";
++    case BRepFeat_BadIntersect:
++      return "BRepFeat_BadIntersect";
++    case BRepFeat_EmptyBaryCurve:
++      return "BRepFeat_EmptyBaryCurve";
++    case BRepFeat_EmptyCutResult:
++      return "BRepFeat_EmptyCutResult";
++    case BRepFeat_FalseSide:
++      return "BRepFeat_FalseSide";
++    case BRepFeat_IncDirection:
++      return "BRepFeat_IncDirection";
++    case BRepFeat_IncSlidFace:
++      return "BRepFeat_IncSlidFace";
++    case BRepFeat_IncParameter:
++      return "BRepFeat_IncParameter";
++    case BRepFeat_IncTypes:
++      return "BRepFeat_IncTypes";
++    case BRepFeat_IntervalOverlap:
++      return "BRepFeat_IntervalOverlap";
++    case BRepFeat_InvFirstShape:
++      return "BRepFeat_InvFirstShape";
++    case BRepFeat_InvOption:
++      return "BRepFeat_InvOption";
++    case BRepFeat_InvShape:
++      return "BRepFeat_InvShape";
++    case BRepFeat_LocOpeNotDone:
++      return "BRepFeat_LocOpeNotDone";
++    case BRepFeat_LocOpeInvNotDone:
++      return "BRepFeat_LocOpeInvNotDone";
++    case BRepFeat_NoExtFace:
++      return "BRepFeat_NoExtFace";
++    case BRepFeat_NoFaceProf:
++      return "BRepFeat_NoFaceProf";
++    case BRepFeat_NoGluer:
++      return "BRepFeat_NoGluer";
++    case BRepFeat_NoIntersectF:
++      return "BRepFeat_NoIntersectF";
++    case BRepFeat_NoIntersectU:
++      return "BRepFeat_NoIntersectU";
++    case BRepFeat_NoParts:
++      return "BRepFeat_NoParts";
++    case BRepFeat_NoProjPt:
++      return "BRepFeat_NoProjPt";
++    case BRepFeat_NotInitialized:
++      return "BRepFeat_NotInitialized";
++    case BRepFeat_NotYetImplemented:
++      return "BRepFeat_NotYetImplemented";
++    case BRepFeat_NullRealTool:
++      return "BRepFeat_NullRealTool";
++    case BRepFeat_NullToolF:
++      return "BRepFeat_NullToolF";
++    case BRepFeat_NullToolU:
++      return "BRepFeat_NullToolU";
++  }
++  return "an unknown BRepFeat status";
++}
++
++// The name of a status of the draft.
++const char *detail::status_name(Draft_ErrorStatus status) {
++  switch (status) {
++    case Draft_NoError:
++      return "Draft_NoError";
++    case Draft_FaceRecomputation:
++      return "Draft_FaceRecomputation";
++    case Draft_EdgeRecomputation:
++      return "Draft_EdgeRecomputation";
++    case Draft_VertexRecomputation:
++      return "Draft_VertexRecomputation";
++  }
++  return "an unknown draft status";
++}
++
++namespace {
++
++// The images of `element` in `history`: its Modified images, or itself when the history keeps
++// it.
++TopTools_ListOfShape images_of(const TopoDS_Shape &element,
++                               const Handle(BRepTools_History) &history) {
++  TopTools_ListOfShape images = history->Modified(element);
++  if (images.IsEmpty() && !history->IsRemoved(element)) {
++    images.Append(element);
++  }
++  return images;
++}
++
++// The 1-based indices in `faces` of the images of `named` in `history`, ascending and once each.
++rust::Vec<std::uint32_t> face_indices(const TopTools_ListOfShape &named,
++                                      const Handle(BRepTools_History) &history,
++                                      const TopTools_IndexedMapOfShape &faces) {
++  std::vector<std::uint32_t> indices;
++  for (const TopoDS_Shape &face : named) {
++    for (const TopoDS_Shape &image : images_of(face, history)) {
++      const int index = faces.FindIndex(image);
++      if (index > 0) {
++        indices.push_back(static_cast<std::uint32_t>(index));
++      }
++    }
++  }
++  std::sort(indices.begin(), indices.end());
++  indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
++  rust::Vec<std::uint32_t> result;
++  for (const std::uint32_t index : indices) {
++    result.push_back(index);
++  }
++  return result;
++}
++
++// The one face of a profile. Raises Partsmith_InvalidInput for a profile of several regions.
++TopoDS_Face profile_face(const TopoDS_Shape &profile) {
++  TopExp_Explorer faces(profile, TopAbs_FACE);
++  if (!faces.More()) {
++    raise_invalid_input("The extrude needs a profile with one region.");
++  }
++  const TopoDS_Face face = TopoDS::Face(faces.Current());
++  faces.Next();
++  if (faces.More()) {
++    raise_invalid_input("The extrude needs a profile with one region.");
++  }
++  return face;
++}
++
++// The plane of a profile's face, with its normal on the side the face's orientation gives.
++gp_Pln profile_plane(const TopoDS_Face &face) {
++  gp_Pln plane = BRepAdaptor_Surface(face, Standard_False).Plane();
++  if (face.Orientation() == TopAbs_REVERSED) {
++    plane.SetAxis(plane.Axis().Reversed());
++  }
++  return plane;
++}
++
++}  // namespace
++
++// The length of a prism of `profile` along `direction` that passes through `body`: to the
++// farthest corner of their bounding box, and kThroughMargin past it.
++double detail::through_length(const TopoDS_Face &profile, const TopoDS_Shape &body,
++                              const gp_Dir &direction) {
++  Bnd_Box box;
++  BRepBndLib::Add(profile, box);
++  BRepBndLib::Add(body, box);
++  const gp_Pnt start = profile_plane(profile).Location();
++  double farthest = 0.0;
++  for (const double x : {box.CornerMin().X(), box.CornerMax().X()}) {
++    for (const double y : {box.CornerMin().Y(), box.CornerMax().Y()}) {
++      for (const double z : {box.CornerMin().Z(), box.CornerMax().Z()}) {
++        farthest = std::max(farthest, gp_Vec(start, gp_Pnt(x, y, z)).Dot(gp_Vec(direction)));
++      }
++    }
++  }
++  return farthest + kThroughMargin;
++}
++
++namespace {
++
++// The parameter bounds on `surface` of the corners of `box`, kCuttingMargin wider on each side.
++void corner_parameters(const BRepAdaptor_Surface &surface, const Bnd_Box &box, double &u_min,
++                       double &u_max, double &v_min, double &v_max) {
++  u_min = v_min = RealLast();
++  u_max = v_max = RealFirst();
++  for (const double x : {box.CornerMin().X(), box.CornerMax().X()}) {
++    for (const double y : {box.CornerMin().Y(), box.CornerMax().Y()}) {
++      for (const double z : {box.CornerMin().Z(), box.CornerMax().Z()}) {
++        const gp_Pnt corner(x, y, z);
++        double u_parameter = 0.0;
++        double v_parameter = 0.0;
++        switch (surface.GetType()) {
++          case GeomAbs_Plane:
++            ElSLib::Parameters(surface.Plane(), corner, u_parameter, v_parameter);
++            break;
++          case GeomAbs_Cylinder:
++            ElSLib::Parameters(surface.Cylinder(), corner, u_parameter, v_parameter);
++            break;
++          default:
++            ElSLib::Parameters(surface.Cone(), corner, u_parameter, v_parameter);
++            break;
++        }
++        u_min = std::min(u_min, u_parameter);
++        u_max = std::max(u_max, u_parameter);
++        v_min = std::min(v_min, v_parameter);
++        v_max = std::max(v_max, v_parameter);
++      }
++    }
++  }
++  u_min -= kCuttingMargin;
++  u_max += kCuttingMargin;
++  v_min -= kCuttingMargin;
++  v_max += kCuttingMargin;
++}
++
++// A face on the surface of `target` that reaches past everything in `box`, so it cuts a prism
++// within `box` wherever the prism crosses the surface. Planes, cylinders and cones only.
++TopoDS_Face cutting_face(const TopoDS_Face &target, const TopoDS_Shape &prism) {
++  Bnd_Box box;
++  BRepBndLib::Add(prism, box);
++  const BRepAdaptor_Surface surface(target, Standard_False);
++  double u_min = 0.0;
++  double u_max = 0.0;
++  double v_min = 0.0;
++  double v_max = 0.0;
++  switch (surface.GetType()) {
++    case GeomAbs_Plane:
++      corner_parameters(surface, box, u_min, u_max, v_min, v_max);
++      return BRepBuilderAPI_MakeFace(surface.Plane(), u_min, u_max, v_min, v_max).Face();
++    case GeomAbs_Cylinder:
++      corner_parameters(surface, box, u_min, u_max, v_min, v_max);
++      return BRepBuilderAPI_MakeFace(surface.Cylinder(), 0.0, 2.0 * M_PI, v_min, v_max).Face();
++    case GeomAbs_Cone:
++      corner_parameters(surface, box, u_min, u_max, v_min, v_max);
++      return BRepBuilderAPI_MakeFace(surface.Cone(), 0.0, 2.0 * M_PI, v_min, v_max).Face();
++    default:
++      raise_invalid_input("The extrude reaches planar, cylindrical and conical faces only.");
++  }
++}
++
++}  // namespace
++
++// A prism of `profile` along `along` (BRepPrimAPI_MakePrism, which copies the profile), with its
++// history, its two caps and their edges and vertices (FirstShape and LastShape).
++Built detail::make_prism(const TopoDS_Face &profile, const gp_Vec &along, Polls &polls) {
++  // The prism builds in its constructor, which takes no progress range.
++  polls.before("BRepPrimAPI_MakePrism");
++  BRepPrimAPI_MakePrism prism(profile, along, Standard_True, Standard_True);
++  if (!prism.IsDone()) {
++    raise_not_done("BRepPrimAPI_MakePrism could not sweep the profile");
++  }
++  Built built;
++  built.shape = prism.Shape();
++  built.history = history_of(profile, prism);
++  built.start.Append(prism.FirstShape());
++  built.end.Append(prism.LastShape());
++  for (const TopAbs_ShapeEnum type : {TopAbs_EDGE, TopAbs_VERTEX}) {
++    TopTools_IndexedMapOfShape elements;
++    TopExp::MapShapes(profile, type, elements);
++    for (int index = 1; index <= elements.Extent(); ++index) {
++      built.caps.push_back(Cap{prism.FirstShape(elements(index)), elements(index), false});
++      built.caps.push_back(Cap{prism.LastShape(elements(index)), elements(index), true});
++    }
++  }
++  return built;
++}
++
++namespace {
++
++// A prism of `profile` along `direction` over `length` whose lateral faces BRepOffsetAPI_DraftAngle
++// turns by `taper` about their edges in the profile's plane, outward for a positive taper.
++Built make_drafted(const TopoDS_Face &profile, const gp_Dir &direction, double length,
++                   double taper, Polls &polls) {
++  Built built = make_prism(profile, gp_Vec(direction) * length, polls);
++  polls.before("BRepOffsetAPI_DraftAngle::Add");
++  BRepOffsetAPI_DraftAngle draft(built.shape);
++  const gp_Pln neutral(profile_plane(profile).Location(), direction);
++  TopTools_IndexedMapOfShape edges;
++  TopExp::MapShapes(profile, TopAbs_EDGE, edges);
++  for (int index = 1; index <= edges.Extent(); ++index) {
++    for (const TopoDS_Shape &lateral : built.history->Generated(edges(index))) {
++      if (lateral.ShapeType() != TopAbs_FACE) {
++        continue;
++      }
++      // A positive angle turns the face toward the inside of the prism.
++      draft.Add(TopoDS::Face(lateral), direction, -taper, neutral);
++      if (!draft.AddDone()) {
++        raise_not_done("BRepOffsetAPI_DraftAngle could not add the face of profile edge " +
++                       std::to_string(index) + ": " + status_name(draft.Status()));
++      }
++    }
++  }
++  polls.run("BRepOffsetAPI_DraftAngle",
++            [&](const Message_ProgressRange &range) { draft.Build(range); });
++  if (!draft.IsDone()) {
++    raise_not_done(std::string("BRepOffsetAPI_DraftAngle failed: ") +
++                   status_name(draft.Status()));
++  }
++  // The draft's Modified and Generated name faces only. Its ModifiedShape names the edges and
++  // vertices too, which the history then records as modified.
++  polls.before("BRepOffsetAPI_DraftAngle::ModifiedShape");
++  const Handle(BRepTools_History) drafted = history_of(built.shape, draft);
++  for (const TopAbs_ShapeEnum type : {TopAbs_EDGE, TopAbs_VERTEX}) {
++    TopTools_IndexedMapOfShape elements;
++    TopExp::MapShapes(built.shape, type, elements);
++    for (int index = 1; index <= elements.Extent(); ++index) {
++      const TopoDS_Shape image = draft.ModifiedShape(elements(index));
++      if (!image.IsNull() && !image.IsSame(elements(index))) {
++        drafted->AddModified(elements(index), image);
++      }
++    }
++  }
++  polls.before("BRepTools_History::Merge");
++  merge_history(built.history, drafted);
++  built.shape = draft.Shape();
++  return built;
++}
++
++// The edges of `offset` that BRepOffsetAPI_MakeOffset made from the edges of `wire`, as one wire
++// in the wire's own order, so a ruled loft pairs each edge with its offset. Records each edge of
++// the wire moved by `far` as the end of its profile edge in `caps`.
++TopoDS_Wire offset_wire(const TopoDS_Wire &wire, const TopoDS_Face &face,
++                        BRepOffsetAPI_MakeOffset &offset, const TopLoc_Location &far,
++                        std::vector<Cap> &caps) {
++  BRepBuilderAPI_MakeWire images;
++  int position = 0;
++  for (BRepTools_WireExplorer edges(wire, face); edges.More(); edges.Next()) {
++    ++position;
++    const TopTools_ListOfShape &generated = offset.Generated(edges.Current());
++    if (generated.Extent() != 1) {
++      raise_not_done("BRepOffsetAPI_MakeOffset gave edge " + std::to_string(position) +
++                     " of a profile wire " + std::to_string(generated.Extent()) + " images");
++    }
++    images.Add(TopoDS::Edge(generated.First()));
++    if (!images.IsDone()) {
++      raise_not_done("BRepBuilderAPI_MakeWire could not chain the offset of edge " +
++                     std::to_string(position) + " of a profile wire");
++    }
++    caps.push_back(Cap{images.Edge().Moved(far), edges.Current(), true});
++  }
++  return images.Wire();
++}
++
++// A ruled loft (BRepOffsetAPI_ThruSections) from each wire of `profile` to its offset by
++// `length` times the tangent of `taper` (BRepOffsetAPI_MakeOffset of the profile's face, joined
++// by intersection, so lines and arcs stay lines and arcs), moved along `direction` by `length`.
++// The holes' lofts are cut from the outer loft.
++Built make_lofted(const TopoDS_Face &profile, const gp_Dir &direction, double length,
++                  double taper, Polls &polls) {
++  polls.before("BRepOffsetAPI_MakeOffset");
++  BRepOffsetAPI_MakeOffset offset(profile, GeomAbs_Intersection);
++  offset.Perform(length * std::tan(taper));
++  if (!offset.IsDone()) {
++    raise_not_done("BRepOffsetAPI_MakeOffset could not offset the profile's wires");
++  }
++  gp_Trsf shift;
++  shift.SetTranslation(gp_Vec(direction) * length);
++  const TopLoc_Location far(shift);
++
++  Built built;
++  const TopoDS_Wire outer = BRepTools::OuterWire(profile);
++  std::vector<TopoDS_Wire> wires{outer};
++  for (TopoDS_Iterator iterator(profile); iterator.More(); iterator.Next()) {
++    if (!iterator.Value().IsSame(outer)) {
++      wires.push_back(TopoDS::Wire(iterator.Value()));
++    }
++  }
++  TopTools_ListOfShape holes;
++  for (const TopoDS_Wire &wire : wires) {
++    polls.before("BRepBuilderAPI_MakeWire");
++    const TopoDS_Wire end =
++        TopoDS::Wire(offset_wire(wire, profile, offset, far, built.caps).Moved(far));
++    BRepOffsetAPI_ThruSections loft(Standard_True, Standard_True);
++    loft.AddWire(wire);
++    loft.AddWire(end);
++    polls.run("BRepOffsetAPI_ThruSections",
++              [&](const Message_ProgressRange &range) { loft.Build(range); });
++    if (!loft.IsDone()) {
++      raise_not_done("BRepOffsetAPI_ThruSections could not loft a profile wire to its offset");
++    }
++    polls.before("BRepTools_History::Merge");
++    TopTools_ListOfShape arguments;
++    arguments.Append(wire);
++    merge_history(built.history, new BRepTools_History(arguments, loft));
++    if (wire.IsSame(outer)) {
++      built.shape = loft.Shape();
++      built.start.Append(loft.FirstShape());
++      built.end.Append(loft.LastShape());
++    } else {
++      holes.Append(loft.Shape());
++    }
++  }
++  if (!holes.IsEmpty()) {
++    built.shape = run_boolean(BOPAlgo_CUT, built.shape, holes, false, built.history, polls);
++  }
++  return built;
++}
++
++// Appends the faces of `shape` to `faces`.
++void add_faces(TopTools_ListOfShape &faces, const TopoDS_Shape &shape) {
++  for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
++    faces.Append(explorer.Current());
++  }
++}
++
++// The prism up to `until` (a face of the body, or the body) by BRepFeat_MakePrism, or by
++// BRepFeat_MakeDPrism with a taper. With the body as its basis, the builder keeps the feature
++// alone (mode 2); without one, it fuses the feature with an empty compound (mode 1). Its end is
++// what the builder names LastShape and what it names Modified of the faces of `until`.
++Built make_feature(const TopoDS_Face &profile, const TopoDS_Shape &body, bool on_body,
++                   const gp_Dir &direction, const TopoDS_Shape &until, double length,
++                   double taper, Polls &polls) {
++  TopoDS_Compound nothing;
++  BRep_Builder().MakeCompound(nothing);
++  const TopoDS_Shape basis = on_body ? body : TopoDS_Shape(nothing);
++  const int mode = on_body ? 2 : 1;
++  Built built;
++  TopTools_ListOfShape arguments;
++  arguments.Append(profile);
++  arguments.Append(body);
++  if (taper == 0.0) {
++    BRepFeat_MakePrism feature;
++    feature.Init(basis, profile, TopoDS_Face(), direction, mode, Standard_False);
++    // The builder takes no progress range.
++    polls.before("BRepFeat_MakePrism");
++    feature.Perform(until);
++    if (!feature.IsDone()) {
++      raise_not_done(std::string("BRepFeat_MakePrism failed: ") +
++                     status_name(feature.CurrentStatusError()));
++    }
++    built.shape = feature.Shape();
++    built.history = new BRepTools_History(arguments, feature);
++    built.start = feature.FirstShape();
++    built.end = feature.LastShape();
++    add_faces(built.end, until);
++    return built;
++  }
++  // The draft runs along the face's normal, which the facade checked is `direction`. A positive
++  // angle turns the faces toward the inside of the prism.
++  BRepFeat_MakeDPrism feature(basis, profile, TopoDS_Face(), -taper, mode, Standard_False);
++  // The builder takes no progress range.
++  polls.before("BRepFeat_MakeDPrism");
++  if (until.IsNull()) {
++    feature.Perform(length);
++  } else {
++    feature.Perform(until);
++  }
++  if (!feature.IsDone()) {
++    raise_not_done(std::string("BRepFeat_MakeDPrism failed: ") +
++                   status_name(feature.CurrentStatusError()));
++  }
++  built.shape = feature.Shape();
++  built.history = new BRepTools_History(arguments, feature);
++  built.start = feature.FirstShape();
++  built.end = feature.LastShape();
++  add_faces(built.end, until);
++  return built;
++}
++
++// Splits `built` at `tool` with BRepAlgoAPI_Splitter and keeps the solids that hold an image of
++// its start faces, the side of the profile. The images of the tool's faces in them are the end.
++void split_at(Built &built, const TopoDS_Shape &tool, Polls &polls) {
++  BRepAlgoAPI_Splitter splitter;
++  TopTools_ListOfShape arguments;
++  arguments.Append(built.shape);
++  TopTools_ListOfShape tools;
++  tools.Append(tool);
++  splitter.SetArguments(arguments);
++  splitter.SetTools(tools);
++  set_boolean_options(splitter);
++  polls.run("BRepAlgoAPI_Splitter",
++            [&](const Message_ProgressRange &range) { splitter.Build(range); });
++  require_no_errors(splitter, "BRepAlgoAPI_Splitter");
++  polls.before("BRepTools_History::Merge");
++  merge_history(built.history, splitter.History());
++
++  TopTools_MapOfShape starts;
++  for (const TopoDS_Shape &start : built.start) {
++    for (const TopoDS_Shape &image : images_of(start, built.history)) {
++      starts.Add(image);
++    }
++  }
++  std::vector<TopoDS_Shape> kept;
++  for (TopExp_Explorer solids(splitter.Shape(), TopAbs_SOLID); solids.More(); solids.Next()) {
++    for (TopExp_Explorer faces(solids.Current(), TopAbs_FACE); faces.More(); faces.Next()) {
++      if (starts.Contains(faces.Current())) {
++        kept.push_back(solids.Current());
++        break;
++      }
++    }
++  }
++  if (kept.empty()) {
++    raise_not_done("BRepAlgoAPI_Splitter left no piece on the side of the profile");
++  }
++  built.shape = single_or_compound(kept);
++  built.end.Clear();
++  add_faces(built.end, tool);
++}
++
++}  // namespace
++
++// The extent up to the body (section 8.5, and the rib's extent of section 8.6): `prism` passes
++// through the body, which splits it; the pieces on the side of the profile stay, so the prism
++// ends on the first faces of the body it meets.
++void detail::up_to_body(Built &prism, const TopoDS_Shape &body, Polls &polls) {
++  split_at(prism, body, polls);
++}
++
++namespace {
++
++// Points of a face: its vertices, kEdgeSamples points inside each edge's range, and the centers
++// of a kGridSamples by kGridSamples grid over its parameters that lie inside it.
++std::vector<gp_Pnt> sample_points(const TopoDS_Face &face) {
++  std::vector<gp_Pnt> points;
++  TopTools_IndexedMapOfShape vertices;
++  TopExp::MapShapes(face, TopAbs_VERTEX, vertices);
++  for (int index = 1; index <= vertices.Extent(); ++index) {
++    points.push_back(BRep_Tool::Pnt(TopoDS::Vertex(vertices(index))));
++  }
++  TopTools_IndexedMapOfShape edges;
++  TopExp::MapShapes(face, TopAbs_EDGE, edges);
++  for (int index = 1; index <= edges.Extent(); ++index) {
++    const TopoDS_Edge &edge = TopoDS::Edge(edges(index));
++    if (BRep_Tool::Degenerated(edge)) {
++      continue;
++    }
++    const BRepAdaptor_Curve curve(edge);
++    const double first = curve.FirstParameter();
++    const double step = (curve.LastParameter() - first) / kEdgeSamples;
++    for (int sample = 0; sample < kEdgeSamples; ++sample) {
++      points.push_back(curve.Value(first + (sample + 0.5) * step));
++    }
++  }
++  const BRepAdaptor_Surface surface(face);
++  const double u_step = (surface.LastUParameter() - surface.FirstUParameter()) / kGridSamples;
++  const double v_step = (surface.LastVParameter() - surface.FirstVParameter()) / kGridSamples;
++  for (int column = 0; column < kGridSamples; ++column) {
++    for (int row = 0; row < kGridSamples; ++row) {
++      const gp_Pnt2d parameters(surface.FirstUParameter() + (column + 0.5) * u_step,
++                                surface.FirstVParameter() + (row + 0.5) * v_step);
++      const BRepClass_FaceClassifier inside(face, parameters, kLinear);
++      if (inside.State() == TopAbs_IN) {
++        points.push_back(surface.Value(parameters.X(), parameters.Y()));
++      }
++    }
++  }
++  return points;
++}
++
++// Raises Partsmith_InvalidInput when a point of an end face lies outside `target`, face `index`
++// of the body: the profile reaches the face only in part (gate 7's newcomer mistake).
++void require_within(const TopTools_ListOfShape &end, const TopoDS_Face &target,
++                    std::uint32_t index, Polls &polls) {
++  polls.before("BRepClass_FaceClassifier");
++  for (const TopoDS_Shape &face : end) {
++    for (const gp_Pnt &point : sample_points(TopoDS::Face(face))) {
++      const BRepClass_FaceClassifier classifier(target, point, kLinear);
++      if (classifier.State() == TopAbs_OUT) {
++        raise_invalid_input("Only part of the profile reaches face " + std::to_string(index) +
++                            ", so the extrude cannot end on it.");
++      }
++    }
++  }
++}
++
++}  // namespace
++
++// Checks a whole shape and repairs it when it is not valid, as section 3.5 does, recording which.
++ValidityType detail::check_and_repair(TopoDS_Shape &shape,
++                                      const Handle(BRepTools_History) &history, Polls &polls) {
++  polls.before("BRepCheck_Analyzer");
++  if (BRepCheck_Analyzer(shape).IsValid()) {
++    return ValidityType::AsBuilt;
++  }
++  return repair(shape, history, polls) ? ValidityType::AfterRepair : ValidityType::Invalid;
++}
++
++namespace {
++
++// What `spec` reaches on the copy of the body: its face, or the whole body.
++TopoDS_Shape until_of(const Shape &body, const ExtentSpecData &spec) {
++  return spec.end == ExtentEndType::UpToFace ? element_at(body, ElementKind::Face, spec.face)
++                                             : body.get();
++}
++
++// The length of a prism of `profile` that `spec` asks: its length, or through the body.
++double length_of(const TopoDS_Face &profile, const Shape *body, const ExtentSpecData &spec) {
++  return body == nullptr ? spec.length
++                         : through_length(profile, body->get(), to_direction(spec.direction));
++}
++
++// Ends a prism that passes through the body as `spec` asks: on the face's surface (split at a
++// face on it that cuts the whole prism), or on the first faces of the body it meets.
++void end_at(Built &built, const Shape &body, const ExtentSpecData &spec, Polls &polls) {
++  if (spec.end == ExtentEndType::UpToFace) {
++    polls.before("BRepBuilderAPI_MakeFace");
++    split_at(built, cutting_face(TopoDS::Face(until_of(body, spec)), built.shape), polls);
++  } else {
++    up_to_body(built, body.get(), polls);
++  }
++}
++
++// The element kind of an edge or a vertex.
++ElementKind cap_kind(const TopoDS_Shape &element) {
++  return element.ShapeType() == TopAbs_EDGE ? ElementKind::Edge : ElementKind::Vertex;
++}
++
++// The caps of `built` whose images are elements of `result`, with the index of their input in
++// `profile`, sorted.
++rust::Vec<CapData> cap_data(const Built &built, const Shape &profile, const Shape &result) {
++  std::vector<std::tuple<bool, std::uint8_t, std::uint32_t, std::uint32_t>> found;
++  for (const Cap &cap : built.caps) {
++    if (cap.element.IsNull()) {
++      continue;
++    }
++    const ElementKind kind = cap_kind(cap.input);
++    const int input = profile.map(kind).FindIndex(cap.input);
++    for (const TopoDS_Shape &image : images_of(cap.element, built.history)) {
++      const int index = result.map(kind).FindIndex(image);
++      if (index > 0 && input > 0) {
++        found.emplace_back(cap.end, static_cast<std::uint8_t>(kind),
++                           static_cast<std::uint32_t>(index),
++                           static_cast<std::uint32_t>(input));
++      }
++    }
++  }
++  std::sort(found.begin(), found.end());
++  found.erase(std::unique(found.begin(), found.end()), found.end());
++  rust::Vec<CapData> caps;
++  for (const auto &[end, kind, index, input] : found) {
++    const auto element_kind = static_cast<ElementKind>(kind);
++    caps.push_back(CapData{SubShapeData{element_kind, index}, SubShapeData{element_kind, input},
++                           end});
++  }
++  return caps;
++}
++
++// The end faces of `built` that are faces of its shape.
++TopTools_ListOfShape end_faces(const Built &built) {
++  TopTools_IndexedMapOfShape faces;
++  TopExp::MapShapes(built.shape, TopAbs_FACE, faces);
++  TopTools_ListOfShape end;
++  for (const TopoDS_Shape &named : built.end) {
++    for (const TopoDS_Shape &image : images_of(named, built.history)) {
++      if (faces.Contains(image)) {
++        end.Append(image);
++      }
++    }
++  }
++  return end;
++}
++
++// Builds the extent `construct` makes from the copies of the profile's face and of the body
++// (null for a prism of a length), checks that its end lies within the face it reaches, checks and
++// repairs it, and returns it with its history, its named faces and caps, and its polls.
++template <class Construct>
++ExtentData extent(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                  const Interrupt &interrupt, Construct &&construct) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  // The builders run on copies, so they never write to the inputs (kernel spec section 3.1). A
++  // copy has its input's indices, so the history of a copy is the input's.
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape profile_copy = copy_elements(profile);
++  std::vector<TopoDS_Shape> inputs{profile_copy.get()};
++  std::optional<Shape> body_copy;
++  if (spec.end != ExtentEndType::Length) {
++    polls.before("BRepBuilderAPI_Copy");
++    body_copy.emplace(copy_elements(body));
++    inputs.push_back(body_copy->get());
++  }
++  Built built = construct(profile_face(profile_copy.get()), body_copy ? &*body_copy : nullptr,
++                          polls);
++  if (spec.end == ExtentEndType::UpToFace) {
++    const TopoDS_Face target = TopoDS::Face(until_of(*body_copy, spec));
++    require_within(end_faces(built), target, spec.face, polls);
++  }
++  const ValidityType validity = check_and_repair(built.shape, built.history, polls);
++  polls.before("BRepTools_History");
++  const std::shared_ptr<Shape> result = make_shape(built.shape);
++  rust::Vec<InputHistoryData> history = history_data(built.history, inputs, *result);
++  rust::Vec<std::uint32_t> start = face_indices(built.start, built.history, result->faces());
++  rust::Vec<std::uint32_t> end = face_indices(built.end, built.history, result->faces());
++  rust::Vec<CapData> caps = cap_data(built, profile_copy, *result);
++  return ExtentData{result,   std::move(history), std::move(start), std::move(end),
++                    std::move(caps), validity,     recorder->data()};
++}
++
++}  // namespace
++
++ExtentData extrude_feature(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                           const Interrupt &interrupt) {
++  return extent(profile, body, spec, interrupt,
++                [&](const TopoDS_Face &face, const Shape *reached, Polls &polls) {
++                  const TopoDS_Shape basis = reached == nullptr ? TopoDS_Shape() : reached->get();
++                  const TopoDS_Shape until =
++                      reached == nullptr ? TopoDS_Shape() : until_of(*reached, spec);
++                  return make_feature(face, basis, spec.basis == FeatureBasisType::Body,
++                                      to_direction(spec.direction), until, spec.length,
++                                      spec.taper, polls);
++                });
++}
++
++ExtentData extrude_split(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                         const Interrupt &interrupt) {
++  return extent(profile, body, spec, interrupt,
++                [&](const TopoDS_Face &face, const Shape *reached, Polls &polls) {
++                  if (reached == nullptr) {
++                    raise_invalid_input("The split prism needs a face or a body to reach.");
++                  }
++                  const gp_Vec along =
++                      gp_Vec(to_direction(spec.direction)) * length_of(face, reached, spec);
++                  Built built = make_prism(face, along, polls);
++                  end_at(built, *reached, spec, polls);
++                  return built;
++                });
++}
++
++ExtentData extrude_drafted(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                           const Interrupt &interrupt) {
++  return extent(profile, body, spec, interrupt,
++                [&](const TopoDS_Face &face, const Shape *reached, Polls &polls) {
++                  Built built = make_drafted(face, to_direction(spec.direction),
++                                             length_of(face, reached, spec), spec.taper, polls);
++                  if (reached != nullptr) {
++                    end_at(built, *reached, spec, polls);
++                  }
++                  return built;
++                });
++}
++
++ExtentData extrude_lofted(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                          const Interrupt &interrupt) {
++  return extent(profile, body, spec, interrupt,
++                [&](const TopoDS_Face &face, const Shape *reached, Polls &polls) {
++                  Built built = make_lofted(face, to_direction(spec.direction),
++                                            length_of(face, reached, spec), spec.taper, polls);
++                  if (reached != nullptr) {
++                    end_at(built, *reached, spec, polls);
++                  }
++                  return built;
++                });
++}
++
++double surface_distance(const Shape &shape, std::uint32_t face, const Shape &target,
++                        std::uint32_t target_face) {
++  const TopoDS_Face &sampled = TopoDS::Face(element_at(shape, ElementKind::Face, face));
++  const TopoDS_Face &reference =
++      TopoDS::Face(element_at(target, ElementKind::Face, target_face));
++  Handle(Geom_Surface) surface = BRep_Tool::Surface(reference);
++  const Handle(Geom_RectangularTrimmedSurface) trimmed =
++      Handle(Geom_RectangularTrimmedSurface)::DownCast(surface);
++  if (!trimmed.IsNull()) {
++    surface = trimmed->BasisSurface();
++  }
++  double largest = 0.0;
++  for (const gp_Pnt &point : sample_points(sampled)) {
++    const GeomAPI_ProjectPointOnSurf projection(point, surface);
++    if (projection.NbPoints() == 0) {
++      raise_not_done("GeomAPI_ProjectPointOnSurf found no point of face " +
++                     std::to_string(target_face) + " near a point of face " +
++                     std::to_string(face));
++    }
++    largest = std::max(largest, projection.LowerDistance());
++  }
++  return largest;
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/rib.cpp b/crates/partsmith-occt-sys/cpp/rib.cpp
+new file mode 100644
+index 0000000..7a34ee6
+--- /dev/null
++++ b/crates/partsmith-occt-sys/cpp/rib.cpp
+@@ -0,0 +1,394 @@
++// The ribs of the rib spike (kernel spec section 8.6): an open profile in a plane, thickened by
++// half the rib's thickness to each side of the plane and reaching the body, by each construction
++// the spike compares. (a) BRepFeat_MakeLinearForm with the open wire, its plane and the two
++// thickness directions. (b) The profile thickened into a planar face (BRepOffsetAPI_MakeOffset of
++// the open wire with IsOpenResult true, by half the thickness to each side, join
++// GeomAbs_Intersection), extruded up to the body with the split prism of the prism-extents spike
++// (`up_to_body`, section 8.5) and fused to it with the settings of section 3.4.5. Both put the
++// rib's material on BRepFeat_MakeLinearForm's side of the profile: the plane's normal crossed
++// with the profile's direction. The spikes' indicator records when each call is polled (section
++// 8.1 item 4).
++#include <algorithm>
++#include <mutex>
++#include <string>
++#include <vector>
++
++#include <BRepBuilderAPI_MakeEdge.hxx>
++#include <BRepBuilderAPI_MakeFace.hxx>
++#include <BRepBuilderAPI_MakePolygon.hxx>
++#include <BRepBuilderAPI_MakeWire.hxx>
++#include <BRepFeat_MakeLinearForm.hxx>
++#include <BRepOffsetAPI_MakeOffset.hxx>
++#include <BRep_Tool.hxx>
++#include <Geom_Plane.hxx>
++#include <TopExp.hxx>
++#include <TopExp_Explorer.hxx>
++#include <TopTools_IndexedMapOfShape.hxx>
++#include <TopoDS.hxx>
++#include <TopoDS_Vertex.hxx>
++#include <TopoDS_Wire.hxx>
++#include <gp_Lin.hxx>
++#include <gp_Pln.hxx>
++
++#include "partsmith-occt-sys/cpp/internal.h"
++
++namespace partsmith {
++namespace occt {
++
++using namespace detail;
++
++namespace {
++
++// The profile as an open wire of lines, one between each two points in a row.
++TopoDS_Wire profile_wire(const RibSpecData &spec) {
++  BRepBuilderAPI_MakePolygon polygon;
++  for (const Vec3 &point : spec.points) {
++    polygon.Add(to_point(point));
++  }
++  if (!polygon.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakePolygon could not join the points of the rib's profile");
++  }
++  return polygon.Wire();
++}
++
++// True when every point of the profile lies on the line through its first and last points.
++bool is_straight(const RibSpecData &spec) {
++  const gp_Pnt first = to_point(spec.points.front());
++  const gp_Lin line(first, gp_Vec(first, to_point(spec.points.back())));
++  return std::all_of(spec.points.begin(), spec.points.end(), [&](const Vec3 &point) {
++    return line.Distance(to_point(point)) <= kLinear;
++  });
++}
++
++// The faces of `shape` among `named`, as 1-based indices, ascending and once each.
++rust::Vec<std::uint32_t> faces_among(const TopoDS_Shape &shape,
++                                     const TopTools_ListOfShape &named) {
++  TopTools_IndexedMapOfShape faces;
++  TopExp::MapShapes(shape, TopAbs_FACE, faces);
++  std::vector<std::uint32_t> indices;
++  for (const TopoDS_Shape &face : named) {
++    const int index = faces.FindIndex(face);
++    if (index > 0) {
++      indices.push_back(static_cast<std::uint32_t>(index));
++    }
++  }
++  std::sort(indices.begin(), indices.end());
++  indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
++  rust::Vec<std::uint32_t> result;
++  for (const std::uint32_t index : indices) {
++    result.push_back(index);
++  }
++  return result;
++}
++
++// The profile thickened into a planar face: the face, the history that names its parts from the
++// profile's edges and vertices, and its edges along the profile on each side, from which the
++// prism sweeps the rib's sides.
++struct Thickened {
++  TopoDS_Face face;
++  Handle(BRepTools_History) history = new BRepTools_History;
++  TopTools_ListOfShape sides;
++};
++
++// The offset to one side by `distance` of the open profile that `spine` holds
++// (BRepOffsetAPI_MakeOffset with IsOpenResult true and join GeomAbs_Intersection), in the plane of
++// `spine`. Records the edges and vertices each profile element generated in `thickened`.
++TopoDS_Wire offset_side(const TopoDS_Face &spine, double distance, Thickened &thickened,
++                        Polls &polls) {
++  BRepOffsetAPI_MakeOffset offset(spine, GeomAbs_Intersection, Standard_True);
++  // Perform takes no progress range.
++  polls.before("BRepOffsetAPI_MakeOffset");
++  offset.Perform(distance);
++  if (!offset.IsDone()) {
++    raise_not_done("BRepOffsetAPI_MakeOffset could not offset the rib's profile by " +
++                   std::to_string(distance) + " mm");
++  }
++  TopExp_Explorer wires(offset.Shape(), TopAbs_WIRE);
++  if (!wires.More()) {
++    raise_not_done("BRepOffsetAPI_MakeOffset gave the rib's profile no offset wire");
++  }
++  const TopoDS_Wire side = TopoDS::Wire(wires.Current());
++  wires.Next();
++  if (wires.More()) {
++    raise_not_done("BRepOffsetAPI_MakeOffset gave the rib's profile several offset wires");
++  }
++  for (const TopAbs_ShapeEnum type : {TopAbs_EDGE, TopAbs_VERTEX}) {
++    TopTools_IndexedMapOfShape elements;
++    TopExp::MapShapes(spine, type, elements);
++    for (int index = 1; index <= elements.Extent(); ++index) {
++      for (const TopoDS_Shape &image : offset.Generated(elements(index))) {
++        thickened.history->AddGenerated(elements(index), image);
++      }
++    }
++  }
++  for (TopExp_Explorer edges(side, TopAbs_EDGE); edges.More(); edges.Next()) {
++    thickened.sides.Append(edges.Current());
++  }
++  return side;
++}
++
++// The end of the open wire `side` nearest to `point`.
++TopoDS_Vertex end_near(const TopoDS_Wire &side, const gp_Pnt &point) {
++  TopoDS_Vertex first;
++  TopoDS_Vertex last;
++  TopExp::Vertices(side, first, last);
++  return BRep_Tool::Pnt(first).Distance(point) <= BRep_Tool::Pnt(last).Distance(point) ? first
++                                                                                       : last;
++}
++
++// The profile thickened by `half` to each side into a planar face on `plane`: the two offsets of
++// the profile in `plane`, joined at each end of the profile by a line through that end. Each
++// profile edge generates the face, each end vertex the line and the corners at its end.
++Thickened thicken(const TopoDS_Wire &wire, const gp_Pln &plane, double half, Polls &polls) {
++  Thickened thickened;
++  // BRepOffsetAPI_MakeOffset reads the side of an offset from the sign of its distance relative
++  // to the wire of its face, so the face on `plane` holds the profile, as the face it makes
++  // through a wire alone does.
++  polls.before("BRepBuilderAPI_MakeFace");
++  const TopoDS_Face spine = BRepBuilderAPI_MakeFace(plane, wire, Standard_False).Face();
++  const TopoDS_Wire first_side = offset_side(spine, half, thickened, polls);
++  const TopoDS_Wire second_side = offset_side(spine, -half, thickened, polls);
++  polls.before("BRepBuilderAPI_MakeWire");
++  TopoDS_Vertex ends[2];
++  TopExp::Vertices(wire, ends[0], ends[1]);
++  BRepBuilderAPI_MakeWire outline;
++  outline.Add(first_side);
++  for (const TopoDS_Vertex &end : ends) {
++    const gp_Pnt point = BRep_Tool::Pnt(end);
++    const TopoDS_Vertex first_corner = end_near(first_side, point);
++    const TopoDS_Vertex second_corner = end_near(second_side, point);
++    BRepBuilderAPI_MakeEdge line(first_corner, second_corner);
++    if (!line.IsDone()) {
++      raise_not_done("BRepBuilderAPI_MakeEdge could not join the offsets at an end of the profile");
++    }
++    const TopoDS_Edge closing = line.Edge();
++    for (const TopoDS_Shape &part :
++         {TopoDS_Shape(closing), TopoDS_Shape(first_corner), TopoDS_Shape(second_corner)}) {
++      thickened.history->AddGenerated(end, part);
++    }
++    outline.Add(closing);
++    if (end.IsSame(ends[0])) {
++      outline.Add(second_side);
++    }
++  }
++  if (!outline.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeWire could not close the thickened profile");
++  }
++  polls.before("BRepBuilderAPI_MakeFace");
++  BRepBuilderAPI_MakeFace face(plane, outline.Wire(), Standard_True);
++  if (!face.IsDone()) {
++    raise_not_done("BRepBuilderAPI_MakeFace could not bound the thickened profile");
++  }
++  thickened.face = face.Face();
++  for (TopExp_Explorer edges(wire, TopAbs_EDGE); edges.More(); edges.Next()) {
++    thickened.history->AddGenerated(edges.Current(), thickened.face);
++  }
++  return thickened;
++}
++
++// The images of `element` in `history`: its Modified images, or itself when the history keeps
++// it.
++TopTools_ListOfShape images_in(const Handle(BRepTools_History) &history,
++                               const TopoDS_Shape &element) {
++  TopTools_ListOfShape images = history->Modified(element);
++  if (images.IsEmpty() && !history->IsRemoved(element)) {
++    images.Append(element);
++  }
++  return images;
++}
++
++// Records the images of the prism's start cap, BRepPrimAPI_MakePrism's copy of `profile`, as
++// modified from the profile's face, edges and vertices, so the history names the cap from the
++// profile. It runs after the split, whose history keeps the cap's own images only while nothing
++// names the cap.
++void name_start(Built &prism, const TopoDS_Face &profile) {
++  for (const TopoDS_Shape &start : prism.start) {
++    for (const TopoDS_Shape &image : images_in(prism.history, start)) {
++      prism.history->AddModified(profile, image);
++    }
++  }
++  for (const Cap &cap : prism.caps) {
++    if (!cap.end && !cap.element.IsNull()) {
++      for (const TopoDS_Shape &image : images_in(prism.history, cap.element)) {
++        prism.history->AddModified(cap.input, image);
++      }
++    }
++  }
++}
++
++// The history of BRepFeat_MakeLinearForm for the elements of `arguments`, from its Modified and
++// Generated. Its IsDeleted reads a map that holds only some elements and throws for the others,
++// so it is not asked: an element with no image that is not in the result is deleted (kernel
++// spec section 3.3).
++Handle(BRepTools_History) form_history(const std::vector<TopoDS_Shape> &arguments,
++                                       BRepFeat_MakeLinearForm &form) {
++  Handle(BRepTools_History) history = new BRepTools_History;
++  for (const TopoDS_Shape &argument : arguments) {
++    for (const TopAbs_ShapeEnum type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
++      TopTools_IndexedMapOfShape elements;
++      TopExp::MapShapes(argument, type, elements);
++      for (int index = 1; index <= elements.Extent(); ++index) {
++        for (const TopoDS_Shape &image : form.Modified(elements(index))) {
++          history->AddModified(elements(index), image);
++        }
++        for (const TopoDS_Shape &image : form.Generated(elements(index))) {
++          history->AddGenerated(elements(index), image);
++        }
++      }
++    }
++  }
++  return history;
++}
++
++// Raises StdFail_NotDone with the status of BRepFeat_MakeLinearForm when `step` failed.
++void require_form_done(const BRepFeat_MakeLinearForm &form, const char *step) {
++  if (!form.IsDone()) {
++    raise_not_done(std::string(step) + " failed: " + status_name(form.CurrentStatusError()));
++  }
++}
++
++// Serializes BRepFeat_MakeLinearForm builds, as the blends are (kernel spec section 3.10 item 5).
++// BRepFeat_RibSlot::Modified and Generated clear, fill and return one function-static list
++// (`static TopTools_ListOfShape list;` in BRepFeat_RibSlot.cxx), so ribs built on several threads
++// at once freed each other's list nodes and corrupted the heap.
++std::mutex &linear_form_mutex() {
++  static std::mutex mutex;
++  return mutex;
++}
++
++// A rib as BRepFeat_MakeLinearForm built it: the body with the rib, the history of the profile
++// and the body, and the rib's two sides.
++struct BuiltForm {
++  TopoDS_Shape shape;
++  Handle(BRepTools_History) history;
++  TopTools_ListOfShape sides;
++};
++
++// Builds the rib `spec` asks on `body` from the profile `wire` with BRepFeat_MakeLinearForm.
++// Everything that touches the builder, from creating it to reading its history and sides, holds
++// `linear_form_mutex`. The poll before Init comes right after the call takes the mutex.
++BuiltForm build_form(const TopoDS_Shape &body, const TopoDS_Wire &wire, const RibSpecData &spec,
++                     Polls &polls) {
++  const std::lock_guard<std::mutex> lock(linear_form_mutex());
++  // Neither Init nor Perform takes a progress range.
++  polls.before("BRepFeat_MakeLinearForm::Init");
++  const gp_Ax3 frame = to_ax3(spec.plane);
++  const gp_Vec across = gp_Vec(frame.Direction()) * (spec.thickness / 2.0);
++  BRepFeat_MakeLinearForm form;
++  form.Init(body, wire, new Geom_Plane(frame), across, across.Reversed(), 1, spec.sliding);
++  require_form_done(form, "BRepFeat_MakeLinearForm::Init");
++  polls.before("BRepFeat_MakeLinearForm::Perform");
++  form.Perform();
++  require_form_done(form, "BRepFeat_MakeLinearForm::Perform");
++  polls.before("BRepFeat_MakeLinearForm::Modified");
++  BuiltForm built{form.Shape(), form_history({wire, body}, form), {}};
++  // The rib's two sides are the builder's first and last shapes. Each is recorded as its own
++  // image, so a repair carries it to its repaired face.
++  for (const TopTools_ListOfShape *named : {&form.FirstShape(), &form.LastShape()}) {
++    for (const TopoDS_Shape &side : *named) {
++      built.history->AddModified(side, side);
++      built.sides.Append(side);
++    }
++  }
++  return built;
++}
++
++// The data of a rib: the result and the construction, the profile, the history of the profile
++// and the body relative to the result, the result's faces among `sides`, both checks and the
++// polls.
++RibData rib_data(const TopoDS_Shape &shape, const TopoDS_Shape &construction,
++                 const TopoDS_Wire &wire, const Handle(BRepTools_History) &history,
++                 const std::vector<TopoDS_Shape> &inputs, const TopTools_ListOfShape &sides,
++                 ValidityType validity, ValidityType construction_validity,
++                 const PollRecorder &recorder, Polls &polls) {
++  polls.before("BRepTools_History");
++  const std::shared_ptr<Shape> result = make_shape(shape);
++  rust::Vec<InputHistoryData> history_lists = history_data(history, inputs, *result);
++  return RibData{result,
++                 make_shape(construction),
++                 make_shape(wire),
++                 std::move(history_lists),
++                 faces_among(shape, sides),
++                 validity,
++                 construction_validity,
++                 recorder.data()};
++}
++
++}  // namespace
++
++RibData rib_linear_form(const Shape &body, const RibSpecData &spec, const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  // The builder runs on a copy of the body, so it never writes to the input (kernel spec section
++  // 3.1). A copy has its input's indices, so the history of the copy is the input's.
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape body_copy = copy_elements(body);
++  polls.before("BRepBuilderAPI_MakePolygon");
++  const TopoDS_Wire wire = profile_wire(spec);
++  BuiltForm built = build_form(body_copy.get(), wire, spec, polls);
++  const ValidityType validity = check_and_repair(built.shape, built.history, polls);
++  TopTools_ListOfShape side_images;
++  for (const TopoDS_Shape &side : built.sides) {
++    for (const TopoDS_Shape &image : built.history->Modified(side)) {
++      side_images.Append(image);
++    }
++  }
++  const std::vector<TopoDS_Shape> inputs{wire, body_copy.get()};
++  return rib_data(built.shape, built.shape, wire, built.history, inputs, side_images, validity,
++                  validity, *recorder, polls);
++}
++
++RibData rib_thickened(const Shape &body, const RibSpecData &spec, const Interrupt &interrupt) {
++  const Handle(PollRecorder) recorder = new PollRecorder(interrupt);
++  Polls polls{Handle(Interruption)(recorder)};
++  // The prism, its split and the fuse run on a copy of the body (kernel spec section 3.1).
++  polls.before("BRepBuilderAPI_Copy");
++  const Shape body_copy = copy_elements(body);
++  polls.before("BRepBuilderAPI_MakePolygon");
++  const TopoDS_Wire wire = profile_wire(spec);
++  const gp_Ax3 frame = to_ax3(spec.plane);
++  // A straight profile thickens in the plane through it that holds the profile plane's normal,
++  // so the rib's sides lie at half the thickness from the profile's plane, and the rib reaches
++  // the body along that plane's normal, on the side of BRepFeat_MakeLinearForm's material. A
++  // profile that is not straight lies in one plane only, its own: BRepOffsetAPI_MakeOffset
++  // thickens it there, and the rib reaches along the normal of the profile's plane.
++  gp_Dir direction = frame.Direction();
++  gp_Pln strip_plane(frame);
++  if (is_straight(spec)) {
++    const gp_Pnt first = to_point(spec.points.front());
++    const gp_Dir along(gp_Vec(first, to_point(spec.points.back())));
++    direction = frame.Direction().Crossed(along);
++    strip_plane = gp_Pln(first, direction);
++  }
++  const Thickened thickened = thicken(wire, strip_plane, spec.thickness / 2.0, polls);
++  const double length = through_length(thickened.face, body_copy.get(), direction);
++  Built prism = make_prism(thickened.face, gp_Vec(direction) * length, polls);
++  up_to_body(prism, body_copy.get(), polls);
++  polls.before("BRepTools_History::AddModified");
++  name_start(prism, thickened.face);
++  TopoDS_Shape construction = prism.shape;
++  const ValidityType construction_validity =
++      check_and_repair(construction, prism.history, polls);
++  TopTools_ListOfShape tools;
++  tools.Append(construction);
++  TopoDS_Shape shape = solids_only(
++      run_boolean(BOPAlgo_FUSE, body_copy.get(), tools, true, prism.history, polls));
++  const ValidityType validity = check_and_repair(shape, prism.history, polls);
++  // The sides are what the prism swept from the offsets, through the split and the fuse.
++  polls.before("BRepTools_History::Merge");
++  TopTools_ListOfShape sides;
++  for (const TopoDS_Shape &edge : thickened.sides) {
++    for (const TopoDS_Shape &image : prism.history->Generated(edge)) {
++      sides.Append(image);
++    }
++  }
++  Handle(BRepTools_History) history = new BRepTools_History;
++  merge_history(history, thickened.history);
++  merge_history(history, prism.history);
++  const std::vector<TopoDS_Shape> inputs{wire, body_copy.get()};
++  return rib_data(shape, construction, wire, history, inputs, sides, validity,
++                  construction_validity, *recorder, polls);
++}
++
++}  // namespace occt
++}  // namespace partsmith
+diff --git a/crates/partsmith-occt-sys/cpp/shim.h b/crates/partsmith-occt-sys/cpp/shim.h
+index d540d25..a91e210 100644
+--- a/crates/partsmith-occt-sys/cpp/shim.h
++++ b/crates/partsmith-occt-sys/cpp/shim.h
+@@ -89,6 +89,10 @@ struct SplitData;
+ struct MeshData;
+ struct StepBodyData;
+ struct StepImportData;
++struct ExtentSpecData;
++struct ExtentData;
++struct RibSpecData;
++struct RibData;
+ enum class ElementKind : std::uint8_t;
+ enum class ContinuityType : std::uint8_t;
+ enum class ShapeType : std::uint8_t;
+@@ -185,6 +189,22 @@ SplitData split(const Shape &shape, const Frame &plane, const Interrupt &interru
+ std::shared_ptr<Shape> section(const Shape &shape, const Frame &plane);
+ OpResultData compound(rust::Slice<const ShapeHandle> shapes);
+ 
++// prism_extents.cpp
++ExtentData extrude_feature(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                           const Interrupt &interrupt);
++ExtentData extrude_split(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                         const Interrupt &interrupt);
++ExtentData extrude_drafted(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                           const Interrupt &interrupt);
++ExtentData extrude_lofted(const Shape &profile, const Shape &body, const ExtentSpecData &spec,
++                          const Interrupt &interrupt);
++double surface_distance(const Shape &shape, std::uint32_t face, const Shape &target,
++                        std::uint32_t target_face);
++
++// rib.cpp
++RibData rib_linear_form(const Shape &body, const RibSpecData &spec, const Interrupt &interrupt);
++RibData rib_thickened(const Shape &body, const RibSpecData &spec, const Interrupt &interrupt);
++
+ // interrupt.cpp
+ void wait_for_interrupt(const Interrupt &interrupt, double limit);
+ #ifdef __EMSCRIPTEN__
+diff --git a/crates/partsmith-occt-sys/cpp/validity.cpp b/crates/partsmith-occt-sys/cpp/validity.cpp
+index fd88ff3..e182bb0 100644
+--- a/crates/partsmith-occt-sys/cpp/validity.cpp
++++ b/crates/partsmith-occt-sys/cpp/validity.cpp
+@@ -445,12 +445,6 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
+   }
+ }
+ 
+-namespace {
+-
+-// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
+-// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
+-// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
+-// Otherwise leaves both as they were and returns false. `polls` polls before each step.
+ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls &polls) {
+   initialize();
+   polls.before("BRepBuilderAPI_Copy");
+@@ -474,6 +468,8 @@ bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history, Polls
+   return true;
+ }
+ 
++namespace {
++
+ // The message of a result that stays invalid after repair.
+ std::string stays_invalid(const char *algorithm) {
+   return std::string(algorithm) + " produced a shape that stays invalid after ShapeFix_Shape";
+diff --git a/crates/partsmith-occt-sys/src/error.rs b/crates/partsmith-occt-sys/src/error.rs
+index 0b35a61..6da7056 100644
+--- a/crates/partsmith-occt-sys/src/error.rs
++++ b/crates/partsmith-occt-sys/src/error.rs
+@@ -101,6 +101,10 @@ pub enum Operation {
+     ReadBrep,
+     /// [`crate::wait_for_interrupt`].
+     WaitForInterrupt,
++    /// [`crate::extrude_to`].
++    ExtrudeTo,
++    /// [`crate::rib`].
++    Rib,
+ }
+ 
+ impl Operation {
+@@ -133,6 +137,8 @@ impl Operation {
+             Operation::WriteBrep => "write_brep",
+             Operation::ReadBrep => "read_brep",
+             Operation::WaitForInterrupt => "wait_for_interrupt",
++            Operation::ExtrudeTo => "extrude_to",
++            Operation::Rib => "rib",
+         }
+     }
+ 
+@@ -177,6 +183,8 @@ impl Operation {
+             Operation::WaitForInterrupt => {
+                 "The test wait could not run; report it with the details."
+             }
++            Operation::ExtrudeTo => "Another face to reach or a smaller taper may work.",
++            Operation::Rib => "Another profile or a smaller thickness may work.",
+         }
+     }
+ 
+@@ -200,6 +208,8 @@ impl Operation {
+             Operation::Shell => Some("shell"),
+             Operation::Transform => Some("moved or copied body"),
+             Operation::Split => Some("split"),
++            Operation::ExtrudeTo => Some("extrusion"),
++            Operation::Rib => Some("rib"),
+             Operation::Section
+             | Operation::Compound
+             | Operation::Measure
+diff --git a/crates/partsmith-occt-sys/src/ffi.rs b/crates/partsmith-occt-sys/src/ffi.rs
+index 1cb2283..95ec185 100644
+--- a/crates/partsmith-occt-sys/src/ffi.rs
++++ b/crates/partsmith-occt-sys/src/ffi.rs
+@@ -282,6 +282,104 @@ pub(crate) mod bridge {
+         warnings: Vec<String>,
+     }
+ 
++    /// The basis shape of a BRepFeat construction.
++    #[derive(Debug, Clone, Copy)]
++    enum FeatureBasisType {
++        Body,
++        Nothing,
++    }
++
++    /// Where a prism ends.
++    #[derive(Debug, Clone, Copy)]
++    enum ExtentEndType {
++        Length,
++        UpToFace,
++        UpToBody,
++    }
++
++    /// A prism's extent (kernel spec section 8.5): the basis of a BRepFeat construction, where it
++    /// ends, its unit direction, its length (for `Length`), the body's face it reaches (for
++    /// `UpToFace`) and its taper in radians, positive outward.
++    #[derive(Debug, Clone, Copy)]
++    struct ExtentSpecData {
++        basis: FeatureBasisType,
++        end: ExtentEndType,
++        direction: Vec3,
++        length: f64,
++        face: u32,
++        taper: f64,
++    }
++
++    /// How a shape passed the checks of `BRepCheck_Analyzer`.
++    #[derive(Debug, Clone, Copy)]
++    enum ValidityType {
++        AsBuilt,
++        AfterRepair,
++        Invalid,
++    }
++
++    /// The polls of one call: their number, the milliseconds from the start to the first, the
++    /// longest gap between two and how many polls came before it, the milliseconds from the
++    /// last to the end, and the whole call.
++    #[derive(Debug, Clone, Copy)]
++    struct PollData {
++        count: u64,
++        first: f64,
++        longest: f64,
++        longest_after: u64,
++        last: f64,
++        total: f64,
++    }
++
++    /// An edge or a vertex of a prism that a builder names as the start or the end of the
++    /// profile's edge or vertex `input`.
++    #[derive(Debug, Clone, Copy)]
++    struct CapData {
++        element: SubShapeData,
++        input: SubShapeData,
++        end: bool,
++    }
++
++    /// A prism's extent with what the spike measures of it: the history of the profile, then of
++    /// the body when there is one, the faces the builders name as its start and its end, the
++    /// edges and vertices they name as the start or the end of a profile element, its check and
++    /// its polls.
++    struct ExtentData {
++        shape: SharedPtr<Shape>,
++        inputs: Vec<InputHistoryData>,
++        start: Vec<u32>,
++        end: Vec<u32>,
++        caps: Vec<CapData>,
++        validity: ValidityType,
++        polls: PollData,
++    }
++
++    /// A rib (kernel spec section 8.6): the profile's plane, the profile's points in model space,
++    /// the rib's thickness across the plane, and whether `BRepFeat_MakeLinearForm` tries to slide
++    /// the rib along the faces it meets (its `Modify` option).
++    struct RibSpecData {
++        plane: Frame,
++        points: Vec<Vec3>,
++        thickness: f64,
++        sliding: bool,
++    }
++
++    /// A rib with what the spike measures of it: the body with the rib, the rib before the fuse
++    /// (the same shape for `BRepFeat_MakeLinearForm`, which fuses it itself), the profile as the
++    /// shim built it, the history of the profile and then of the body, the faces the
++    /// construction names as the rib's two sides, the checks of the result and of the
++    /// construction, and the call's polls.
++    struct RibData {
++        shape: SharedPtr<Shape>,
++        construction: SharedPtr<Shape>,
++        profile: SharedPtr<Shape>,
++        inputs: Vec<InputHistoryData>,
++        sides: Vec<u32>,
++        validity: ValidityType,
++        construction_validity: ValidityType,
++        polls: PollData,
++    }
++
+     extern "Rust" {
+         /// The interrupt of a polling call. The shim's progress indicator asks it whether it is
+         /// requested and keeps it only for the call that received it (kernel spec section 3.13
+@@ -418,6 +516,50 @@ pub(crate) mod bridge {
+         ) -> Result<UniquePtr<CxxString>>;
+         fn read_step(bytes: &[u8], interrupt: &Interrupt) -> Result<StepImportData>;
+ 
++        fn extrude_feature(
++            profile: &Shape,
++            body: &Shape,
++            spec: &ExtentSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<ExtentData>;
++        fn extrude_split(
++            profile: &Shape,
++            body: &Shape,
++            spec: &ExtentSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<ExtentData>;
++        fn extrude_drafted(
++            profile: &Shape,
++            body: &Shape,
++            spec: &ExtentSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<ExtentData>;
++        fn extrude_lofted(
++            profile: &Shape,
++            body: &Shape,
++            spec: &ExtentSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<ExtentData>;
++        /// The largest distance from points of face `face` of `shape` to the surface of face
++        /// `target_face` of `target`, beyond the face's bounds.
++        fn surface_distance(
++            shape: &Shape,
++            face: u32,
++            target: &Shape,
++            target_face: u32,
++        ) -> Result<f64>;
++
++        fn rib_linear_form(
++            body: &Shape,
++            spec: &RibSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<RibData>;
++        fn rib_thickened(
++            body: &Shape,
++            spec: &RibSpecData,
++            interrupt: &Interrupt,
++        ) -> Result<RibData>;
++
+         /// Polls `interrupt` about once per millisecond until it is requested or `limit`
+         /// milliseconds have passed (kernel spec section 3.13 item 8).
+         fn wait_for_interrupt(interrupt: &Interrupt, limit: f64) -> Result<()>;
+diff --git a/crates/partsmith-occt-sys/src/history.rs b/crates/partsmith-occt-sys/src/history.rs
+index 7adcf17..58e54a7 100644
+--- a/crates/partsmith-occt-sys/src/history.rs
++++ b/crates/partsmith-occt-sys/src/history.rs
+@@ -154,7 +154,7 @@ fn fates_from_ffi(
+ }
+ 
+ /// Converts the shim's history of every input.
+-fn history_from_ffi(
++pub(crate) fn history_from_ffi(
+     operation: Operation,
+     inputs: Vec<sys::InputHistoryData>,
+ ) -> Result<History, KernelError> {
+diff --git a/crates/partsmith-occt-sys/src/lib.rs b/crates/partsmith-occt-sys/src/lib.rs
+index 9435ed2..edced3f 100644
+--- a/crates/partsmith-occt-sys/src/lib.rs
++++ b/crates/partsmith-occt-sys/src/lib.rs
+@@ -14,7 +14,9 @@ mod ffi;
+ mod history;
+ mod interrupt;
+ mod primitives;
++mod prism_extents;
+ mod profiles;
++mod rib;
+ mod shape;
+ mod step_check;
+ mod sweeps;
+@@ -37,9 +39,15 @@ pub use interrupt::{Interrupt, wait_for_interrupt};
+ pub use primitives::{
+     Primitive, PrimitiveFace, make_box, make_cone, make_cylinder, make_sphere, make_torus,
+ };
++pub use prism_extents::{
++    CapName, ExtentConstruction, ExtentEnd, ExtentResult, ExtentSpec, FeatureBasis, PollRecord,
++    Validity, extrude_drafted, extrude_feature, extrude_lofted, extrude_split, extrude_to,
++    surface_distance,
++};
+ pub use profiles::{
+     PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, TaggedCurve, make_profile,
+ };
++pub use rib::{RibConstruction, RibResult, RibSpec, rib, rib_linear_form, rib_thickened};
+ pub use shape::{Shape, ShapeKind, SubShape, SubShapeKind};
+ pub use sweeps::{SweepFace, SweepResult, extrude, revolve};
+ pub use tessellation::ElementDisplay;
+diff --git a/crates/partsmith-occt-sys/src/prism_extents.rs b/crates/partsmith-occt-sys/src/prism_extents.rs
+new file mode 100644
+index 0000000..d71d6f9
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/prism_extents.rs
+@@ -0,0 +1,512 @@
++//! The extents of the prism-extents spike (kernel spec section 8.5): a prism of a profile up to a
++//! face of a body or up to the body, and a tapered prism, by each construction the spike
++//! compares. The result reports OCCT's history of the profile and the body, the faces the
++//! builders name as its start and its end, the check of the whole shape and the call's polls.
++
++use std::f64::consts::FRAC_PI_2;
++use std::time::Duration;
++
++use crate::ANGULAR_TOLERANCE;
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::history::{History, history_from_ffi};
++use crate::interrupt::Interrupt;
++use crate::profiles::PlanarProfile;
++use crate::shape::{Shape, SubShape, SubShapeKind};
++use crate::values::{Vector, check_finite, is_positive_length};
++
++/// The basis shape a BRepFeat construction builds its feature on.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum FeatureBasis {
++    /// The body the prism reaches, with the builder keeping the feature alone (mode 2).
++    Body,
++    /// An empty compound, with the builder fusing the feature with it (mode 1).
++    Nothing,
++}
++
++/// The construction of a prism's extent (section 8.5's Constructions).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum ExtentConstruction {
++    /// `BRepFeat_MakePrism` up to a face or the body with `Perform(Until)`, or
++    /// `BRepFeat_MakeDPrism` with a taper.
++    FeaturePrism(FeatureBasis),
++    /// `BRepPrimAPI_MakePrism` through the body, split by `BRepAlgoAPI_Splitter` at the face's
++    /// surface or at the body, and kept on the profile's side.
++    SplitPrism,
++    /// `BRepOffsetAPI_DraftAngle` on the lateral faces of a prism, split as `SplitPrism` is when
++    /// it reaches a face or the body.
++    DraftAngle,
++    /// `BRepOffsetAPI_ThruSections` between the profile and its offset at the far end
++    /// (`BRepOffsetAPI_MakeOffset` of the profile's wires), split as `SplitPrism` is when it
++    /// reaches a face or the body.
++    ThruSections,
++}
++
++/// Where a prism ends.
++#[derive(Debug, Clone)]
++pub enum ExtentEnd {
++    /// At this distance from the profile, in millimeters.
++    Length(f64),
++    /// On face `face` of `body`.
++    UpToFace {
++        /// The body that holds the face.
++        body: Shape,
++        /// The face, a 1-based index of `body`'s faces.
++        face: u32,
++    },
++    /// On the first faces of the body it meets.
++    UpToBody(Shape),
++}
++
++/// A prism's extent.
++#[derive(Debug, Clone)]
++pub struct ExtentSpec {
++    /// The direction the prism runs in, out of the profile's plane.
++    pub direction: Vector,
++    /// Where it ends.
++    pub end: ExtentEnd,
++    /// The angle of its lateral faces to the direction in radians, positive outward; 0 for a
++    /// prism without a taper.
++    pub taper: f64,
++    /// Its construction.
++    pub construction: ExtentConstruction,
++}
++
++/// How a shape passed the checks of `BRepCheck_Analyzer` (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum Validity {
++    /// Valid as built.
++    AsBuilt,
++    /// Valid after `ShapeFix_Shape`.
++    AfterRepair,
++    /// Invalid after `ShapeFix_Shape`.
++    Invalid,
++}
++
++/// The polls of one call with an interrupt that is never requested (section 8.1 item 4).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct PollRecord {
++    /// The number of `UserBreak` calls.
++    pub count: u64,
++    /// From the call's start to its first poll.
++    pub first: Duration,
++    /// The longest gap between two polls.
++    pub longest: Duration,
++    /// How many polls came before the longest gap: it ends at poll `longest_after + 1`.
++    pub longest_after: u64,
++    /// From the last poll to the call's end.
++    pub last: Duration,
++    /// The whole call in the shim.
++    pub total: Duration,
++}
++
++/// An edge or a vertex of a prism that a builder names as the start or the end of a profile edge
++/// or vertex: `BRepPrimAPI_MakePrism`'s `FirstShape` and `LastShape`, or the offset of a profile
++/// edge that a loft ends on.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct CapName {
++    /// The prism's edge or vertex.
++    pub element: SubShape,
++    /// The profile's edge or vertex.
++    pub input: SubShape,
++    /// Whether it is the end of the input rather than its start.
++    pub end: bool,
++}
++
++/// A prism's extent with what the spike measures of it.
++#[derive(Debug, Clone)]
++pub struct ExtentResult {
++    /// The prism, repaired when it was not valid as built.
++    pub shape: Shape,
++    /// OCCT's history of the profile, then of the body when the extent reaches one.
++    pub history: History,
++    /// The faces the builders name as the prism's start, ascending.
++    pub start: Vec<u32>,
++    /// The faces the builders name as the prism's end, ascending: the far cap, or the pieces of
++    /// the face or the body it reaches.
++    pub end: Vec<u32>,
++    /// The edges and vertices the builders name as the start or the end of a profile element.
++    pub caps: Vec<CapName>,
++    /// The check of the whole prism.
++    pub validity: Validity,
++    /// The polls of the call.
++    pub polls: PollRecord,
++}
++
++const ZERO_DIRECTION_MESSAGE: &str = "The extrude direction needs to be nonzero.";
++const DIRECTION_IN_PLANE_MESSAGE: &str =
++    "The extrude direction lies in the sketch plane, so the profile cannot be extruded.";
++const TAPER_DIRECTION_MESSAGE: &str =
++    "A tapered extrude runs along the normal of its sketch plane.";
++const LENGTH_MESSAGE: &str = "The extrude length must be greater than 0 mm.";
++const TAPER_MESSAGE: &str = "The taper angle must be less than 90 degrees either way.";
++const NEEDS_TAPER_MESSAGE: &str = "This construction tapers the extrude, so it needs a taper.";
++const NO_TAPER_MESSAGE: &str = "The split prism does not taper.";
++const NEEDS_BODY_MESSAGE: &str = "The split prism needs a face or a body to reach.";
++const PLAIN_LENGTH_MESSAGE: &str = "An extrude of a length without a taper is a plain extrude.";
++const EMPTY_BODY_MESSAGE: &str = "The extrude needs a body with faces to reach.";
++
++/// The milliseconds the shim reports, as a duration.
++fn duration(milliseconds: f64) -> Duration {
++    Duration::from_secs_f64(milliseconds.max(0.0) / 1000.0)
++}
++
++impl PollRecord {
++    pub(crate) fn from_ffi(data: sys::PollData) -> PollRecord {
++        PollRecord {
++            count: data.count,
++            first: duration(data.first),
++            longest: duration(data.longest),
++            longest_after: data.longest_after,
++            last: duration(data.last),
++            total: duration(data.total),
++        }
++    }
++}
++
++impl CapName {
++    fn from_ffi(operation: Operation, data: sys::CapData) -> Result<CapName, KernelError> {
++        let sub_shape = |data: sys::SubShapeData| {
++            Ok(SubShape {
++                kind: SubShapeKind::from_ffi(operation, data.kind)?,
++                index: data.index,
++            })
++        };
++        Ok(CapName {
++            element: sub_shape(data.element)?,
++            input: sub_shape(data.input)?,
++            end: data.end,
++        })
++    }
++}
++
++impl Validity {
++    pub(crate) fn from_ffi(
++        operation: Operation,
++        data: sys::ValidityType,
++    ) -> Result<Validity, KernelError> {
++        match data {
++            sys::ValidityType::AsBuilt => Ok(Validity::AsBuilt),
++            sys::ValidityType::AfterRepair => Ok(Validity::AfterRepair),
++            sys::ValidityType::Invalid => Ok(Validity::Invalid),
++            _ => Err(KernelError::internal(operation, "unknown validity")),
++        }
++    }
++}
++
++/// Checks a body the prism reaches: it has faces, and `face`, when given, is one of them.
++fn check_body(operation: Operation, body: &Shape, face: Option<u32>) -> Result<(), KernelError> {
++    if body.count(SubShapeKind::Face) == 0 {
++        return Err(KernelError::invalid_input(operation, EMPTY_BODY_MESSAGE));
++    }
++    match face {
++        Some(face) => body.check_index(operation, SubShapeKind::Face, face),
++        None => Ok(()),
++    }
++}
++
++impl ExtentSpec {
++    /// Checks the spec against the profile's plane normal (section 3.1 items 4 to 6) and returns
++    /// its bridge form with the body it reaches, or an empty shape.
++    fn to_ffi(
++        &self,
++        operation: Operation,
++        normal: Vector,
++    ) -> Result<(sys::ExtentSpecData, Shape), KernelError> {
++        let direction = self.direction;
++        check_finite(
++            operation,
++            &[direction.x, direction.y, direction.z, self.taper],
++        )?;
++        let unit = direction
++            .normalized()
++            .ok_or_else(|| KernelError::invalid_input(operation, ZERO_DIRECTION_MESSAGE))?;
++        if unit.dot(normal).abs() <= ANGULAR_TOLERANCE {
++            return Err(KernelError::invalid_input(
++                operation,
++                DIRECTION_IN_PLANE_MESSAGE,
++            ));
++        }
++        if self.taper.abs() >= FRAC_PI_2 - ANGULAR_TOLERANCE {
++            return Err(KernelError::invalid_input(operation, TAPER_MESSAGE));
++        }
++        let tapered = self.taper.abs() > ANGULAR_TOLERANCE;
++        if tapered && unit.dot(normal) < 1.0 - ANGULAR_TOLERANCE {
++            return Err(KernelError::invalid_input(
++                operation,
++                TAPER_DIRECTION_MESSAGE,
++            ));
++        }
++        let basis = match self.construction {
++            ExtentConstruction::FeaturePrism(FeatureBasis::Body) => sys::FeatureBasisType::Body,
++            _ => sys::FeatureBasisType::Nothing,
++        };
++        match self.construction {
++            ExtentConstruction::SplitPrism if tapered => {
++                return Err(KernelError::invalid_input(operation, NO_TAPER_MESSAGE));
++            }
++            ExtentConstruction::DraftAngle | ExtentConstruction::ThruSections if !tapered => {
++                return Err(KernelError::invalid_input(operation, NEEDS_TAPER_MESSAGE));
++            }
++            _ => {}
++        }
++        let mut data = sys::ExtentSpecData {
++            basis,
++            end: sys::ExtentEndType::Length,
++            direction: unit.to_ffi(),
++            length: 0.0,
++            face: 0,
++            taper: if tapered { self.taper } else { 0.0 },
++        };
++        let body = match &self.end {
++            ExtentEnd::Length(length) => {
++                check_finite(operation, &[*length])?;
++                if !is_positive_length(*length) {
++                    return Err(KernelError::invalid_input(operation, LENGTH_MESSAGE));
++                }
++                match self.construction {
++                    ExtentConstruction::SplitPrism => {
++                        return Err(KernelError::invalid_input(operation, NEEDS_BODY_MESSAGE));
++                    }
++                    ExtentConstruction::FeaturePrism(_) if !tapered => {
++                        return Err(KernelError::invalid_input(operation, PLAIN_LENGTH_MESSAGE));
++                    }
++                    _ => {}
++                }
++                data.length = *length;
++                Shape::empty()
++            }
++            ExtentEnd::UpToFace { body, face } => {
++                check_body(operation, body, Some(*face))?;
++                data.end = sys::ExtentEndType::UpToFace;
++                data.face = *face;
++                body.clone()
++            }
++            ExtentEnd::UpToBody(body) => {
++                check_body(operation, body, None)?;
++                data.end = sys::ExtentEndType::UpToBody;
++                body.clone()
++            }
++        };
++        Ok((data, body))
++    }
++}
++
++/// A construction of the shim.
++type Construction = fn(
++    &sys::Shape,
++    &sys::Shape,
++    &sys::ExtentSpecData,
++    &Interrupt,
++) -> Result<sys::ExtentData, cxx::Exception>;
++
++/// Extrudes a one-region profile as `spec` asks, by its construction (section 8.5).
++pub fn extrude_to(
++    profile: &PlanarProfile,
++    spec: &ExtentSpec,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let construction: Construction = match spec.construction {
++        ExtentConstruction::FeaturePrism(_) => sys::extrude_feature,
++        ExtentConstruction::SplitPrism => sys::extrude_split,
++        ExtentConstruction::DraftAngle => sys::extrude_drafted,
++        ExtentConstruction::ThruSections => sys::extrude_lofted,
++    };
++    extent(profile, spec, construction, interrupt)
++}
++
++/// Extrudes a one-region profile with `BRepFeat_MakePrism` up to a face or the body
++/// (`Perform(Until)`), or with `BRepFeat_MakeDPrism` when `taper` is not 0 (section 8.5's
++/// construction (i)).
++pub fn extrude_feature(
++    profile: &PlanarProfile,
++    direction: Vector,
++    end: &ExtentEnd,
++    taper: f64,
++    basis: FeatureBasis,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let construction = ExtentConstruction::FeaturePrism(basis);
++    let spec = spec(direction, end, taper, construction);
++    extent(profile, &spec, sys::extrude_feature, interrupt)
++}
++
++/// Extrudes a one-region profile up to a face or the body with `BRepPrimAPI_MakePrism` through
++/// the body, split by `BRepAlgoAPI_Splitter` at the face's surface or at the body and kept on the
++/// profile's side (section 8.5's construction (ii) up to a face or the body).
++pub fn extrude_split(
++    profile: &PlanarProfile,
++    direction: Vector,
++    end: &ExtentEnd,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let spec = spec(direction, end, 0.0, ExtentConstruction::SplitPrism);
++    extent(profile, &spec, sys::extrude_split, interrupt)
++}
++
++/// Extrudes a one-region profile tapered by `BRepOffsetAPI_DraftAngle` on the lateral faces of a
++/// prism, split as `extrude_split` splits when it reaches a face or the body (section 8.5's
++/// taper (ii)).
++pub fn extrude_drafted(
++    profile: &PlanarProfile,
++    direction: Vector,
++    end: &ExtentEnd,
++    taper: f64,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let spec = spec(direction, end, taper, ExtentConstruction::DraftAngle);
++    extent(profile, &spec, sys::extrude_drafted, interrupt)
++}
++
++/// Extrudes a one-region profile tapered by `BRepOffsetAPI_ThruSections` between the profile and
++/// its offset at the far end, split as `extrude_split` splits when it reaches a face or the body
++/// (section 8.5's taper (iii)).
++pub fn extrude_lofted(
++    profile: &PlanarProfile,
++    direction: Vector,
++    end: &ExtentEnd,
++    taper: f64,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let spec = spec(direction, end, taper, ExtentConstruction::ThruSections);
++    extent(profile, &spec, sys::extrude_lofted, interrupt)
++}
++
++/// The spec of one construction's call.
++fn spec(
++    direction: Vector,
++    end: &ExtentEnd,
++    taper: f64,
++    construction: ExtentConstruction,
++) -> ExtentSpec {
++    ExtentSpec {
++        direction,
++        end: end.clone(),
++        taper,
++        construction,
++    }
++}
++
++/// Checks `spec` and runs `construction` on it. Each construction's function names only its own
++/// shim function, so a build that calls one construction links no other.
++fn extent(
++    profile: &PlanarProfile,
++    spec: &ExtentSpec,
++    construction: Construction,
++    interrupt: &Interrupt,
++) -> Result<ExtentResult, KernelError> {
++    let operation = Operation::ExtrudeTo;
++    let frame = profile.plane.frame(operation)?;
++    let (data, body) = spec.to_ffi(operation, frame.normal)?;
++    let result = call(operation, || {
++        construction(profile.shape.inner(), body.inner(), &data, interrupt)
++    })?;
++    Ok(ExtentResult {
++        shape: Shape::from_ffi(operation, result.shape)?,
++        history: history_from_ffi(operation, result.inputs)?,
++        start: result.start,
++        end: result.end,
++        caps: result
++            .caps
++            .into_iter()
++            .map(|cap| CapName::from_ffi(operation, cap))
++            .collect::<Result<_, _>>()?,
++        validity: Validity::from_ffi(operation, result.validity)?,
++        polls: PollRecord::from_ffi(result.polls),
++    })
++}
++
++/// The largest distance from points of face `face` of `shape` (its vertices, points along its
++/// edges and a grid of points inside it) to the surface of face `target_face` of `target`, which
++/// reaches beyond that face's bounds: how far the face lies from the surface.
++pub fn surface_distance(
++    shape: &Shape,
++    face: u32,
++    target: &Shape,
++    target_face: u32,
++) -> Result<f64, KernelError> {
++    let operation = Operation::Query;
++    shape.check_index(operation, SubShapeKind::Face, face)?;
++    target.check_index(operation, SubShapeKind::Face, target_face)?;
++    call(operation, || {
++        sys::surface_distance(shape.inner(), face, target.inner(), target_face)
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::test_support::square_region;
++    use crate::{Plane, make_profile};
++
++    fn spec(construction: ExtentConstruction, end: ExtentEnd, taper: f64) -> ExtentSpec {
++        ExtentSpec {
++            direction: Vector::new(0.0, 0.0, 1.0),
++            end,
++            taper,
++            construction,
++        }
++    }
++
++    fn message(spec: &ExtentSpec) -> String {
++        let square = make_profile(&Plane::XY, &[square_region(0.0)]).expect("the square builds");
++        extrude_to(&square, spec, &Interrupt::new())
++            .expect_err("the spec is refused")
++            .message
++    }
++
++    #[test]
++    fn a_split_prism_needs_something_to_reach() {
++        let split = spec(ExtentConstruction::SplitPrism, ExtentEnd::Length(10.0), 0.0);
++        assert_eq!(message(&split), NEEDS_BODY_MESSAGE);
++    }
++
++    #[test]
++    fn a_split_prism_does_not_taper() {
++        let body = Shape::empty();
++        let split = spec(
++            ExtentConstruction::SplitPrism,
++            ExtentEnd::UpToBody(body),
++            0.1,
++        );
++        assert_eq!(message(&split), NO_TAPER_MESSAGE);
++    }
++
++    #[test]
++    fn taper_constructions_need_a_taper() {
++        for construction in [
++            ExtentConstruction::DraftAngle,
++            ExtentConstruction::ThruSections,
++        ] {
++            let untapered = spec(construction, ExtentEnd::Length(10.0), 0.0);
++            assert_eq!(message(&untapered), NEEDS_TAPER_MESSAGE);
++        }
++    }
++
++    #[test]
++    fn a_taper_runs_along_the_normal() {
++        let mut oblique = spec(ExtentConstruction::DraftAngle, ExtentEnd::Length(10.0), 0.1);
++        oblique.direction = Vector::new(0.0, 1.0, 1.0);
++        assert_eq!(message(&oblique), TAPER_DIRECTION_MESSAGE);
++    }
++
++    #[test]
++    fn a_body_without_faces_cannot_be_reached() {
++        let empty = spec(
++            ExtentConstruction::SplitPrism,
++            ExtentEnd::UpToBody(Shape::empty()),
++            0.0,
++        );
++        assert_eq!(message(&empty), EMPTY_BODY_MESSAGE);
++    }
++
++    #[test]
++    fn a_plain_feature_prism_of_a_length_is_refused() {
++        let plain = spec(
++            ExtentConstruction::FeaturePrism(FeatureBasis::Nothing),
++            ExtentEnd::Length(10.0),
++            0.0,
++        );
++        assert_eq!(message(&plain), PLAIN_LENGTH_MESSAGE);
++    }
++}
+diff --git a/crates/partsmith-occt-sys/src/rib.rs b/crates/partsmith-occt-sys/src/rib.rs
+new file mode 100644
+index 0000000..cfdc439
+--- /dev/null
++++ b/crates/partsmith-occt-sys/src/rib.rs
+@@ -0,0 +1,240 @@
++//! The ribs of the rib spike (kernel spec section 8.6): an open profile in a plane, thickened by
++//! half the rib's thickness to each side of the plane and reaching the body, by each construction
++//! the spike compares. The result reports the body with the rib, OCCT's history of the profile
++//! and the body, the faces the construction names as the rib's two sides, the checks of the
++//! result and of the construction, and the call's polls.
++
++use crate::error::{KernelError, Operation, call};
++use crate::ffi::bridge as sys;
++use crate::history::{History, history_from_ffi};
++use crate::interrupt::Interrupt;
++use crate::prism_extents::{PollRecord, Validity};
++use crate::shape::{Shape, SubShapeKind};
++use crate::values::{Plane, Point2, check_finite, is_positive_length};
++
++/// A rib: an open profile in a plane, thickened by half the thickness to each side of the plane.
++/// The rib reaches the body on the side of the profile that the plane's normal crossed with the
++/// profile's direction points to, the side `BRepFeat_MakeLinearForm` fills: on the left of the
++/// profile in the plane's coordinates.
++#[derive(Debug, Clone, PartialEq)]
++pub struct RibSpec {
++    /// The profile's plane, the middle of the rib.
++    pub plane: Plane,
++    /// The profile: lines through these points in order, in the plane's coordinates.
++    pub profile: Vec<Point2>,
++    /// The rib's thickness across the plane, in millimeters.
++    pub thickness: f64,
++}
++
++/// The construction of a rib (section 8.6's Constructions).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub enum RibConstruction {
++    /// (a) `BRepFeat_MakeLinearForm` with the open wire, its plane and the two thickness
++    /// directions. `sliding` is its `Modify` option: the builder tries to slide the rib along the
++    /// faces it meets.
++    LinearForm {
++        /// Whether the builder tries to slide the rib along the faces it meets.
++        sliding: bool,
++    },
++    /// (b) The open profile thickened into a planar face (`BRepOffsetAPI_MakeOffset` with
++    /// `IsOpenResult` true, by half the thickness to each side, join `GeomAbs_Intersection`),
++    /// extruded up to the body with the split prism of section 8.5 and fused to it. A straight
++    /// profile thickens across the rib's plane and reaches the body as `RibSpec` says. A profile
++    /// that is not straight lies in one plane only, the rib's: it thickens there and reaches
++    /// along the plane's normal.
++    ThickenedPrism,
++}
++
++/// A rib with what the spike measures of it.
++#[derive(Debug, Clone)]
++pub struct RibResult {
++    /// The body with the rib, repaired when it was not valid as built.
++    pub shape: Shape,
++    /// The rib before the fuse, repaired when it was not valid as built; the result itself for
++    /// `BRepFeat_MakeLinearForm`, which fuses the rib itself.
++    pub construction: Shape,
++    /// The profile as the shim built it: an open wire with one edge per line, in order.
++    pub profile: Shape,
++    /// OCCT's history of the profile (input 0) and the body (input 1).
++    pub history: History,
++    /// The faces the construction names as the rib's two sides, ascending.
++    pub sides: Vec<u32>,
++    /// The check of the result.
++    pub validity: Validity,
++    /// The check of the construction before the fuse.
++    pub construction_validity: Validity,
++    /// The polls of the call.
++    pub polls: PollRecord,
++}
++
++const FEW_POINTS_MESSAGE: &str = "A rib profile needs at least two points.";
++const SAME_POINTS_MESSAGE: &str = "Two points in a row of the rib profile are the same point.";
++const THICKNESS_MESSAGE: &str = "The rib thickness must be greater than 0 mm.";
++const NO_SOLID_MESSAGE: &str = "The rib needs a body with a solid to reach.";
++
++/// The shim's function of one construction.
++type Construction =
++    fn(&sys::Shape, &sys::RibSpecData, &Interrupt) -> Result<sys::RibData, cxx::Exception>;
++
++/// Builds the rib `spec` asks on `body` by `construction` (section 8.6).
++pub fn rib(
++    body: &Shape,
++    spec: &RibSpec,
++    construction: RibConstruction,
++    interrupt: &Interrupt,
++) -> Result<RibResult, KernelError> {
++    match construction {
++        RibConstruction::LinearForm { sliding } => rib_linear_form(body, spec, sliding, interrupt),
++        RibConstruction::ThickenedPrism => rib_thickened(body, spec, interrupt),
++    }
++}
++
++/// Builds the rib with `BRepFeat_MakeLinearForm`, fused to the body (section 8.6's construction
++/// (a)).
++pub fn rib_linear_form(
++    body: &Shape,
++    spec: &RibSpec,
++    sliding: bool,
++    interrupt: &Interrupt,
++) -> Result<RibResult, KernelError> {
++    build(body, spec, sliding, sys::rib_linear_form, interrupt)
++}
++
++/// Builds the rib from the profile thickened into a planar face, extruded up to the body with the
++/// split prism of section 8.5 and fused to it (section 8.6's construction (b)).
++pub fn rib_thickened(
++    body: &Shape,
++    spec: &RibSpec,
++    interrupt: &Interrupt,
++) -> Result<RibResult, KernelError> {
++    build(body, spec, false, sys::rib_thickened, interrupt)
++}
++
++/// Checks the rib's values (section 3.1 items 4 to 6) and returns their bridge form, with the
++/// profile's points in model space.
++fn spec_data(
++    operation: Operation,
++    body: &Shape,
++    spec: &RibSpec,
++    sliding: bool,
++) -> Result<sys::RibSpecData, KernelError> {
++    let frame = spec.plane.frame(operation)?;
++    let coordinates: Vec<f64> = spec
++        .profile
++        .iter()
++        .flat_map(|point| [point.x, point.y])
++        .chain([spec.thickness])
++        .collect();
++    check_finite(operation, &coordinates)?;
++    if spec.profile.len() < 2 {
++        return Err(KernelError::invalid_input(operation, FEW_POINTS_MESSAGE));
++    }
++    if spec
++        .profile
++        .windows(2)
++        .any(|pair| !is_positive_length(pair[0].distance(pair[1])))
++    {
++        return Err(KernelError::invalid_input(operation, SAME_POINTS_MESSAGE));
++    }
++    if !is_positive_length(spec.thickness) {
++        return Err(KernelError::invalid_input(operation, THICKNESS_MESSAGE));
++    }
++    if body.count(SubShapeKind::Solid) == 0 {
++        return Err(KernelError::invalid_input(operation, NO_SOLID_MESSAGE));
++    }
++    Ok(sys::RibSpecData {
++        plane: frame.to_ffi(),
++        points: spec
++            .profile
++            .iter()
++            .map(|point| spec.plane.to_world(*point).to_ffi())
++            .collect(),
++        thickness: spec.thickness,
++        sliding,
++    })
++}
++
++/// Checks the rib's values and runs `construction` on them. Each construction's function names
++/// only its own shim function, so a build that calls one construction links no other.
++fn build(
++    body: &Shape,
++    spec: &RibSpec,
++    sliding: bool,
++    construction: Construction,
++    interrupt: &Interrupt,
++) -> Result<RibResult, KernelError> {
++    let operation = Operation::Rib;
++    let data = spec_data(operation, body, spec, sliding)?;
++    let result = call(operation, || construction(body.inner(), &data, interrupt))?;
++    Ok(RibResult {
++        shape: Shape::from_ffi(operation, result.shape)?,
++        construction: Shape::from_ffi(operation, result.construction)?,
++        profile: Shape::from_ffi(operation, result.profile)?,
++        history: history_from_ffi(operation, result.inputs)?,
++        sides: result.sides,
++        validity: Validity::from_ffi(operation, result.validity)?,
++        construction_validity: Validity::from_ffi(operation, result.construction_validity)?,
++        polls: PollRecord::from_ffi(result.polls),
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::make_box;
++
++    fn spec(profile: &[(f64, f64)], thickness: f64) -> RibSpec {
++        RibSpec {
++            plane: Plane::XZ,
++            profile: profile.iter().map(|&(x, y)| Point2 { x, y }).collect(),
++            thickness,
++        }
++    }
++
++    fn message(body: &Shape, spec: &RibSpec) -> String {
++        rib_thickened(body, spec, &Interrupt::new())
++            .expect_err("the rib is refused")
++            .message
++    }
++
++    fn block() -> Shape {
++        make_box(&Plane::XY, 10.0, 10.0, 10.0)
++            .expect("the block builds")
++            .shape
++    }
++
++    #[test]
++    fn a_profile_needs_two_points() {
++        assert_eq!(
++            message(&block(), &spec(&[(1.0, 1.0)], 1.0)),
++            FEW_POINTS_MESSAGE
++        );
++    }
++
++    #[test]
++    fn points_in_a_row_differ() {
++        let repeated = spec(&[(1.0, 1.0), (1.0, 1.0), (5.0, 5.0)], 1.0);
++        assert_eq!(message(&block(), &repeated), SAME_POINTS_MESSAGE);
++    }
++
++    #[test]
++    fn a_rib_has_a_thickness() {
++        let flat = spec(&[(1.0, 1.0), (5.0, 5.0)], 0.0);
++        assert_eq!(message(&block(), &flat), THICKNESS_MESSAGE);
++    }
++
++    #[test]
++    fn a_rib_reaches_a_solid() {
++        let diagonal = spec(&[(1.0, 1.0), (5.0, 5.0)], 1.0);
++        assert_eq!(message(&Shape::empty(), &diagonal), NO_SOLID_MESSAGE);
++    }
++
++    #[test]
++    fn values_are_finite() {
++        let infinite = spec(&[(1.0, 1.0), (f64::INFINITY, 5.0)], 1.0);
++        assert_eq!(
++            message(&block(), &infinite),
++            "A value is not a finite number."
++        );
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/integration.rs b/crates/partsmith-occt-sys/tests/integration.rs
+index fd98155..3fc775c 100644
+--- a/crates/partsmith-occt-sys/tests/integration.rs
++++ b/crates/partsmith-occt-sys/tests/integration.rs
+@@ -11,6 +11,8 @@ mod exchange;
+ mod interrupts;
+ mod primitives_and_queries;
+ mod profiles_and_sweeps;
++mod rib;
++mod rib_inputs;
+ mod tessellation;
+ mod transforms_and_split;
+ mod values;
+diff --git a/crates/partsmith-occt-sys/tests/rib.rs b/crates/partsmith-occt-sys/tests/rib.rs
+new file mode 100644
+index 0000000..aa6473f
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/rib.rs
+@@ -0,0 +1,483 @@
++//! The rib spike (kernel spec section 8.6): each construction on each input, measured by the parts
++//! of section 8.1 item 4 that run as tests. The criterion of section 8.6's Pass that runs here,
++//! construction (b) valid wherever (a) is, is pinned as the spike recorded it, with the validity of
++//! each run's construction and result. Parity, time and size are judged from the two targets'
++//! output, the bench and the web core. The closed mesh, the rib's side faces at half the thickness
++//! from the profile's plane and the generators of its faces are measured, not criteria of the
++//! Pass, and printed for the record with the volume of each result next to the one the input
++//! describes, the history of every element and a summary for the native and WebAssembly
++//! comparison. Natively every run is also built on several threads at once and compared with a
++//! run on one thread (section 3.10 item 2).
++
++use std::collections::BTreeMap;
++use std::fmt::Write as _;
++use std::thread;
++
++use partsmith_mesh::{TessellationTolerance, WELD_TOLERANCE};
++use partsmith_occt_sys::{
++    Interrupt, LINEAR_TOLERANCE, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point2,
++    RibConstruction, RibResult, RibSpec, Shape, SubShape, SubShapeKind, TaggedCurve, Validity,
++    make_profile, rib, surface_distance,
++};
++
++use crate::rib_inputs::{Run, runs};
++
++/// The tolerance of the closed-mesh check: 0.05 mm and 5 degrees (test 138).
++const FINE: TessellationTolerance = TessellationTolerance {
++    chord_deviation: 0.05,
++    angular_deviation: 5.0_f64.to_radians(),
++};
++
++/// How far a side face may lie from the plane at half the thickness from the profile's plane
++/// (section 8.6's Checks, measured and not a criterion of its Pass).
++const SIDE_TOLERANCE: f64 = LINEAR_TOLERANCE;
++
++/// What the tests measure of one run that builds.
++struct Measurement {
++    /// The checks of the result and of the construction, and `Shape::is_valid` of each.
++    validity: Validity,
++    is_valid: bool,
++    construction_validity: Validity,
++    construction_is_valid: bool,
++    /// The undirected edges of the welded mesh of the result not used by exactly two triangles.
++    open_edges: usize,
++    /// The faces the construction names as the rib's sides, and for each the largest distance of
++    /// its points from the nearer of the two planes at half the thickness from the profile's
++    /// plane, with the side of that plane (1 or -1).
++    sides: Vec<(u32, f64, i8)>,
++    /// The rib's faces: the faces of the result that no face of the body lists in `modified`.
++    rib_faces: Vec<u32>,
++    /// The rib's faces neither in a profile edge's `generated` list nor named a side.
++    unexplained: Vec<u32>,
++    /// The result's volume, and the one the input describes.
++    volume: f64,
++    expected_volume: f64,
++}
++
++impl Measurement {
++    /// Every measurement, for the record.
++    fn describe(&self) -> String {
++        format!(
++            "{:?} (is_valid {}), construction {:?} (is_valid {}), {} open mesh edges, sides (face, largest distance from its plane in mm, side) {:?}, rib faces {:?}, of which neither generated by a profile edge nor a side {:?}, volume {:?} against {:?} described (relative difference {:?})",
++            self.validity,
++            self.is_valid,
++            self.construction_validity,
++            self.construction_is_valid,
++            self.open_edges,
++            self.sides,
++            self.rib_faces,
++            self.unexplained,
++            self.volume,
++            self.expected_volume,
++            (self.volume - self.expected_volume) / self.expected_volume,
++        )
++    }
++
++    /// Whether the construction and the result are valid as built, by the shim's check and by
++    /// `Shape::is_valid`: what section 8.6's Pass asks of (b) wherever (a) has it.
++    fn valid_as_built(&self) -> bool {
++        self.validity == Validity::AsBuilt
++            && self.is_valid
++            && self.construction_validity == Validity::AsBuilt
++            && self.construction_is_valid
++    }
++
++    /// The checks the run fails: the closed mesh of section 8.1 item 4, and section 8.6's Checks
++    /// of the sides and of the generators of the rib's faces. Measured, not criteria of section
++    /// 8.6's Pass.
++    fn failed_checks(&self) -> Vec<&'static str> {
++        let both_sides = [1, -1]
++            .iter()
++            .all(|side| self.sides.iter().any(|(_, _, named)| named == side));
++        [
++            ("closed", self.open_edges == 0),
++            (
++                "sides",
++                both_sides
++                    && self
++                        .sides
++                        .iter()
++                        .all(|(_, distance, _)| *distance <= SIDE_TOLERANCE),
++            ),
++            (
++                "generated",
++                !self.rib_faces.is_empty() && self.unexplained.is_empty(),
++            ),
++        ]
++        .into_iter()
++        .filter(|(_, passes)| !passes)
++        .map(|(check, _)| check)
++        .collect()
++    }
++}
++
++/// The undirected edges of the shape's mesh at `FINE`, welded with `WELD_TOLERANCE`, that are
++/// not used by exactly two triangles (test 138's check).
++fn open_edges(shape: &Shape) -> usize {
++    let welded = shape
++        .tessellate(&FINE, &Interrupt::new())
++        .expect("the rib tessellates")
++        .weld(WELD_TOLERANCE)
++        .expect("WELD_TOLERANCE is a valid weld tolerance")
++        .mesh;
++    let mut uses = BTreeMap::new();
++    for corners in welded.triangles() {
++        for side in 0..3 {
++            let (start, end) = (corners[side], corners[(side + 1) % 3]);
++            *uses
++                .entry((start.min(end), start.max(end)))
++                .or_insert(0_u32) += 1;
++        }
++    }
++    uses.values().filter(|count| **count != 2).count()
++}
++
++/// Whether face `face` of the result is in the `modified` list of a face of the body (input 1).
++fn from_body(result: &RibResult, face: u32) -> bool {
++    result
++        .history
++        .modified_from(SubShapeKind::Face, face)
++        .iter()
++        .any(|origin| origin.input == 1)
++}
++
++/// Whether face `face` of the result is in the `generated` list of a profile edge (input 0).
++fn generated_by_profile_edge(result: &RibResult, face: u32) -> bool {
++    result
++        .history
++        .generated_from(SubShapeKind::Face, face)
++        .iter()
++        .any(|origin| origin.input == 0 && origin.element.kind == SubShapeKind::Edge)
++}
++
++/// The largest distance of the points of `face` from the plane at half the thickness on the
++/// nearer side of the profile's plane, with that side.
++fn side_distance(run: &Run, result: &RibResult, face: u32) -> (f64, i8) {
++    let half = run.spec.thickness / 2.0;
++    let distance = |offset: f64| {
++        surface_distance(&result.shape, face, &offset_plane(&run.spec, offset), 1)
++            .expect("the side's distance can be measured")
++    };
++    let (positive, negative) = (distance(half), distance(-half));
++    if positive <= negative {
++        (positive, 1)
++    } else {
++        (negative, -1)
++    }
++}
++
++/// The plane at `offset` from the rib's plane along its normal, as the face of a square profile
++/// on it: face 1 of the shape, whose untrimmed surface `surface_distance` measures.
++fn offset_plane(spec: &RibSpec, offset: f64) -> Shape {
++    let normal = spec
++        .plane
++        .normal
++        .normalized()
++        .expect("the rib's plane has a normal");
++    let plane = Plane {
++        origin: spec.plane.origin.offset(normal.scaled(offset)),
++        ..spec.plane
++    };
++    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
++    let point = |corner: usize| {
++        let (x, y) = corners[corner % corners.len()];
++        Point2 { x, y }
++    };
++    let curves = (0..corners.len())
++        .map(|corner| TaggedCurve {
++            tag: u32::try_from(corner + 1).expect("four sides"),
++            curve: PlanarCurve::Line {
++                start: point(corner),
++                end: point(corner + 1),
++            },
++        })
++        .collect();
++    let region = PlanarRegion {
++        outer: PlanarLoop { curves },
++        holes: Vec::new(),
++    };
++    make_profile(&plane, &[region])
++        .expect("the square builds")
++        .shape
++}
++
++/// Measures a run that builds.
++fn measure(run: &Run, result: &RibResult) -> Measurement {
++    let rib_faces: Vec<u32> = (1..=result.shape.count(SubShapeKind::Face))
++        .filter(|face| !from_body(result, *face))
++        .collect();
++    let unexplained = rib_faces
++        .iter()
++        .copied()
++        .filter(|face| !generated_by_profile_edge(result, *face) && !result.sides.contains(face))
++        .collect();
++    let sides = result
++        .sides
++        .iter()
++        .map(|face| {
++            let (distance, side) = side_distance(run, result, *face);
++            (*face, distance, side)
++        })
++        .collect();
++    Measurement {
++        validity: result.validity,
++        is_valid: result.shape.is_valid().expect("the check runs"),
++        construction_validity: result.construction_validity,
++        construction_is_valid: result.construction.is_valid().expect("the check runs"),
++        open_edges: open_edges(&result.shape),
++        sides,
++        rib_faces,
++        unexplained,
++        volume: result.shape.volume().expect("the result has a volume"),
++        expected_volume: run.volume,
++    }
++}
++
++/// Measures a run, adds its line to `report`, and returns its outcome as the pinned table writes
++/// it: `valid` when its construction and result are valid as built, `not valid` when either is
++/// not, or the exception it fails with.
++fn measure_into(report: &mut String, run: &Run) -> String {
++    match rib(&run.body, &run.spec, run.kind, &Interrupt::new()) {
++        Ok(built) => {
++            let measurement = measure(run, &built);
++            writeln!(
++                report,
++                "{} {}: {}; sides {:?}; checks failed, measured and not criteria of the Pass {:?}; native time limit {:?}",
++                run.input,
++                run.construction,
++                measurement.describe(),
++                built.sides,
++                measurement.failed_checks(),
++                run.budget
++            )
++            .expect("a string takes text");
++            if measurement.valid_as_built() {
++                "valid".to_owned()
++            } else {
++                "not valid".to_owned()
++            }
++        }
++        Err(error) => {
++            writeln!(
++                report,
++                "{} {}: {}",
++                run.input,
++                run.construction,
++                error.detail()
++            )
++            .expect("a string takes text");
++            format!("fails {}", error.exception)
++        }
++    }
++}
++
++/// The inputs on which construction (b) is not valid where an option of (a) is, from each run's
++/// input, construction and whether it is valid: the inputs that fail the criterion of section
++/// 8.6's Pass that runs here.
++fn invalid_where_linear_form_is_valid<'input>(
++    runs: &[(&'input str, RibConstruction, bool)],
++) -> Vec<&'input str> {
++    let valid = |input: &str, thickened: bool| {
++        runs.iter().any(|(name, kind, valid)| {
++            *name == input && *valid && (*kind == RibConstruction::ThickenedPrism) == thickened
++        })
++    };
++    let mut inputs: Vec<&str> = runs.iter().map(|(input, _, _)| *input).collect();
++    inputs.dedup();
++    inputs
++        .into_iter()
++        .filter(|input| valid(input, false) && !valid(input, true))
++        .collect()
++}
++
++/// Every run's outcome, as the spike recorded it on 2026-11-15: each construction and result is
++/// valid as built.
++const RECORDED: &[(&str, &str, &str)] = &[
++    ("bracket", "linear-form", "valid"),
++    ("bracket", "linear-form-fixed", "valid"),
++    ("bracket", "thickened", "valid"),
++    ("cylinder", "linear-form", "valid"),
++    ("cylinder", "linear-form-fixed", "valid"),
++    ("cylinder", "thickened", "valid"),
++    ("v", "linear-form", "valid"),
++    ("v", "linear-form-fixed", "valid"),
++    ("v", "thickened", "valid"),
++    ("inside", "linear-form", "valid"),
++    ("inside", "linear-form-fixed", "valid"),
++    ("inside", "thickened", "valid"),
++    ("hole", "linear-form", "valid"),
++    ("hole", "linear-form-fixed", "valid"),
++    ("hole", "thickened", "valid"),
++];
++
++/// The inputs on which (b) is not valid where (a) is, as the spike recorded them: none.
++const RECORDED_INVALID: &[&str] = &[];
++
++#[test]
++fn ribs_meet_the_recorded_outcomes() {
++    let mut report = String::new();
++    let mut outcomes = Vec::new();
++    let mut validity = Vec::new();
++    for run in runs() {
++        let outcome = measure_into(&mut report, &run);
++        validity.push((run.input, run.kind, outcome == "valid"));
++        outcomes.push((run.input, run.construction, outcome));
++    }
++    let invalid = invalid_where_linear_form_is_valid(&validity);
++    println!("{report}");
++    println!("inputs on which (b) is not valid where (a) is: {invalid:?}");
++    let recorded: Vec<(&str, &str, String)> = RECORDED
++        .iter()
++        .map(|(input, construction, outcome)| (*input, *construction, (*outcome).to_owned()))
++        .collect();
++    assert_eq!(outcomes, recorded);
++    assert_eq!(invalid, RECORDED_INVALID);
++}
++
++/// The names OCCT's history gives each face, edge and vertex of a rib, one line per element.
++fn names(result: &RibResult) -> String {
++    let mut text = String::new();
++    for kind in [SubShapeKind::Face, SubShapeKind::Edge, SubShapeKind::Vertex] {
++        for index in 1..=result.shape.count(kind) {
++            let mut parts = Vec::new();
++            if kind == SubShapeKind::Face && result.sides.contains(&index) {
++                parts.push("side".to_owned());
++            }
++            let input_name = |input: usize| if input == 0 { "profile" } else { "body" };
++            for origin in result.history.modified_from(kind, index) {
++                parts.push(format!(
++                    "modified {} {:?} {}",
++                    input_name(origin.input),
++                    origin.element.kind,
++                    origin.element.index
++                ));
++            }
++            for origin in result.history.generated_from(kind, index) {
++                parts.push(format!(
++                    "generated {} {:?} {}",
++                    input_name(origin.input),
++                    origin.element.kind,
++                    origin.element.index
++                ));
++            }
++            let element = SubShape { kind, index };
++            writeln!(
++                text,
++                "  {:?} {}: {}",
++                element.kind,
++                element.index,
++                parts.join(", ")
++            )
++            .expect("a string takes text");
++        }
++    }
++    text
++}
++
++#[test]
++fn rib_history_names_for_the_record() {
++    for run in runs() {
++        if let Ok(result) = rib(&run.body, &run.spec, run.kind, &Interrupt::new()) {
++            println!(
++                "history {} {}:\n{}",
++                run.input,
++                run.construction,
++                names(&result)
++            );
++        }
++    }
++}
++
++/// A summary of `shape` as ADR 0042 compares examples: counts, volume, area and bounding box.
++fn summary(shape: &Shape) -> String {
++    let bounds = shape.bounding_box().expect("the shape has bounds");
++    format!(
++        "faces {} edges {} vertices {} volume {:?} area {:?} min {:?} max {:?}",
++        shape.count(SubShapeKind::Face),
++        shape.count(SubShapeKind::Edge),
++        shape.count(SubShapeKind::Vertex),
++        shape.volume().expect("the shape has a volume"),
++        shape.area().expect("the shape has an area"),
++        bounds.min,
++        bounds.max
++    )
++}
++
++#[test]
++fn rib_summaries_for_parity() {
++    for run in runs() {
++        match rib(&run.body, &run.spec, run.kind, &Interrupt::new()) {
++            Ok(result) => println!(
++                "parity {} {}: result {}; construction {}",
++                run.input,
++                run.construction,
++                summary(&result.shape),
++                summary(&result.construction)
++            ),
++            Err(error) => println!(
++                "parity {} {}: fails {}",
++                run.input,
++                run.construction,
++                error.detail()
++            ),
++        }
++    }
++}
++
++/// The threads of the concurrency test, and how many times each builds every run.
++const THREADS: usize = 4;
++const ROUNDS_PER_THREAD: usize = 5;
++
++/// What a run gives, as the concurrency test compares it: the summaries of its result and its
++/// construction, its sides and the names of every element, or its failure.
++fn outcome(run: &Run) -> String {
++    match rib(&run.body, &run.spec, run.kind, &Interrupt::new()) {
++        Ok(result) => format!(
++            "result {}; construction {}; sides {:?}\n{}",
++            summary(&result.shape),
++            summary(&result.construction),
++            result.sides,
++            names(&result)
++        ),
++        Err(error) => format!("fails {}", error.detail()),
++    }
++}
++
++#[test]
++#[cfg_attr(
++    target_os = "emscripten",
++    ignore = "the WebAssembly build has no threads"
++)]
++fn ribs_built_on_every_thread_match_single_threaded_ones() {
++    let runs = runs();
++    let reference: Vec<String> = runs.iter().map(outcome).collect();
++
++    let results: Vec<Vec<String>> = thread::scope(|scope| {
++        let handles: Vec<_> = (0..THREADS)
++            .map(|_| {
++                scope.spawn(|| {
++                    (0..ROUNDS_PER_THREAD)
++                        .flat_map(|_| runs.iter().map(outcome))
++                        .collect()
++                })
++            })
++            .collect();
++        handles
++            .into_iter()
++            .map(|handle| handle.join().expect("the thread finishes"))
++            .collect()
++    });
++
++    for (thread_number, outcomes) in results.iter().enumerate() {
++        for (position, outcome) in outcomes.iter().enumerate() {
++            let run = position % runs.len();
++            assert!(
++                *outcome == reference[run],
++                "{} {} on thread {thread_number}, round {}, differs from the single-threaded run",
++                runs[run].input,
++                runs[run].construction,
++                position / runs.len()
++            );
++        }
++    }
++}
+diff --git a/crates/partsmith-occt-sys/tests/rib_inputs.rs b/crates/partsmith-occt-sys/tests/rib_inputs.rs
+new file mode 100644
+index 0000000..9b32a74
+--- /dev/null
++++ b/crates/partsmith-occt-sys/tests/rib_inputs.rs
+@@ -0,0 +1,201 @@
++//! The inputs and constructions of the rib spike (kernel spec section 8.6), shared by its tests
++//! and the bench's rows.
++
++use std::f64::consts::PI;
++use std::time::Duration;
++
++use partsmith_occt_sys::{
++    Interrupt, Plane, Point, Point2, RibConstruction, RibSpec, Shape, cut, fuse, make_box,
++    make_cylinder,
++};
++
++/// The thickness of every rib of the spike, as gate 1's bracket has it, in millimeters.
++pub const THICKNESS: f64 = 4.0;
++
++/// The time section 8.6 gives the bracket's rib, natively.
++pub const BRACKET_BUDGET: Duration = Duration::from_millis(50);
++
++/// One construction tried on one input.
++#[derive(Debug, Clone)]
++pub struct Run {
++    /// The input's name.
++    pub input: &'static str,
++    /// The construction's name.
++    pub construction: &'static str,
++    /// The body the rib reaches.
++    pub body: Shape,
++    /// The rib.
++    pub spec: RibSpec,
++    /// The construction.
++    pub kind: RibConstruction,
++    /// The volume of the body with the rib that section 8.6's input describes, in cubic
++    /// millimeters: the body's, plus the region of the profile's plane between the profile and
++    /// the body times the thickness.
++    pub volume: f64,
++    /// The time section 8.6 gives the run natively, if any: its Pass times construction (b) on
++    /// the bracket.
++    pub budget: Option<Duration>,
++}
++
++/// The middle plane of the bracket's plates, y = 20, with its local x along +X and local y along
++/// +Z, so plane coordinates are (x, z).
++fn bracket_middle() -> Plane {
++    Plane {
++        origin: Point::new(0.0, 20.0, 0.0),
++        ..Plane::XZ
++    }
++}
++
++/// The plane of the tube's rib, z = 15, with its local axes along +X and +Y.
++fn tube_middle() -> Plane {
++    Plane {
++        origin: Point::new(0.0, 0.0, 15.0),
++        ..Plane::XY
++    }
++}
++
++/// Gate 1's L-bracket: two plates of 60 x 40 x 5 mm at a right angle, a horizontal one on
++/// `Plane::XY` (x from 0 to 60, z from 0 to 5) and a vertical one (x from 0 to 5, z from 0 to
++/// 60), fused. Its volume is 23,000 mm^3.
++pub fn bracket() -> Shape {
++    let horizontal = make_box(&Plane::XY, 60.0, 40.0, 5.0).expect("the plate builds");
++    let vertical = make_box(&Plane::XY, 5.0, 40.0, 60.0).expect("the plate builds");
++    fuse(&horizontal.shape, &[vertical.shape], &Interrupt::new())
++        .expect("the plates fuse")
++        .shape
++}
++
++/// The bracket with a hole of radius 4 mm through its horizontal plate at (25, 20), under the
++/// middle of the rib.
++pub fn bracket_with_hole() -> Shape {
++    let placement = Plane {
++        origin: Point::new(25.0, 20.0, -1.0),
++        ..Plane::XY
++    };
++    let drill = make_cylinder(&placement, 4.0, 7.0).expect("the drill builds");
++    cut(&bracket(), &[drill.shape], &Interrupt::new())
++        .expect("the hole cuts")
++        .shape
++}
++
++/// A tube of outer radius 20 mm and inner radius 15 mm along Z, 30 mm long.
++pub fn tube() -> Shape {
++    let outer = make_cylinder(&Plane::XY, 20.0, 30.0).expect("the cylinder builds");
++    let inner = make_cylinder(&Plane::XY, 15.0, 30.0).expect("the cylinder builds");
++    cut(&outer.shape, &[inner.shape], &Interrupt::new())
++        .expect("the bore cuts")
++        .shape
++}
++
++/// A point in plane coordinates.
++fn point(x: f64, y: f64) -> Point2 {
++    Point2 { x, y }
++}
++
++/// A rib of the spike's thickness through `profile` on `plane`.
++fn spec(plane: Plane, profile: Vec<Point2>) -> RibSpec {
++    RibSpec {
++        plane,
++        profile,
++        thickness: THICKNESS,
++    }
++}
++
++/// One input: its name, body, rib and the volume section 8.6 describes.
++struct Input {
++    name: &'static str,
++    body: Shape,
++    spec: RibSpec,
++    volume: f64,
++    budget: Option<Duration>,
++}
++
++/// The inputs of section 8.6. Every profile runs so that the body lies on its left in plane
++/// coordinates, the side `BRepFeat_MakeLinearForm` fills.
++fn inputs() -> Vec<Input> {
++    // The chord of the tube's bore at y = 5 meets the bore at x = +-sqrt(15^2 - 5^2).
++    let chord = 200.0_f64.sqrt();
++    // The circular segment between the chord and the bore.
++    let segment = 15.0 * 15.0 * (5.0_f64 / 15.0).acos() - 5.0 * chord;
++    let bracket_volume = 23_000.0;
++    vec![
++        Input {
++            // Gate 1's rib: the diagonal from (45, 5) on the horizontal plate's top to (5, 45)
++            // on the vertical plate's inner face, filling the triangle in the corner.
++            name: "bracket",
++            body: bracket(),
++            spec: spec(bracket_middle(), vec![point(45.0, 5.0), point(5.0, 45.0)]),
++            volume: bracket_volume + 0.5 * 40.0 * 40.0 * THICKNESS,
++            budget: Some(BRACKET_BUDGET),
++        },
++        Input {
++            // Both ends meet a cylinder: the chord of the tube's bore at y = 5, filling the
++            // circular segment between it and the bore.
++            name: "cylinder",
++            body: tube(),
++            spec: spec(tube_middle(), vec![point(-chord, 5.0), point(chord, 5.0)]),
++            volume: PI * (20.0 * 20.0 - 15.0 * 15.0) * 30.0 + segment * THICKNESS,
++            budget: None,
++        },
++        Input {
++            // Two segments in a V whose tip (20, 20) points into the corner, filling the
++            // quadrilateral between them and the plates (600 mm^2).
++            name: "v",
++            body: bracket(),
++            spec: spec(
++                bracket_middle(),
++                vec![point(45.0, 5.0), point(20.0, 20.0), point(5.0, 45.0)],
++            ),
++            volume: bracket_volume + 600.0 * THICKNESS,
++            budget: None,
++        },
++        Input {
++            // The bracket's diagonal extended 3 mm into each plate: its ends lie inside the
++            // body, and the rib is the bracket's.
++            name: "inside",
++            body: bracket(),
++            spec: spec(bracket_middle(), vec![point(48.0, 2.0), point(2.0, 48.0)]),
++            volume: bracket_volume + 0.5 * 40.0 * 40.0 * THICKNESS,
++            budget: None,
++        },
++        Input {
++            // The bracket's rib over the hole in its horizontal plate: the rib ends at the
++            // plate's top and spans the hole.
++            name: "hole",
++            body: bracket_with_hole(),
++            spec: spec(bracket_middle(), vec![point(45.0, 5.0), point(5.0, 45.0)]),
++            volume: bracket_volume - PI * 4.0 * 4.0 * 5.0 + 0.5 * 40.0 * 40.0 * THICKNESS,
++            budget: None,
++        },
++    ]
++}
++
++/// The constructions tried on every input: (a) with and without its sliding option, and (b).
++const CONSTRUCTIONS: [(&str, RibConstruction); 3] = [
++    ("linear-form", RibConstruction::LinearForm { sliding: true }),
++    (
++        "linear-form-fixed",
++        RibConstruction::LinearForm { sliding: false },
++    ),
++    ("thickened", RibConstruction::ThickenedPrism),
++];
++
++/// Every construction on every input, in the order of the inputs.
++pub fn runs() -> Vec<Run> {
++    inputs()
++        .into_iter()
++        .flat_map(|input| {
++            CONSTRUCTIONS.map(|(construction, kind)| Run {
++                input: input.name,
++                construction,
++                body: input.body.clone(),
++                spec: input.spec.clone(),
++                kind,
++                volume: input.volume,
++                budget: input
++                    .budget
++                    .filter(|_| kind == RibConstruction::ThickenedPrism),
++            })
++        })
++        .collect()
++}
+diff --git a/crates/partsmith-wasm/Cargo.toml b/crates/partsmith-wasm/Cargo.toml
+index 4e7f5cb..e7a0051 100644
+--- a/crates/partsmith-wasm/Cargo.toml
++++ b/crates/partsmith-wasm/Cargo.toml
+@@ -30,6 +30,8 @@ harness = false
+ 
+ [dependencies]
+ partsmith-engine.workspace = true
++# The rib spike's calls in `main` (kernel spec section 8.1 item 2).
++partsmith-occt-sys.workspace = true
+ 
+ [dev-dependencies]
+ partsmith-budgets.workspace = true
+diff --git a/crates/partsmith-wasm/src/main.rs b/crates/partsmith-wasm/src/main.rs
+index fa319e9..3b97288 100644
+--- a/crates/partsmith-wasm/src/main.rs
++++ b/crates/partsmith-wasm/src/main.rs
+@@ -1,6 +1,37 @@
+ //! The web core module `partsmith_core`: an Emscripten executable whose runtime stays alive after `main` returns, so JavaScript can call `ps_alloc`, `ps_free` and `ps_call` (protocol.md section 2.10, ADR 0009).
+ 
++use std::hint::black_box;
++
++use partsmith_occt_sys::{
++    Interrupt, Plane, Point, Point2, RibSpec, fuse, make_box, rib_linear_form, rib_thickened,
++};
++
+ fn main() {
+     // Creating the session here pays its setup cost while the module is instantiated. Calling into the library also keeps it, and with it the three exports, in the link.
+     partsmith_wasm::initialize_session();
++    keep_rib_spike();
++}
++
++/// Calls the rib spike's functions on a small input so the linker keeps their code for the size measurement (kernel spec section 8.1 items 2 and 4): each construction once, on an L of two plates 6 x 4 x 1 mm with a rib 0.4 mm thick across their corner.
++fn keep_rib_spike() {
++    let (Ok(horizontal), Ok(vertical)) = (
++        make_box(&Plane::XY, 6.0, 4.0, 1.0),
++        make_box(&Plane::XY, 1.0, 4.0, 6.0),
++    ) else {
++        return;
++    };
++    let interrupt = Interrupt::new();
++    let Ok(bracket) = fuse(&horizontal.shape, &[vertical.shape], &interrupt) else {
++        return;
++    };
++    let spec = RibSpec {
++        plane: Plane {
++            origin: Point::new(0.0, 2.0, 0.0),
++            ..Plane::XZ
++        },
++        profile: vec![Point2 { x: 5.0, y: 1.0 }, Point2 { x: 1.0, y: 5.0 }],
++        thickness: 0.4,
++    };
++    let _ = black_box(rib_linear_form(&bracket.shape, &spec, true, &interrupt));
++    let _ = black_box(rib_thickened(&bracket.shape, &spec, &interrupt));
+ }
