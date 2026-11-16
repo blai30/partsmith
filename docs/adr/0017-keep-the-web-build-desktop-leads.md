@@ -1,6 +1,6 @@
 # 0017: Keep the web build; the desktop app leads where the platforms differ
 
-Status: Accepted (owner, 2026-11-04), signed off as built
+Status: Accepted (owner, 2026-11-04), signed off as built. Python on the web (Pyodide) ships in v1.0, as amended by [ADR 0070](0070-pyodide-spike-decides-when-web-scripting-ships.md) (2026-11-16, Accepted (owner's rule of 2026-11-05), needs human review at the M2 gate).
 
 ## Context
 

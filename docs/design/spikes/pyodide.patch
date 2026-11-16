@@ -1,0 +1,913 @@
+Pyodide spike: the partsmith package on Pyodide 314.0.7 beside the web core, in Chromium.
+
+ADR: docs/adr/0070-pyodide-spike-decides-when-web-scripting-ships.md (M2 wave 1, m2-plan.md choice 25).
+Branch: spike/pyodide, kept only in the development container and never pushed.
+Last commit: 08f36b7 (08f36b77380fc05242e3d4ba7b772c34b17668ef).
+Base commit: d978be2 (d978be2f7d8a86236bf9bc2adc3e2f6babc670d9).
+
+This file is git diff d978be2 08f36b7. To rebuild the branch's tree, check out the base commit and run git apply with this file at the root of the repository. git apply skips these lines and starts at the first diff line below.
+
+diff --git a/.gitignore b/.gitignore
+index 110f5fe..4662a8b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -4,6 +4,7 @@ node_modules/
+ /ui/test-results
+ /ui/playwright-report
+ /ui/public/core
++/ui/public/pyodide
+ /desktop/src-tauri/target
+ /desktop/src-tauri/gen
+ __pycache__/
+diff --git a/spike/pyodide/_core.py b/spike/pyodide/_core.py
+new file mode 100644
+index 0000000..7b0b342
+--- /dev/null
++++ b/spike/pyodide/_core.py
+@@ -0,0 +1,49 @@
++"""A pure-Python `partsmith._core` for Pyodide, the spike of ADR 0070.
++
++It takes the place of the `partsmith-py` extension module (python-api.md section 2.2). Every frame goes to the web
++core through `partsmith_web_core`, the JavaScript module that the worker of ui/public/pyodide-spike/worker.mjs
++registers. The worker runs one instance of the core, whose one session holds every document of every `Session`.
++"""
++
++import partsmith_web_core
++from pyodide.ffi import to_js
++
++from ._frames import decode_response, encode_request
++
++
++class Session:
++    """One engine session as the extension's `Session` offers it; on the web, a handle on the core's one session."""
++
++    def __init__(self, *, display: bool = False, deterministic_ids: bool = True) -> None:
++        # The core's session keeps its own options, display meshes on and random ids (ADR 0070 question 8), so both
++        # keywords are taken and ignored.
++        pass
++
++    def call(self, frame: bytes) -> bytes:
++        """Handles one request frame and returns the response frame. Engine errors are inside the frame."""
++        return partsmith_web_core.call(to_js(frame)).to_bytes()
++
++
++def _engine_info() -> dict:
++    """The result of one `engine_info` request, sent when the module is imported."""
++    return decode_response(Session().call(encode_request(1, {"type": "engine_info"}))).response["result"]
++
++
++_ENGINE_INFO = _engine_info()
++
++PROTOCOL_VERSION: int = _ENGINE_INFO["protocol_version"]
++"""The protocol version of the frames `Session.call` takes and returns."""
++ENGINE_VERSION: str = _ENGINE_INFO["engine_version"]
++"""The engine version."""
++FORMAT_VERSION: int = _ENGINE_INFO["format_version"]
++"""The newest `.ptsm` format version the engine reads and writes."""
++
++
++def ptsm_schema() -> str:
++    """The .ptsm JSON Schema text, which the spike does not offer."""
++    raise NotImplementedError("The Pyodide spike's partsmith._core has no ptsm_schema.")
++
++
++def protocol_schema() -> str:
++    """The protocol JSON Schema text, which the spike does not offer."""
++    raise NotImplementedError("The Pyodide spike's partsmith._core has no protocol_schema.")
+diff --git a/spike/pyodide/prepare.py b/spike/pyodide/prepare.py
+new file mode 100644
+index 0000000..fdb9cf4
+--- /dev/null
++++ b/spike/pyodide/prepare.py
+@@ -0,0 +1,48 @@
++"""Steps 2 and 3 of ADR 0070's method: puts Pyodide's runtime files and the `partsmith` package into ui/public/pyodide.
++
++Run it from any directory after `pnpm -C ui install`, which installs the development dependency pyodide 314.0.7:
++
++    python3 spike/pyodide/prepare.py
++
++It copies the five runtime files from ui/node_modules/pyodide and writes partsmith.zip: every `.py` file of
++python/partsmith under `partsmith/`, with spike/pyodide/_core.py as `partsmith/_core.py`. The zip holds no `_core.pyi`,
++no `_core.abi3.so` and no `__pycache__`. Git ignores ui/public/pyodide, so the branch commits no file of Pyodide.
++"""
++
++import shutil
++import zipfile
++from pathlib import Path
++
++REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
++"""The repository root (this script is two levels below it)."""
++
++PYODIDE_PACKAGE = REPOSITORY_ROOT / "ui" / "node_modules" / "pyodide"
++"""The npm package that `pnpm -C ui install` installs."""
++
++RUNTIME_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]
++"""The runtime files that `loadPyodide` fetches from its `indexURL`."""
++
++DESTINATION = REPOSITORY_ROOT / "ui" / "public" / "pyodide"
++"""The folder the web build serves as `/pyodide/`."""
++
++PACKAGE = REPOSITORY_ROOT / "python" / "partsmith"
++"""The pure-Python package, unchanged."""
++
++CORE = Path(__file__).with_name("_core.py")
++"""The pure-Python `partsmith._core` that takes the place of the extension module."""
++
++
++def main() -> None:
++    DESTINATION.mkdir(parents=True, exist_ok=True)
++    for name in RUNTIME_FILES:
++        shutil.copyfile(PYODIDE_PACKAGE / name, DESTINATION / name)
++    with zipfile.ZipFile(DESTINATION / "partsmith.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
++        for source in sorted(PACKAGE.rglob("*.py")):
++            archive.write(source, f"partsmith/{source.relative_to(PACKAGE).as_posix()}")
++        archive.write(CORE, "partsmith/_core.py")
++    for path in sorted(DESTINATION.iterdir()):
++        print(f"{path.relative_to(REPOSITORY_ROOT)}: {path.stat().st_size} bytes")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/ui/e2e/pyodide-spike.spec.ts b/ui/e2e/pyodide-spike.spec.ts
+new file mode 100644
+index 0000000..5ad924d
+--- /dev/null
++++ b/ui/e2e/pyodide-spike.spec.ts
+@@ -0,0 +1,381 @@
++/// <reference lib="dom" />
++import { expect, type BrowserContext, type Page, type Worker } from '@playwright/test'
++import { percentile, reportedViolations, test } from './helpers'
++import { expectWithinBudgets, type Measured } from './support/perf'
++
++// The Pyodide spike of ADR 0070 (m2-plan.md choice 25, risk 19). Pyodide runs beside an instance of
++// the shipped web core in the module worker of public/pyodide-spike/, served by the preview with
++// every header of public/_headers, the content security policy included. Each test reports its
++// samples as annotations and holds the values that ADR 0070's criteria bound. Tagged @perf, so it
++// runs only by hand: PARTSMITH_PERF=1 pnpm -C ui exec playwright test pyodide-spike --project=chromium,
++// after spike/pyodide/prepare.py has put Pyodide's files and partsmith.zip in public/pyodide.
++
++// One test after another in one worker: tests side by side would time each other's load.
++test.describe.configure({ mode: 'default' })
++
++/** The spike's page. */
++const PAGE_PATH = '/pyodide-spike/index.html'
++
++/** The path of the page's module worker, which runs the core and Pyodide. */
++const WORKER_PATH = '/pyodide-spike/worker.mjs'
++
++/** The timed samples of each value, after one untimed run; their median counts (python-api.md 5). */
++const SAMPLES = 7
++
++/** The box script of ADR 0070, which the native baseline runs too. */
++const BOX_SCRIPT = [
++  'from partsmith import Document, Part, box',
++  '',
++  'document = Document()',
++  'with Part("Box") as part:',
++  '    box(20, 30, 40)',
++  'volume = part.volume()',
++  'text = document.to_text()',
++  'document.close()',
++  '',
++].join('\n')
++
++/** The volume of a 20 by 30 by 40 box in cubic millimeters. */
++const BOX_VOLUME = 24_000
++
++/** C1: the web's cold start budget in milliseconds (technical design section 14). */
++const COLD_LOAD_BUDGET = 4_000
++
++/** C3: 3 times row 2's 2 ms of Python overhead per API call (python-api.md 5). */
++const OVERHEAD_BUDGET = 6
++
++/** C5: half of the core's 512 MiB cache budget on wasm32, in bytes. */
++const PYODIDE_MEMORY_LIMIT = 256 * 1024 * 1024
++
++/** How long one test may take: every sample loads Pyodide, and a first load fetches 12 MB. */
++const TEST_TIMEOUT_MILLISECONDS = 600_000
++
++/** How long the page may take until its worker's core runs. */
++const READY_TIMEOUT_MILLISECONDS = 60_000
++
++/** Row 2's three operations (python-api.md 5), by the names the worker's harness gives them. */
++const OPERATIONS = ['box', 'top', 'volume'] as const
++
++/** One of row 2's operations. */
++type Operation = (typeof OPERATIONS)[number]
++
++/** A resource the worker fetched, and whether it was fetched during the timed load. */
++type Resource = {
++  readonly path: string
++  readonly transferSize: number
++  readonly duringLoad: boolean
++}
++
++/** What the worker's `load` gives. */
++type Load = { readonly milliseconds: number; readonly resources: readonly Resource[] }
++
++/** What the worker's `runBoxScript` gives. */
++type BoxScriptRun = {
++  readonly milliseconds: number
++  readonly coreMilliseconds: number
++  readonly volume: number
++  readonly text: string
++}
++
++/** The functions the worker puts on its global scope (public/pyodide-spike/worker.mjs). */
++type PyodideSpike = {
++  readonly load: () => Promise<Load>
++  readonly runBoxScript: (source: string) => Promise<BoxScriptRun>
++  readonly overhead: (operation: Operation) => Promise<number>
++  readonly memory: () => { readonly pyodideBytes: number; readonly coreBytes: number }
++  readonly violations: () => string[]
++  readonly crossOriginIsolated: () => boolean
++}
++
++// The global of the spike's worker, and the global of its page (public/pyodide-spike/main.mjs).
++declare const self: { readonly pyodideSpike: PyodideSpike }
++declare const window: { readonly pyodideSpikeViolations: readonly string[] }
++
++/** Adds every console message of a context, from pages and workers, to `messages` as `{type} {text} ({URL})`. */
++function watchConsole(context: BrowserContext, messages: string[]): void {
++  context.on('console', (message) => {
++    messages.push(`${message.type()} ${message.text()} (${message.location().url})`)
++  })
++}
++
++/** Opens the spike's page, or reloads it, and returns its worker once the worker's core runs. */
++async function openSpike(page: Page, reload: boolean): Promise<Worker> {
++  await (reload ? page.reload() : page.goto(PAGE_PATH))
++  await expect(page.locator('body')).toHaveAttribute('data-state', 'ready', {
++    timeout: READY_TIMEOUT_MILLISECONDS,
++  })
++  const workers = page.workers().filter((worker) => new URL(worker.url()).pathname === WORKER_PATH)
++  expect(workers).toHaveLength(1)
++  const [worker] = workers
++  if (worker === undefined) {
++    throw new Error('The spike page has no worker.')
++  }
++  return worker
++}
++
++/** Loads Pyodide and `partsmith` in the worker. */
++function load(worker: Worker): Promise<Load> {
++  return worker.evaluate(() => self.pyodideSpike.load())
++}
++
++/**
++ * Every content security policy violation of the page and its worker since they started: the
++ * `securitypolicyviolation` events their scripts keep and the reports of `reportedViolations`.
++ */
++async function violations(page: Page, worker: Worker): Promise<string[]> {
++  return [
++    ...(await page.evaluate(() => window.pyodideSpikeViolations)).map((line) => `page ${line}`),
++    ...(await page.evaluate(reportedViolations)).map((line) => `page report ${line}`),
++    ...(await worker.evaluate(() => self.pyodideSpike.violations())).map(
++      (line) => `worker ${line}`,
++    ),
++    ...(await worker.evaluate(reportedViolations)).map((line) => `worker report ${line}`),
++  ]
++}
++
++/** Takes one untimed sample, then `SAMPLES` timed ones, one after another, and returns the timed ones. */
++async function samples<Sample>(take: () => Promise<Sample>): Promise<Sample[]> {
++  await take()
++  const taken: Sample[] = []
++  for (let i = 0; i < SAMPLES; i++) {
++    // One sample at a time: samples side by side would time each other.
++    // oxlint-disable-next-line no-await-in-loop
++    taken.push(await take())
++  }
++  return taken
++}
++
++/** The median of `values`, the 4th smallest of 7 (python-api.md 5). */
++function median(values: readonly number[]): number {
++  return percentile(values, 0.5)
++}
++
++/** The sum of the bytes `resources` transferred. */
++function transferred(resources: readonly Resource[]): number {
++  return resources.reduce((total, resource) => total + resource.transferSize, 0)
++}
++
++/** Adds an annotation of type `type` that reads `{name}: {value}`; values are written as they are. */
++function record(type: 'samples' | 'value', name: string, value: unknown): void {
++  test.info().annotations.push({ type, description: `${name}: ${JSON.stringify(value)}` })
++}
++
++/**
++ * Records the samples of a load named `name`: their times, the bytes transferred during each load
++ * and by every resource of the worker, the core's included, and the last sample's resources.
++ * Returns the median time.
++ */
++function recordLoads(name: string, loads: readonly Load[]): number {
++  const milliseconds = median(loads.map((sample) => sample.milliseconds))
++  record(
++    'samples',
++    `${name}, ms`,
++    loads.map((sample) => sample.milliseconds),
++  )
++  record('value', `${name}, median ms`, milliseconds)
++  record(
++    'samples',
++    `${name}, bytes transferred during the load`,
++    loads.map((sample) => transferred(sample.resources.filter((resource) => resource.duringLoad))),
++  )
++  record(
++    'samples',
++    `${name}, bytes transferred by every resource of the worker`,
++    loads.map((sample) => transferred(sample.resources)),
++  )
++  record('value', `${name}, last sample's resources`, loads.at(-1)?.resources)
++  return milliseconds
++}
++
++/**
++ * Takes the cold load's samples in `page`, whose context keeps its HTTP cache across reloads: one
++ * open fills the cache, then each sample reloads the page and loads Pyodide in the new worker. Every
++ * page load's violations go to `seen`. Returns the median time and the last worker, with Pyodide
++ * loaded.
++ */
++async function coldLoad(
++  page: Page,
++  seen: string[],
++): Promise<{ readonly milliseconds: number; readonly worker: Worker }> {
++  let worker = await openSpike(page, false)
++  await load(worker)
++  const loads = await samples(async () => {
++    seen.push(...(await violations(page, worker)))
++    worker = await openSpike(page, true)
++    return load(worker)
++  })
++  return { milliseconds: recordLoads('cold load', loads), worker }
++}
++
++test.describe('Pyodide spike (ADR 0070)', () => {
++  test('first load in a new context with an empty HTTP cache @perf', async ({
++    browser,
++    baseURL,
++  }) => {
++    test.setTimeout(TEST_TIMEOUT_MILLISECONDS)
++    const seen: string[] = []
++    const messages: string[] = []
++    const loads = await samples(async () => {
++      const context = await browser.newContext({ baseURL })
++      try {
++        watchConsole(context, messages)
++        const page = await context.newPage()
++        const worker = await openSpike(page, false)
++        const sample = await load(worker)
++        seen.push(...(await violations(page, worker)))
++        return sample
++      } finally {
++        await context.close()
++      }
++    })
++
++    recordLoads('first load', loads)
++    record('value', 'browser.version()', browser.version())
++    record('value', 'console messages', messages)
++    expect(seen, 'the content security policy violations').toEqual([])
++  })
++
++  test('cold load, box script, Python overhead, memory and policy, with every file in the HTTP cache @perf', async ({
++    playwright,
++    launchOptions,
++    baseURL,
++  }) => {
++    test.setTimeout(TEST_TIMEOUT_MILLISECONDS)
++    // A context with a profile on disk: Playwright's default context keeps its HTTP cache in memory,
++    // where neither pyodide.asm.wasm nor the core's module stays cached across a reload.
++    const context = await playwright.chromium.launchPersistentContext(
++      test.info().outputPath('profile'),
++      { ...launchOptions, baseURL },
++    )
++    try {
++      const messages: string[] = []
++      watchConsole(context, messages)
++      const page = context.pages()[0] ?? (await context.newPage())
++      const seen: string[] = []
++      const { milliseconds, worker } = await coldLoad(page, seen)
++      expectWithinBudgets('C1', [
++        { statistic: 'cold load', value: milliseconds, budget: COLD_LOAD_BUDGET },
++      ])
++
++      const runs = await samples(() =>
++        worker.evaluate((source) => self.pyodideSpike.runBoxScript(source), BOX_SCRIPT),
++      )
++      record(
++        'samples',
++        'box script, ms',
++        runs.map((run) => run.milliseconds),
++      )
++      record(
++        'samples',
++        'box script, ms inside callCore',
++        runs.map((run) => run.coreMilliseconds),
++      )
++      record('value', 'box script, median ms', median(runs.map((run) => run.milliseconds)))
++      record(
++        'value',
++        'box script, median ms inside callCore',
++        median(runs.map((run) => run.coreMilliseconds)),
++      )
++      record(
++        'samples',
++        'box script, volume',
++        runs.map((run) => run.volume),
++      )
++      const [firstRun] = runs
++      if (firstRun === undefined) {
++        throw new Error('The box script ran no sample.')
++      }
++      await test
++        .info()
++        .attach('box script text', { body: firstRun.text, contentType: 'text/plain' })
++      for (const run of runs) {
++        expect(Math.abs(run.volume - BOX_VOLUME) / BOX_VOLUME).toBeLessThanOrEqual(1e-9)
++        expect(run.text).toBe(firstRun.text)
++      }
++
++      const memory = await worker.evaluate(() => self.pyodideSpike.memory())
++      const pageMemory = await page.evaluate(async () => {
++        const measured = await (
++          performance as unknown as {
++            measureUserAgentSpecificMemory: () => Promise<{ readonly bytes: number }>
++          }
++        ).measureUserAgentSpecificMemory()
++        return measured.bytes
++      })
++      record('value', "Pyodide's WebAssembly memory, bytes", memory.pyodideBytes)
++      record('value', "the core instance's WebAssembly memory, bytes", memory.coreBytes)
++      record('value', "the page's total from measureUserAgentSpecificMemory, bytes", pageMemory)
++      expect
++        .soft(memory.pyodideBytes, "C5 Pyodide's WebAssembly memory")
++        .toBeLessThanOrEqual(PYODIDE_MEMORY_LIMIT)
++
++      const overheads: Measured[] = []
++      for (const operation of OPERATIONS) {
++        // One operation after another, as row 2 takes them.
++        // oxlint-disable-next-line no-await-in-loop
++        const taken = await samples(() =>
++          worker.evaluate((name) => self.pyodideSpike.overhead(name), operation),
++        )
++        record('samples', `Python overhead of ${operation}, ms`, taken)
++        overheads.push({
++          statistic: `Python overhead of ${operation}`,
++          value: median(taken),
++          budget: OVERHEAD_BUDGET,
++        })
++      }
++      expectWithinBudgets('C3', overheads)
++
++      const isolated = await worker.evaluate(() => self.pyodideSpike.crossOriginIsolated())
++      seen.push(...(await violations(page, worker)))
++      record('value', 'crossOriginIsolated in the worker', isolated)
++      record('value', 'content security policy violations', seen)
++      record('value', 'console messages', messages)
++      expect.soft(isolated, 'C4 crossOriginIsolated in the worker').toBe(true)
++      expect.soft(seen, 'C4 the content security policy violations').toEqual([])
++    } finally {
++      await context.close()
++    }
++  })
++
++  test("cold load in Playwright's default context, which reloads as P-1 does @perf", async ({
++    page,
++  }) => {
++    test.setTimeout(TEST_TIMEOUT_MILLISECONDS)
++    const messages: string[] = []
++    watchConsole(page.context(), messages)
++    const seen: string[] = []
++    const { worker } = await coldLoad(page, seen)
++    seen.push(...(await violations(page, worker)))
++    record('value', 'content security policy violations', seen)
++    record('value', 'console messages', messages)
++    expect(seen, 'the content security policy violations').toEqual([])
++  })
++
++  test('control: the worker reports a string evaluated in a new task, which the policy refuses @perf', async ({
++    page,
++  }) => {
++    // DevTools lets the code that Worker.evaluate runs, and its microtasks, evaluate strings, so the
++    // worker runs every measured call in a new task. This evaluates a string in a new task, as
++    // Pyodide's run_js would, and expects the worker's events and reports to hold that refusal alone.
++    const worker = await openSpike(page, false)
++    const outcome = await worker.evaluate(
++      () =>
++        new Promise<string>((resolve) => {
++          setTimeout(() => {
++            try {
++              // On purpose, so the policy has something to refuse.
++              // oxlint-disable-next-line no-eval
++              globalThis.eval('1 + 1')
++              resolve('evaluated')
++            } catch (error) {
++              resolve(error instanceof Error ? error.name : String(error))
++            }
++          }, 0)
++        }),
++    )
++    expect(outcome).toBe('EvalError')
++    await expect
++      .poll(() => violations(page, worker))
++      .toEqual(['worker script-src eval', 'worker report script-src eval'])
++  })
++})
+diff --git a/ui/package.json b/ui/package.json
+index 088f678..f495e06 100644
+--- a/ui/package.json
++++ b/ui/package.json
+@@ -41,6 +41,7 @@
+     "json-schema-to-typescript": "16.0.0",
+     "oxfmt": "0.72.0",
+     "oxlint": "1.87.0",
++    "pyodide": "314.0.7",
+     "tailwindcss": "4.3.3",
+     "typescript": "6.0.3",
+     "vite": "8.3.4",
+diff --git a/ui/pnpm-lock.yaml b/ui/pnpm-lock.yaml
+index 233dcff..802ac0f 100644
+--- a/ui/pnpm-lock.yaml
++++ b/ui/pnpm-lock.yaml
+@@ -63,6 +63,9 @@ importers:
+       oxlint:
+         specifier: 1.87.0
+         version: 1.87.0
++      pyodide:
++        specifier: 314.0.7
++        version: 314.0.7
+       tailwindcss:
+         specifier: 4.3.3
+         version: 4.3.3
+@@ -636,6 +639,9 @@ packages:
+   '@types/deep-eql@4.0.2':
+     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
+ 
++  '@types/emscripten@1.41.6':
++    resolution: {integrity: sha512-uN+9i8bFT5CUcZfyIEYDrSueACEyKGbUs5kC/72DGlZZoinh84sJfVV0i8UOJD1asdzkvLPBRrKs41kZ8MdEXg==}
++
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
+@@ -1073,6 +1079,10 @@ packages:
+     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
+     engines: {node: '>=6'}
+ 
++  pyodide@314.0.7:
++    resolution: {integrity: sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A==}
++    engines: {node: '>=18.0.0'}
++
+   react-dom@19.3.0:
+     resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
+     peerDependencies:
+@@ -1271,6 +1281,18 @@ packages:
+     engines: {node: '>=20.11'}
+     hasBin: true
+ 
++  ws@8.23.0:
++    resolution: {integrity: sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==}
++    engines: {node: '>=10.0.0'}
++    peerDependencies:
++      bufferutil: ^4.0.1
++      utf-8-validate: '>=5.0.2'
++    peerDependenciesMeta:
++      bufferutil:
++        optional: true
++      utf-8-validate:
++        optional: true
++
+   xml-name-validator@5.0.0:
+     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
+     engines: {node: '>=18'}
+@@ -1663,6 +1685,8 @@ snapshots:
+ 
+   '@types/deep-eql@4.0.2': {}
+ 
++  '@types/emscripten@1.41.6': {}
++
+   '@types/estree@1.0.9': {}
+ 
+   '@types/json-schema@7.0.15': {}
+@@ -2031,6 +2055,14 @@ snapshots:
+ 
+   punycode@2.3.1: {}
+ 
++  pyodide@314.0.7:
++    dependencies:
++      '@types/emscripten': 1.41.6
++      ws: 8.23.0
++    transitivePeerDependencies:
++      - bufferutil
++      - utf-8-validate
++
+   react-dom@19.3.0(react@19.3.0):
+     dependencies:
+       react: 19.3.0
+@@ -2169,6 +2201,8 @@ snapshots:
+ 
+   why-is-node-running@3.2.1: {}
+ 
++  ws@8.23.0: {}
++
+   xml-name-validator@5.0.0: {}
+ 
+   xmlchars@2.2.0: {}
+diff --git a/ui/public/pyodide-spike/index.html b/ui/public/pyodide-spike/index.html
+new file mode 100644
+index 0000000..9ba4cd9
+--- /dev/null
++++ b/ui/public/pyodide-spike/index.html
+@@ -0,0 +1,10 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <title>Pyodide spike</title>
++    <!-- The policy of public/_headers allows no inline script, so the page's script is a file (ADR 0070). -->
++    <script type="module" src="./main.mjs"></script>
++  </head>
++  <body></body>
++</html>
+diff --git a/ui/public/pyodide-spike/main.mjs b/ui/public/pyodide-spike/main.mjs
+new file mode 100644
+index 0000000..1d4b379
+--- /dev/null
++++ b/ui/public/pyodide-spike/main.mjs
+@@ -0,0 +1,34 @@
++// The script of the Pyodide spike page (ADR 0070). It keeps every content security policy violation
++// event of the page from its start and starts the module worker that runs Pyodide beside the web
++// core. The body's data-state turns "ready" once the worker's core runs, or "failed" with the reason
++// in data-error. The spike's test drives the worker through Playwright's Worker.evaluate.
++
++/** Every `securitypolicyviolation` event of the page, as `{directive} {URL}`. */
++const violations = []
++document.addEventListener('securitypolicyviolation', (event) => {
++  violations.push(`${event.effectiveDirective} ${event.blockedURI}`)
++})
++globalThis.pyodideSpikeViolations = violations
++
++const worker = new Worker(new URL('worker.mjs', import.meta.url), { type: 'module' })
++worker.addEventListener(
++  'message',
++  () => {
++    document.body.dataset.state = 'ready'
++  },
++  { once: true },
++)
++worker.addEventListener(
++  'error',
++  (event) => {
++    document.body.dataset.state = 'failed'
++    // An exception while the worker's module ran comes as an ErrorEvent; a script that did not
++    // load or parse comes as a plain event without a message.
++    document.body.dataset.error =
++      event instanceof ErrorEvent && event.message !== ''
++        ? event.message
++        : 'its script did not load'
++    event.preventDefault()
++  },
++  { once: true },
++)
+diff --git a/ui/public/pyodide-spike/worker.mjs b/ui/public/pyodide-spike/worker.mjs
+new file mode 100644
+index 0000000..3d0f056
+--- /dev/null
++++ b/ui/public/pyodide-spike/worker.mjs
+@@ -0,0 +1,235 @@
++// The module worker of the Pyodide spike page (ADR 0070, the route of choice 1). It runs one instance
++// of the shipped web core and, beside it, Pyodide, whose Python reaches the core through the
++// JavaScript module `partsmith_web_core`. The spike's test calls the functions on `pyodideSpike`
++// through Playwright's Worker.evaluate; the worker posts one message once they are there.
++
++/** Every `securitypolicyviolation` event of the worker, as `{directive} {URL}`. */
++const violations = []
++self.addEventListener('securitypolicyviolation', (event) => {
++  violations.push(`${event.effectiveDirective} ${event.blockedURI}`)
++})
++
++// From here to wrapEmscriptenModule: ui/src/core/bridge.ts, line for line in plain JavaScript.
++
++/** The core could not allocate memory for a request or its response. */
++class CoreOutOfMemoryError extends Error {
++  name = 'CoreOutOfMemoryError'
++}
++
++const LENGTH_SLOT_SIZE = 4
++
++/** Copies a request frame into wasm memory, calls ps_call, copies the response out and frees both blocks. */
++function callCore(core, request) {
++  const requestLength = request.byteLength
++  const requestPointer = core.alloc(requestLength)
++  if (requestPointer === 0) {
++    throw new CoreOutOfMemoryError(
++      `The geometry core could not allocate ${String(requestLength)} bytes for a request.`,
++    )
++  }
++  const slotPointer = core.alloc(LENGTH_SLOT_SIZE)
++  if (slotPointer === 0) {
++    core.free(requestPointer, requestLength)
++    throw new CoreOutOfMemoryError('The geometry core could not allocate a response length slot.')
++  }
++  // Memory may have grown during either allocation, so every access reads core.memory() anew.
++  core.memory().set(new Uint8Array(request), requestPointer)
++  const responsePointer = core.call(requestPointer, requestLength, slotPointer)
++  const memory = core.memory()
++  const responseLength = new DataView(
++    memory.buffer,
++    memory.byteOffset,
++    memory.byteLength,
++  ).getUint32(slotPointer, true)
++  core.free(requestPointer, requestLength)
++  core.free(slotPointer, LENGTH_SLOT_SIZE)
++  if (responsePointer === 0) {
++    throw new CoreOutOfMemoryError('The geometry core could not allocate a response.')
++  }
++  const response = memory.slice(responsePointer, responsePointer + responseLength).buffer
++  core.free(responsePointer, responseLength)
++  return response
++}
++
++/** Wraps an instantiated Emscripten module as a CoreModule. */
++function wrapEmscriptenModule(module) {
++  return {
++    // Emscripten prefixes C exports with an underscore. Pointers come back as signed i32, so
++    // `>>> 0` reads them as unsigned addresses (memory can grow past 2 GiB).
++    alloc: (length) => module['_ps_alloc'](length) >>> 0,
++    free: (pointer, length) => {
++      module['_ps_free'](pointer, length)
++    },
++    call: (request, requestLength, responseLengthOut) =>
++      module['_ps_call'](request, requestLength, responseLengthOut) >>> 0,
++    memory: () => module.HEAPU8,
++    useCancelWord: (word) => {
++      module.partsmithCancelWord = word
++    },
++  }
++}
++
++// The core instance, made before anything is timed. Its `main` creates its one session.
++const { default: createPartsmithCore } = await import('/core/partsmith_core.mjs')
++const coreModule = await createPartsmithCore()
++const core = wrapEmscriptenModule(coreModule)
++
++/** The time spent inside callCore so far, in milliseconds. */
++let millisecondsInsideCore = 0
++
++/**
++ * The JavaScript module `partsmith_web_core` that Python imports. `call` takes a request frame as
++ * a Uint8Array, which callCore copies as it copies an ArrayBuffer, and returns the response frame.
++ */
++const partsmithWebCore = {
++  call(frame) {
++    const started = performance.now()
++    const response = callCore(core, frame)
++    millisecondsInsideCore += performance.now() - started
++    return new Uint8Array(response)
++  },
++  core_milliseconds: () => millisecondsInsideCore,
++}
++
++/**
++ * The Python the timed functions call, defined once `partsmith` is imported: `run_box_script` times
++ * the box script, and `overhead` takes one sample of row 2 of python-api.md section 5 the way
++ * python/tests/test_budgets.py takes it, with the time inside callCore in place of the time inside
++ * `Session.call`.
++ */
++const HARNESS = `
++import ast
++import time
++
++import partsmith_web_core
++from partsmith import Document, Part, box, faces
++
++
++def milliseconds(operation):
++    """The time operation() takes, between two time.perf_counter() calls, in milliseconds."""
++    started = time.perf_counter()
++    operation()
++    return (time.perf_counter() - started) * 1000
++
++
++def run_box_script(source):
++    """Runs the box script once: its time from Document() to the return of document.close(), the time
++    inside callCore during it, and its volume and text. Its first statement, the import, runs untimed."""
++    statements = ast.parse(source).body
++    imports = compile(ast.Module(statements[:1], []), "<box script>", "exec")
++    rest = compile(ast.Module(statements[1:], []), "<box script>", "exec")
++    namespace = {}
++    exec(imports, namespace)
++    core_started = partsmith_web_core.core_milliseconds()
++    elapsed = milliseconds(lambda: exec(rest, namespace))
++    core = partsmith_web_core.core_milliseconds() - core_started
++    return [elapsed, core, namespace["volume"], namespace["text"]]
++
++
++# Row 2's operations by name, each with whether an untimed box comes before it.
++OPERATIONS = {
++    "box": (lambda part: box(20, 30, 40), False),
++    "top": (lambda part: faces().top(), True),
++    "volume": (lambda part: part.volume(), True),
++}
++
++
++def overhead(name):
++    """One sample of row 2's operation name in a new document with an untimed part P: its time less the
++    time inside callCore during it."""
++    operation, with_box = OPERATIONS[name]
++    document = Document()
++    try:
++        with Part("P") as part:
++            if with_box:
++                box(20, 30, 40)
++            core_started = partsmith_web_core.core_milliseconds()
++            elapsed = milliseconds(lambda: operation(part))
++        return elapsed - (partsmith_web_core.core_milliseconds() - core_started)
++    finally:
++        document.close()
++`
++
++/** The interpreter, once `load` has run. */
++let pyodide = null
++
++/**
++ * Waits for a new task. DevTools lets the code that Playwright's Worker.evaluate runs, and the
++ * microtasks it queues, evaluate strings whatever the policy says; a new task runs under the
++ * worker's policy. So every function the test calls that runs Pyodide starts in a new task.
++ */
++function nextTask() {
++  return new Promise((resolve) => {
++    setTimeout(resolve, 0)
++  })
++}
++
++/**
++ * Loads Pyodide and the `partsmith` package, timed from the statement before the import of
++ * pyodide.mjs to the return of `import partsmith`, and returns that time with every resource the
++ * worker has fetched, each marked when it was fetched during that time.
++ */
++async function load() {
++  await nextTask()
++  const started = performance.now()
++  const { loadPyodide } = await import('/pyodide/pyodide.mjs')
++  pyodide = await loadPyodide({ indexURL: '/pyodide/' })
++  pyodide.registerJsModule('partsmith_web_core', partsmithWebCore)
++  const archive = await (await fetch('/pyodide/partsmith.zip')).arrayBuffer()
++  const sitePackages = pyodide.runPython('import site; site.getsitepackages()[0]')
++  pyodide.unpackArchive(archive, 'zip', { extractDir: sitePackages })
++  pyodide.runPython('import partsmith')
++  const milliseconds = performance.now() - started
++  pyodide.runPython(HARNESS)
++  const resources = performance.getEntriesByType('resource').map((entry) => ({
++    path: new URL(entry.name).pathname,
++    transferSize: entry.transferSize,
++    duringLoad: entry.startTime >= started,
++  }))
++  return { milliseconds, resources }
++}
++
++/** Calls the harness's Python function `name` with `values` and converts its result to JavaScript. */
++function callPython(name, ...values) {
++  const python = pyodide.globals.get(name)
++  try {
++    const result = python(...values)
++    if (typeof result !== 'object') {
++      return result
++    }
++    const converted = result.toJs()
++    result.destroy()
++    return converted
++  } finally {
++    python.destroy()
++  }
++}
++
++/** Runs the box script once: its time, the time inside callCore during it, its `volume` and `text`. */
++async function runBoxScript(source) {
++  await nextTask()
++  const [milliseconds, coreMilliseconds, volume, text] = callPython('run_box_script', source)
++  return { milliseconds, coreMilliseconds, volume, text }
++}
++
++/** One sample of row 2's operation `name` ("box", "top" or "volume"), in milliseconds. */
++async function overhead(name) {
++  await nextTask()
++  return callPython('overhead', name)
++}
++
++self.pyodideSpike = {
++  load,
++  runBoxScript,
++  overhead,
++  /** The byte lengths of Pyodide's WebAssembly memory and of the core instance's. */
++  memory: () => ({
++    // Pyodide's Emscripten module is private; ADR 0070 reads its memory there.
++    // oxlint-disable-next-line no-underscore-dangle
++    pyodideBytes: pyodide._module.HEAPU8.byteLength,
++    coreBytes: coreModule.HEAPU8.byteLength,
++  }),
++  violations: () => [...violations],
++  crossOriginIsolated: () => self.crossOriginIsolated,
++}
++self.postMessage('ready', [])

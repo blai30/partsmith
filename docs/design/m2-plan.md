@@ -430,6 +430,7 @@ Two planning choices rest on the planner's recommendation alone. The M2 gate re-
 25. The Pyodide spike. Accepted (owner's rule of 2026-11-05).
     - Options: (a) a throwaway branch, with the results recorded in an ADR and the measurements reproducible from it; (b) the prototype merged behind a flag
     - Picked: (a)
+    - Result: the spike passed C1 to C7. ADR 0070 sets web scripting in v1.0, subject to the gate's review of Pyodide 314.0.7, its MPL-2.0 license and the amendment of ADR 0017.
     - Safest: `main` stays production-grade, with no temporary workarounds left behind (AGENTS.md principle 1).
 26. Components timing. Accepted (owner's rule of 2026-11-05).
     - Options: (a) an ADR in wave 1 that fixes how a record and a reference name their component scope, with no code; (b) build components in M2; (c) decide everything in M4

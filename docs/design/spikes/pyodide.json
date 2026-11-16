@@ -1,0 +1,688 @@
+{
+ "spike": "pyodide",
+ "adr": "0070",
+ "plan": "m2-plan.md choice 25 (section 7.3), item 11, risk 19",
+ "run_date_utc": "2026-11-16",
+ "runs_utc": {
+  "native_baseline": "20:05:19 to 20:05:40 (box script, row 2, row 2 per operation), at 6fde35c, whose python/ and crates/ are those of d978be2 and 08f36b7",
+  "web_first_load": "20:18:05 to 20:18:31",
+  "web_cold_load_box_overhead_memory_policy": "20:19:42 to 20:20:24",
+  "web_cold_load_default_context": "20:21:05 to 20:21:28",
+  "web_policy_control": "20:22:18 to 20:22:19"
+ },
+ "branch": "spike/pyodide (local only, never pushed)",
+ "worktree": "/home/user/partsmith-spike",
+ "base": "d978be2f7d8a86236bf9bc2adc3e2f6babc670d9",
+ "last_commit": "08f36b7",
+ "last_commit_full": "08f36b77380fc05242e3d4ba7b772c34b17668ef",
+ "commits": {
+  "6fde35c": "the spike: spike/pyodide/_core.py and prepare.py, ui/public/pyodide-spike/index.html, main.mjs and worker.mjs, ui/e2e/pyodide-spike.spec.ts, pyodide 314.0.7 as a development dependency in ui/package.json and ui/pnpm-lock.yaml, /ui/public/pyodide in .gitignore",
+  "db08bd5": "the first-load test records browser.version()",
+  "08f36b7": "every measured Pyodide call of the worker starts in a new task, where the worker's policy applies (Playwright's Worker.evaluate runs with DevTools' exemption from the eval check), and a control test shows the worker reports a refused eval"
+ },
+ "patch": {
+  "path": "docs/design/spikes/pyodide.patch",
+  "command": "git diff d978be2 08f36b7",
+  "bytes": 35077,
+  "files": 9,
+  "lines_added": 793,
+  "lines_removed": 0,
+  "non_ascii_characters": 0,
+  "em_dashes": 0
+ },
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "memory_gb": 15,
+  "kernel": "Linux 6.18.44",
+  "loadavg_before": {
+   "native_box_script": "0.44 1.07 1.72",
+   "native_row_2": "0.41 1.05 1.71",
+   "native_row_2_per_operation": "0.31 1.00 1.68",
+   "web_first_load": "0.47 0.63 1.12",
+   "web_cold_load_box_overhead_memory_policy": "0.47 0.67 1.09",
+   "web_cold_load_default_context": "0.49 0.70 1.07",
+   "web_policy_control": "0.47 0.70 1.04"
+  },
+  "loadavg_after": {
+   "web_first_load": "1.53 0.86 1.18",
+   "web_cold_load_box_overhead_memory_policy": "0.96 0.81 1.12",
+   "web_cold_load_default_context": "1.10 0.84 1.10",
+   "web_policy_control": "0.52 0.71 1.04"
+  }
+ },
+ "versions": {
+  "chromium": "153.0.8010.12",
+  "chromium_build": "Chrome for Testing 153.0.8010.12 at /opt/pw-browsers/chromium, headless",
+  "playwright": "@playwright/test 1.64.0",
+  "node": "22.23.4",
+  "pnpm": "10.28.0",
+  "emscripten": "4.0.15 (the core)",
+  "rust": "1.97.0",
+  "cpython_baseline": "3.12.3",
+  "maturin": "1.15.0",
+  "pytest": "9.1.1",
+  "pyodide": "314.0.7 (npm integrity sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A==, equal to ADR 0070's); pnpm reported 314.0.8 available on 2026-11-16",
+  "pyodide_python": "3.14.2",
+  "pyodide_platform": "emscripten_5_0_3"
+ },
+ "first_load": {
+  "samples_ms": [
+   1848.6599999964237,
+   2280.8499999940395,
+   2167.814999997616,
+   2219.4300000071526,
+   2136.1649999916553,
+   2151.9650000035763,
+   2172.705000013113
+  ],
+  "median_ms": 2167.814999997616,
+  "bytes_transferred_during_the_load": 12492170,
+  "bytes_transferred_by_every_resource_of_the_worker": 32509392,
+  "resources": [
+   {
+    "path": "/core/partsmith_core.mjs",
+    "transferSize": 19957,
+    "duringLoad": false
+   },
+   {
+    "path": "/core/partsmith_core.wasm",
+    "transferSize": 19997265,
+    "duringLoad": false
+   },
+   {
+    "path": "/pyodide/pyodide.mjs",
+    "transferSize": 7496,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide-lock.json",
+    "transferSize": 26016,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/python_stdlib.zip",
+    "transferSize": 2545937,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.wasm",
+    "transferSize": 9598518,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.mjs",
+    "transferSize": 261580,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/partsmith.zip",
+    "transferSize": 52623,
+    "duringLoad": true
+   }
+  ],
+  "console_messages": [
+   "error Failed to load resource: the server responded with a status of 404 (Not Found) (http://localhost:4173/favicon.ico)"
+  ],
+  "violations": [],
+  "judged": "recorded"
+ },
+ "cold_load": {
+  "context": "persistent context (profile on disk), every file in the HTTP cache, revalidated with 304",
+  "samples_ms": [
+   1765.4950000047684,
+   2113.094999998808,
+   2245.9749999940395,
+   2183.6200000047684,
+   2215.4950000047684,
+   1994.5550000071526,
+   2088.3199999928474
+  ],
+  "median_ms": 2113.094999998808,
+  "bytes_transferred_during_the_load": 1800,
+  "bytes_transferred_by_every_resource_of_the_worker": 2400,
+  "resources": [
+   {
+    "path": "/core/partsmith_core.mjs",
+    "transferSize": 300,
+    "duringLoad": false
+   },
+   {
+    "path": "/core/partsmith_core.wasm",
+    "transferSize": 300,
+    "duringLoad": false
+   },
+   {
+    "path": "/pyodide/pyodide.mjs",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide-lock.json",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/python_stdlib.zip",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.wasm",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.mjs",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/partsmith.zip",
+    "transferSize": 300,
+    "duringLoad": true
+   }
+  ]
+ },
+ "cold_load_default_context": {
+  "context": "Playwright's default context (in-memory HTTP cache), reloaded as P-1 reloads; pyodide.asm.wasm and the core's wasm are fetched again on every reload",
+  "samples_ms": [
+   2125.564999997616,
+   1907.2750000059605,
+   2010.4799999892712,
+   2142.4500000178814,
+   2118.9300000071526,
+   2076.5099999904633,
+   2151.0900000035763
+  ],
+  "median_ms": 2118.9300000071526,
+  "bytes_transferred_during_the_load": 9600018,
+  "bytes_transferred_by_every_resource_of_the_worker": 29597583,
+  "resources": [
+   {
+    "path": "/core/partsmith_core.mjs",
+    "transferSize": 300,
+    "duringLoad": false
+   },
+   {
+    "path": "/core/partsmith_core.wasm",
+    "transferSize": 19997265,
+    "duringLoad": false
+   },
+   {
+    "path": "/pyodide/pyodide.mjs",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide-lock.json",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/python_stdlib.zip",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.wasm",
+    "transferSize": 9598518,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/pyodide.asm.mjs",
+    "transferSize": 300,
+    "duringLoad": true
+   },
+   {
+    "path": "/pyodide/partsmith.zip",
+    "transferSize": 300,
+    "duringLoad": true
+   }
+  ],
+  "violations": [],
+  "console_messages": [
+   "error Failed to load resource: the server responded with a status of 404 (Not Found) (http://localhost:4173/favicon.ico)"
+  ],
+  "judged": "recorded"
+ },
+ "box_script": {
+  "web_samples_ms": [
+   3.5250000000002224,
+   3.2649999999998514,
+   4.944999999999755,
+   3.109999999999946,
+   2.990000000000048,
+   3.969999999999807,
+   2.6450000000002305
+  ],
+  "web_median_ms": 3.2649999999998514,
+  "web_inside_callcore_samples_ms": [
+   1.6899999976158142,
+   1.3350000083446503,
+   1.9499999582767487,
+   1.2449999451637268,
+   1.479999989271164,
+   1.854999989271164,
+   1.3750000298023224
+  ],
+  "web_inside_callcore_median_ms": 1.479999989271164,
+  "web_volumes": [
+   24000,
+   24000,
+   24000,
+   24000,
+   24000,
+   24000,
+   24000
+  ],
+  "desktop_samples_ms": [
+   3.259707009419799,
+   2.9705849883612245,
+   3.6053739895578474,
+   2.9186269966885448,
+   3.301199001725763,
+   3.0725699907634407,
+   3.2523630070500076
+  ],
+  "desktop_median_ms": 3.2523630070500076,
+  "desktop_volumes": [
+   24000.0,
+   24000.0,
+   24000.0,
+   24000.0,
+   24000.0,
+   24000.0,
+   24000.0
+  ],
+  "desktop_volume_hex": "0x1.7700000000000p+14",
+  "volume_relative_difference": 0.0,
+  "text_bytes": 283,
+  "text_sha256_web": "5e44187254b76716036a8b1825b32f9443a838162c313c4db0c723d6c9b72510",
+  "text_sha256_desktop": "5e44187254b76716036a8b1825b32f9443a838162c313c4db0c723d6c9b72510",
+  "text_equal": true,
+  "text": "{\n  \"format\": \"partsmith\",\n  \"format_version\": 3,\n  \"units\": \"mm\",\n  \"parameters\": [],\n  \"bodies\": [\n    {\"id\": \"b-000000000001\", \"name\": \"Box\"}\n  ],\n  \"features\": [\n    {\"id\": \"f-000000000001\", \"type\": \"box\", \"body\": \"b-000000000001\", \"size\": [\"20\", \"30\", \"40\"], \"op\": \"new\"}\n  ]\n}\n"
+ },
+ "python_overhead_per_api_call": {
+  "web_samples_ms": {
+   "box": [
+    0.3600000035749531,
+    2.3549999916529885,
+    0.37499998092849296,
+    0.44999999761546405,
+    0.32999998092662963,
+    0.26499999999708734,
+    0.24499999046443577
+   ],
+   "top": [
+    0.5500000143080115,
+    0.8750000131113609,
+    0.5299999880796236,
+    0.7849999892691244,
+    1.0950000119216554,
+    0.4999999773511661,
+    0.564999999999344
+   ],
+   "volume": [
+    0.14500000834476623,
+    0.1250000035785206,
+    0.23000000595988013,
+    0.12499998092610554,
+    0.23500002265183184,
+    0.1350000035745893,
+    0.1100000011938107
+   ]
+  },
+  "web_medians_ms": {
+   "box": 0.3600000035749531,
+   "top": 0.564999999999344,
+   "volume": 0.1350000035745893
+  },
+  "web_largest_median_ms": 0.564999999999344,
+  "desktop_row_2_test_output": "Python overhead per API call: 0.30 ms (budget 2.00 ms)",
+  "desktop_per_operation": {
+   "box": {
+    "samples_ms": [
+     0.11014397023245692,
+     0.10561698582023382,
+     0.08412700844928622,
+     0.08540198905393481,
+     0.18015899695456028,
+     0.08848600555211306,
+     0.1157489896286279
+    ],
+    "median_ms": 0.10561698582023382
+   },
+   "top": {
+    "samples_ms": [
+     0.35064402618445456,
+     0.28392302920110524,
+     0.26891398010775447,
+     0.3774419892579317,
+     0.224602990783751,
+     0.2849950105883181,
+     0.2834810293279588
+    ],
+    "median_ms": 0.28392302920110524
+   },
+   "volume": {
+    "samples_ms": [
+     0.04657197860069573,
+     0.040825019823387265,
+     0.05457500810734928,
+     0.09035298717208207,
+     0.04051599535159767,
+     0.05165801849216223,
+     0.09688397403806448
+    ],
+    "median_ms": 0.05165801849216223
+   }
+  },
+  "desktop_largest_median_ms": 0.28392302920110524,
+  "run_to_run_spread": "In check round 1's three re-runs of the spec, the faces().top() median was 0.94, 0.565 and 0.565 ms and the part.volume() median 0.16, 0.145 and 0.18 ms: per-call medians of 0.1 to 1 ms vary by up to about 1.7 times between runs on this container. The largest, 0.94 ms, is still under a sixth of C3's 6 ms."
+ },
+ "memory": {
+  "pyodide_wasm_bytes": 31457280,
+  "pyodide_wasm_mib": 30.0,
+  "pyodide_initial_memory_bytes": "31457280 (-s INITIAL_MEMORY=31457280 in Pyodide's Makefile.envs at 314.0.7): no growth during the box script",
+  "core_instance_wasm_bytes": 16777216,
+  "page_total_measure_user_agent_specific_memory_bytes": 66421737
+ },
+ "policy": {
+  "violations_persistent_context_test": [],
+  "violations_first_load_test": [],
+  "violations_default_context_test": [],
+  "worker_cross_origin_isolated": true,
+  "console_messages": [
+   "error Failed to load resource: the server responded with a status of 404 (Not Found) (http://localhost:4173/favicon.ico)"
+  ],
+  "headers_file_changed": false,
+  "control": "a string evaluated in a new task of the worker raised EvalError and the worker's events and reports held exactly that refusal ('script-src eval'); test passed"
+ },
+ "files": {
+  "check_dist": "dist is ready for Cloudflare Pages: 25 files, the largest is core/partsmith_core.wasm (19996965 bytes). Initial JavaScript: 246228 bytes gzipped, 98.5 percent of the limit of 250000 bytes.",
+  "check_dist_exit": 0,
+  "served_pyodide_files_bytes": {
+   "pyodide/pyodide.mjs": 17931,
+   "pyodide/pyodide.asm.mjs": 1250344,
+   "pyodide/pyodide.asm.wasm": 9598218,
+   "pyodide/python_stdlib.zip": 2545637,
+   "pyodide/pyodide-lock.json": 119077,
+   "pyodide/partsmith.zip": 52323,
+   "pyodide-spike/index.html": 302,
+   "pyodide-spike/main.mjs": 1341,
+   "pyodide-spike/worker.mjs": 9065
+  },
+  "core_files_bytes": {
+   "core/partsmith_core.mjs": 69156,
+   "core/partsmith_core.wasm": 19996965
+  },
+  "largest_pyodide_file": "pyodide/pyodide.asm.wasm, 9598218 bytes",
+  "largest_served_file": "core/partsmith_core.wasm, 19996965 bytes",
+  "limit_bytes": 26214400,
+  "initial_javascript_gzipped_bytes_branch": 246228,
+  "initial_javascript_gzipped_bytes_base_d978be2": 246228,
+  "app_build_identical_to_base": "dist/index.html and every file of dist/assets byte-identical to a build of d978be2's ui; no file of the app's build names pyodide"
+ },
+ "crate_changes": "none: git diff --stat d978be2 08f36b7 -- crates/ is empty",
+ "branch_files": [
+  ".gitignore (one line: /ui/public/pyodide)",
+  "spike/pyodide/_core.py",
+  "spike/pyodide/prepare.py (steps 2 and 3: copies the five runtime files and writes partsmith.zip)",
+  "ui/e2e/pyodide-spike.spec.ts",
+  "ui/package.json",
+  "ui/pnpm-lock.yaml",
+  "ui/public/pyodide-spike/index.html",
+  "ui/public/pyodide-spike/main.mjs",
+  "ui/public/pyodide-spike/worker.mjs"
+ ],
+ "criteria": {
+  "C1": {
+   "bound": "cold load at most 4000 ms",
+   "measured_ms": 2113.094999998808,
+   "passes": true,
+   "note": "persistent context, every file in the HTTP cache; the default context (P-1's reload, pyodide.asm.wasm fetched again) gave 2118.93 ms"
+  },
+  "C2": {
+   "bound": "box script on the unchanged package; volume within 1e-9 relative of the native run's; text byte for byte the native run's",
+   "measured": "python/partsmith unchanged (git diff d978be2 08f36b7 -- python is empty); volume web 24000 and desktop 24000.0 (0x1.77p+14), relative difference 0.0; text 283 bytes, SHA-256 5e44187254b76716036a8b1825b32f9443a838162c313c4db0c723d6c9b72510 on both",
+   "passes": true
+  },
+  "C3": {
+   "bound": "Python overhead per API call at most 6 ms (largest of the three medians)",
+   "measured_ms": 0.564999999999344,
+   "medians_ms": {
+    "box": 0.3600000035749531,
+    "top": 0.564999999999344,
+    "volume": 0.1350000035745893
+   },
+   "passes": true
+  },
+  "C4": {
+   "bound": "no policy violation, ui/public/_headers unchanged, self.crossOriginIsolated true in the worker",
+   "measured": "0 violations (events and buffered reports of the page and the worker, every page load of the three measuring tests); _headers unchanged; crossOriginIsolated true; the control shows the worker reports a refused eval run in a new task",
+   "passes": true
+  },
+  "C5": {
+   "bound": "Pyodide's WebAssembly memory after the box script at most 256 MiB (268435456 bytes)",
+   "measured_bytes": 31457280,
+   "measured_mib": 30.0,
+   "passes": true
+  },
+  "C6": {
+   "bound": "check:dist passes with every served file under 25 MiB; the app's initial JavaScript unchanged",
+   "measured": "check:dist exit 0; largest served file core/partsmith_core.wasm 19996965 bytes, largest Pyodide file pyodide.asm.wasm 9598218 bytes; initial JavaScript 246228 bytes gzipped on the branch and on d978be2, index.html and assets byte-identical",
+   "passes": true
+  },
+  "C7": {
+   "bound": "no crate changes; the route uses the shipped core with its three exports",
+   "measured": "git diff --stat d978be2 08f36b7 -- crates/ is empty; the worker instantiates /core/partsmith_core.mjs built by scripts/build-wasm.sh from d978be2 and calls _ps_alloc, _ps_free and _ps_call through a line-for-line copy of callCore",
+   "passes": true
+  }
+ },
+ "decision_rule": {
+  "item_1": "every criterion C1 to C7 passes: web scripting ships in v1.0",
+  "item_3_remeasurement": "none: no criterion failed",
+  "item_4": "the gate's review of Pyodide 314.0.7 and MPL-2.0 still decides; a rejection makes it v1.1",
+  "outcome": "v1.0",
+  "status_line": "Accepted (owner's rule of 2026-11-05): web scripting in v1.0"
+ },
+ "superseded_runs": {
+  "6fde35c_full_run_20_06_11": "all three tests in one command (load average before 0.50 0.98 1.66): first load 2169.07 ms, cold load 2180.75 ms, default-context cold load 2242.01 ms, box script 3.86 ms (1.64 ms inside callCore), overhead medians 0.35, 0.57, 0.17 ms; no violation",
+  "db08bd5_per_test_runs_20_09_08_to_20_11_48": "first load 2117.72 ms, cold load 2042.47 ms, default-context cold load 2067.97 ms, box script 2.60 ms (1.13 ms inside callCore), overhead medians 0.33, 0.59, 0.20 ms, memory 31457280 and 16777216 bytes, page 66463051 bytes; no violation, but the box script and overhead calls ran synchronously inside Worker.evaluate, where DevTools allows eval, so those runs could not have shown an eval refusal; 08f36b7 fixed that"
+ },
+ "departures": [
+  "Record form: spike/pyodide stays local and its diff goes to the wave branch as docs/design/spikes/pyodide.patch (owner's rule of 2026-11-05, as for the kernel spikes); ADR 0070's choice 3 had the branch pushed.",
+  "Cold load (C1) is measured in a persistent Chromium context (a profile on disk, launchPersistentContext with the project's launch options) because Playwright's default context keeps its HTTP cache in memory, where pyodide.asm.wasm (9.6 MB) and the core's wasm (20 MB) are not kept across a reload, so the default context does not meet ADR 0070's 'with Pyodide's files and partsmith.zip in the HTTP cache'. The default-context reload (P-1's way) is recorded too.",
+  "The preview server was started by hand with the configuration's exact command (pnpm build && pnpm preview --port 4173 --strictPort) and reused by Playwright (reuseExistingServer outside CI), so the build ended and the load average settled before any timed set; each test ran alone with -g, with /proc/loadavg read before and after.",
+  "Every measured call in the worker starts in a new task (08f36b7): Playwright's Worker.evaluate runs code, and the microtasks it queues, with DevTools' exemption from the eval check (shown: eval allowed synchronously and in a microtask inside evaluate, refused with a violation in a new task). The spec adds a control test for it.",
+  "The box script's first statement (the import of the already imported package) runs untimed; the time runs from Document() to the return of document.close(), as ADR 0070 says, on the web and natively, by splitting the script's statements with ast; the text run is exactly the box script.",
+  "The native box script harness and the per-operation row 2 replica are not on the branch (the branch holds only what ADR 0070 names); their full text is in the Result of docs/adr/0070-pyodide-spike-decides-when-web-scripting-ships.md. Row 2 itself ran as python/tests/test_budgets.py has it.",
+  "Pyodide's memory is read through its private _module, as ADR 0070 says; the worker's lint suppression names it."
+ ],
+ "question_7_files_and_licenses": {
+  "served_files": [
+   {
+    "file": "pyodide/pyodide.mjs",
+    "bytes": 17931,
+    "what": "Pyodide's JavaScript loader (minified), with StackFrame and ErrorStackParser vendored in src/js/vendor/stackframe (pyodide.mjs.map lists stackframe.ts and error-stack-parser.ts among its 10 sources)",
+    "licenses": [
+     "MPL-2.0 (Pyodide)",
+     "MIT (StackFrame and ErrorStackParser, vendored in Pyodide's src/js/vendor/stackframe: 'Copyright (c) 2017 Eric Wendelin and other contributors', src/js/vendor/stackframe/LICENSE at 314.0.7)"
+    ],
+    "source": "github.com/pyodide/pyodide at tag 314.0.7 (commit b1e4fcc2488962f6360a97f19b9982d6fdb5d16f), src/js and src/js/vendor/stackframe"
+   },
+   {
+    "file": "pyodide/pyodide.asm.mjs",
+    "bytes": 1250344,
+    "what": "Emscripten 5.0.3 glue with Pyodide's JavaScript core; the same StackFrame and ErrorStackParser; Emscripten's MiniLZ4",
+    "licenses": [
+     "MIT or UIUC (Emscripten runtime JavaScript and its JS libraries)",
+     "MPL-2.0 (Pyodide's src/core and src/js)",
+     "MIT (StackFrame and ErrorStackParser, vendored in Pyodide's src/js/vendor/stackframe: 'Copyright (c) 2017 Eric Wendelin and other contributors', src/js/vendor/stackframe/LICENSE at 314.0.7)",
+     "MIT (MiniLZ4, Emscripten 5.0.3's third_party/mini-lz4.js, brought in as LZ4.codec by -s LZ4=1: 'Copyright (c) 2012 Pierre Curto' in its header, 'changes have the same license')"
+    ],
+    "source": "Pyodide at 314.0.7, with src/js/vendor/stackframe; Emscripten 5.0.3 with the five patches of Pyodide's emsdk/patches, and its third_party/mini-lz4.js"
+   },
+   {
+    "file": "pyodide/pyodide.asm.wasm",
+    "bytes": 9598218,
+    "what": "CPython 3.14.2 and Pyodide's C core, statically linked",
+    "licenses": [
+     "Python-2.0 (PSF License Version 2, with the BeOpen, CNRI and CWI agreements of CPython's LICENSE) and the incorporated software CPython 3.14.2's Doc/license.rst lists, less its OpenSSL entry: Mersenne Twister, Sockets, Asynchronous socket services, Cookie management, Execution tracing, UUencode and UUdecode functions, XML Remote Procedure Calls, test_epoll, Select kqueue, SipHash24, strtod and dtoa, expat, libffi, zlib, cfuhash, libmpdec, W3C C14N test suite, mimalloc, asyncio, Global Unbounded Sequences (GUS), Zstandard bindings (OpenSSL is not linked: _ssl and _hashlib are disabled in Pyodide's cpython/Setup.local)",
+     "MPL-2.0 (Pyodide's src/core: _pyodide_core, hiwire.c, jsproxy, pyproxy and the others; libhiwire from github.com/pyodide/hiwire at 6a1e67280a15d929ebeceee54a6358c9c8d5f697, MPL-2.0)",
+     "MIT (libffi at commit f08493d249d2067c8b3207ba46693dd858f95db3; expat 2.7.3 inside CPython)",
+     "zlib License (zlib 1.3.1, Emscripten port, -sUSE_ZLIB)",
+     "bzip2 license, a BSD-style license (bzip2, Emscripten port, -sUSE_BZIP2)",
+     "public domain (SQLite 3.39.0 of 2022-06-25; xz/liblzma 5.2.2)",
+     "BSD-3-Clause (zstd 1.5.7, dual BSD or GPLv2; BSD taken)",
+     "BSD-2-Clause (libmpdec inside CPython)",
+     "MIT or Apache-2.0 (HACL* hash code inside CPython, Modules/_hacl)",
+     "Emscripten system libraries: musl libc (MIT), libc++ and libc++abi and compiler-rt (Apache-2.0 WITH LLVM-exception), Emscripten's own C code (MIT or UIUC)"
+    ],
+    "source": "Pyodide 314.0.7's Makefile, Makefile.envs (-lffi -lhiwire -llzma -lsqlite3 -lzstd, -s USE_ZLIB, -s USE_BZIP2, -s LZ4=1) and cpython/Makefile (tarballs: Python-3.14.2.tgz, xz-5.2.2, zstd-1.5.7, sqlite-autoconf-3390000), and CPython 3.14.2 with Pyodide's nine patches in cpython/patches; version strings read from the binary: deflate 1.3.1, inflate 1.3.1, expat_2.7.3, SQLite 3.39.0, libbzip2"
+   },
+   {
+    "file": "pyodide/python_stdlib.zip",
+    "bytes": 2545637,
+    "what": "CPython 3.14.2's standard library in Python, with Pyodide's Python packages pyodide and _pyodide",
+    "licenses": [
+     "Python-2.0 (and the incorporated software above where it is Python code, for example asyncio)",
+     "MPL-2.0 (Pyodide's src/py: pyodide, _pyodide)"
+    ],
+    "source": "CPython 3.14.2; Pyodide at 314.0.7, src/py and tools/create_zipfile.py"
+   },
+   {
+    "file": "pyodide/pyodide-lock.json",
+    "bytes": 119077,
+    "what": "Pyodide's package index for 357 packages; the spike serves none of those packages",
+    "licenses": [
+     "MPL-2.0 (Pyodide's build output)"
+    ],
+    "source": "Pyodide at 314.0.7, generated by its build"
+   },
+   {
+    "file": "pyodide/partsmith.zip",
+    "bytes": 52323,
+    "what": "python/partsmith's .py files and spike/pyodide/_core.py",
+    "licenses": [
+     "Apache-2.0 (Partsmith)"
+    ],
+    "source": "this repository"
+   },
+   {
+    "file": "pyodide-spike/index.html, main.mjs, worker.mjs",
+    "bytes": 10708,
+    "what": "the spike's page",
+    "licenses": [
+     "Apache-2.0 (Partsmith)"
+    ],
+    "source": "this repository"
+   }
+  ],
+  "license_texts_served": "none: the npm package pyodide 314.0.7 ships no license file (its files list: pyodide.asm.mjs, pyodide.asm.wasm, python_stdlib.zip, pyodide.mjs, the two source maps, pyodide.d.ts, ffi.d.ts, pyodide-lock.json, console.html, console-v2.html, plus README.md and package.json, whose license field is MPL-2.0); python_stdlib.zip holds no LICENSE file; neither pyodide.mjs nor pyodide.asm.mjs holds a license or copyright comment, not even for the MIT code they bundle (StackFrame and ErrorStackParser in both, MiniLZ4 in pyodide.asm.mjs). Besides Pyodide's and Emscripten's own code, those three are the only JavaScript in Pyodide's served files: at the tag, src/js/vendor/stackframe is Pyodide's only vendored directory, and src/js/package.json depends only on @types/emscripten and ws, which the files import on Node alone (import(\"ws\"), require(\"ws\")) and which is not bundled. ui/public/THIRD-PARTY-NOTICES.txt names no Pyodide file. check:licenses counts 11 shipped npm packages and check:notices is up to date on the branch: both see production dependencies and EMITTED_BUILD_PACKAGES only.",
+  "mpl_2_0_section_3_2": "If You distribute Covered Software in Executable Form then: (a) such Covered Software must also be made available in Source Code Form, as described in Section 3.1, and You must inform recipients of the Executable Form how they can obtain a copy of such Source Code Form by reasonable means in a timely manner, at a charge no more than the cost of distribution to the recipient; and (b) You may distribute such Executable Form under the terms of this License, or sublicense it under different terms, provided that the license for the Executable Form does not attempt to limit or alter the recipients' rights in the Source Code Form under this License.",
+  "what_a_deployment_owes": "Serving pyodide.mjs (minified), pyodide.asm.mjs and pyodide.asm.wasm is distribution in Executable Form: the deployment must make Pyodide's source at tag 314.0.7 available and tell recipients how to get it, at no more than the cost of distribution (MPL-2.0 3.2(a)); MPL-2.0 is file-level, so Partsmith's own files stay Apache-2.0 (3.3, Larger Work). CPython's PSF license asks that its license agreement and copyright notice be retained in any derivative version, and the MIT, BSD, zlib and bzip2 licenses of the linked libraries and of the bundled JavaScript (StackFrame, ErrorStackParser, MiniLZ4) ask for their notices; the spike's served files carry none. For M4: Pyodide's source at 314.0.7 (and the sources of what it links, at the versions above) in the web deployment's dependency source archives (delivery.md 2.13), entries for Pyodide, CPython, the libraries in pyodide.asm.wasm, Emscripten 5.0.3's runtime (its JavaScript in pyodide.asm.mjs and its system libraries in pyodide.asm.wasm; the notices name only the core's Emscripten 4.0.15 today) and the bundled JavaScript (StackFrame and ErrorStackParser, MIT, Eric Wendelin and other contributors; MiniLZ4, MIT, Pierre Curto) in ui/public/THIRD-PARTY-NOTICES.txt (delivery.md 2.9), and Pyodide as a production dependency or a name in EMITTED_BUILD_PACKAGES so check:licenses and the notices cover the served files. MPL-2.0 and Python-2.0 are already in deny.toml's allowed list."
+ },
+ "question_8_findings_for_m4": [
+  "Known, confirmed by reading the code: a Python document needs a session of its own with display off and SequentialIds. partsmith-py's Session(display=False, deterministic_ids=True) builds SessionOptions::headless() with SequentialIds per Document; the web core's one session (thread_local in partsmith-wasm) has display on and RandomIdGenerator. The spike's _core.Session ignores both keywords and every Document shares the core instance's session, so the box script's text matched only because the package names the records it adds itself (Document._new_id); a body that import_step adds (and every rectangle and polygon once item 24 lands) would get a random id on the web. Since ps_call has no session parameter, a session per Python document needs a new export or a protocol command that opens a session or document with options (either changes ADR 0010 or the protocol schema), or one core instance per Python document (16,777,216 bytes of WebAssembly memory each at start, measured).",
+  "New: with display on, every recompute that Python drives on the web core also tessellates display meshes that the package never reads; part of the 1.48 ms inside callCore of the web box script is that work. The per-document headless session of the first finding removes it.",
+  "Known: a script feature that runs during a build needs a call from the core into Python through a JavaScript import, which is unsafe code outside the three exports ADR 0010 allows; it needs a new ADR. The spike's route needs no such call: Python calls the core, never the reverse.",
+  "Known, confirmed: Python on the web is 3.14.2 (pyodide-lock.json info.python), beside CPython 3.12.3 for the desktop baseline. The unchanged package imported and ran the box script and row 2 on 3.14.2.",
+  "New: two Emscripten runtimes share the worker without conflict: the core (Emscripten 4.0.15, -sENVIRONMENT=worker, MODULARIZE, 16 MiB initial memory) and Pyodide (Emscripten 5.0.3, 30 MiB initial memory). The route needs no change to the core's link arguments.",
+  "New: _core.ptsm_schema() and protocol_schema() have no protocol command, so the web _core raises NotImplementedError; no module of python/partsmith calls them (only python/tests/test_core.py and _core.pyi name them), so the package does not need them on the web.",
+  "New, not measured: the package reads and writes files through Python's os and pathlib (Document.save, import_step(path), the exports, _files.write_atomic with fsync and os.replace). On Pyodide those reach Emscripten's in-memory file system, not the app's files; M4 must map them (for example Pyodide's mountNativeFS onto the File System Access handles, or bytes in and out through the bridge).",
+  "New: the frames cross JavaScript twice per call, Python bytes to a Uint8Array (to_js) and the response back (to_bytes), on top of callCore's two copies; the measured Python overhead, which counts the conversions, stays at 0.14 to 0.56 ms per call (medians), against 0.05 to 0.28 ms natively.",
+  "New: the core instance of the spike never receives the page's cancel word (useCancelWord is not called), so a long Python-driven rebuild could not be cancelled; M4 wires the cancel word for Python's core instance if scripts can run long.",
+  "Method finding for M4's tests: Playwright's Worker.evaluate, like Page.evaluate, runs its code and the microtasks it queues with DevTools' exemption from the eval check, so a policy test that runs code synchronously inside evaluate cannot see an eval refusal; the spike runs every measured call in a new task and adds a control."
+ ],
+ "check_round_1": {
+  "verdict": "sound: no blocking problem; method, numbers, criteria and outcome hold when re-run",
+  "branch_changed": false,
+  "last_commit": "08f36b7",
+  "patch": "unchanged: git diff d978be2 08f36b7, compared byte for byte again with cmp",
+  "new_measurements": "none: no fix changed a file of the branch",
+  "check_reruns": {
+   "load_before_each": "0.19 to 0.40, nothing else running",
+   "columns": [
+    "record",
+    "full_run_1",
+    "cold_load_test_alone",
+    "full_run_2"
+   ],
+   "first_load_ms": [
+    2167.81,
+    2166.07,
+    null,
+    2191.88
+   ],
+   "cold_load_persistent_context_ms": [
+    2113.09,
+    1800.99,
+    2114.95,
+    1692.4
+   ],
+   "cold_load_default_context_ms": [
+    2118.93,
+    2223.09,
+    null,
+    2240.21
+   ],
+   "box_script_web_ms": [
+    3.265,
+    3.145,
+    3.29,
+    3.365
+   ],
+   "overhead_top_ms": [
+    0.565,
+    0.94,
+    0.565,
+    0.565
+   ],
+   "overhead_volume_ms": [
+    0.135,
+    0.16,
+    0.145,
+    0.18
+   ],
+   "every_run": "Pyodide memory 31457280 bytes, core 16777216 bytes, no violation, crossOriginIsolated true, control passed, box text equal to the native text (cmp)",
+   "native_box_script_ms": [
+    2.85,
+    3.38,
+    2.73,
+    3.17
+   ],
+   "native_row_2_printed_ms": [
+    0.25,
+    0.29
+   ],
+   "native_per_operation_medians_ms": {
+    "box": 0.101,
+    "top": 0.308,
+    "volume": 0.044
+   }
+  },
+  "problems": [
+   {
+    "id": "P1",
+    "severity": "minor",
+    "handling": "accepted, fixed in question_7_files_and_licenses",
+    "what": "pyodide.mjs and pyodide.asm.mjs bundle MIT code the first record left out: StackFrame and ErrorStackParser in both, MiniLZ4 in pyodide.asm.mjs",
+    "verified": "pyodide.mjs.map lists ../src/js/vendor/stackframe/stackframe.ts and error-stack-parser.ts; each file holds ErrorStackParser 5 times and StackFrame 3 times; pyodide.asm.mjs holds MiniLZ4 3 times, in LZ4.codec. At tag 314.0.7 (sparse clone, b1e4fcc) src/js/vendor/stackframe/LICENSE is MIT, 'Copyright (c) 2017 Eric Wendelin and other contributors'; Emscripten 5.0.3's third_party/mini-lz4.js opens with the MIT license, 'Copyright (c) 2012 Pierre Curto'."
+   },
+   {
+    "id": "P2",
+    "severity": "minor",
+    "handling": "accepted, noted in python_overhead_per_api_call.run_to_run_spread",
+    "what": "per-call overhead medians of 0.1 to 1 ms vary by up to about 1.7 times between runs; C3 holds by more than 6 times at the largest value seen, 0.94 ms"
+   },
+   {
+    "id": "P3",
+    "severity": "minor",
+    "handling": "accepted, fixed",
+    "what": "the JSON listed OpenSSL among CPython's incorporated software while the Markdown record, written into ADR 0070's Result, left it out; both now give Doc/license.rst's list less its OpenSSL entry, because OpenSSL is not linked (_ssl and _hashlib disabled in Pyodide's cpython/Setup.local)"
+   }
+  ]
+ }
+}
