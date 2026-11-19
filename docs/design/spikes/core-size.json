@@ -1,0 +1,7085 @@
+{
+ "spike": "core size (delivery.md section 3.5, step 1 of its plan)",
+ "run_date_utc": "2026-11-19",
+ "runs_utc": {
+  "builds": "00:27 to 02:16",
+  "module tests": "01:22 to 01:28 (V0 to V4), 02:03 (V5)",
+  "kernel tests": "01:29 (OCCT -Oz), 02:05 (OCCT -Oz -flto)",
+  "answers": "01:30 to 01:33, 02:04 (V5), 02:13 (V1-link-Os)",
+  "node timing set 1": "02:17:57 to 02:25:10",
+  "node timing set 2": "02:25:39 to 02:32:59",
+  "chromium P-1 set 1": "02:34:06 to 02:35:19",
+  "round 2 answers (harness 79dfbac)": "03:36:47 to 03:39:58",
+  "round 2 P-1 dists built": "03:40 to 03:41",
+  "round 2 node timing set 3": "03:42:02 to 03:49:20",
+  "round 2 node timing set 4": "03:49:20 to 03:56:18",
+  "round 2 chromium P-1 set 2": "03:56:18 to 03:57:19"
+ },
+ "branch": "spike/core-size",
+ "worktree": "/home/user/partsmith-spike",
+ "base": "48832d467cebd3f70c544fc84a271418afff7b58",
+ "last_commit": "79dfbacdc1a911603152b7ffd70c9dba2155ef6f",
+ "last_commit_short": "79dfbac",
+ "commits": {
+  "bc67bd5646667adc676cf1380a9a69d0024b80e6": "adds spike/core-size/harness.mjs (round 1: answers and Node sets 1 and 2 ran with it)",
+  "79dfbacdc1a911603152b7ffd70c9dba2155ef6f": "names the document handle 'handle' in place of the abbreviation 'doc' (round 2, the check's M4: the answers reruns and Node sets 3 and 4 ran with it)"
+ },
+ "branch_files": [
+  "spike/core-size/harness.mjs"
+ ],
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "memory_kb": 16473756,
+  "kernel": "Linux 6.18.44-fc-v653",
+  "load_before_node_set_1": [
+   "before set 1: 0.60 1.24 1.77 2/115 3170 2026-11-19T02:17:57Z",
+   "after set 1: 1.07 1.20 1.56 1/113 3641 2026-11-19T02:25:10Z"
+  ],
+  "load_before_node_set_2": [
+   "before set 2: 0.71 1.10 1.52 2/113 3657 2026-11-19T02:25:39Z",
+   "after set 2: 1.56 1.35 1.45 1/118 4148 2026-11-19T02:32:59Z"
+  ],
+  "load_before_node_set_3": [
+   "before set 3: 0.47 0.71 0.87 1/112 11521 2026-11-19T03:42:02Z",
+   "after set 3: 1.33 1.16 1.03 1/115 12242 2026-11-19T03:49:20Z"
+  ],
+  "load_before_node_set_4": [
+   "before set 4: 1.33 1.16 1.03 1/115 12244 2026-11-19T03:49:20Z",
+   "after set 4: 1.52 1.40 1.19 1/115 12892 2026-11-19T03:56:18Z"
+  ],
+  "load_before_p1_set_1": [
+   "before P-1 set: 1.23 1.28 1.42 2/113 4315 2026-11-19T02:34:06Z",
+   "after P-1 set: 1.68 1.36 1.44 2/119 7523 2026-11-19T02:35:19Z"
+  ],
+  "load_before_p1_set_2": [
+   "before P-1 set 2: 1.52 1.40 1.19 1/115 12894 2026-11-19T03:56:18Z",
+   "after P-1 set 2: 2.02 1.53 1.24 1/125 16164 2026-11-19T03:57:19Z"
+  ]
+ },
+ "versions": {
+  "rust": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "emscripten": "4.0.15 (09f52557f0d48b65b8c724853ed8f4e8bf80e669)",
+  "clang_in_sdk": "22.0.0git (3388d40684742e950b3c5d1d2dafe5a40695cfc1)",
+  "binaryen": "wasm-opt version 124 (version_124-26-gcf756c929)",
+  "node_tests_and_timing": "v22.23.4 (/opt/node22/bin/node)",
+  "node_for_brotli_in_build_wasm": "v24.19.0 (EMSDK_NODE)",
+  "chromium": "Google Chrome for Testing 153.0.8010.12 (/opt/pw-browsers/chromium)",
+  "playwright": "1.64.0",
+  "pnpm": "10.28.0",
+  "occt": "7.9.3 with scripts/occt-7.9.3.patch"
+ },
+ "base_size": {
+  "worktree_bytes": 19996965,
+  "main_tree_bytes": 19996955,
+  "note": "the worktree's path is 10 bytes longer and the core holds that path text"
+ },
+ "reproducibility": {
+  "summary": "a rebuild from a recipe of this record gives exactly the recorded size, the same .mjs and the same answers, but not always the same .wasm SHA-256: one function's legacy exception handling try/delegate nesting can differ at the same length. The sha256 values of this record identify the kept files only.",
+  "check_rebuilds": "the check rebuilt V0 twice (3b5e72abdb20706d8c90e9ffbbbb30794190d99d069e2f83f51157af5af7716c both times), V1 (308ff928...), V3 (0b1a883d...) and V4 twice (before wasm-opt ef049693..., final 7f06479e...; the second d8936c7a...); each matches the kept size and differs from the kept file in exactly one function of the same length; V4's two rebuilds also differ from each other in that function (36666 of V4-before-wasm-opt, 1,301 bytes, 46 bytes differ)",
+  "confirmed_round_2": "the cargo target's wasm-release/partsmith_core.wasm (the check's V0 rebuild, 3b5e72ab...) against the kept V0 (da10b8f2...): only function 20308 differs, 3,253 bytes in both, 19 bytes differ; every other function and section is identical (round2/function_diff.py)",
+  "varying_function_V0": "partsmith::occt::shape_element_display (the shim's cpp/mesh.cpp): a 98.5 % positional byte match with the only function of the same length in V0-profiling (the other candidates of that length: 5 %)",
+  "varying_function_V4": "not identified: no function of V4-profiling matches it above 16 %",
+  "standalone_binaryen": "deterministic: V2 made again from the kept V0 with the recorded wasm-opt command is byte-identical to the kept V2 (the check)",
+  "answers": "the check's V0 and V4 rebuilds give the same frames as the kept V0 and V4 (2cba..., ab04...)",
+  "source": "not isolated (clang compiling the shim, or emcc's Binaryen passes); V0 only relinked against the earlier spikes' shim objects and matched their core, and V0-22-toolkits recompiled the shim and matched the kept V0"
+ },
+ "rustc_to_emcc": "rustc passes its optimization level to emcc as -Os for opt-level \"s\" and -Oz for \"z\" (seen in the logged link line), and -g0 for no debug info. Its own -sEXPORTED_FUNCTIONS list (every exported symbol, the cxxbridge glue included) comes first; build.rs's -sEXPORTED_FUNCTIONS=_main,_ps_alloc,_ps_free,_ps_call comes later and wins. rustc adds -sABORTING_MALLOC=0 and -sWASM_BIGINT last. cc-rs compiles the shim with -Os or -Oz from the same profile.",
+ "variants": {
+  "V0": {
+   "raw_bytes": 19996965,
+   "gzip_bytes": 7031373,
+   "brotli_bytes": 5040947,
+   "delta_raw_bytes": 0,
+   "delta_raw_percent": 0.0,
+   "delta_gzip_bytes": 0,
+   "delta_gzip_percent": 0.0,
+   "delta_brotli_bytes": 0,
+   "delta_brotli_percent": 0.0,
+   "sha256": {
+    "partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+    "partsmith_core.wasm": "da10b8f2b35924770f3fd3c80be1fa8031d5745acf88e429730fe693b5b2be88"
+   },
+   "limit_margin_bytes": 6217435,
+   "change": "today's build: scripts/build-wasm.sh as is at 48832d4 (opt-level \"s\", OCCT -Os from /opt/occt/7.9.3/wasm)",
+   "diff_or_command": "scripts/build-wasm.sh, with a logging wrapper named emcc first on PATH that records the arguments and runs the SDK's emcc unchanged",
+   "binaryen_in_emcc": "wasm-opt --strip-target-features --post-emscripten -Os --low-memory-unused --zero-filled-memory --pass-arg=directize-initial-contents-immutable --no-stack-ir, wasm-metadce, then wasm-opt --minify-imports-and-exports-and-modules --optimize-level=2 --shrink-level=1 --optimize-stack-ir; system libraries: -lc, without -lc_optz",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Os",
+     "-g0"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-e4b2397486beea92/out",
+     "/opt/occt/7.9.3/wasm/lib"
+    ],
+    "argument_count": 43
+   }
+  },
+  "V1": {
+   "raw_bytes": 18820139,
+   "gzip_bytes": 6781201,
+   "brotli_bytes": 4902899,
+   "delta_raw_bytes": -1176826,
+   "delta_raw_percent": -5.89,
+   "delta_gzip_bytes": -250172,
+   "delta_gzip_percent": -3.56,
+   "delta_brotli_bytes": -138048,
+   "delta_brotli_percent": -2.74,
+   "sha256": {
+    "partsmith_core.mjs": "0c74ec6d7d20144a35614828ece87829e425799aac87bf2fc28ba20505f13eb5",
+    "partsmith_core.wasm": "612fce913401d2f50ddb2c4ce0b502a47d5c34fa9fcb22a32bfeee315d6d2dfe"
+   },
+   "limit_margin_bytes": 7394261,
+   "change": "Rust opt-level \"z\" in [profile.wasm-release]",
+   "diff_or_command": "diff --git a/Cargo.toml b/Cargo.toml\nindex 1d3ae3d..3570286 100644\n--- a/Cargo.toml\n+++ b/Cargo.toml\n@@ -60,7 +60,7 @@ lto = \"thin\"\n # Size-optimized profile for the WebAssembly core.\n [profile.wasm-release]\n inherits = \"release\"\n-opt-level = \"s\"\n+opt-level = \"z\"\n lto = \"fat\"\n codegen-units = 1\n panic = \"unwind\"\n",
+   "binaryen_in_emcc": "the same chain with -Oz and --shrink-level=2; system libraries: adds -lc_optz before -lc (wasm-ld line: -lhtml5 -lc_optz -lstubs -lnoexit -lc -ldlmalloc ...), so libc_optz's size-optimized pow, log and log2 (musl's pow_small.c, log_small.c, log2_small.c) and its emscripten_memcpy, memset, memmove and memcmp override libc's; both libraries are linked",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Oz",
+     "-g0"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-b1af0b74fb1dee73/out",
+     "/opt/occt/7.9.3/wasm/lib"
+    ],
+    "argument_count": 43
+   }
+  },
+  "V2": {
+   "raw_bytes": 19575809,
+   "gzip_bytes": 6971718,
+   "brotli_bytes": 5020424,
+   "delta_raw_bytes": -421156,
+   "delta_raw_percent": -2.11,
+   "delta_gzip_bytes": -59655,
+   "delta_gzip_percent": -0.85,
+   "delta_brotli_bytes": -20523,
+   "delta_brotli_percent": -0.41,
+   "sha256": {
+    "partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+    "partsmith_core.wasm": "29a9503f3a48c7cfa86d778ccfb87950c49cff486d262829c8355d360985cdac"
+   },
+   "limit_margin_bytes": 6638591,
+   "change": "V0's linked .wasm through Binaryen wasm-opt -Oz --converge with the module's features (emcc strips the target_features section, so the flags are the ones emcc gives its own wasm-opt calls); V0's .mjs unchanged",
+   "diff_or_command": "/root/emsdk/upstream/bin/wasm-opt -Oz --converge --mvp-features --enable-bulk-memory --enable-bulk-memory-opt --enable-call-indirect-overlong --enable-exception-handling --enable-multivalue --enable-mutable-globals --enable-nontrapping-float-to-int --enable-reference-types --enable-sign-ext variants/V0/partsmith_core.wasm -o variants/V2/partsmith_core.wasm",
+   "binaryen_in_emcc": "as V0, plus the extra wasm-opt run"
+  },
+  "V3": {
+   "raw_bytes": 15730196,
+   "gzip_bytes": 6184552,
+   "brotli_bytes": 4523647,
+   "delta_raw_bytes": -4266769,
+   "delta_raw_percent": -21.34,
+   "delta_gzip_bytes": -846821,
+   "delta_gzip_percent": -12.04,
+   "delta_brotli_bytes": -517300,
+   "delta_brotli_percent": -10.26,
+   "sha256": {
+    "partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+    "partsmith_core.wasm": "8b5c25b09ea0606cff2446c57fb5991b7c91a917caae56199caee29a28f281be"
+   },
+   "limit_margin_bytes": 10484204,
+   "change": "OCCT rebuilt with -Oz in place of -Os for C and C++ (copy of scripts/build-occt.sh, same patch and toolkits), core linked against it at opt-level \"s\"",
+   "diff_or_command": "OCCT: OCCT_WORK_DIR=<scratch>/occt-oz-work OCCT_JOBS=4 <scratch>/occt-scripts-oz/build-occt.sh wasm <scratch>/occt-oz, the copy differing from scripts/build-occt.sh by:\n--- /home/user/partsmith-spike/scripts/build-occt.sh\t2026-11-15 18:21:45.742079038 +0000\n+++ build-occt.sh\t2026-11-19 00:27:42.024512843 +0000\n@@ -109,8 +109,8 @@\n     emcmake cmake \"${cmake_args[@]}\" \\\n       -DCMAKE_CXX_FLAGS=\"-fwasm-exceptions -UOCC_CONVERT_SIGNALS\" \\\n       -DCMAKE_C_FLAGS=\"-fwasm-exceptions -UOCC_CONVERT_SIGNALS\" \\\n-      -DCMAKE_CXX_FLAGS_RELEASE=\"-Os -DNDEBUG\" \\\n-      -DCMAKE_C_FLAGS_RELEASE=\"-Os -DNDEBUG\"\n+      -DCMAKE_CXX_FLAGS_RELEASE=\"-Oz -DNDEBUG\" \\\n+      -DCMAKE_C_FLAGS_RELEASE=\"-Oz -DNDEBUG\"\n     ;;\n   *)\n     echo \"unknown target: $target\" >&2\n\nCore: OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<scratch>/occt-oz scripts/build-wasm.sh at 48832d4",
+   "binaryen_in_emcc": "as V0",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Os",
+     "-g0"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-e4b2397486beea92/out",
+     "<scratch>/occt-oz/lib"
+    ],
+    "argument_count": 43
+   }
+  },
+  "V4": {
+   "raw_bytes": 14573086,
+   "gzip_bytes": 5902641,
+   "brotli_bytes": 4359168,
+   "delta_raw_bytes": -5423879,
+   "delta_raw_percent": -27.12,
+   "delta_gzip_bytes": -1128732,
+   "delta_gzip_percent": -16.05,
+   "delta_brotli_bytes": -681779,
+   "delta_brotli_percent": -13.52,
+   "sha256": {
+    "partsmith_core.mjs": "0c74ec6d7d20144a35614828ece87829e425799aac87bf2fc28ba20505f13eb5",
+    "partsmith_core.wasm": "1e6372dcb3e2f24e221a40566d5c32bee25eb041c953f29dedcacf9cfbae786a"
+   },
+   "limit_margin_bytes": 11641314,
+   "change": "V1 + V3 + V2: opt-level \"z\", OCCT -Oz, then wasm-opt -Oz --converge",
+   "diff_or_command": "V1's diff; OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<scratch>/occt-oz scripts/build-wasm.sh; then /root/emsdk/upstream/bin/wasm-opt -Oz --converge --mvp-features --enable-bulk-memory --enable-bulk-memory-opt --enable-call-indirect-overlong --enable-exception-handling --enable-multivalue --enable-mutable-globals --enable-nontrapping-float-to-int --enable-reference-types --enable-sign-ext variants/V4-before-wasm-opt/partsmith_core.wasm -o variants/V4/partsmith_core.wasm",
+   "binaryen_in_emcc": "as V1",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Oz",
+     "-g0"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-b1af0b74fb1dee73/out",
+     "<scratch>/occt-oz/lib"
+    ],
+    "argument_count": 43
+   }
+  },
+  "V5": {
+   "raw_bytes": 14887107,
+   "gzip_bytes": 5971003,
+   "brotli_bytes": 4443827,
+   "delta_raw_bytes": -5109858,
+   "delta_raw_percent": -25.55,
+   "delta_gzip_bytes": -1060370,
+   "delta_gzip_percent": -15.08,
+   "delta_brotli_bytes": -597120,
+   "delta_brotli_percent": -11.85,
+   "sha256": {
+    "partsmith_core.mjs": "9732b618d2b549a83b0de8b7e077e3c043384eafa660b787ca921a02e0718692",
+    "partsmith_core.wasm": "a536cbbba2470551eff35fcc6511a78d6bdf42d133a0f78a8e70cccd56c2f1f8"
+   },
+   "limit_margin_bytes": 11327293,
+   "change": "OCCT built with -Oz -flto (LLVM bitcode archives), core linked against it with V4's other settings (opt-level \"z\", then wasm-opt -Oz --converge)",
+   "diff_or_command": "OCCT: OCCT_WORK_DIR=<scratch>/occt-oz-work OCCT_JOBS=4 <scratch>/occt-scripts-oz-lto/build-occt.sh wasm <scratch>/occt-oz-lto (the -Oz run's patched source, used as it is), the copy differing by:\n--- /home/user/partsmith-spike/scripts/build-occt.sh\t2026-11-15 18:21:45.742079038 +0000\n+++ build-occt.sh\t2026-11-19 01:11:26.087266886 +0000\n@@ -109,8 +109,8 @@\n     emcmake cmake \"${cmake_args[@]}\" \\\n       -DCMAKE_CXX_FLAGS=\"-fwasm-exceptions -UOCC_CONVERT_SIGNALS\" \\\n       -DCMAKE_C_FLAGS=\"-fwasm-exceptions -UOCC_CONVERT_SIGNALS\" \\\n-      -DCMAKE_CXX_FLAGS_RELEASE=\"-Os -DNDEBUG\" \\\n-      -DCMAKE_C_FLAGS_RELEASE=\"-Os -DNDEBUG\"\n+      -DCMAKE_CXX_FLAGS_RELEASE=\"-Oz -flto -DNDEBUG\" \\\n+      -DCMAKE_C_FLAGS_RELEASE=\"-Oz -flto -DNDEBUG\"\n     ;;\n   *)\n     echo \"unknown target: $target\" >&2\n\nCore: V1's diff; OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<scratch>/occt-oz-lto scripts/build-wasm.sh; then /root/emsdk/upstream/bin/wasm-opt -Oz --converge --mvp-features --enable-bulk-memory --enable-bulk-memory-opt --enable-call-indirect-overlong --enable-exception-handling --enable-multivalue --enable-mutable-globals --enable-nontrapping-float-to-int --enable-reference-types --enable-sign-ext variants/V5-before-wasm-opt/partsmith_core.wasm -o variants/V5/partsmith_core.wasm",
+   "binaryen_in_emcc": "as V1; wasm-ld ran LTO over the OCCT bitcode at its default level (emcc passed no -flto, --lto-O or -u__cxa_atexit, since nothing on its command line said LTO)",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Oz",
+     "-g0"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-b1af0b74fb1dee73/out",
+     "<scratch>/occt-oz-lto/lib"
+    ],
+    "argument_count": 43
+   }
+  },
+  "V4-before-wasm-opt": {
+   "raw_bytes": 14587305,
+   "gzip_bytes": 5915243,
+   "brotli_bytes": 4369714,
+   "delta_raw_bytes": -5409660,
+   "delta_raw_percent": -27.05,
+   "delta_gzip_bytes": -1116130,
+   "delta_gzip_percent": -15.87,
+   "delta_brotli_bytes": -671233,
+   "delta_brotli_percent": -13.32,
+   "sha256": {
+    "partsmith_core.mjs": "0c74ec6d7d20144a35614828ece87829e425799aac87bf2fc28ba20505f13eb5",
+    "partsmith_core.wasm": "6ae7d0d1856177f65d5373b90e2b9e16305f8ec213ce88b7731af96d027f2acf"
+   },
+   "limit_margin_bytes": 11627095
+  },
+  "V5-before-wasm-opt": {
+   "raw_bytes": 14898622,
+   "gzip_bytes": 5975774,
+   "brotli_bytes": 4440641,
+   "delta_raw_bytes": -5098343,
+   "delta_raw_percent": -25.5,
+   "delta_gzip_bytes": -1055599,
+   "delta_gzip_percent": -15.01,
+   "delta_brotli_bytes": -600306,
+   "delta_brotli_percent": -11.91,
+   "sha256": {
+    "partsmith_core.mjs": "9732b618d2b549a83b0de8b7e077e3c043384eafa660b787ca921a02e0718692",
+    "partsmith_core.wasm": "fe930a390398b74b1109184001f0ea20d45a50b8193828fb452d0c78880f7d61"
+   },
+   "limit_margin_bytes": 11315778
+  },
+  "V1-link-Os": {
+   "raw_bytes": 19241971,
+   "gzip_bytes": 6828523,
+   "brotli_bytes": 4915178,
+   "delta_raw_bytes": -754994,
+   "delta_raw_percent": -3.78,
+   "delta_gzip_bytes": -202850,
+   "delta_gzip_percent": -2.88,
+   "delta_brotli_bytes": -125769,
+   "delta_brotli_percent": -2.49,
+   "sha256": {
+    "partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+    "partsmith_core.wasm": "039c497dc7bdd7e96060feae74a4a2991e0b6558005bd3206f0028e0a321f15a"
+   },
+   "limit_margin_bytes": 6972429,
+   "change": "analysis only: V1's Rust and shim at opt-level z, but emcc's link at -Os (cargo rustc ... -- -C link-arg=-Os; emcc keeps the last -O), which splits V1 into its codegen and link parts",
+   "emcc_received": {
+    "optimization_and_debug": [
+     "-Oz",
+     "-g0",
+     "-Os"
+    ],
+    "occt_library_directory": [
+     "/home/user/partsmith-spike-target/wasm32-unknown-emscripten/wasm-release/build/partsmith-occt-sys-b1af0b74fb1dee73/out",
+     "/opt/occt/7.9.3/wasm/lib"
+    ],
+    "argument_count": 44
+   }
+  },
+  "V0-22-toolkits": {
+   "raw_bytes": 19996965,
+   "gzip_bytes": 7031373,
+   "brotli_bytes": 5040947,
+   "delta_raw_bytes": 0,
+   "delta_raw_percent": 0.0,
+   "delta_gzip_bytes": 0,
+   "delta_gzip_percent": 0.0,
+   "delta_brotli_bytes": 0,
+   "delta_brotli_percent": 0.0,
+   "sha256": {
+    "partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+    "partsmith_core.wasm": "da10b8f2b35924770f3fd3c80be1fa8031d5745acf88e429730fe693b5b2be88"
+   },
+   "limit_margin_bytes": 6217435,
+   "change": "analysis only: V0 with the six toolkits that give no code (TKDESTL, TKVCAF, TKV3d, TKHLR, TKDE, TKFeat) left out of partsmith-occt-sys's TOOLKITS; the .wasm and .mjs are byte-identical to the kept V0's (this build also recompiled the shim)",
+   "diff_or_command": "diff --git a/crates/partsmith-occt-sys/build.rs b/crates/partsmith-occt-sys/build.rs\nindex f8596a7..d5ca440 100644\n--- a/crates/partsmith-occt-sys/build.rs\n+++ b/crates/partsmith-occt-sys/build.rs\n@@ -6,20 +6,14 @@ use std::path::PathBuf;\n /// Static OCCT toolkits in link order: each toolkit precedes the toolkits it depends on.\n /// Derived from the EXTERNLIB files of the pinned OCCT release (see scripts/build-occt.sh).\n const TOOLKITS: &[&str] = &[\n-    \"TKDESTL\",\n     \"TKDESTEP\",\n     \"TKXCAF\",\n-    \"TKVCAF\",\n-    \"TKV3d\",\n-    \"TKHLR\",\n     \"TKService\",\n     \"TKCAF\",\n     \"TKLCAF\",\n     \"TKCDF\",\n     \"TKXSBase\",\n-    \"TKDE\",\n     \"TKMesh\",\n-    \"TKFeat\",\n     \"TKOffset\",\n     \"TKFillet\",\n     \"TKBool\",\n"
+  }
+ },
+ "sections": {
+  "V0": {
+   "type": 6540,
+   "import": 184,
+   "function": 31101,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 53,
+   "elem": 41253,
+   "datacount": 2,
+   "code": 17483407,
+   "data": 2434355,
+   "functions": 30477,
+   "imported_functions": 30
+  },
+  "V1": {
+   "type": 6734,
+   "import": 184,
+   "function": 35606,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 52,
+   "elem": 42526,
+   "datacount": 2,
+   "code": 16305403,
+   "data": 2429562,
+   "functions": 34915,
+   "imported_functions": 30
+  },
+  "V2": {
+   "type": 6552,
+   "import": 184,
+   "function": 31473,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 53,
+   "elem": 41171,
+   "datacount": 2,
+   "code": 17061949,
+   "data": 2434355,
+   "functions": 30838,
+   "imported_functions": 30
+  },
+  "V3": {
+   "type": 6477,
+   "import": 184,
+   "function": 33208,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 53,
+   "elem": 41564,
+   "datacount": 2,
+   "code": 13210704,
+   "data": 2437934,
+   "functions": 32583,
+   "imported_functions": 30
+  },
+  "V4": {
+   "type": 6669,
+   "import": 184,
+   "function": 37080,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 52,
+   "elem": 42205,
+   "datacount": 2,
+   "code": 12053804,
+   "data": 2433020,
+   "functions": 36394,
+   "imported_functions": 30
+  },
+  "V5": {
+   "type": 6237,
+   "import": 178,
+   "function": 34146,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 52,
+   "elem": 41881,
+   "datacount": 2,
+   "code": 12386011,
+   "data": 2418530,
+   "functions": 33509,
+   "imported_functions": 29
+  },
+  "V4-before-wasm-opt": {
+   "type": 6671,
+   "import": 184,
+   "function": 37352,
+   "table": 7,
+   "memory": 7,
+   "tag": 3,
+   "global": 9,
+   "export": 52,
+   "elem": 42205,
+   "datacount": 2,
+   "code": 12067749,
+   "data": 2433020,
+   "functions": 36659,
+   "imported_functions": 30
+  }
+ },
+ "breakdown_V0": {
+  "custom_sections": "none: no name, producers, target_features or debug section (emcc at -Os with -g0 strips them); nothing to drop",
+  "name_section_if_kept_bytes": 3119218,
+  "attribution_method": "a second link of V0 with -C link-arg=--profiling-funcs and -C link-arg=-Wl,-Map=<file> (cargo rustc, analysis only; its code section is 401 bytes larger than V0's and has the same 30,477 functions). Each function of the name section is attributed by the input file that wasm-ld's map gives for it: OCCT objects (bundled in libpartsmith_occt_sys's rlib) to their toolkit through the source files of each toolkit's PACKAGES, shim and cxx objects to the shim, Emscripten system libraries to the runtime, libc, libc++ and dlmalloc. Functions of the one Rust LTO object go to the first Partsmith crate their demangled (v0) name mentions, so std, serde and hashbrown code instantiated for a Partsmith type counts for that crate; else to the first other crate named. Only __wasm_call_ctors (15,366 bytes, the static constructors) is not in the map; it is counted as linker-generated.",
+  "attribution": {
+   "function_body_bytes": 17483805,
+   "functions": 30477,
+   "map_functions": 45469,
+   "by_group": [
+    {
+     "group": "OCCT",
+     "bytes": 11609160,
+     "percent": 66.4
+    },
+    {
+     "group": "Rust: Partsmith crates",
+     "bytes": 5006463,
+     "percent": 28.63
+    },
+    {
+     "group": "Rust: std and other crates",
+     "bytes": 402809,
+     "percent": 2.3
+    },
+    {
+     "group": "partsmith-occt-sys C++ shim and cxx glue",
+     "bytes": 299527,
+     "percent": 1.71
+    },
+    {
+     "group": "Emscripten runtime, libc, libc++",
+     "bytes": 165846,
+     "percent": 0.95
+    }
+   ],
+   "by_origin": [
+    {
+     "origin": "OCCT TKDESTEP",
+     "bytes": 2397303,
+     "functions": 6981,
+     "percent": 13.71
+    },
+    {
+     "origin": "OCCT TKGeomAlgo",
+     "bytes": 1313262,
+     "functions": 1432,
+     "percent": 7.51
+    },
+    {
+     "origin": "OCCT TKFillet",
+     "bytes": 1160756,
+     "functions": 1127,
+     "percent": 6.64
+    },
+    {
+     "origin": "OCCT TKShHealing",
+     "bytes": 1123385,
+     "functions": 943,
+     "percent": 6.43
+    },
+    {
+     "origin": "partsmith-features",
+     "bytes": 1029088,
+     "functions": 955,
+     "percent": 5.89
+    },
+    {
+     "origin": "OCCT TKGeomBase",
+     "bytes": 1022812,
+     "functions": 1274,
+     "percent": 5.85
+    },
+    {
+     "origin": "partsmith-sketch",
+     "bytes": 913850,
+     "functions": 737,
+     "percent": 5.23
+    },
+    {
+     "origin": "partsmith-protocol",
+     "bytes": 849841,
+     "functions": 706,
+     "percent": 4.86
+    },
+    {
+     "origin": "OCCT TKBO",
+     "bytes": 744931,
+     "functions": 1234,
+     "percent": 4.26
+    },
+    {
+     "origin": "OCCT TKTopAlgo",
+     "bytes": 674965,
+     "functions": 757,
+     "percent": 3.86
+    },
+    {
+     "origin": "partsmith-engine",
+     "bytes": 639605,
+     "functions": 456,
+     "percent": 3.66
+    },
+    {
+     "origin": "OCCT TKBool",
+     "bytes": 635217,
+     "functions": 1139,
+     "percent": 3.63
+    },
+    {
+     "origin": "OCCT TKOffset",
+     "bytes": 626858,
+     "functions": 467,
+     "percent": 3.59
+    },
+    {
+     "origin": "partsmith-naming",
+     "bytes": 545554,
+     "functions": 806,
+     "percent": 3.12
+    },
+    {
+     "origin": "partsmith-model",
+     "bytes": 473158,
+     "functions": 843,
+     "percent": 2.71
+    },
+    {
+     "origin": "OCCT TKG3d",
+     "bytes": 371719,
+     "functions": 984,
+     "percent": 2.13
+    },
+    {
+     "origin": "OCCT TKMath",
+     "bytes": 345164,
+     "functions": 684,
+     "percent": 1.97
+    },
+    {
+     "origin": "partsmith-occt-sys C++ shim",
+     "bytes": 277269,
+     "functions": 2264,
+     "percent": 1.59
+    },
+    {
+     "origin": "OCCT TKMesh",
+     "bytes": 236783,
+     "functions": 750,
+     "percent": 1.35
+    },
+    {
+     "origin": "OCCT TKBRep",
+     "bytes": 218635,
+     "functions": 519,
+     "percent": 1.25
+    },
+    {
+     "origin": "partsmith-print",
+     "bytes": 217329,
+     "functions": 222,
+     "percent": 1.24
+    },
+    {
+     "origin": "OCCT TKXSBase",
+     "bytes": 197681,
+     "functions": 866,
+     "percent": 1.13
+    },
+    {
+     "origin": "Rust standard library (core, alloc, std)",
+     "bytes": 193274,
+     "functions": 527,
+     "percent": 1.11
+    },
+    {
+     "origin": "partsmith-recompute",
+     "bytes": 176071,
+     "functions": 126,
+     "percent": 1.01
+    },
+    {
+     "origin": "OCCT TKXCAF",
+     "bytes": 135127,
+     "functions": 420,
+     "percent": 0.77
+    },
+    {
+     "origin": "serde and serde_json",
+     "bytes": 103194,
+     "functions": 330,
+     "percent": 0.59
+    },
+    {
+     "origin": "OCCT TKPrim",
+     "bytes": 96656,
+     "functions": 155,
+     "percent": 0.55
+    },
+    {
+     "origin": "OCCT TKLCAF",
+     "bytes": 95942,
+     "functions": 412,
+     "percent": 0.55
+    },
+    {
+     "origin": "OCCT TKernel",
+     "bytes": 93897,
+     "functions": 481,
+     "percent": 0.54
+    },
+    {
+     "origin": "libc++",
+     "bytes": 86124,
+     "functions": 596,
+     "percent": 0.49
+    },
+    {
+     "origin": "OCCT TKG2d",
+     "bytes": 71951,
+     "functions": 289,
+     "percent": 0.41
+    },
+    {
+     "origin": "partsmith-occt-sys (Rust side)",
+     "bytes": 64357,
+     "functions": 130,
+     "percent": 0.37
+    },
+    {
+     "origin": "partsmith-mesh",
+     "bytes": 55900,
+     "functions": 86,
+     "percent": 0.32
+    },
+    {
+     "origin": "libc and Emscripten runtime",
+     "bytes": 47441,
+     "functions": 156,
+     "percent": 0.27
+    },
+    {
+     "origin": "partsmith-io",
+     "bytes": 41689,
+     "functions": 80,
+     "percent": 0.24
+    },
+    {
+     "origin": "OCCT TKCAF",
+     "bytes": 36733,
+     "functions": 144,
+     "percent": 0.21
+    },
+    {
+     "origin": "schemars",
+     "bytes": 34747,
+     "functions": 54,
+     "percent": 0.2
+    },
+    {
+     "origin": "zip, flate2, zlib-rs, crc32fast",
+     "bytes": 33912,
+     "functions": 67,
+     "percent": 0.19
+    },
+    {
+     "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+     "bytes": 21693,
+     "functions": 55,
+     "percent": 0.12
+    },
+    {
+     "origin": "linker-generated",
+     "bytes": 15366,
+     "functions": 1,
+     "percent": 0.09
+    },
+    {
+     "origin": "hashbrown, indexmap, foldhash",
+     "bytes": 12966,
+     "functions": 45,
+     "percent": 0.07
+    },
+    {
+     "origin": "other Rust crates",
+     "bytes": 10302,
+     "functions": 22,
+     "percent": 0.06
+    },
+    {
+     "origin": "dlmalloc",
+     "bytes": 10128,
+     "functions": 7,
+     "percent": 0.06
+    },
+    {
+     "origin": "OCCT TKCDF",
+     "bytes": 8208,
+     "functions": 25,
+     "percent": 0.05
+    },
+    {
+     "origin": "blake3",
+     "bytes": 7468,
+     "functions": 12,
+     "percent": 0.04
+    },
+    {
+     "origin": "Rust LTO object, no crate in the name",
+     "bytes": 6946,
+     "functions": 22,
+     "percent": 0.04
+    },
+    {
+     "origin": "libc++abi and libunwind",
+     "bytes": 6787,
+     "functions": 66,
+     "percent": 0.04
+    },
+    {
+     "origin": "OCCT TKService",
+     "bytes": 1175,
+     "functions": 15,
+     "percent": 0.01
+    },
+    {
+     "origin": "cxx crate (C++ side)",
+     "bytes": 519,
+     "functions": 6,
+     "percent": 0.0
+    },
+    {
+     "origin": "cxx (Rust side)",
+     "bytes": 46,
+     "functions": 1,
+     "percent": 0.0
+    },
+    {
+     "origin": "partsmith-wasm",
+     "bytes": 21,
+     "functions": 1,
+     "percent": 0.0
+    }
+   ],
+   "shim_by_file": [
+    {
+     "file": "blends.o",
+     "bytes": 67903
+    },
+    {
+     "file": "mesh_algorithm.o",
+     "bytes": 37075
+    },
+    {
+     "file": "profiles.o",
+     "bytes": 27639
+    },
+    {
+     "file": "queries.o",
+     "bytes": 21447
+    },
+    {
+     "file": "validity.o",
+     "bytes": 18465
+    },
+    {
+     "file": "exchange.o",
+     "bytes": 16160
+    },
+    {
+     "file": "transforms.o",
+     "bytes": 15806
+    },
+    {
+     "file": "mesh.o",
+     "bytes": 14716
+    },
+    {
+     "file": "delabella.o",
+     "bytes": 13718
+    },
+    {
+     "file": "sweeps.o",
+     "bytes": 11458
+    },
+    {
+     "file": "history.o",
+     "bytes": 7514
+    },
+    {
+     "file": "shape.o",
+     "bytes": 7254
+    },
+    {
+     "file": "measure.o",
+     "bytes": 6813
+    },
+    {
+     "file": "booleans.o",
+     "bytes": 6485
+    },
+    {
+     "file": "primitives.o",
+     "bytes": 3527
+    },
+    {
+     "file": "interrupt.o",
+     "bytes": 1289
+    }
+   ],
+   "data_before_binaryen_by_origin": [
+    {
+     "origin": "OCCT TKGeomBase",
+     "bytes": 1248809
+    },
+    {
+     "origin": "OCCT TKernel",
+     "bytes": 691362
+    },
+    {
+     "origin": "linker-merged strings and constants (every input)",
+     "bytes": 246608
+    },
+    {
+     "origin": "Rust (all crates, one LTO object)",
+     "bytes": 210737
+    },
+    {
+     "origin": "OCCT TKMath",
+     "bytes": 153721
+    },
+    {
+     "origin": "OCCT TKDESTEP",
+     "bytes": 117318
+    },
+    {
+     "origin": "OCCT TKXSBase",
+     "bytes": 40714
+    },
+    {
+     "origin": "OCCT TKBO",
+     "bytes": 33171
+    },
+    {
+     "origin": "libc and Emscripten runtime",
+     "bytes": 24606
+    },
+    {
+     "origin": "OCCT TKMesh",
+     "bytes": 24006
+    },
+    {
+     "origin": "OCCT TKShHealing",
+     "bytes": 16617
+    },
+    {
+     "origin": "libc++",
+     "bytes": 13327
+    },
+    {
+     "origin": "partsmith-occt-sys C++ shim",
+     "bytes": 11424
+    },
+    {
+     "origin": "OCCT TKGeomAlgo",
+     "bytes": 10590
+    },
+    {
+     "origin": "OCCT TKFillet",
+     "bytes": 9932
+    },
+    {
+     "origin": "OCCT TKTopAlgo",
+     "bytes": 7772
+    },
+    {
+     "origin": "OCCT TKBool",
+     "bytes": 7445
+    },
+    {
+     "origin": "OCCT TKG3d",
+     "bytes": 7179
+    },
+    {
+     "origin": "OCCT TKLCAF",
+     "bytes": 6439
+    },
+    {
+     "origin": "OCCT TKBRep",
+     "bytes": 5649
+    },
+    {
+     "origin": "OCCT TKXCAF",
+     "bytes": 5286
+    },
+    {
+     "origin": "OCCT TKOffset",
+     "bytes": 3757
+    },
+    {
+     "origin": "OCCT TKG2d",
+     "bytes": 2421
+    },
+    {
+     "origin": "OCCT TKPrim",
+     "bytes": 1911
+    },
+    {
+     "origin": "OCCT TKCAF",
+     "bytes": 1850
+    },
+    {
+     "origin": "libc++abi and libunwind",
+     "bytes": 1474
+    },
+    {
+     "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+     "bytes": 1176
+    },
+    {
+     "origin": "dlmalloc",
+     "bytes": 500
+    },
+    {
+     "origin": "OCCT TKCDF",
+     "bytes": 353
+    },
+    {
+     "origin": "OCCT TKService",
+     "bytes": 201
+    },
+    {
+     "origin": "Rust standard library (core, alloc, std)",
+     "bytes": 24
+    }
+   ],
+   "occt_by_package": [
+    {
+     "package": "TKDESTEP RWStepAP214",
+     "bytes": 905230
+    },
+    {
+     "package": "TKFillet ChFi3d",
+     "bytes": 717745
+    },
+    {
+     "package": "TKOffset BRepOffset",
+     "bytes": 624069
+    },
+    {
+     "package": "TKShHealing ShapeFix",
+     "bytes": 540460
+    },
+    {
+     "package": "TKGeomAlgo IntPatch",
+     "bytes": 467598
+    },
+    {
+     "package": "TKBO BOPAlgo",
+     "bytes": 464053
+    },
+    {
+     "package": "TKDESTEP STEPCAFControl",
+     "bytes": 366558
+    },
+    {
+     "package": "TKBool TopOpeBRepBuild",
+     "bytes": 343297
+    },
+    {
+     "package": "TKShHealing ShapeUpgrade",
+     "bytes": 260508
+    },
+    {
+     "package": "TKGeomBase Extrema",
+     "bytes": 221433
+    },
+    {
+     "package": "TKMesh BRepMesh",
+     "bytes": 198181
+    },
+    {
+     "package": "TKGeomAlgo GeomInt",
+     "bytes": 189020
+    },
+    {
+     "package": "TKG3d Geom",
+     "bytes": 187360
+    },
+    {
+     "package": "TKFillet BRepBlend",
+     "bytes": 178870
+    },
+    {
+     "package": "TKBool TopOpeBRepTool",
+     "bytes": 166068
+    },
+    {
+     "package": "TKDESTEP STEPControl",
+     "bytes": 160277
+    },
+    {
+     "package": "TKBO IntTools",
+     "bytes": 154744
+    },
+    {
+     "package": "TKGeomAlgo GeomFill",
+     "bytes": 146550
+    },
+    {
+     "package": "TKFillet BlendFunc",
+     "bytes": 144081
+    },
+    {
+     "package": "TKTopAlgo BRepApprox",
+     "bytes": 143997
+    },
+    {
+     "package": "TKGeomBase ProjLib",
+     "bytes": 143588
+    },
+    {
+     "package": "TKTopAlgo BRepBuilderAPI",
+     "bytes": 131067
+    },
+    {
+     "package": "TKXCAF XCAFDoc",
+     "bytes": 121307
+    },
+    {
+     "package": "TKShHealing ShapeAnalysis",
+     "bytes": 117723
+    },
+    {
+     "package": "TKBRep BRepTools",
+     "bytes": 117456
+    },
+    {
+     "package": "TKTopAlgo BRepLib",
+     "bytes": 115535
+    },
+    {
+     "package": "TKDESTEP StepToTopoDS",
+     "bytes": 105471
+    },
+    {
+     "package": "TKMath math",
+     "bytes": 100947
+    },
+    {
+     "package": "TKDESTEP STEPConstruct",
+     "bytes": 96076
+    },
+    {
+     "package": "TKGeomBase AdvApp2Var",
+     "bytes": 91506
+    },
+    {
+     "package": "TKFillet ChFiKPart",
+     "bytes": 91409
+    },
+    {
+     "package": "TKGeomBase AppDef",
+     "bytes": 90770
+    },
+    {
+     "package": "TKTopAlgo BRepCheck",
+     "bytes": 88036
+    },
+    {
+     "package": "TKDESTEP TopoDSToStep",
+     "bytes": 85406
+    },
+    {
+     "package": "TKBool TopOpeBRepDS",
+     "bytes": 76501
+    },
+    {
+     "package": "TKGeomAlgo GeomPlate",
+     "bytes": 74090
+    },
+    {
+     "package": "TKGeomBase GeomConvert",
+     "bytes": 71974
+    },
+    {
+     "package": "TKGeomBase GeomLib",
+     "bytes": 71573
+    },
+    {
+     "package": "TKBO BOPTools",
+     "bytes": 71340
+    },
+    {
+     "package": "TKGeomBase Approx",
+     "bytes": 70849
+    },
+    {
+     "package": "TKTopAlgo BRepExtrema",
+     "bytes": 69902
+    },
+    {
+     "package": "TKShHealing ShapeCustom",
+     "bytes": 66390
+    },
+    {
+     "package": "TKDESTEP StepData",
+     "bytes": 65789
+    },
+    {
+     "package": "TKXSBase Interface",
+     "bytes": 61122
+    },
+    {
+     "package": "TKG3d GeomAdaptor",
+     "bytes": 60884
+    },
+    {
+     "package": "TKDESTEP GeomToStep",
+     "bytes": 59968
+    },
+    {
+     "package": "TKDESTEP StepToGeom",
+     "bytes": 59324
+    },
+    {
+     "package": "TKPrim BRepSweep",
+     "bytes": 58472
+    },
+    {
+     "package": "TKDESTEP RWStepKinematics",
+     "bytes": 56717
+    },
+    {
+     "package": "TKGeomAlgo Geom2dInt",
+     "bytes": 55200
+    },
+    {
+     "package": "TKG3d Adaptor3d",
+     "bytes": 53829
+    },
+    {
+     "package": "TKLCAF TDataStd",
+     "bytes": 53146
+    },
+    {
+     "package": "TKMath BSplCLib",
+     "bytes": 52530
+    },
+    {
+     "package": "TKGeomAlgo IntCurve",
+     "bytes": 52388
+    },
+    {
+     "package": "TKBRep BRep",
+     "bytes": 51442
+    },
+    {
+     "package": "TKGeomAlgo IntCurveSurface",
+     "bytes": 50259
+    },
+    {
+     "package": "TKGeomBase IntAna",
+     "bytes": 49806
+    },
+    {
+     "package": "TKBool BRepAlgo",
+     "bytes": 49351
+    },
+    {
+     "package": "TKG2d Geom2d",
+     "bytes": 48499
+    },
+    {
+     "package": "TKGeomAlgo IntPolyh",
+     "bytes": 45573
+    },
+    {
+     "package": "TKMath Convert",
+     "bytes": 45293
+    },
+    {
+     "package": "TKXSBase IFSelect",
+     "bytes": 43615
+    },
+    {
+     "package": "TKShHealing ShapeConstruct",
+     "bytes": 42088
+    },
+    {
+     "package": "TKBO BOPDS",
+     "bytes": 42065
+    },
+    {
+     "package": "TKGeomBase BndLib",
+     "bytes": 41204
+    },
+    {
+     "package": "TKGeomAlgo Plate",
+     "bytes": 38319
+    },
+    {
+     "package": "TKGeomAlgo IntWalk",
+     "bytes": 37718
+    },
+    {
+     "package": "TKShHealing ShapeProcess",
+     "bytes": 37310
+    },
+    {
+     "package": "TKGeomBase GeomTools",
+     "bytes": 36619
+    },
+    {
+     "package": "TKMath PLib",
+     "bytes": 36092
+    },
+    {
+     "package": "TKGeomBase GCPnts",
+     "bytes": 35970
+    },
+    {
+     "package": "TKGeomBase Geom2dConvert",
+     "bytes": 35535
+    },
+    {
+     "package": "TKG3d GeomEvaluator",
+     "bytes": 35089
+    },
+    {
+     "package": "TKMesh BRepMeshData",
+     "bytes": 34321
+    },
+    {
+     "package": "TKXSBase XSControl",
+     "bytes": 34315
+    },
+    {
+     "package": "TKDESTEP StepBasic",
+     "bytes": 31221
+    },
+    {
+     "package": "TKDESTEP StepAP214",
+     "bytes": 31108
+    },
+    {
+     "package": "TKDESTEP RWStepBasic",
+     "bytes": 29342
+    },
+    {
+     "package": "TKTopAlgo BRepClass3d",
+     "bytes": 29144
+    },
+    {
+     "package": "TKGeomAlgo Law",
+     "bytes": 28636
+    },
+    {
+     "package": "TKPrim BRepPrim",
+     "bytes": 28580
+    },
+    {
+     "package": "TKGeomAlgo FairCurve",
+     "bytes": 27835
+    },
+    {
+     "package": "TKCAF TNaming",
+     "bytes": 27315
+    },
+    {
+     "package": "TKTopAlgo BRepBndLib",
+     "bytes": 25421
+    },
+    {
+     "package": "TKDESTEP RWStepDimTol",
+     "bytes": 25404
+    },
+    {
+     "package": "TKMath gp",
+     "bytes": 25153
+    },
+    {
+     "package": "TKLCAF TDF",
+     "bytes": 24785
+    },
+    {
+     "package": "TKDESTEP StepVisual",
+     "bytes": 24302
+    },
+    {
+     "package": "TKXSBase Transfer",
+     "bytes": 23829
+    },
+    {
+     "package": "TKDESTEP STEPEdit",
+     "bytes": 23733
+    },
+    {
+     "package": "TKFillet ChFiDS",
+     "bytes": 23040
+    },
+    {
+     "package": "TKTopAlgo BRepTopAdaptor",
+     "bytes": 22819
+    },
+    {
+     "package": "TKernel Standard",
+     "bytes": 21893
+    },
+    {
+     "package": "TKG3d AdvApprox",
+     "bytes": 21831
+    },
+    {
+     "package": "TKTopAlgo BRepGProp",
+     "bytes": 21724
+    },
+    {
+     "package": "TKDESTEP StepGeom",
+     "bytes": 21634
+    },
+    {
+     "package": "TKernel OSD",
+     "bytes": 21101
+    },
+    {
+     "package": "TKShHealing ShapeExtend",
+     "bytes": 20785
+    },
+    {
+     "package": "TKGeomAlgo Geom2dHatch",
+     "bytes": 20669
+    },
+    {
+     "package": "TKDESTEP RWStepVisual",
+     "bytes": 20624
+    },
+    {
+     "package": "TKMath BSplSLib",
+     "bytes": 20018
+    },
+    {
+     "package": "TKMath Bnd",
+     "bytes": 19747
+    },
+    {
+     "package": "TKDESTEP StepShape",
+     "bytes": 19736
+    },
+    {
+     "package": "TKDESTEP RWStepFEA",
+     "bytes": 19433
+    },
+    {
+     "package": "TKShHealing ShapeBuild",
+     "bytes": 19183
+    },
+    {
+     "package": "TKShHealing ShapeAlgo",
+     "bytes": 18938
+    },
+    {
+     "package": "TKernel Message",
+     "bytes": 18110
+    },
+    {
+     "package": "TKGeomAlgo Intf",
+     "bytes": 18072
+    },
+    {
+     "package": "TKLCAF TDocStd",
+     "bytes": 18011
+    },
+    {
+     "package": "TKXSBase XSAlgo",
+     "bytes": 17741
+    },
+    {
+     "package": "TKDESTEP RWStepGeom",
+     "bytes": 17390
+    },
+    {
+     "package": "TKTopAlgo BRepClass",
+     "bytes": 16599
+    },
+    {
+     "package": "TKDESTEP StepFile",
+     "bytes": 16425
+    },
+    {
+     "package": "TKDESTEP StepKinematics",
+     "bytes": 15888
+    },
+    {
+     "package": "TKG2d Geom2dAdaptor",
+     "bytes": 15153
+    },
+    {
+     "package": "TKBRep TopTools",
+     "bytes": 14888
+    },
+    {
+     "package": "TKGeomBase Hermit",
+     "bytes": 14879
+    },
+    {
+     "package": "TKDESTEP StepRepr",
+     "bytes": 14816
+    },
+    {
+     "package": "TKBRep BRepAdaptor",
+     "bytes": 14224
+    },
+    {
+     "package": "TKDESTEP RWStepRepr",
+     "bytes": 14129
+    },
+    {
+     "package": "TKGeomAlgo GeomAPI",
+     "bytes": 13607
+    },
+    {
+     "package": "TKXCAF XCAFDimTolObjects",
+     "bytes": 13505
+    },
+    {
+     "package": "TKGeomBase AppCont",
+     "bytes": 13051
+    },
+    {
+     "package": "TKDESTEP RWStepShape",
+     "bytes": 13041
+    },
+    {
+     "package": "TKGeomBase AppParCurves",
+     "bytes": 12867
+    },
+    {
+     "package": "TKMath CSLib",
+     "bytes": 12791
+    },
+    {
+     "package": "TKBO BRepAlgoAPI",
+     "bytes": 12729
+    },
+    {
+     "package": "TKernel Resource",
+     "bytes": 12687
+    },
+    {
+     "package": "TKDESTEP RWHeaderSection",
+     "bytes": 12525
+    },
+    {
+     "package": "TKDESTEP APIHeaderSection",
+     "bytes": 12442
+    },
+    {
+     "package": "TKernel TCollection",
+     "bytes": 11681
+    },
+    {
+     "package": "TKDESTEP StepFEA",
+     "bytes": 11642
+    },
+    {
+     "package": "TKDESTEP StepDimTol",
+     "bytes": 11619
+    },
+    {
+     "package": "TKGeomAlgo IntSurf",
+     "bytes": 10786
+    },
+    {
+     "package": "TKTopAlgo IntCurvesFace",
+     "bytes": 10721
+    },
+    {
+     "package": "TKDESTEP RWStepAP203",
+     "bytes": 10655
+    },
+    {
+     "package": "TKGeomAlgo Geom2dAPI",
+     "bytes": 10073
+    },
+    {
+     "package": "TKCAF TDataXtd",
+     "bytes": 9418
+    },
+    {
+     "package": "TKBRep BRepLProp",
+     "bytes": 8935
+    },
+    {
+     "package": "TKPrim BRepPrimAPI",
+     "bytes": 8887
+    },
+    {
+     "package": "TKMath ElCLib",
+     "bytes": 8383
+    },
+    {
+     "package": "TKXSBase MoniTool",
+     "bytes": 8362
+    },
+    {
+     "package": "TKDESTEP STEPSelections",
+     "bytes": 8269
+    },
+    {
+     "package": "TKMath ElSLib",
+     "bytes": 8257
+    },
+    {
+     "package": "TKG3d GeomLProp",
+     "bytes": 8157
+    },
+    {
+     "package": "TKMath TopLoc",
+     "bytes": 7968
+    },
+    {
+     "package": "TKCDF CDM",
+     "bytes": 7927
+    },
+    {
+     "package": "TKGeomAlgo ApproxInt",
+     "bytes": 7914
+    },
+    {
+     "package": "TKDESTEP StepSelect",
+     "bytes": 7855
+    },
+    {
+     "package": "TKDESTEP RWStepElement",
+     "bytes": 7701
+    },
+    {
+     "package": "TKMath Poly",
+     "bytes": 7701
+    },
+    {
+     "package": "TKGeomBase IntAna2d",
+     "bytes": 7508
+    },
+    {
+     "package": "TKBRep TopExp",
+     "bytes": 6244
+    },
+    {
+     "package": "TKDESTEP StepElement",
+     "bytes": 6000
+    },
+    {
+     "package": "TKGeomBase GeomProjLib",
+     "bytes": 5718
+    },
+    {
+     "package": "TKBRep TopoDS",
+     "bytes": 5446
+    },
+    {
+     "package": "TKFillet BRepFilletAPI",
+     "bytes": 5438
+    },
+    {
+     "package": "TKGeomAlgo LocalAnalysis",
+     "bytes": 5289
+    },
+    {
+     "package": "TKGeomBase gce",
+     "bytes": 5184
+    },
+    {
+     "package": "TKernel NCollection",
+     "bytes": 4843
+    },
+    {
+     "package": "TKXSBase IFGraph",
+     "bytes": 4726
+    },
+    {
+     "package": "TKGeomAlgo HatchGen",
+     "bytes": 4508
+    },
+    {
+     "package": "TKG2d Geom2dEvaluator",
+     "bytes": 4346
+    },
+    {
+     "package": "TKXSBase TransferBRep",
+     "bytes": 3971
+    },
+    {
+     "package": "TKGeomAlgo IntRes2d",
+     "bytes": 3881
+    },
+    {
+     "package": "TKMesh IMeshTools",
+     "bytes": 3543
+    },
+    {
+     "package": "TKG3d GProp",
+     "bytes": 3219
+    },
+    {
+     "package": "TKDESTEP StepAP203",
+     "bytes": 3156
+    },
+    {
+     "package": "TKDESTEP RWStepAP242",
+     "bytes": 2878
+    },
+    {
+     "package": "TKOffset BRepOffsetAPI",
+     "bytes": 2789
+    },
+    {
+     "package": "TKGeomAlgo TopTrans",
+     "bytes": 2681
+    },
+    {
+     "package": "TKGeomBase CPnts",
+     "bytes": 2231
+    },
+    {
+     "package": "TKernel Quantity",
+     "bytes": 2124
+    },
+    {
+     "package": "TKG2d Adaptor2d",
+     "bytes": 2114
+    },
+    {
+     "package": "TKG2d Geom2dLProp",
+     "bytes": 1839
+    },
+    {
+     "package": "TKGeomAlgo IntImpParGen",
+     "bytes": 1530
+    },
+    {
+     "package": "TKG3d LProp3d",
+     "bytes": 1293
+    },
+    {
+     "package": "TKDESTEP StepAP242",
+     "bytes": 1281
+    },
+    {
+     "package": "TKDESTEP HeaderSection",
+     "bytes": 1150
+    },
+    {
+     "package": "TKDESTEP DESTEP",
+     "bytes": 1088
+    },
+    {
+     "package": "TKGeomAlgo IntImp",
+     "bytes": 1066
+    },
+    {
+     "package": "TKernel TColStd",
+     "bytes": 1005
+    },
+    {
+     "package": "TKService Image",
+     "bytes": 879
+    },
+    {
+     "package": "TKMesh IMeshData",
+     "bytes": 738
+    },
+    {
+     "package": "TKPrim Sweep",
+     "bytes": 717
+    },
+    {
+     "package": "TKGeomBase GCE2d",
+     "bytes": 389
+    },
+    {
+     "package": "TKernel FSD",
+     "bytes": 346
+    },
+    {
+     "package": "TKService Graphic3d",
+     "bytes": 296
+    },
+    {
+     "package": "TKMath BVH",
+     "bytes": 284
+    },
+    {
+     "package": "TKXCAF XCAFView",
+     "bytes": 175
+    },
+    {
+     "package": "TKFillet Blend",
+     "bytes": 173
+    },
+    {
+     "package": "TKGeomBase GC",
+     "bytes": 158
+    },
+    {
+     "package": "TKXCAF XCAFPrs",
+     "bytes": 140
+    },
+    {
+     "package": "TKCDF CDF",
+     "bytes": 120
+    },
+    {
+     "package": "TKernel UnitsMethods",
+     "bytes": 107
+    },
+    {
+     "package": "TKCDF PCDM",
+     "bytes": 85
+    },
+    {
+     "package": "TKCDF UTL",
+     "bytes": 76
+    },
+    {
+     "package": "TKG3d TopAbs",
+     "bytes": 57
+    }
+   ],
+   "not_in_map": {
+    "functions": 0,
+    "bytes": 0,
+    "largest": []
+   }
+  },
+  "requested_toolkits": "TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKFillet TKOffset TKFeat TKMesh TKShHealing TKDESTEP TKDESTL (18 names on the toolkits= line)",
+  "linked_toolkits": 28,
+  "toolkits_without_code": [
+   "TKDESTL",
+   "TKVCAF",
+   "TKV3d",
+   "TKHLR",
+   "TKDE",
+   "TKFeat"
+  ],
+  "fewer_toolkits_check": "V0-22-toolkits: the six left out of the link list give a core byte-identical to the kept V0 (that build also recompiled the shim)",
+  "largest_data_segments_map_bytes": [
+   "840000 AppCont_ContMatrices_4.cxx.o .rodata._ZL8VBMatrix",
+   "246608 <internal>:(.rodata)",
+   "131072 Resource_ConvertUnicode.c.o .rodata.unisjis",
+   "131072 Resource_ConvertUnicode.c.o .rodata.unigb",
+   "131072 Resource_ConvertUnicode.c.o .rodata.sjisuni",
+   "131072 Resource_ConvertUnicode.c.o .rodata.gbuni",
+   "79128 Resource_Unicode.cxx.o .rodata._ZL7big5uni",
+   "63488 AdvApp2Var_Data_2.cxx.o .data._ZZN15AdvApp2Var_Data10GetmmjcobiEvE5s_e_1",
+   "49600 AppCont_ContMatrices_2.cxx.o .rodata._ZL8BBMatrix",
+   "49600 AppCont_ContMatrices.cxx.o .rodata._ZL7IMatrix",
+   "47880 Resource_Unicode.cxx.o .rodata._ZL6gbkuni",
+   "40552 AdvApp2Var_Data_4.cxx.o .data._ZZN15AdvApp2Var_Data10GetmmapgssEvE3e_1"
+  ],
+  "data_section": {
+   "bytes": 2434355,
+   "segments": 3010,
+   "segment_payload_bytes": 2410081,
+   "segment_header_bytes": 24274,
+   "map_data_inputs_bytes": 2906379,
+   "map_bss_bytes": 35172,
+   "payload_bytes_covered_by_a_map_input": 2409260,
+   "why_the_file_holds_less": "the map's data inputs include .bss, never in the file, and emcc's wasm-opt (--zero-filled-memory, memory packing) drops runs of zeros since memory starts zeroed"
+  },
+  "data_attribution_method": "round 2 (the check's M3): each data input chunk of the wasm-ld map (address and size) gets the bytes of the final file's active data segments that cover its addresses (round2/data_final.py on V0-profiling, whose data section is identical in size to V0's); round 1 counted the map's sizes before Binaryen",
+  "data_in_file_by_origin": [
+   {
+    "origin": "OCCT TKGeomBase",
+    "final_bytes": 1248501,
+    "map_bytes": 1248809
+   },
+   {
+    "origin": "OCCT TKernel",
+    "final_bytes": 240277,
+    "map_bytes": 691362
+   },
+   {
+    "origin": "linker-merged strings and constants (every input)",
+    "final_bytes": 246608,
+    "map_bytes": 246608
+   },
+   {
+    "origin": "Rust (all crates, one LTO object)",
+    "final_bytes": 198064,
+    "map_bytes": 210737
+   },
+   {
+    "origin": "OCCT TKMath",
+    "final_bytes": 152825,
+    "map_bytes": 153721
+   },
+   {
+    "origin": "OCCT TKDESTEP",
+    "final_bytes": 103580,
+    "map_bytes": 117318
+   },
+   {
+    "origin": "OCCT TKXSBase",
+    "final_bytes": 39769,
+    "map_bytes": 40714
+   },
+   {
+    "origin": "OCCT TKBO",
+    "final_bytes": 32695,
+    "map_bytes": 33171
+   },
+   {
+    "origin": "libc and Emscripten runtime",
+    "final_bytes": 17733,
+    "map_bytes": 24606
+   },
+   {
+    "origin": "OCCT TKMesh",
+    "final_bytes": 23734,
+    "map_bytes": 24006
+   },
+   {
+    "origin": "OCCT TKShHealing",
+    "final_bytes": 16137,
+    "map_bytes": 16617
+   },
+   {
+    "origin": "libc++",
+    "final_bytes": 9836,
+    "map_bytes": 13327
+   },
+   {
+    "origin": "partsmith-occt-sys C++ shim",
+    "final_bytes": 11027,
+    "map_bytes": 11424
+   },
+   {
+    "origin": "OCCT TKGeomAlgo",
+    "final_bytes": 10298,
+    "map_bytes": 10590
+   },
+   {
+    "origin": "OCCT TKFillet",
+    "final_bytes": 9226,
+    "map_bytes": 9932
+   },
+   {
+    "origin": "OCCT TKTopAlgo",
+    "final_bytes": 7667,
+    "map_bytes": 7772
+   },
+   {
+    "origin": "OCCT TKBool",
+    "final_bytes": 6752,
+    "map_bytes": 7445
+   },
+   {
+    "origin": "OCCT TKG3d",
+    "final_bytes": 6855,
+    "map_bytes": 7179
+   },
+   {
+    "origin": "OCCT TKLCAF",
+    "final_bytes": 5896,
+    "map_bytes": 6439
+   },
+   {
+    "origin": "OCCT TKBRep",
+    "final_bytes": 5379,
+    "map_bytes": 5649
+   },
+   {
+    "origin": "OCCT TKXCAF",
+    "final_bytes": 4206,
+    "map_bytes": 5286
+   },
+   {
+    "origin": "OCCT TKOffset",
+    "final_bytes": 3744,
+    "map_bytes": 3757
+   },
+   {
+    "origin": "OCCT TKG2d",
+    "final_bytes": 2288,
+    "map_bytes": 2421
+   },
+   {
+    "origin": "OCCT TKPrim",
+    "final_bytes": 1903,
+    "map_bytes": 1911
+   },
+   {
+    "origin": "OCCT TKCAF",
+    "final_bytes": 1646,
+    "map_bytes": 1850
+   },
+   {
+    "origin": "libc++abi and libunwind",
+    "final_bytes": 892,
+    "map_bytes": 1474
+   },
+   {
+    "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+    "final_bytes": 1167,
+    "map_bytes": 1176
+   },
+   {
+    "origin": "dlmalloc",
+    "final_bytes": 4,
+    "map_bytes": 500
+   },
+   {
+    "origin": "OCCT TKCDF",
+    "final_bytes": 348,
+    "map_bytes": 353
+   },
+   {
+    "origin": "OCCT TKService",
+    "final_bytes": 185,
+    "map_bytes": 201
+   },
+   {
+    "origin": "Rust standard library (core, alloc, std)",
+    "final_bytes": 18,
+    "map_bytes": 24
+   }
+  ],
+  "named_tables_in_file_bytes": {
+   "VBMatrix": 839994,
+   "Unicode tables": 203762
+  },
+  "named_tables_map_bytes": {
+   "VBMatrix": 840000,
+   "Unicode tables": 651296
+  }
+ },
+ "breakdown_V4_before_wasm_opt": {
+  "attribution": {
+   "function_body_bytes": 12067821,
+   "functions": 36659,
+   "map_functions": 56130,
+   "by_group": [
+    {
+     "group": "OCCT",
+     "bytes": 7060464,
+     "percent": 58.51
+    },
+    {
+     "group": "Rust: Partsmith crates",
+     "bytes": 4166538,
+     "percent": 34.53
+    },
+    {
+     "group": "Rust: std and other crates",
+     "bytes": 379820,
+     "percent": 3.15
+    },
+    {
+     "group": "partsmith-occt-sys C++ shim and cxx glue",
+     "bytes": 208248,
+     "percent": 1.73
+    },
+    {
+     "group": "Emscripten runtime, libc, libc++",
+     "bytes": 164435,
+     "percent": 1.36
+    },
+    {
+     "group": "not in the map",
+     "bytes": 88316,
+     "percent": 0.73
+    }
+   ],
+   "by_origin": [
+    {
+     "origin": "OCCT TKDESTEP",
+     "bytes": 1387335,
+     "functions": 7759,
+     "percent": 11.5
+    },
+    {
+     "origin": "OCCT TKGeomAlgo",
+     "bytes": 944336,
+     "functions": 1608,
+     "percent": 7.83
+    },
+    {
+     "origin": "partsmith-features",
+     "bytes": 845986,
+     "functions": 1221,
+     "percent": 7.01
+    },
+    {
+     "origin": "partsmith-sketch",
+     "bytes": 747464,
+     "functions": 1431,
+     "percent": 6.19
+    },
+    {
+     "origin": "OCCT TKGeomBase",
+     "bytes": 709478,
+     "functions": 1306,
+     "percent": 5.88
+    },
+    {
+     "origin": "OCCT TKFillet",
+     "bytes": 708611,
+     "functions": 1222,
+     "percent": 5.87
+    },
+    {
+     "origin": "partsmith-protocol",
+     "bytes": 687219,
+     "functions": 1293,
+     "percent": 5.69
+    },
+    {
+     "origin": "OCCT TKShHealing",
+     "bytes": 605851,
+     "functions": 1023,
+     "percent": 5.02
+    },
+    {
+     "origin": "partsmith-engine",
+     "bytes": 547123,
+     "functions": 627,
+     "percent": 4.53
+    },
+    {
+     "origin": "partsmith-naming",
+     "bytes": 455342,
+     "functions": 1151,
+     "percent": 3.77
+    },
+    {
+     "origin": "OCCT TKBO",
+     "bytes": 431802,
+     "functions": 1401,
+     "percent": 3.58
+    },
+    {
+     "origin": "partsmith-model",
+     "bytes": 404951,
+     "functions": 1243,
+     "percent": 3.36
+    },
+    {
+     "origin": "OCCT TKTopAlgo",
+     "bytes": 397574,
+     "functions": 826,
+     "percent": 3.29
+    },
+    {
+     "origin": "OCCT TKBool",
+     "bytes": 326246,
+     "functions": 1155,
+     "percent": 2.7
+    },
+    {
+     "origin": "OCCT TKOffset",
+     "bytes": 288206,
+     "functions": 546,
+     "percent": 2.39
+    },
+    {
+     "origin": "OCCT TKMath",
+     "bytes": 253073,
+     "functions": 716,
+     "percent": 2.1
+    },
+    {
+     "origin": "OCCT TKG3d",
+     "bytes": 250123,
+     "functions": 997,
+     "percent": 2.07
+    },
+    {
+     "origin": "partsmith-occt-sys C++ shim",
+     "bytes": 191007,
+     "functions": 2568,
+     "percent": 1.58
+    },
+    {
+     "origin": "partsmith-print",
+     "bytes": 187629,
+     "functions": 342,
+     "percent": 1.55
+    },
+    {
+     "origin": "Rust standard library (core, alloc, std)",
+     "bytes": 179587,
+     "functions": 860,
+     "percent": 1.49
+    },
+    {
+     "origin": "OCCT TKMesh",
+     "bytes": 156480,
+     "functions": 852,
+     "percent": 1.3
+    },
+    {
+     "origin": "partsmith-recompute",
+     "bytes": 147368,
+     "functions": 190,
+     "percent": 1.22
+    },
+    {
+     "origin": "OCCT TKBRep",
+     "bytes": 125666,
+     "functions": 539,
+     "percent": 1.04
+    },
+    {
+     "origin": "OCCT TKXSBase",
+     "bytes": 124082,
+     "functions": 895,
+     "percent": 1.03
+    },
+    {
+     "origin": "serde and serde_json",
+     "bytes": 92109,
+     "functions": 513,
+     "percent": 0.76
+    },
+    {
+     "origin": "not in the map",
+     "bytes": 88316,
+     "functions": 664,
+     "percent": 0.73
+    },
+    {
+     "origin": "libc++",
+     "bytes": 84761,
+     "functions": 581,
+     "percent": 0.7
+    },
+    {
+     "origin": "OCCT TKXCAF",
+     "bytes": 82307,
+     "functions": 460,
+     "percent": 0.68
+    },
+    {
+     "origin": "OCCT TKernel",
+     "bytes": 80374,
+     "functions": 516,
+     "percent": 0.67
+    },
+    {
+     "origin": "OCCT TKLCAF",
+     "bytes": 61490,
+     "functions": 449,
+     "percent": 0.51
+    },
+    {
+     "origin": "partsmith-occt-sys (Rust side)",
+     "bytes": 57012,
+     "functions": 181,
+     "percent": 0.47
+    },
+    {
+     "origin": "OCCT TKPrim",
+     "bytes": 53254,
+     "functions": 156,
+     "percent": 0.44
+    },
+    {
+     "origin": "libc and Emscripten runtime",
+     "bytes": 47961,
+     "functions": 150,
+     "percent": 0.4
+    },
+    {
+     "origin": "OCCT TKG2d",
+     "bytes": 47228,
+     "functions": 289,
+     "percent": 0.39
+    },
+    {
+     "origin": "partsmith-mesh",
+     "bytes": 46809,
+     "functions": 140,
+     "percent": 0.39
+    },
+    {
+     "origin": "partsmith-io",
+     "bytes": 38002,
+     "functions": 103,
+     "percent": 0.31
+    },
+    {
+     "origin": "zip, flate2, zlib-rs, crc32fast",
+     "bytes": 32885,
+     "functions": 87,
+     "percent": 0.27
+    },
+    {
+     "origin": "schemars",
+     "bytes": 29183,
+     "functions": 76,
+     "percent": 0.24
+    },
+    {
+     "origin": "OCCT TKCAF",
+     "bytes": 19596,
+     "functions": 160,
+     "percent": 0.16
+    },
+    {
+     "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+     "bytes": 16653,
+     "functions": 57,
+     "percent": 0.14
+    },
+    {
+     "origin": "linker-generated",
+     "bytes": 14779,
+     "functions": 1,
+     "percent": 0.12
+    },
+    {
+     "origin": "hashbrown, indexmap, foldhash",
+     "bytes": 13590,
+     "functions": 82,
+     "percent": 0.11
+    },
+    {
+     "origin": "blake3",
+     "bytes": 12430,
+     "functions": 14,
+     "percent": 0.1
+    },
+    {
+     "origin": "other Rust crates",
+     "bytes": 10869,
+     "functions": 46,
+     "percent": 0.09
+    },
+    {
+     "origin": "dlmalloc",
+     "bytes": 10131,
+     "functions": 7,
+     "percent": 0.08
+    },
+    {
+     "origin": "Rust LTO object, no crate in the name",
+     "bytes": 9167,
+     "functions": 38,
+     "percent": 0.08
+    },
+    {
+     "origin": "libc++abi and libunwind",
+     "bytes": 6803,
+     "functions": 66,
+     "percent": 0.06
+    },
+    {
+     "origin": "OCCT TKCDF",
+     "bytes": 6372,
+     "functions": 26,
+     "percent": 0.05
+    },
+    {
+     "origin": "partsmith-wasm",
+     "bytes": 1633,
+     "functions": 2,
+     "percent": 0.01
+    },
+    {
+     "origin": "OCCT TKService",
+     "bytes": 980,
+     "functions": 15,
+     "percent": 0.01
+    },
+    {
+     "origin": "cxx crate (C++ side)",
+     "bytes": 482,
+     "functions": 5,
+     "percent": 0.0
+    },
+    {
+     "origin": "cxx (Rust side)",
+     "bytes": 106,
+     "functions": 4,
+     "percent": 0.0
+    }
+   ],
+   "shim_by_file": [
+    {
+     "file": "blends.o",
+     "bytes": 45340
+    },
+    {
+     "file": "mesh_algorithm.o",
+     "bytes": 25176
+    },
+    {
+     "file": "profiles.o",
+     "bytes": 23885
+    },
+    {
+     "file": "queries.o",
+     "bytes": 16090
+    },
+    {
+     "file": "validity.o",
+     "bytes": 11929
+    },
+    {
+     "file": "delabella.o",
+     "bytes": 10574
+    },
+    {
+     "file": "transforms.o",
+     "bytes": 10454
+    },
+    {
+     "file": "mesh.o",
+     "bytes": 9042
+    },
+    {
+     "file": "exchange.o",
+     "bytes": 8873
+    },
+    {
+     "file": "sweeps.o",
+     "bytes": 8454
+    },
+    {
+     "file": "history.o",
+     "bytes": 5957
+    },
+    {
+     "file": "shape.o",
+     "bytes": 4649
+    },
+    {
+     "file": "measure.o",
+     "bytes": 4374
+    },
+    {
+     "file": "booleans.o",
+     "bytes": 4043
+    },
+    {
+     "file": "primitives.o",
+     "bytes": 1420
+    },
+    {
+     "file": "interrupt.o",
+     "bytes": 747
+    }
+   ],
+   "data_before_binaryen_by_origin": [
+    {
+     "origin": "OCCT TKGeomBase",
+     "bytes": 1248809
+    },
+    {
+     "origin": "OCCT TKernel",
+     "bytes": 691577
+    },
+    {
+     "origin": "linker-merged strings and constants (every input)",
+     "bytes": 247510
+    },
+    {
+     "origin": "Rust (all crates, one LTO object)",
+     "bytes": 213515
+    },
+    {
+     "origin": "OCCT TKMath",
+     "bytes": 153899
+    },
+    {
+     "origin": "OCCT TKDESTEP",
+     "bytes": 118324
+    },
+    {
+     "origin": "OCCT TKXSBase",
+     "bytes": 40714
+    },
+    {
+     "origin": "OCCT TKBO",
+     "bytes": 33171
+    },
+    {
+     "origin": "OCCT TKMesh",
+     "bytes": 24634
+    },
+    {
+     "origin": "OCCT TKShHealing",
+     "bytes": 16689
+    },
+    {
+     "origin": "libc and Emscripten runtime",
+     "bytes": 16246
+    },
+    {
+     "origin": "libc++",
+     "bytes": 13327
+    },
+    {
+     "origin": "partsmith-occt-sys C++ shim",
+     "bytes": 11572
+    },
+    {
+     "origin": "OCCT TKGeomAlgo",
+     "bytes": 10766
+    },
+    {
+     "origin": "OCCT TKFillet",
+     "bytes": 9996
+    },
+    {
+     "origin": "OCCT TKTopAlgo",
+     "bytes": 7772
+    },
+    {
+     "origin": "OCCT TKBool",
+     "bytes": 7445
+    },
+    {
+     "origin": "OCCT TKG3d",
+     "bytes": 7411
+    },
+    {
+     "origin": "OCCT TKLCAF",
+     "bytes": 6674
+    },
+    {
+     "origin": "OCCT TKBRep",
+     "bytes": 5757
+    },
+    {
+     "origin": "OCCT TKXCAF",
+     "bytes": 5358
+    },
+    {
+     "origin": "OCCT TKOffset",
+     "bytes": 3757
+    },
+    {
+     "origin": "OCCT TKG2d",
+     "bytes": 2421
+    },
+    {
+     "origin": "OCCT TKPrim",
+     "bytes": 2003
+    },
+    {
+     "origin": "OCCT TKCAF",
+     "bytes": 1866
+    },
+    {
+     "origin": "libc++abi and libunwind",
+     "bytes": 1474
+    },
+    {
+     "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+     "bytes": 1176
+    },
+    {
+     "origin": "dlmalloc",
+     "bytes": 500
+    },
+    {
+     "origin": "OCCT TKCDF",
+     "bytes": 353
+    },
+    {
+     "origin": "OCCT TKService",
+     "bytes": 157
+    },
+    {
+     "origin": "Rust standard library (core, alloc, std)",
+     "bytes": 24
+    }
+   ],
+   "occt_by_package": [
+    {
+     "package": "TKDESTEP RWStepAP214",
+     "bytes": 566831
+    },
+    {
+     "package": "TKFillet ChFi3d",
+     "bytes": 362180
+    },
+    {
+     "package": "TKGeomAlgo IntPatch",
+     "bytes": 320286
+    },
+    {
+     "package": "TKShHealing ShapeFix",
+     "bytes": 291323
+    },
+    {
+     "package": "TKOffset BRepOffset",
+     "bytes": 287057
+    },
+    {
+     "package": "TKBO BOPAlgo",
+     "bytes": 256436
+    },
+    {
+     "package": "TKDESTEP STEPCAFControl",
+     "bytes": 213120
+    },
+    {
+     "package": "TKBool TopOpeBRepBuild",
+     "bytes": 180150
+    },
+    {
+     "package": "TKGeomBase Extrema",
+     "bytes": 171670
+    },
+    {
+     "package": "TKFillet BRepBlend",
+     "bytes": 144800
+    },
+    {
+     "package": "TKShHealing ShapeUpgrade",
+     "bytes": 131064
+    },
+    {
+     "package": "TKMesh BRepMesh",
+     "bytes": 127224
+    },
+    {
+     "package": "TKGeomAlgo GeomInt",
+     "bytes": 127059
+    },
+    {
+     "package": "TKFillet BlendFunc",
+     "bytes": 124808
+    },
+    {
+     "package": "TKG3d Geom",
+     "bytes": 122133
+    },
+    {
+     "package": "TKTopAlgo BRepApprox",
+     "bytes": 122060
+    },
+    {
+     "package": "TKGeomAlgo GeomFill",
+     "bytes": 105298
+    },
+    {
+     "package": "TKGeomBase ProjLib",
+     "bytes": 103419
+    },
+    {
+     "package": "TKBO IntTools",
+     "bytes": 100067
+    },
+    {
+     "package": "TKDESTEP STEPControl",
+     "bytes": 88036
+    },
+    {
+     "package": "TKBool TopOpeBRepTool",
+     "bytes": 80949
+    },
+    {
+     "package": "TKMath math",
+     "bytes": 76652
+    },
+    {
+     "package": "TKGeomBase AdvApp2Var",
+     "bytes": 71918
+    },
+    {
+     "package": "TKXCAF XCAFDoc",
+     "bytes": 71769
+    },
+    {
+     "package": "TKShHealing ShapeAnalysis",
+     "bytes": 68339
+    },
+    {
+     "package": "TKGeomBase AppDef",
+     "bytes": 64086
+    },
+    {
+     "package": "TKTopAlgo BRepBuilderAPI",
+     "bytes": 61751
+    },
+    {
+     "package": "TKTopAlgo BRepLib",
+     "bytes": 61308
+    },
+    {
+     "package": "TKBRep BRepTools",
+     "bytes": 58776
+    },
+    {
+     "package": "TKFillet ChFiKPart",
+     "bytes": 55703
+    },
+    {
+     "package": "TKDESTEP STEPConstruct",
+     "bytes": 52235
+    },
+    {
+     "package": "TKGeomAlgo GeomPlate",
+     "bytes": 48250
+    },
+    {
+     "package": "TKGeomAlgo IntCurveSurface",
+     "bytes": 48034
+    },
+    {
+     "package": "TKTopAlgo BRepCheck",
+     "bytes": 46966
+    },
+    {
+     "package": "TKDESTEP StepToTopoDS",
+     "bytes": 45850
+    },
+    {
+     "package": "TKGeomAlgo Geom2dInt",
+     "bytes": 45188
+    },
+    {
+     "package": "TKBool TopOpeBRepDS",
+     "bytes": 43097
+    },
+    {
+     "package": "TKDESTEP StepData",
+     "bytes": 42756
+    },
+    {
+     "package": "TKGeomBase GeomLib",
+     "bytes": 42035
+    },
+    {
+     "package": "TKMath BSplCLib",
+     "bytes": 41735
+    },
+    {
+     "package": "TKGeomBase GeomConvert",
+     "bytes": 41489
+    },
+    {
+     "package": "TKG3d Adaptor3d",
+     "bytes": 41257
+    },
+    {
+     "package": "TKGeomBase Approx",
+     "bytes": 40757
+    },
+    {
+     "package": "TKDESTEP TopoDSToStep",
+     "bytes": 40487
+    },
+    {
+     "package": "TKXSBase Interface",
+     "bytes": 39910
+    },
+    {
+     "package": "TKGeomAlgo IntPolyh",
+     "bytes": 38818
+    },
+    {
+     "package": "TKGeomAlgo IntCurve",
+     "bytes": 38698
+    },
+    {
+     "package": "TKDESTEP StepToGeom",
+     "bytes": 38443
+    },
+    {
+     "package": "TKG3d GeomAdaptor",
+     "bytes": 36522
+    },
+    {
+     "package": "TKShHealing ShapeCustom",
+     "bytes": 36075
+    },
+    {
+     "package": "TKDESTEP RWStepKinematics",
+     "bytes": 35612
+    },
+    {
+     "package": "TKBRep BRep",
+     "bytes": 35227
+    },
+    {
+     "package": "TKTopAlgo BRepExtrema",
+     "bytes": 35141
+    },
+    {
+     "package": "TKBO BOPTools",
+     "bytes": 35006
+    },
+    {
+     "package": "TKGeomBase BndLib",
+     "bytes": 33341
+    },
+    {
+     "package": "TKGeomAlgo IntWalk",
+     "bytes": 33327
+    },
+    {
+     "package": "TKBO BOPDS",
+     "bytes": 32481
+    },
+    {
+     "package": "TKLCAF TDataStd",
+     "bytes": 32229
+    },
+    {
+     "package": "TKG2d Geom2d",
+     "bytes": 31289
+    },
+    {
+     "package": "TKMath Convert",
+     "bytes": 30185
+    },
+    {
+     "package": "TKGeomAlgo Plate",
+     "bytes": 29941
+    },
+    {
+     "package": "TKShHealing ShapeConstruct",
+     "bytes": 28663
+    },
+    {
+     "package": "TKGeomBase IntAna",
+     "bytes": 28557
+    },
+    {
+     "package": "TKXSBase IFSelect",
+     "bytes": 28039
+    },
+    {
+     "package": "TKDESTEP GeomToStep",
+     "bytes": 27463
+    },
+    {
+     "package": "TKGeomBase GCPnts",
+     "bytes": 26910
+    },
+    {
+     "package": "TKMesh BRepMeshData",
+     "bytes": 26607
+    },
+    {
+     "package": "TKDESTEP StepAP214",
+     "bytes": 26119
+    },
+    {
+     "package": "TKG3d GeomEvaluator",
+     "bytes": 26095
+    },
+    {
+     "package": "TKPrim BRepPrim",
+     "bytes": 23537
+    },
+    {
+     "package": "TKPrim BRepSweep",
+     "bytes": 23431
+    },
+    {
+     "package": "TKGeomBase GeomTools",
+     "bytes": 22786
+    },
+    {
+     "package": "TKBool BRepAlgo",
+     "bytes": 22050
+    },
+    {
+     "package": "TKGeomAlgo FairCurve",
+     "bytes": 21129
+    },
+    {
+     "package": "TKShHealing ShapeProcess",
+     "bytes": 19857
+    },
+    {
+     "package": "TKMath PLib",
+     "bytes": 19688
+    },
+    {
+     "package": "TKGeomBase Geom2dConvert",
+     "bytes": 19426
+    },
+    {
+     "package": "TKXSBase XSControl",
+     "bytes": 19421
+    },
+    {
+     "package": "TKernel OSD",
+     "bytes": 19180
+    },
+    {
+     "package": "TKernel Standard",
+     "bytes": 19095
+    },
+    {
+     "package": "TKGeomAlgo Law",
+     "bytes": 19075
+    },
+    {
+     "package": "TKMath Bnd",
+     "bytes": 18320
+    },
+    {
+     "package": "TKLCAF TDF",
+     "bytes": 18091
+    },
+    {
+     "package": "TKMath BSplSLib",
+     "bytes": 18080
+    },
+    {
+     "package": "TKFillet ChFiDS",
+     "bytes": 17894
+    },
+    {
+     "package": "TKDESTEP RWStepDimTol",
+     "bytes": 16972
+    },
+    {
+     "package": "TKMath gp",
+     "bytes": 16431
+    },
+    {
+     "package": "TKTopAlgo BRepClass3d",
+     "bytes": 16310
+    },
+    {
+     "package": "TKCAF TNaming",
+     "bytes": 16155
+    },
+    {
+     "package": "TKTopAlgo BRepGProp",
+     "bytes": 15600
+    },
+    {
+     "package": "TKXSBase Transfer",
+     "bytes": 15400
+    },
+    {
+     "package": "TKDESTEP StepBasic",
+     "bytes": 14728
+    },
+    {
+     "package": "TKDESTEP StepFile",
+     "bytes": 14479
+    },
+    {
+     "package": "TKG3d AdvApprox",
+     "bytes": 13547
+    },
+    {
+     "package": "TKernel Message",
+     "bytes": 13506
+    },
+    {
+     "package": "TKTopAlgo BRepTopAdaptor",
+     "bytes": 13004
+    },
+    {
+     "package": "TKDESTEP StepVisual",
+     "bytes": 12809
+    },
+    {
+     "package": "TKDESTEP RWStepBasic",
+     "bytes": 12735
+    },
+    {
+     "package": "TKDESTEP STEPEdit",
+     "bytes": 12469
+    },
+    {
+     "package": "TKGeomBase Hermit",
+     "bytes": 12114
+    },
+    {
+     "package": "TKDESTEP RWStepGeom",
+     "bytes": 12018
+    },
+    {
+     "package": "TKGeomAlgo Geom2dHatch",
+     "bytes": 11924
+    },
+    {
+     "package": "TKShHealing ShapeExtend",
+     "bytes": 11913
+    },
+    {
+     "package": "TKLCAF TDocStd",
+     "bytes": 11170
+    },
+    {
+     "package": "TKernel Resource",
+     "bytes": 10693
+    },
+    {
+     "package": "TKGeomAlgo Intf",
+     "bytes": 10610
+    },
+    {
+     "package": "TKShHealing ShapeBuild",
+     "bytes": 10420
+    },
+    {
+     "package": "TKXCAF XCAFDimTolObjects",
+     "bytes": 10351
+    },
+    {
+     "package": "TKXSBase XSAlgo",
+     "bytes": 10257
+    },
+    {
+     "package": "TKDESTEP RWStepVisual",
+     "bytes": 9993
+    },
+    {
+     "package": "TKDESTEP StepGeom",
+     "bytes": 9971
+    },
+    {
+     "package": "TKGeomAlgo GeomAPI",
+     "bytes": 9913
+    },
+    {
+     "package": "TKTopAlgo BRepClass",
+     "bytes": 9744
+    },
+    {
+     "package": "TKG2d Geom2dAdaptor",
+     "bytes": 9609
+    },
+    {
+     "package": "TKernel TCollection",
+     "bytes": 9548
+    },
+    {
+     "package": "TKGeomBase AppCont",
+     "bytes": 9302
+    },
+    {
+     "package": "TKTopAlgo BRepBndLib",
+     "bytes": 9285
+    },
+    {
+     "package": "TKDESTEP StepShape",
+     "bytes": 9198
+    },
+    {
+     "package": "TKBRep BRepAdaptor",
+     "bytes": 8793
+    },
+    {
+     "package": "TKGeomAlgo IntSurf",
+     "bytes": 8695
+    },
+    {
+     "package": "TKBRep TopTools",
+     "bytes": 8587
+    },
+    {
+     "package": "TKShHealing ShapeAlgo",
+     "bytes": 8197
+    },
+    {
+     "package": "TKMath CSLib",
+     "bytes": 7999
+    },
+    {
+     "package": "TKDESTEP StepKinematics",
+     "bytes": 7952
+    },
+    {
+     "package": "TKBO BRepAlgoAPI",
+     "bytes": 7812
+    },
+    {
+     "package": "TKDESTEP RWStepFEA",
+     "bytes": 7750
+    },
+    {
+     "package": "TKGeomBase AppParCurves",
+     "bytes": 7587
+    },
+    {
+     "package": "TKGeomAlgo Geom2dAPI",
+     "bytes": 7473
+    },
+    {
+     "package": "TKDESTEP RWStepRepr",
+     "bytes": 7154
+    },
+    {
+     "package": "TKDESTEP APIHeaderSection",
+     "bytes": 7140
+    },
+    {
+     "package": "TKMath ElCLib",
+     "bytes": 6896
+    },
+    {
+     "package": "TKDESTEP StepRepr",
+     "bytes": 6859
+    },
+    {
+     "package": "TKMath ElSLib",
+     "bytes": 6857
+    },
+    {
+     "package": "TKGeomBase IntAna2d",
+     "bytes": 6782
+    },
+    {
+     "package": "TKG3d GeomLProp",
+     "bytes": 6712
+    },
+    {
+     "package": "TKDESTEP RWStepShape",
+     "bytes": 6647
+    },
+    {
+     "package": "TKGeomAlgo ApproxInt",
+     "bytes": 6604
+    },
+    {
+     "package": "TKBRep BRepLProp",
+     "bytes": 6593
+    },
+    {
+     "package": "TKXSBase MoniTool",
+     "bytes": 6527
+    },
+    {
+     "package": "TKDESTEP RWHeaderSection",
+     "bytes": 6454
+    },
+    {
+     "package": "TKTopAlgo IntCurvesFace",
+     "bytes": 6405
+    },
+    {
+     "package": "TKCDF CDM",
+     "bytes": 6208
+    },
+    {
+     "package": "TKDESTEP StepDimTol",
+     "bytes": 5616
+    },
+    {
+     "package": "TKPrim BRepPrimAPI",
+     "bytes": 5590
+    },
+    {
+     "package": "TKDESTEP StepFEA",
+     "bytes": 5576
+    },
+    {
+     "package": "TKDESTEP STEPSelections",
+     "bytes": 5525
+    },
+    {
+     "package": "TKMath Poly",
+     "bytes": 5464
+    },
+    {
+     "package": "TKernel NCollection",
+     "bytes": 4811
+    },
+    {
+     "package": "TKMath TopLoc",
+     "bytes": 4679
+    },
+    {
+     "package": "TKBRep TopoDS",
+     "bytes": 4353
+    },
+    {
+     "package": "TKDESTEP StepSelect",
+     "bytes": 4243
+    },
+    {
+     "package": "TKGeomAlgo LocalAnalysis",
+     "bytes": 4030
+    },
+    {
+     "package": "TKGeomAlgo IntRes2d",
+     "bytes": 3633
+    },
+    {
+     "package": "TKG2d Geom2dEvaluator",
+     "bytes": 3454
+    },
+    {
+     "package": "TKCAF TDataXtd",
+     "bytes": 3441
+    },
+    {
+     "package": "TKBRep TopExp",
+     "bytes": 3318
+    },
+    {
+     "package": "TKDESTEP StepElement",
+     "bytes": 3251
+    },
+    {
+     "package": "TKFillet BRepFilletAPI",
+     "bytes": 3053
+    },
+    {
+     "package": "TKGeomBase gce",
+     "bytes": 2813
+    },
+    {
+     "package": "TKXSBase IFGraph",
+     "bytes": 2709
+    },
+    {
+     "package": "TKG3d GProp",
+     "bytes": 2673
+    },
+    {
+     "package": "TKDESTEP StepAP203",
+     "bytes": 2532
+    },
+    {
+     "package": "TKMesh IMeshTools",
+     "bytes": 2272
+    },
+    {
+     "package": "TKDESTEP RWStepElement",
+     "bytes": 2211
+    },
+    {
+     "package": "TKGeomAlgo TopTrans",
+     "bytes": 2211
+    },
+    {
+     "package": "TKGeomBase GeomProjLib",
+     "bytes": 2174
+    },
+    {
+     "package": "TKGeomBase CPnts",
+     "bytes": 2110
+    },
+    {
+     "package": "TKGeomAlgo HatchGen",
+     "bytes": 2031
+    },
+    {
+     "package": "TKernel Quantity",
+     "bytes": 1850
+    },
+    {
+     "package": "TKXSBase TransferBRep",
+     "bytes": 1819
+    },
+    {
+     "package": "TKDESTEP RWStepAP203",
+     "bytes": 1772
+    },
+    {
+     "package": "TKDESTEP RWStepAP242",
+     "bytes": 1698
+    },
+    {
+     "package": "TKG2d Geom2dLProp",
+     "bytes": 1599
+    },
+    {
+     "package": "TKG2d Adaptor2d",
+     "bytes": 1277
+    },
+    {
+     "package": "TKGeomAlgo IntImpParGen",
+     "bytes": 1224
+    },
+    {
+     "package": "TKOffset BRepOffsetAPI",
+     "bytes": 1149
+    },
+    {
+     "package": "TKG3d LProp3d",
+     "bytes": 1127
+    },
+    {
+     "package": "TKDESTEP StepAP242",
+     "bytes": 1050
+    },
+    {
+     "package": "TKernel TColStd",
+     "bytes": 1043
+    },
+    {
+     "package": "TKDESTEP DESTEP",
+     "bytes": 985
+    },
+    {
+     "package": "TKGeomAlgo IntImp",
+     "bytes": 885
+    },
+    {
+     "package": "TKPrim Sweep",
+     "bytes": 696
+    },
+    {
+     "package": "TKService Image",
+     "bytes": 693
+    },
+    {
+     "package": "TKDESTEP HeaderSection",
+     "bytes": 596
+    },
+    {
+     "package": "TKernel FSD",
+     "bytes": 562
+    },
+    {
+     "package": "TKMesh IMeshData",
+     "bytes": 377
+    },
+    {
+     "package": "TKService Graphic3d",
+     "bytes": 287
+    },
+    {
+     "package": "TKGeomBase GCE2d",
+     "bytes": 174
+    },
+    {
+     "package": "TKFillet Blend",
+     "bytes": 173
+    },
+    {
+     "package": "TKXCAF XCAFPrs",
+     "bytes": 125
+    },
+    {
+     "package": "TKCDF PCDM",
+     "bytes": 88
+    },
+    {
+     "package": "TKMath BVH",
+     "bytes": 87
+    },
+    {
+     "package": "TKernel UnitsMethods",
+     "bytes": 86
+    },
+    {
+     "package": "TKCDF UTL",
+     "bytes": 76
+    },
+    {
+     "package": "TKXCAF XCAFView",
+     "bytes": 62
+    },
+    {
+     "package": "TKG3d TopAbs",
+     "bytes": 57
+    },
+    {
+     "package": "TKGeomBase GC",
+     "bytes": 28
+    },
+    {
+     "package": "TKBRep BinTools",
+     "bytes": 19
+    }
+   ],
+   "not_in_map": {
+    "functions": 664,
+    "bytes": 88316,
+    "largest": [
+     {
+      "bytes": 3686,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 2509,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1472,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1472,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1443,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1270,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1172,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 1155,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 995,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 925,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 916,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 897,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 897,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 896,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 896,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 886,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 875,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 843,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 801,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 768,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 721,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 697,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 690,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 447,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 435,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 415,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 393,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 383,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 377,
+      "name": "",
+      "origin": "not in the map"
+     },
+     {
+      "bytes": 361,
+      "name": "",
+      "origin": "not in the map"
+     }
+    ]
+   }
+  },
+  "note": "the same method on V4's configuration (opt-level z, OCCT -Oz), before the extra wasm-opt; 664 functions (88,316 bytes) have no name: functions Binaryen made at -Oz",
+  "data_in_file_by_origin": [
+   {
+    "origin": "OCCT TKGeomBase",
+    "final_bytes": 1248493,
+    "map_bytes": 1248809
+   },
+   {
+    "origin": "OCCT TKernel",
+    "final_bytes": 240492,
+    "map_bytes": 691577
+   },
+   {
+    "origin": "linker-merged strings and constants (every input)",
+    "final_bytes": 247510,
+    "map_bytes": 247510
+   },
+   {
+    "origin": "Rust (all crates, one LTO object)",
+    "final_bytes": 200905,
+    "map_bytes": 213515
+   },
+   {
+    "origin": "OCCT TKMath",
+    "final_bytes": 153004,
+    "map_bytes": 153899
+   },
+   {
+    "origin": "OCCT TKDESTEP",
+    "final_bytes": 104588,
+    "map_bytes": 118324
+   },
+   {
+    "origin": "OCCT TKXSBase",
+    "final_bytes": 39770,
+    "map_bytes": 40714
+   },
+   {
+    "origin": "OCCT TKBO",
+    "final_bytes": 32696,
+    "map_bytes": 33171
+   },
+   {
+    "origin": "OCCT TKMesh",
+    "final_bytes": 24362,
+    "map_bytes": 24634
+   },
+   {
+    "origin": "OCCT TKShHealing",
+    "final_bytes": 16178,
+    "map_bytes": 16689
+   },
+   {
+    "origin": "libc and Emscripten runtime",
+    "final_bytes": 10566,
+    "map_bytes": 16246
+   },
+   {
+    "origin": "libc++",
+    "final_bytes": 9836,
+    "map_bytes": 13327
+   },
+   {
+    "origin": "partsmith-occt-sys C++ shim",
+    "final_bytes": 11175,
+    "map_bytes": 11572
+   },
+   {
+    "origin": "OCCT TKGeomAlgo",
+    "final_bytes": 10458,
+    "map_bytes": 10766
+   },
+   {
+    "origin": "OCCT TKFillet",
+    "final_bytes": 9274,
+    "map_bytes": 9996
+   },
+   {
+    "origin": "OCCT TKTopAlgo",
+    "final_bytes": 7667,
+    "map_bytes": 7772
+   },
+   {
+    "origin": "OCCT TKBool",
+    "final_bytes": 6752,
+    "map_bytes": 7445
+   },
+   {
+    "origin": "OCCT TKG3d",
+    "final_bytes": 7088,
+    "map_bytes": 7411
+   },
+   {
+    "origin": "OCCT TKLCAF",
+    "final_bytes": 6131,
+    "map_bytes": 6674
+   },
+   {
+    "origin": "OCCT TKBRep",
+    "final_bytes": 5487,
+    "map_bytes": 5757
+   },
+   {
+    "origin": "OCCT TKXCAF",
+    "final_bytes": 4278,
+    "map_bytes": 5358
+   },
+   {
+    "origin": "OCCT TKOffset",
+    "final_bytes": 3744,
+    "map_bytes": 3757
+   },
+   {
+    "origin": "OCCT TKG2d",
+    "final_bytes": 2288,
+    "map_bytes": 2421
+   },
+   {
+    "origin": "OCCT TKPrim",
+    "final_bytes": 1995,
+    "map_bytes": 2003
+   },
+   {
+    "origin": "OCCT TKCAF",
+    "final_bytes": 1662,
+    "map_bytes": 1866
+   },
+   {
+    "origin": "libc++abi and libunwind",
+    "final_bytes": 892,
+    "map_bytes": 1474
+   },
+   {
+    "origin": "cxx bridge glue of partsmith-occt-sys (C++ side)",
+    "final_bytes": 1167,
+    "map_bytes": 1176
+   },
+   {
+    "origin": "dlmalloc",
+    "final_bytes": 4,
+    "map_bytes": 500
+   },
+   {
+    "origin": "OCCT TKCDF",
+    "final_bytes": 348,
+    "map_bytes": 353
+   },
+   {
+    "origin": "OCCT TKService",
+    "final_bytes": 141,
+    "map_bytes": 157
+   },
+   {
+    "origin": "Rust standard library (core, alloc, std)",
+    "final_bytes": 18,
+    "map_bytes": 24
+   }
+  ],
+  "data_section": {
+   "segments": 2878,
+   "segment_payload_bytes": 2409802,
+   "segment_header_bytes": 23218
+  }
+ },
+ "step_2_estimate": {
+  "V0": {
+   "raw": 19996965,
+   "modules": {
+    "STEP I/O": {
+     "code": 2888329,
+     "data_in_file": 155630,
+     "data_before_binaryen_map": 172161,
+     "first_module_after_moving_this_and_the_ones_above": 16953006
+    },
+    "booleans and fillets": {
+     "code": 3242150,
+     "data_in_file": 52417,
+     "data_before_binaryen_map": 54305,
+     "first_module_after_moving_this_and_the_ones_above": 13658439
+    },
+    "mesh tools (print analysis and 3MF export only)": {
+     "code": 251241,
+     "data_in_file": 0,
+     "data_before_binaryen_map": 0,
+     "first_module_after_moving_this_and_the_ones_above": 13407198
+    }
+   },
+   "unicode_tables_data_in_file": 203762,
+   "unicode_tables_data_before_binaryen_map": 651296,
+   "first_module_with_unicode_tables_moved_too": 13203436
+  },
+  "V4": {
+   "raw": 14587305,
+   "modules": {
+    "STEP I/O": {
+     "code": 1691035,
+     "data_in_file": 156918,
+     "data_before_binaryen_map": 173446,
+     "first_module_after_moving_this_and_the_ones_above": 12739352
+    },
+    "booleans and fillets": {
+     "code": 1804248,
+     "data_in_file": 52466,
+     "data_before_binaryen_map": 54369,
+     "first_module_after_moving_this_and_the_ones_above": 10882638
+    },
+    "mesh tools (print analysis and 3MF export only)": {
+     "code": 220514,
+     "data_in_file": 0,
+     "data_before_binaryen_map": 0,
+     "first_module_after_moving_this_and_the_ones_above": 10662124
+    }
+   },
+   "unicode_tables_data_in_file": 203762,
+   "unicode_tables_data_before_binaryen_map": 651296,
+   "first_module_with_unicode_tables_moved_too": 10458362
+  },
+  "method": "code: the names build's function bodies by origin; data: the bytes the final file holds by origin, attributed by address (round 2); data_before_binaryen_map is round 1's figure; no allowance for what splitting costs; V4's figures come from V4-profiling, whose code and data sections match V4-before-wasm-opt within 75 bytes of code",
+  "round_1_with_map_data": {
+   "V0": {
+    "raw": 19996965,
+    "modules": {
+     "STEP I/O": {
+      "code": 2888329,
+      "data_before_binaryen": 172161,
+      "first_module_after_moving_this_and_the_ones_above": 16936475
+     },
+     "booleans and fillets": {
+      "code": 3242150,
+      "data_before_binaryen": 54305,
+      "first_module_after_moving_this_and_the_ones_above": 13640020
+     },
+     "mesh tools (print analysis and 3MF export only)": {
+      "code": 251241,
+      "data_before_binaryen": 0,
+      "first_module_after_moving_this_and_the_ones_above": 13388779
+     }
+    },
+    "unicode_tables_data": 651296,
+    "first_module_with_unicode_tables_moved_too": 12737483
+   },
+   "V4": {
+    "raw": 14587305,
+    "modules": {
+     "STEP I/O": {
+      "code": 1691035,
+      "data_before_binaryen": 173446,
+      "first_module_after_moving_this_and_the_ones_above": 12722824
+     },
+     "booleans and fillets": {
+      "code": 1804248,
+      "data_before_binaryen": 54369,
+      "first_module_after_moving_this_and_the_ones_above": 10864207
+     },
+     "mesh tools (print analysis and 3MF export only)": {
+      "code": 220514,
+      "data_before_binaryen": 0,
+      "first_module_after_moving_this_and_the_ones_above": 10643693
+     }
+    },
+    "unicode_tables_data": 651296,
+    "first_module_with_unicode_tables_moved_too": 9992397
+   }
+  }
+ },
+ "correctness": {
+  "web_module": {
+   "V0": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1",
+   "V1": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1",
+   "V2": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1",
+   "V3": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1",
+   "V4": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1",
+   "V5": "5 passed (3 Node round trips and 2 unit tests), PARTSMITH_REQUIRE_WEB_MODULE=1"
+  },
+  "web_parity_engine_t154": {
+   "V0": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)",
+   "V1": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)",
+   "V2": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)",
+   "V3": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)",
+   "V4": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)",
+   "V5": "1 passed (every fixture and example, the module against a native session by engine.md 3.18's rules)"
+  },
+  "kernel_tests_under_node": {
+   "OCCT -Oz (V3, V4)": "unit tests 196 passed; integration 541 passed, 11 ignored (all 11: the WebAssembly build has no threads); 0 failed",
+   "OCCT -Oz -flto (V5)": "unit tests 196 passed; integration 541 passed, 11 ignored (the same 11); 0 failed"
+  },
+  "answers": {
+   "V0": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+   },
+   "V1": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+   },
+   "V2": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+   },
+   "V3": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+   },
+   "V4": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+   },
+   "V5": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+   },
+   "V0-again": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+   },
+   "V1-link-Os": {
+    "documents": 294,
+    "frames": 1882,
+    "bytes": 60536518,
+    "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+   }
+  },
+  "answers_round_2": {
+   "harness_commit": "79dfbacdc1a911603152b7ffd70c9dba2155ef6f",
+   "runs": {
+    "V0": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+    },
+    "V1": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+    },
+    "V2": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+    },
+    "V3": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+    },
+    "V4": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+    },
+    "V5": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "ab04218d9cfb6c7257496d600188c2b66150536e2b73dfa4cb9003303cffaa75"
+    },
+    "V0-again": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+    },
+    "V1-link-Os": {
+     "documents": 294,
+     "frames": 1882,
+     "bytes": 60536518,
+     "sha256": "2cba60666f6ebc735c240a5eda0c4baa113a4274de7429682b6f1fda769022a5"
+    }
+   },
+   "same_as_round_1": true,
+   "comparisons_byte_identical_to_round_1": true
+  },
+  "comparisons": {
+   "V0-V1": {
+    "frames": 1882,
+    "identical": 1878,
+    "differing": [
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "open_document",
+      "id": 839,
+      "firstBytes": 24240,
+      "secondBytes": 24240,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 3,
+      "bufferElements": 4756,
+      "largestBufferAbsolute": 26,
+      "examples": []
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "measure",
+      "id": 840,
+      "firstBytes": 376,
+      "secondBytes": 376,
+      "numbers": 2,
+      "other": 0,
+      "largestAbsolute": 3.8425713765151156e-16,
+      "largestRelative": 6.164399606009952e-06,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/center_of_mass/0",
+        "first": 6.233450027515028e-11,
+        "second": 6.233488453228793e-11
+       },
+       {
+        "pointer": "/0/result/center_of_mass/1",
+        "first": -4.170408278780004e-11,
+        "second": -4.170404436208628e-11
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "list_elements",
+      "id": 841,
+      "firstBytes": 25560,
+      "secondBytes": 25560,
+      "numbers": 8,
+      "other": 0,
+      "largestAbsolute": 1.4210854715202004e-14,
+      "largestRelative": 0.005813953488372093,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/elements/6/centroid/0",
+        "first": -6.054730460347818e-13,
+        "second": -6.038884528758317e-13
+       },
+       {
+        "pointer": "/0/result/elements/6/area",
+        "first": 89.68140897830749,
+        "second": 89.6814089783075
+       },
+       {
+        "pointer": "/0/result/elements/6/axis/origin/0",
+        "first": -6.057376822354854e-13,
+        "second": -6.039613253960852e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/1",
+        "first": 3.047509815814846e-13,
+        "second": 3.0389733737537414e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/2",
+        "first": 9.235723055577603,
+        "second": 9.235723055577607
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "export",
+      "id": 843,
+      "firstBytes": 20140,
+      "secondBytes": 20140,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 1,
+      "bufferElements": 19884,
+      "largestBufferAbsolute": 0,
+      "examples": []
+     }
+    ]
+   },
+   "V0-V4": {
+    "frames": 1882,
+    "identical": 1878,
+    "differing": [
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "open_document",
+      "id": 839,
+      "firstBytes": 24240,
+      "secondBytes": 24240,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 3,
+      "bufferElements": 4756,
+      "largestBufferAbsolute": 26,
+      "examples": []
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "measure",
+      "id": 840,
+      "firstBytes": 376,
+      "secondBytes": 376,
+      "numbers": 2,
+      "other": 0,
+      "largestAbsolute": 3.8425713765151156e-16,
+      "largestRelative": 6.164399606009952e-06,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/center_of_mass/0",
+        "first": 6.233450027515028e-11,
+        "second": 6.233488453228793e-11
+       },
+       {
+        "pointer": "/0/result/center_of_mass/1",
+        "first": -4.170408278780004e-11,
+        "second": -4.170404436208628e-11
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "list_elements",
+      "id": 841,
+      "firstBytes": 25560,
+      "secondBytes": 25560,
+      "numbers": 8,
+      "other": 0,
+      "largestAbsolute": 1.4210854715202004e-14,
+      "largestRelative": 0.005813953488372093,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/elements/6/centroid/0",
+        "first": -6.054730460347818e-13,
+        "second": -6.038884528758317e-13
+       },
+       {
+        "pointer": "/0/result/elements/6/area",
+        "first": 89.68140897830749,
+        "second": 89.6814089783075
+       },
+       {
+        "pointer": "/0/result/elements/6/axis/origin/0",
+        "first": -6.057376822354854e-13,
+        "second": -6.039613253960852e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/1",
+        "first": 3.047509815814846e-13,
+        "second": 3.0389733737537414e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/2",
+        "first": 9.235723055577603,
+        "second": 9.235723055577607
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "export",
+      "id": 843,
+      "firstBytes": 20140,
+      "secondBytes": 20140,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 1,
+      "bufferElements": 19884,
+      "largestBufferAbsolute": 0,
+      "examples": []
+     }
+    ]
+   },
+   "V0-V5": {
+    "frames": 1882,
+    "identical": 1878,
+    "differing": [
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "open_document",
+      "id": 839,
+      "firstBytes": 24240,
+      "secondBytes": 24240,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 3,
+      "bufferElements": 4756,
+      "largestBufferAbsolute": 26,
+      "examples": []
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "measure",
+      "id": 840,
+      "firstBytes": 376,
+      "secondBytes": 376,
+      "numbers": 2,
+      "other": 0,
+      "largestAbsolute": 3.8425713765151156e-16,
+      "largestRelative": 6.164399606009952e-06,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/center_of_mass/0",
+        "first": 6.233450027515028e-11,
+        "second": 6.233488453228793e-11
+       },
+       {
+        "pointer": "/0/result/center_of_mass/1",
+        "first": -4.170408278780004e-11,
+        "second": -4.170404436208628e-11
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "list_elements",
+      "id": 841,
+      "firstBytes": 25560,
+      "secondBytes": 25560,
+      "numbers": 8,
+      "other": 0,
+      "largestAbsolute": 1.4210854715202004e-14,
+      "largestRelative": 0.005813953488372093,
+      "buffers": 0,
+      "bufferElements": 0,
+      "largestBufferAbsolute": 0,
+      "examples": [
+       {
+        "pointer": "/0/result/elements/6/centroid/0",
+        "first": -6.054730460347818e-13,
+        "second": -6.038884528758317e-13
+       },
+       {
+        "pointer": "/0/result/elements/6/area",
+        "first": 89.68140897830749,
+        "second": 89.6814089783075
+       },
+       {
+        "pointer": "/0/result/elements/6/axis/origin/0",
+        "first": -6.057376822354854e-13,
+        "second": -6.039613253960852e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/1",
+        "first": 3.047509815814846e-13,
+        "second": 3.0389733737537414e-13
+       },
+       {
+        "pointer": "/0/result/elements/8/centroid/2",
+        "first": 9.235723055577603,
+        "second": 9.235723055577607
+       }
+      ]
+     },
+     {
+      "document": "examples/fillet/top-loop.ptsm",
+      "command": "export",
+      "id": 843,
+      "firstBytes": 20140,
+      "secondBytes": 20140,
+      "numbers": 0,
+      "other": 0,
+      "largestAbsolute": 0,
+      "largestRelative": 0,
+      "buffers": 1,
+      "bufferElements": 19884,
+      "largestBufferAbsolute": 0,
+      "examples": []
+     }
+    ]
+   },
+   "V1-V4": {
+    "frames": 1882,
+    "identical": 1882,
+    "differing": []
+   },
+   "V4-V5": {
+    "frames": 1882,
+    "identical": 1882,
+    "differing": []
+   }
+  },
+  "identical_to_V0": {
+   "V2": true,
+   "V3": true,
+   "V1-link-Os": true,
+   "V0-again (control)": true,
+   "V1": false,
+   "V4": false,
+   "V5": false
+  },
+  "benchmark_frames": "the cold open, full rebuild and feature preview frames of the reference part are byte-identical in every variant and every timing sample"
+ },
+ "timing_node": {
+  "harness": "spike/core-size/harness.mjs time 7 <output> <variant directories>",
+  "method": "one untimed round, then 7 rounds; each round runs one new Node process per variant in the given order (sets 1 and 3: V0 to V5, sets 2 and 4: V5 to V0); each process takes one sample of each workload",
+  "reported": "sets 3 and 4 (harness 79dfbac, round 2) and their 14 samples pooled; sets 1 and 2 (harness bc67bd5, round 1, whose timing code differs only in the name of one field) are kept for comparison",
+  "workloads": {
+   "instantiate": "(a) createPartsmithCore({ wasmBinary }) until it resolves: compilation (V8 compiles wasm lazily, so this is decoding, validation and instantiation, without most function compilation) and main, which creates the session",
+   "cold open": "(b) open_document of examples/bench/fifty-features/model.ptsm as the instance's first request (all 50 features ok)",
+   "full rebuild": "(c) the same open_document in a second instance made in the same process after (b): an empty session cache, with the module's code already compiled by V8 (the second instantiation takes 111 to 236 ms in sets 3 and 4)",
+   "feature preview": "(d) technical design section 14's feature preview after a value change: in the second instance, begin_transaction, then apply_edits of lid_width 24 mm to 24.5 mm, which drives the reference part's last five features (sketch, extrude, fillet, shell, linear pattern of b-4), with recompute, meshing and frame encoding"
+  },
+  "set_3": {
+   "node": "v22.23.4",
+   "round_loads": [
+    {
+     "round": 0,
+     "before": "0.47 0.71 0.87 1/118 11529",
+     "started": "2026-11-19T03:42:02.360Z"
+    },
+    {
+     "round": 1,
+     "before": "0.79 0.76 0.88 1/120 11608",
+     "started": "2026-11-19T03:42:58.904Z"
+    },
+    {
+     "round": 2,
+     "before": "0.99 0.83 0.91 1/119 11682",
+     "started": "2026-11-19T03:43:52.242Z"
+    },
+    {
+     "round": 3,
+     "before": "1.10 0.89 0.92 1/120 11828",
+     "started": "2026-11-19T03:44:49.666Z"
+    },
+    {
+     "round": 4,
+     "before": "1.04 0.91 0.93 1/118 11923",
+     "started": "2026-11-19T03:45:45.725Z"
+    },
+    {
+     "round": 5,
+     "before": "1.19 0.99 0.96 1/117 12006",
+     "started": "2026-11-19T03:46:39.007Z"
+    },
+    {
+     "round": 6,
+     "before": "1.32 1.07 0.99 1/116 12082",
+     "started": "2026-11-19T03:47:33.763Z"
+    },
+    {
+     "round": 7,
+     "before": "1.41 1.14 1.02 1/119 12158",
+     "started": "2026-11-19T03:48:28.121Z"
+    }
+   ],
+   "variants": {
+    "V0": {
+     "instantiate": {
+      "samples_ms": [
+       101.11,
+       93.74,
+       108.75,
+       96.24,
+       84.44,
+       87.49,
+       110.39
+      ],
+      "untimed_ms": 96.95,
+      "median_ms": 96.24,
+      "minimum_ms": 84.44,
+      "maximum_ms": 110.39,
+      "change_from_V0_median_percent": 0.0
+     },
+     "cold open": {
+      "samples_ms": [
+       3959.25,
+       3951.99,
+       3976.65,
+       3962.08,
+       3787.96,
+       4264.53,
+       3893.5
+      ],
+      "untimed_ms": 3858.83,
+      "median_ms": 3959.25,
+      "minimum_ms": 3787.96,
+      "maximum_ms": 4264.53,
+      "change_from_V0_median_percent": 0.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3477.9,
+       3410.55,
+       3602.46,
+       3384.32,
+       3460.36,
+       3332.51,
+       3585.48
+      ],
+      "untimed_ms": 3460.75,
+      "median_ms": 3460.36,
+      "minimum_ms": 3332.51,
+      "maximum_ms": 3602.46,
+      "change_from_V0_median_percent": 0.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       91.23,
+       88.61,
+       94.83,
+       87.89,
+       93.21,
+       86.17,
+       90.03
+      ],
+      "untimed_ms": 88.64,
+      "median_ms": 90.03,
+      "minimum_ms": 86.17,
+      "maximum_ms": 94.83,
+      "change_from_V0_median_percent": 0.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       152.52,
+       188.99,
+       161.83,
+       219.61,
+       153.74,
+       190.72,
+       147.27
+      ],
+      "median_ms": 161.83
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V1": {
+     "instantiate": {
+      "samples_ms": [
+       97.7,
+       87.42,
+       91.29,
+       85.8,
+       84.31,
+       94.55,
+       85.25
+      ],
+      "untimed_ms": 81.3,
+      "median_ms": 87.42,
+      "minimum_ms": 84.31,
+      "maximum_ms": 97.7,
+      "change_from_V0_median_percent": -9.2
+     },
+     "cold open": {
+      "samples_ms": [
+       4268.62,
+       5358.37,
+       4783.15,
+       4164.08,
+       4310.29,
+       4345.05,
+       4264.97
+      ],
+      "untimed_ms": 4277.0,
+      "median_ms": 4310.29,
+      "minimum_ms": 4164.08,
+      "maximum_ms": 5358.37,
+      "change_from_V0_median_percent": 8.9
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4009.8,
+       6108.18,
+       4218.65,
+       3715.61,
+       4235.69,
+       4288.89,
+       3874.24
+      ],
+      "untimed_ms": 4075.82,
+      "median_ms": 4218.65,
+      "minimum_ms": 3715.61,
+      "maximum_ms": 6108.18,
+      "change_from_V0_median_percent": 21.9
+     },
+     "feature preview": {
+      "samples_ms": [
+       100.2,
+       105.55,
+       97.43,
+       96.72,
+       96.75,
+       105.91,
+       98.99
+      ],
+      "untimed_ms": 96.84,
+      "median_ms": 98.99,
+      "minimum_ms": 96.72,
+      "maximum_ms": 105.91,
+      "change_from_V0_median_percent": 10.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       125.19,
+       159.82,
+       156.37,
+       117.26,
+       149.45,
+       146.76,
+       122.88
+      ],
+      "median_ms": 146.76
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V2": {
+     "instantiate": {
+      "samples_ms": [
+       89.88,
+       86.52,
+       84.87,
+       82.17,
+       86.84,
+       102.55,
+       85.13
+      ],
+      "untimed_ms": 96.64,
+      "median_ms": 86.52,
+      "minimum_ms": 82.17,
+      "maximum_ms": 102.55,
+      "change_from_V0_median_percent": -10.1
+     },
+     "cold open": {
+      "samples_ms": [
+       4154.38,
+       3961.5,
+       4057.83,
+       3941.19,
+       4077.29,
+       4165.44,
+       3894.38
+      ],
+      "untimed_ms": 4501.2,
+      "median_ms": 4057.83,
+      "minimum_ms": 3894.38,
+      "maximum_ms": 4165.44,
+      "change_from_V0_median_percent": 2.5
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3595.73,
+       3653.94,
+       3677.04,
+       3531.53,
+       3536.74,
+       3983.1,
+       3411.66
+      ],
+      "untimed_ms": 4353.71,
+      "median_ms": 3595.73,
+      "minimum_ms": 3411.66,
+      "maximum_ms": 3983.1,
+      "change_from_V0_median_percent": 3.9
+     },
+     "feature preview": {
+      "samples_ms": [
+       98.09,
+       100.98,
+       89.39,
+       131.01,
+       87.11,
+       90.08,
+       89.51
+      ],
+      "untimed_ms": 91.74,
+      "median_ms": 90.08,
+      "minimum_ms": 87.11,
+      "maximum_ms": 131.01,
+      "change_from_V0_median_percent": 0.1
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       173.12,
+       208.01,
+       210.05,
+       162.93,
+       159.62,
+       141.56,
+       164.66
+      ],
+      "median_ms": 164.66
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V3": {
+     "instantiate": {
+      "samples_ms": [
+       81.07,
+       81.84,
+       77.93,
+       82.37,
+       79.11,
+       96.09,
+       82.46
+      ],
+      "untimed_ms": 81.35,
+      "median_ms": 81.84,
+      "minimum_ms": 77.93,
+      "maximum_ms": 96.09,
+      "change_from_V0_median_percent": -15.0
+     },
+     "cold open": {
+      "samples_ms": [
+       4291.46,
+       4589.05,
+       4799.17,
+       4402.9,
+       4250.05,
+       4352.08,
+       4408.83
+      ],
+      "untimed_ms": 4500.43,
+      "median_ms": 4402.9,
+      "minimum_ms": 4250.05,
+      "maximum_ms": 4799.17,
+      "change_from_V0_median_percent": 11.2
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3925.66,
+       4072.44,
+       4157.05,
+       4332.19,
+       3953.97,
+       4212.88,
+       3822.11
+      ],
+      "untimed_ms": 4234.45,
+      "median_ms": 4072.44,
+      "minimum_ms": 3822.11,
+      "maximum_ms": 4332.19,
+      "change_from_V0_median_percent": 17.7
+     },
+     "feature preview": {
+      "samples_ms": [
+       112.5,
+       109.03,
+       104.08,
+       102.23,
+       102.48,
+       133.38,
+       101.33
+      ],
+      "untimed_ms": 143.95,
+      "median_ms": 104.08,
+      "minimum_ms": 101.33,
+      "maximum_ms": 133.38,
+      "change_from_V0_median_percent": 15.6
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       163.93,
+       235.68,
+       200.02,
+       153.42,
+       211.35,
+       204.06,
+       155.62
+      ],
+      "median_ms": 200.02
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V4": {
+     "instantiate": {
+      "samples_ms": [
+       73.53,
+       75.07,
+       84.42,
+       95.3,
+       74.96,
+       79.68,
+       73.47
+      ],
+      "untimed_ms": 82.22,
+      "median_ms": 75.07,
+      "minimum_ms": 73.47,
+      "maximum_ms": 95.3,
+      "change_from_V0_median_percent": -22.0
+     },
+     "cold open": {
+      "samples_ms": [
+       4739.64,
+       5125.53,
+       5358.19,
+       5239.12,
+       5222.98,
+       5118.52,
+       4724.61
+      ],
+      "untimed_ms": 5007.26,
+      "median_ms": 5125.53,
+      "minimum_ms": 4724.61,
+      "maximum_ms": 5358.19,
+      "change_from_V0_median_percent": 29.5
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4648.39,
+       5092.93,
+       4899.56,
+       5073.42,
+       5088.68,
+       4465.66,
+       4513.24
+      ],
+      "untimed_ms": 4689.81,
+      "median_ms": 4899.56,
+      "minimum_ms": 4465.66,
+      "maximum_ms": 5092.93,
+      "change_from_V0_median_percent": 41.6
+     },
+     "feature preview": {
+      "samples_ms": [
+       165.68,
+       168.14,
+       121.28,
+       117.16,
+       114.37,
+       109.03,
+       110.49
+      ],
+      "untimed_ms": 112.28,
+      "median_ms": 117.16,
+      "minimum_ms": 109.03,
+      "maximum_ms": 168.14,
+      "change_from_V0_median_percent": 30.1
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       183.95,
+       163.22,
+       125.12,
+       126.52,
+       175.2,
+       116.43,
+       122.74
+      ],
+      "median_ms": 126.52
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V5": {
+     "instantiate": {
+      "samples_ms": [
+       97.61,
+       81.76,
+       78.07,
+       81.06,
+       102.25,
+       73.4,
+       72.18
+      ],
+      "untimed_ms": 97.5,
+      "median_ms": 81.06,
+      "minimum_ms": 72.18,
+      "maximum_ms": 102.25,
+      "change_from_V0_median_percent": -15.8
+     },
+     "cold open": {
+      "samples_ms": [
+       4918.72,
+       4856.97,
+       5296.82,
+       4544.06,
+       5299.03,
+       4694.48,
+       4665.75
+      ],
+      "untimed_ms": 5657.08,
+      "median_ms": 4856.97,
+      "minimum_ms": 4544.06,
+      "maximum_ms": 5299.03,
+      "change_from_V0_median_percent": 22.7
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4491.45,
+       4255.7,
+       4404.28,
+       4171.53,
+       4707.28,
+       4343.79,
+       4222.78
+      ],
+      "untimed_ms": 5056.27,
+      "median_ms": 4343.79,
+      "minimum_ms": 4171.53,
+      "maximum_ms": 4707.28,
+      "change_from_V0_median_percent": 25.5
+     },
+     "feature preview": {
+      "samples_ms": [
+       106.87,
+       108.45,
+       105.41,
+       123.56,
+       108.89,
+       106.14,
+       105.32
+      ],
+      "untimed_ms": 127.31,
+      "median_ms": 106.87,
+      "minimum_ms": 105.32,
+      "maximum_ms": 123.56,
+      "change_from_V0_median_percent": 18.7
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       139.59,
+       144.81,
+       143.22,
+       121.63,
+       189.19,
+       128.6,
+       115.44
+      ],
+      "median_ms": 139.59
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    }
+   }
+  },
+  "set_4": {
+   "node": "v22.23.4",
+   "round_loads": [
+    {
+     "round": 0,
+     "before": "1.33 1.16 1.03 1/121 12252",
+     "started": "2026-11-19T03:49:20.053Z"
+    },
+    {
+     "round": 1,
+     "before": "1.21 1.15 1.03 1/119 12326",
+     "started": "2026-11-19T03:50:12.016Z"
+    },
+    {
+     "round": 2,
+     "before": "1.34 1.21 1.06 1/118 12402",
+     "started": "2026-11-19T03:51:05.005Z"
+    },
+    {
+     "round": 3,
+     "before": "1.24 1.21 1.07 1/121 12478",
+     "started": "2026-11-19T03:51:57.188Z"
+    },
+    {
+     "round": 4,
+     "before": "1.57 1.33 1.12 1/122 12559",
+     "started": "2026-11-19T03:52:52.540Z"
+    },
+    {
+     "round": 5,
+     "before": "1.66 1.41 1.16 1/118 12630",
+     "started": "2026-11-19T03:53:45.149Z"
+    },
+    {
+     "round": 6,
+     "before": "1.42 1.38 1.16 1/116 12706",
+     "started": "2026-11-19T03:54:36.549Z"
+    },
+    {
+     "round": 7,
+     "before": "1.38 1.37 1.17 1/119 12781",
+     "started": "2026-11-19T03:55:27.152Z"
+    }
+   ],
+   "variants": {
+    "V5": {
+     "instantiate": {
+      "samples_ms": [
+       75.95,
+       72.58,
+       77.53,
+       96.68,
+       73.38,
+       70.1,
+       69.0
+      ],
+      "untimed_ms": 94.06,
+      "median_ms": 73.38,
+      "minimum_ms": 69.0,
+      "maximum_ms": 96.68,
+      "change_from_V0_median_percent": -14.7
+     },
+     "cold open": {
+      "samples_ms": [
+       4556.03,
+       4479.07,
+       4790.47,
+       4769.19,
+       4605.29,
+       4605.11,
+       4476.58
+      ],
+      "untimed_ms": 4625.99,
+      "median_ms": 4605.11,
+      "minimum_ms": 4476.58,
+      "maximum_ms": 4790.47,
+      "change_from_V0_median_percent": 19.2
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4436.39,
+       4213.72,
+       4606.51,
+       4276.78,
+       4123.11,
+       4127.75,
+       4159.78
+      ],
+      "untimed_ms": 4235.75,
+      "median_ms": 4213.72,
+      "minimum_ms": 4123.11,
+      "maximum_ms": 4606.51,
+      "change_from_V0_median_percent": 26.6
+     },
+     "feature preview": {
+      "samples_ms": [
+       107.5,
+       104.8,
+       107.2,
+       107.49,
+       103.12,
+       97.76,
+       103.01
+      ],
+      "untimed_ms": 143.4,
+      "median_ms": 104.8,
+      "minimum_ms": 97.76,
+      "maximum_ms": 107.5,
+      "change_from_V0_median_percent": 20.4
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       158.82,
+       126.23,
+       133.36,
+       166.52,
+       122.1,
+       120.66,
+       118.58
+      ],
+      "median_ms": 126.23
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V4": {
+     "instantiate": {
+      "samples_ms": [
+       73.71,
+       72.28,
+       96.54,
+       71.02,
+       71.85,
+       69.32,
+       83.46
+      ],
+      "untimed_ms": 73.18,
+      "median_ms": 72.28,
+      "minimum_ms": 69.32,
+      "maximum_ms": 96.54,
+      "change_from_V0_median_percent": -16.0
+     },
+     "cold open": {
+      "samples_ms": [
+       4764.53,
+       4610.8,
+       5064.24,
+       4995.91,
+       4757.84,
+       4585.5,
+       4541.67
+      ],
+      "untimed_ms": 4978.87,
+      "median_ms": 4757.84,
+      "minimum_ms": 4541.67,
+      "maximum_ms": 5064.24,
+      "change_from_V0_median_percent": 23.2
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4562.28,
+       4276.45,
+       4796.7,
+       4527.34,
+       4507.38,
+       4282.99,
+       4645.91
+      ],
+      "untimed_ms": 4637.83,
+      "median_ms": 4527.34,
+      "minimum_ms": 4276.45,
+      "maximum_ms": 4796.7,
+      "change_from_V0_median_percent": 36.1
+     },
+     "feature preview": {
+      "samples_ms": [
+       106.54,
+       111.19,
+       117.82,
+       135.76,
+       110.95,
+       109.15,
+       108.64
+      ],
+      "untimed_ms": 99.7,
+      "median_ms": 110.95,
+      "minimum_ms": 106.54,
+      "maximum_ms": 135.76,
+      "change_from_V0_median_percent": 27.5
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       180.41,
+       138.5,
+       139.77,
+       149.22,
+       130.96,
+       111.36,
+       141.28
+      ],
+      "median_ms": 139.77
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V3": {
+     "instantiate": {
+      "samples_ms": [
+       84.61,
+       72.19,
+       96.64,
+       88.51,
+       74.31,
+       73.83,
+       73.8
+      ],
+      "untimed_ms": 77.04,
+      "median_ms": 74.31,
+      "minimum_ms": 72.19,
+      "maximum_ms": 96.64,
+      "change_from_V0_median_percent": -13.6
+     },
+     "cold open": {
+      "samples_ms": [
+       4428.62,
+       4435.46,
+       5139.69,
+       4316.81,
+       4311.78,
+       4345.63,
+       4489.99
+      ],
+      "untimed_ms": 4197.38,
+      "median_ms": 4428.62,
+      "minimum_ms": 4311.78,
+      "maximum_ms": 5139.69,
+      "change_from_V0_median_percent": 14.6
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3939.87,
+       3873.46,
+       4668.61,
+       4101.41,
+       3853.16,
+       3954.25,
+       4020.02
+      ],
+      "untimed_ms": 3746.65,
+      "median_ms": 3954.25,
+      "minimum_ms": 3853.16,
+      "maximum_ms": 4668.61,
+      "change_from_V0_median_percent": 18.8
+     },
+     "feature preview": {
+      "samples_ms": [
+       126.65,
+       101.79,
+       120.72,
+       96.91,
+       102.05,
+       98.56,
+       123.34
+      ],
+      "untimed_ms": 101.05,
+      "median_ms": 102.05,
+      "minimum_ms": 96.91,
+      "maximum_ms": 126.65,
+      "change_from_V0_median_percent": 17.3
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       142.03,
+       194.73,
+       158.22,
+       156.4,
+       149.95,
+       147.13,
+       164.08
+      ],
+      "median_ms": 156.4
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V2": {
+     "instantiate": {
+      "samples_ms": [
+       85.62,
+       97.88,
+       102.99,
+       83.8,
+       88.81,
+       86.49,
+       81.35
+      ],
+      "untimed_ms": 80.53,
+      "median_ms": 86.49,
+      "minimum_ms": 81.35,
+      "maximum_ms": 102.99,
+      "change_from_V0_median_percent": 0.5
+     },
+     "cold open": {
+      "samples_ms": [
+       4000.79,
+       4036.48,
+       4344.34,
+       3827.25,
+       3843.89,
+       3861.19,
+       3889.52
+      ],
+      "untimed_ms": 3802.02,
+      "median_ms": 3889.52,
+      "minimum_ms": 3827.25,
+      "maximum_ms": 4344.34,
+      "change_from_V0_median_percent": 0.7
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3764.13,
+       4002.55,
+       3426.3,
+       3624.98,
+       3422.92,
+       3491.97,
+       3452.3
+      ],
+      "untimed_ms": 3378.84,
+      "median_ms": 3491.97,
+      "minimum_ms": 3422.92,
+      "maximum_ms": 4002.55,
+      "change_from_V0_median_percent": 5.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       90.96,
+       90.96,
+       90.87,
+       95.23,
+       94.4,
+       115.58,
+       87.77
+      ],
+      "untimed_ms": 145.46,
+      "median_ms": 90.96,
+      "minimum_ms": 87.77,
+      "maximum_ms": 115.58,
+      "change_from_V0_median_percent": 4.5
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       158.2,
+       226.33,
+       155.43,
+       173.74,
+       145.59,
+       160.13,
+       181.51
+      ],
+      "median_ms": 160.13
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V1": {
+     "instantiate": {
+      "samples_ms": [
+       91.66,
+       90.25,
+       88.55,
+       83.7,
+       104.82,
+       83.61,
+       79.18
+      ],
+      "untimed_ms": 80.83,
+      "median_ms": 88.55,
+      "minimum_ms": 79.18,
+      "maximum_ms": 104.82,
+      "change_from_V0_median_percent": 2.9
+     },
+     "cold open": {
+      "samples_ms": [
+       4495.21,
+       4185.03,
+       4601.62,
+       4330.55,
+       4368.78,
+       4346.13,
+       4279.05
+      ],
+      "untimed_ms": 4233.31,
+      "median_ms": 4346.13,
+      "minimum_ms": 4185.03,
+      "maximum_ms": 4601.62,
+      "change_from_V0_median_percent": 12.5
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4111.5,
+       3952.82,
+       3859.39,
+       3943.07,
+       3812.95,
+       3671.89,
+       3709.07
+      ],
+      "untimed_ms": 3875.1,
+      "median_ms": 3859.39,
+      "minimum_ms": 3671.89,
+      "maximum_ms": 4111.5,
+      "change_from_V0_median_percent": 16.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       102.83,
+       106.37,
+       101.76,
+       93.53,
+       101.95,
+       96.47,
+       101.03
+      ],
+      "untimed_ms": 105.08,
+      "median_ms": 101.76,
+      "minimum_ms": 93.53,
+      "maximum_ms": 106.37,
+      "change_from_V0_median_percent": 17.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       119.25,
+       125.84,
+       113.15,
+       136.46,
+       155.56,
+       111.89,
+       114.78
+      ],
+      "median_ms": 119.25
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V0": {
+     "instantiate": {
+      "samples_ms": [
+       83.75,
+       100.8,
+       85.44,
+       86.63,
+       86.05,
+       89.34,
+       77.45
+      ],
+      "untimed_ms": 110.82,
+      "median_ms": 86.05,
+      "minimum_ms": 77.45,
+      "maximum_ms": 100.8,
+      "change_from_V0_median_percent": 0.0
+     },
+     "cold open": {
+      "samples_ms": [
+       3920.8,
+       3859.31,
+       3973.03,
+       3862.94,
+       3817.06,
+       3663.8,
+       3898.98
+      ],
+      "untimed_ms": 3831.39,
+      "median_ms": 3862.94,
+      "minimum_ms": 3663.8,
+      "maximum_ms": 3973.03,
+      "change_from_V0_median_percent": 0.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3327.17,
+       3465.87,
+       3332.28,
+       3314.31,
+       3333.39,
+       3167.26,
+       3171.45
+      ],
+      "untimed_ms": 3664.17,
+      "median_ms": 3327.17,
+      "minimum_ms": 3167.26,
+      "maximum_ms": 3465.87,
+      "change_from_V0_median_percent": 0.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       80.85,
+       90.15,
+       89.14,
+       88.36,
+       87.01,
+       78.93,
+       80.19
+      ],
+      "untimed_ms": 83.7,
+      "median_ms": 87.01,
+      "minimum_ms": 78.93,
+      "maximum_ms": 90.15,
+      "change_from_V0_median_percent": 0.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       130.55,
+       148.59,
+       142.52,
+       150.87,
+       145.07,
+       140.86,
+       158.8
+      ],
+      "median_ms": 145.07
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    }
+   }
+  },
+  "pooled_sets_3_and_4": {
+   "V0": {
+    "instantiate": {
+     "median_ms": 88.41,
+     "minimum_ms": 77.45,
+     "maximum_ms": 110.39,
+     "change_from_V0_median_percent": 0.0
+    },
+    "cold open": {
+     "median_ms": 3909.89,
+     "minimum_ms": 3663.8,
+     "maximum_ms": 4264.53,
+     "change_from_V0_median_percent": 0.0
+    },
+    "full rebuild": {
+     "median_ms": 3358.86,
+     "minimum_ms": 3167.26,
+     "maximum_ms": 3602.46,
+     "change_from_V0_median_percent": 0.0
+    },
+    "feature preview": {
+     "median_ms": 88.48,
+     "minimum_ms": 78.93,
+     "maximum_ms": 94.83,
+     "change_from_V0_median_percent": 0.0
+    }
+   },
+   "V1": {
+    "instantiate": {
+     "median_ms": 87.98,
+     "minimum_ms": 79.18,
+     "maximum_ms": 104.82,
+     "change_from_V0_median_percent": -0.5
+    },
+    "cold open": {
+     "median_ms": 4337.8,
+     "minimum_ms": 4164.08,
+     "maximum_ms": 5358.37,
+     "change_from_V0_median_percent": 10.9
+    },
+    "full rebuild": {
+     "median_ms": 3947.95,
+     "minimum_ms": 3671.89,
+     "maximum_ms": 6108.18,
+     "change_from_V0_median_percent": 17.5
+    },
+    "feature preview": {
+     "median_ms": 100.62,
+     "minimum_ms": 93.53,
+     "maximum_ms": 106.37,
+     "change_from_V0_median_percent": 13.7
+    }
+   },
+   "V2": {
+    "instantiate": {
+     "median_ms": 86.5,
+     "minimum_ms": 81.35,
+     "maximum_ms": 102.99,
+     "change_from_V0_median_percent": -2.2
+    },
+    "cold open": {
+     "median_ms": 3981.14,
+     "minimum_ms": 3827.25,
+     "maximum_ms": 4344.34,
+     "change_from_V0_median_percent": 1.8
+    },
+    "full rebuild": {
+     "median_ms": 3566.23,
+     "minimum_ms": 3411.66,
+     "maximum_ms": 4002.55,
+     "change_from_V0_median_percent": 6.2
+    },
+    "feature preview": {
+     "median_ms": 90.96,
+     "minimum_ms": 87.11,
+     "maximum_ms": 131.01,
+     "change_from_V0_median_percent": 2.8
+    }
+   },
+   "V3": {
+    "instantiate": {
+     "median_ms": 81.45,
+     "minimum_ms": 72.19,
+     "maximum_ms": 96.64,
+     "change_from_V0_median_percent": -7.9
+    },
+    "cold open": {
+     "median_ms": 4405.86,
+     "minimum_ms": 4250.05,
+     "maximum_ms": 5139.69,
+     "change_from_V0_median_percent": 12.7
+    },
+    "full rebuild": {
+     "median_ms": 3987.14,
+     "minimum_ms": 3822.11,
+     "maximum_ms": 4668.61,
+     "change_from_V0_median_percent": 18.7
+    },
+    "feature preview": {
+     "median_ms": 103.28,
+     "minimum_ms": 96.91,
+     "maximum_ms": 133.38,
+     "change_from_V0_median_percent": 16.7
+    }
+   },
+   "V4": {
+    "instantiate": {
+     "median_ms": 74.33,
+     "minimum_ms": 69.32,
+     "maximum_ms": 96.54,
+     "change_from_V0_median_percent": -15.9
+    },
+    "cold open": {
+     "median_ms": 4880.22,
+     "minimum_ms": 4541.67,
+     "maximum_ms": 5358.19,
+     "change_from_V0_median_percent": 24.8
+    },
+    "full rebuild": {
+     "median_ms": 4604.09,
+     "minimum_ms": 4276.45,
+     "maximum_ms": 5092.93,
+     "change_from_V0_median_percent": 37.1
+    },
+    "feature preview": {
+     "median_ms": 112.78,
+     "minimum_ms": 106.54,
+     "maximum_ms": 168.14,
+     "change_from_V0_median_percent": 27.5
+    }
+   },
+   "V5": {
+    "instantiate": {
+     "median_ms": 76.74,
+     "minimum_ms": 69.0,
+     "maximum_ms": 102.25,
+     "change_from_V0_median_percent": -13.2
+    },
+    "cold open": {
+     "median_ms": 4680.11,
+     "minimum_ms": 4476.58,
+     "maximum_ms": 5299.03,
+     "change_from_V0_median_percent": 19.7
+    },
+    "full rebuild": {
+     "median_ms": 4266.24,
+     "minimum_ms": 4123.11,
+     "maximum_ms": 4707.28,
+     "change_from_V0_median_percent": 27.0
+    },
+    "feature preview": {
+     "median_ms": 106.5,
+     "minimum_ms": 97.76,
+     "maximum_ms": 123.56,
+     "change_from_V0_median_percent": 20.4
+    }
+   }
+  },
+  "set_1": {
+   "node": "v22.23.4",
+   "round_loads": [
+    {
+     "round": 0,
+     "before": "0.60 1.24 1.77 2/120 3182",
+     "started": "2026-11-19T02:17:57.167Z"
+    },
+    {
+     "round": 1,
+     "before": "1.10 1.26 1.75 1/119 3240",
+     "started": "2026-11-19T02:18:49.113Z"
+    },
+    {
+     "round": 2,
+     "before": "1.14 1.25 1.71 1/117 3296",
+     "started": "2026-11-19T02:19:43.933Z"
+    },
+    {
+     "round": 3,
+     "before": "1.38 1.30 1.70 1/117 3350",
+     "started": "2026-11-19T02:20:38.344Z"
+    },
+    {
+     "round": 4,
+     "before": "1.47 1.33 1.69 1/119 3409",
+     "started": "2026-11-19T02:21:32.532Z"
+    },
+    {
+     "round": 5,
+     "before": "1.29 1.31 1.67 1/121 3467",
+     "started": "2026-11-19T02:22:26.405Z"
+    },
+    {
+     "round": 6,
+     "before": "1.19 1.27 1.63 1/119 3523",
+     "started": "2026-11-19T02:23:20.997Z"
+    },
+    {
+     "round": 7,
+     "before": "1.08 1.23 1.59 1/115 3578",
+     "started": "2026-11-19T02:24:15.576Z"
+    }
+   ],
+   "variants": {
+    "V0": {
+     "instantiate": {
+      "samples_ms": [
+       82.08,
+       95.12,
+       81.79,
+       92.62,
+       87.03,
+       89.23,
+       98.54
+      ],
+      "untimed_ms": 102.9,
+      "median_ms": 89.23,
+      "minimum_ms": 81.79,
+      "maximum_ms": 98.54,
+      "change_from_V0_median_percent": 0.0
+     },
+     "cold open": {
+      "samples_ms": [
+       4050.82,
+       3794.77,
+       4071.46,
+       4500.48,
+       4015.78,
+       4163.52,
+       4051.16
+      ],
+      "untimed_ms": 3815.09,
+      "median_ms": 4051.16,
+      "minimum_ms": 3794.77,
+      "maximum_ms": 4500.48,
+      "change_from_V0_median_percent": 0.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3502.53,
+       3660.28,
+       3516.44,
+       3471.46,
+       3480.91,
+       3761.61,
+       3534.76
+      ],
+      "untimed_ms": 3333.48,
+      "median_ms": 3516.44,
+      "minimum_ms": 3471.46,
+      "maximum_ms": 3761.61,
+      "change_from_V0_median_percent": 0.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       107.8,
+       89.54,
+       94.55,
+       88.96,
+       143.81,
+       90.36,
+       88.84
+      ],
+      "untimed_ms": 87.7,
+      "median_ms": 90.36,
+      "minimum_ms": 88.84,
+      "maximum_ms": 143.81,
+      "change_from_V0_median_percent": 0.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       146.67,
+       165.08,
+       204.13,
+       166.01,
+       154.41,
+       173.32,
+       149.93
+      ],
+      "median_ms": 165.08
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V1": {
+     "instantiate": {
+      "samples_ms": [
+       92.29,
+       87.05,
+       84.36,
+       98.51,
+       88.2,
+       92.65,
+       84.66
+      ],
+      "untimed_ms": 87.14,
+      "median_ms": 88.2,
+      "minimum_ms": 84.36,
+      "maximum_ms": 98.51,
+      "change_from_V0_median_percent": -1.2
+     },
+     "cold open": {
+      "samples_ms": [
+       4405.21,
+       4517.6,
+       4288.36,
+       4565.76,
+       4300.55,
+       4395.95,
+       4483.84
+      ],
+      "untimed_ms": 4215.01,
+      "median_ms": 4405.21,
+      "minimum_ms": 4288.36,
+      "maximum_ms": 4565.76,
+      "change_from_V0_median_percent": 8.7
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3920.5,
+       3926.69,
+       3991.22,
+       3987.5,
+       4013.06,
+       3862.58,
+       3801.22
+      ],
+      "untimed_ms": 3850.13,
+      "median_ms": 3926.69,
+      "minimum_ms": 3801.22,
+      "maximum_ms": 4013.06,
+      "change_from_V0_median_percent": 11.7
+     },
+     "feature preview": {
+      "samples_ms": [
+       101.77,
+       100.88,
+       102.18,
+       101.37,
+       100.32,
+       141.77,
+       110.24
+      ],
+      "untimed_ms": 101.34,
+      "median_ms": 101.77,
+      "minimum_ms": 100.32,
+      "maximum_ms": 141.77,
+      "change_from_V0_median_percent": 12.6
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       143.92,
+       121.57,
+       139.44,
+       141.53,
+       149.26,
+       128.01,
+       118.34
+      ],
+      "median_ms": 139.44
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V2": {
+     "instantiate": {
+      "samples_ms": [
+       82.14,
+       94.72,
+       102.56,
+       87.96,
+       100.1,
+       88.42,
+       93.99
+      ],
+      "untimed_ms": 109.69,
+      "median_ms": 93.99,
+      "minimum_ms": 82.14,
+      "maximum_ms": 102.56,
+      "change_from_V0_median_percent": 5.3
+     },
+     "cold open": {
+      "samples_ms": [
+       3967.34,
+       4097.56,
+       4143.73,
+       4040.78,
+       3967.9,
+       4204.84,
+       4212.73
+      ],
+      "untimed_ms": 3883.04,
+      "median_ms": 4097.56,
+      "minimum_ms": 3967.34,
+      "maximum_ms": 4212.73,
+      "change_from_V0_median_percent": 1.1
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3714.53,
+       3878.4,
+       3568.8,
+       3728.2,
+       3641.39,
+       3710.48,
+       3805.75
+      ],
+      "untimed_ms": 3469.86,
+      "median_ms": 3714.53,
+      "minimum_ms": 3568.8,
+      "maximum_ms": 3878.4,
+      "change_from_V0_median_percent": 5.6
+     },
+     "feature preview": {
+      "samples_ms": [
+       97.56,
+       142.34,
+       100.62,
+       92.37,
+       91.35,
+       92.61,
+       89.95
+      ],
+      "untimed_ms": 90.82,
+      "median_ms": 92.61,
+      "minimum_ms": 89.95,
+      "maximum_ms": 142.34,
+      "change_from_V0_median_percent": 2.5
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       221.01,
+       144.75,
+       149.68,
+       147.56,
+       150.19,
+       188.7,
+       175.02
+      ],
+      "median_ms": 150.19
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V3": {
+     "instantiate": {
+      "samples_ms": [
+       80.21,
+       83.04,
+       86.63,
+       80.09,
+       79.45,
+       75.44,
+       78.51
+      ],
+      "untimed_ms": 88.66,
+      "median_ms": 80.09,
+      "minimum_ms": 75.44,
+      "maximum_ms": 86.63,
+      "change_from_V0_median_percent": -10.2
+     },
+     "cold open": {
+      "samples_ms": [
+       4733.85,
+       4639.12,
+       4473.28,
+       4554.79,
+       4821.35,
+       4289.87,
+       4678.08
+      ],
+      "untimed_ms": 4181.56,
+      "median_ms": 4639.12,
+      "minimum_ms": 4289.87,
+      "maximum_ms": 4821.35,
+      "change_from_V0_median_percent": 14.5
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4346.63,
+       4152.58,
+       4200.35,
+       3856.19,
+       4351.4,
+       4064.51,
+       3984.53
+      ],
+      "untimed_ms": 4022.57,
+      "median_ms": 4152.58,
+      "minimum_ms": 3856.19,
+      "maximum_ms": 4351.4,
+      "change_from_V0_median_percent": 18.1
+     },
+     "feature preview": {
+      "samples_ms": [
+       96.51,
+       115.45,
+       107.73,
+       98.52,
+       102.28,
+       124.5,
+       105.31
+      ],
+      "untimed_ms": 102.52,
+      "median_ms": 105.31,
+      "minimum_ms": 96.51,
+      "maximum_ms": 124.5,
+      "change_from_V0_median_percent": 16.5
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       166.88,
+       187.25,
+       164.36,
+       163.43,
+       155.64,
+       184.44,
+       148.19
+      ],
+      "median_ms": 164.36
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V4": {
+     "instantiate": {
+      "samples_ms": [
+       75.64,
+       90.49,
+       76.26,
+       69.76,
+       79.7,
+       78.65,
+       73.67
+      ],
+      "untimed_ms": 79.68,
+      "median_ms": 76.26,
+      "minimum_ms": 69.76,
+      "maximum_ms": 90.49,
+      "change_from_V0_median_percent": -14.5
+     },
+     "cold open": {
+      "samples_ms": [
+       5309.07,
+       5264.66,
+       5362.38,
+       4843.27,
+       5145.34,
+       4717.25,
+       4859.33
+      ],
+      "untimed_ms": 4831.65,
+      "median_ms": 5145.34,
+      "minimum_ms": 4717.25,
+      "maximum_ms": 5362.38,
+      "change_from_V0_median_percent": 27.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4655.2,
+       4581.72,
+       4670.72,
+       4439.9,
+       4655.97,
+       4715.84,
+       4906.38
+      ],
+      "untimed_ms": 4541.57,
+      "median_ms": 4655.97,
+      "minimum_ms": 4439.9,
+      "maximum_ms": 4906.38,
+      "change_from_V0_median_percent": 32.4
+     },
+     "feature preview": {
+      "samples_ms": [
+       111.83,
+       112.03,
+       122.25,
+       112.76,
+       115.92,
+       121.03,
+       119.69
+      ],
+      "untimed_ms": 110.25,
+      "median_ms": 115.92,
+      "minimum_ms": 111.83,
+      "maximum_ms": 122.25,
+      "change_from_V0_median_percent": 28.3
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       129.23,
+       164.14,
+       115.6,
+       127.84,
+       154.02,
+       125.91,
+       174.63
+      ],
+      "median_ms": 129.23
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V5": {
+     "instantiate": {
+      "samples_ms": [
+       102.44,
+       74.28,
+       82.6,
+       82.36,
+       100.28,
+       76.27,
+       81.65
+      ],
+      "untimed_ms": 83.11,
+      "median_ms": 82.36,
+      "minimum_ms": 74.28,
+      "maximum_ms": 102.44,
+      "change_from_V0_median_percent": -7.7
+     },
+     "cold open": {
+      "samples_ms": [
+       5026.72,
+       4596.87,
+       4728.02,
+       4640.51,
+       4945.13,
+       4940.77,
+       5008.88
+      ],
+      "untimed_ms": 4893.65,
+      "median_ms": 4940.77,
+      "minimum_ms": 4596.87,
+      "maximum_ms": 5026.72,
+      "change_from_V0_median_percent": 22.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4424.5,
+       4482.55,
+       4376.52,
+       4556.92,
+       4397.65,
+       4886.87,
+       4662.0
+      ],
+      "untimed_ms": 4102.34,
+      "median_ms": 4482.55,
+      "minimum_ms": 4376.52,
+      "maximum_ms": 4886.87,
+      "change_from_V0_median_percent": 27.5
+     },
+     "feature preview": {
+      "samples_ms": [
+       107.73,
+       115.35,
+       121.55,
+       110.74,
+       109.66,
+       113.69,
+       130.82
+      ],
+      "untimed_ms": 109.06,
+      "median_ms": 113.69,
+      "minimum_ms": 107.73,
+      "maximum_ms": 130.82,
+      "change_from_V0_median_percent": 25.8
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       131.9,
+       134.56,
+       134.15,
+       148.77,
+       146.75,
+       136.11,
+       149.12
+      ],
+      "median_ms": 136.11
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    }
+   }
+  },
+  "set_2": {
+   "node": "v22.23.4",
+   "round_loads": [
+    {
+     "round": 0,
+     "before": "0.71 1.10 1.52 2/118 3669",
+     "started": "2026-11-19T02:25:39.602Z"
+    },
+    {
+     "round": 1,
+     "before": "1.01 1.11 1.50 1/120 3740",
+     "started": "2026-11-19T02:26:32.561Z"
+    },
+    {
+     "round": 2,
+     "before": "1.13 1.13 1.48 1/122 3800",
+     "started": "2026-11-19T02:27:26.268Z"
+    },
+    {
+     "round": 3,
+     "before": "1.05 1.10 1.45 1/121 3854",
+     "started": "2026-11-19T02:28:20.715Z"
+    },
+    {
+     "round": 4,
+     "before": "1.02 1.08 1.42 1/118 3908",
+     "started": "2026-11-19T02:29:14.222Z"
+    },
+    {
+     "round": 5,
+     "before": "1.29 1.16 1.43 1/119 3968",
+     "started": "2026-11-19T02:30:08.864Z"
+    },
+    {
+     "round": 6,
+     "before": "1.30 1.18 1.42 1/117 4024",
+     "started": "2026-11-19T02:31:03.012Z"
+    },
+    {
+     "round": 7,
+     "before": "1.75 1.32 1.45 1/117 4083",
+     "started": "2026-11-19T02:32:02.012Z"
+    }
+   ],
+   "variants": {
+    "V5": {
+     "instantiate": {
+      "samples_ms": [
+       95.52,
+       77.02,
+       102.16,
+       74.81,
+       71.96,
+       81.18,
+       96.47
+      ],
+      "untimed_ms": 80.11,
+      "median_ms": 81.18,
+      "minimum_ms": 71.96,
+      "maximum_ms": 102.16,
+      "change_from_V0_median_percent": -18.4
+     },
+     "cold open": {
+      "samples_ms": [
+       4715.53,
+       5175.48,
+       4851.13,
+       4833.79,
+       4826.27,
+       4664.27,
+       5000.78
+      ],
+      "untimed_ms": 4701.36,
+      "median_ms": 4833.79,
+      "minimum_ms": 4664.27,
+      "maximum_ms": 5175.48,
+      "change_from_V0_median_percent": 22.3
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4405.33,
+       4502.47,
+       4216.77,
+       4493.96,
+       4691.56,
+       4957.95,
+       4751.0
+      ],
+      "untimed_ms": 4302.92,
+      "median_ms": 4502.47,
+      "minimum_ms": 4216.77,
+      "maximum_ms": 4957.95,
+      "change_from_V0_median_percent": 23.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       163.64,
+       125.03,
+       106.89,
+       105.49,
+       109.37,
+       107.53,
+       119.72
+      ],
+      "untimed_ms": 107.4,
+      "median_ms": 109.37,
+      "minimum_ms": 105.49,
+      "maximum_ms": 163.64,
+      "change_from_V0_median_percent": 22.3
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       179.21,
+       134.76,
+       170.17,
+       160.76,
+       155.97,
+       173.82,
+       133.62
+      ],
+      "median_ms": 160.76
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V4": {
+     "instantiate": {
+      "samples_ms": [
+       120.56,
+       74.23,
+       72.18,
+       76.05,
+       78.02,
+       95.04,
+       84.12
+      ],
+      "untimed_ms": 73.76,
+      "median_ms": 78.02,
+      "minimum_ms": 72.18,
+      "maximum_ms": 120.56,
+      "change_from_V0_median_percent": -21.5
+     },
+     "cold open": {
+      "samples_ms": [
+       5221.91,
+       4745.05,
+       4923.31,
+       5040.85,
+       5094.74,
+       5403.1,
+       5269.84
+      ],
+      "untimed_ms": 4875.97,
+      "median_ms": 5094.74,
+      "minimum_ms": 4745.05,
+      "maximum_ms": 5403.1,
+      "change_from_V0_median_percent": 28.9
+     },
+     "full rebuild": {
+      "samples_ms": [
+       4663.4,
+       4389.36,
+       4734.17,
+       4681.36,
+       4496.42,
+       4775.48,
+       5115.0
+      ],
+      "untimed_ms": 4519.81,
+      "median_ms": 4681.36,
+      "minimum_ms": 4389.36,
+      "maximum_ms": 5115.0,
+      "change_from_V0_median_percent": 27.9
+     },
+     "feature preview": {
+      "samples_ms": [
+       111.04,
+       114.51,
+       114.77,
+       115.52,
+       109.43,
+       108.02,
+       114.6
+      ],
+      "untimed_ms": 118.53,
+      "median_ms": 114.51,
+      "minimum_ms": 108.02,
+      "maximum_ms": 115.52,
+      "change_from_V0_median_percent": 28.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       138.68,
+       161.74,
+       168.28,
+       136.92,
+       163.71,
+       134.32,
+       131.64
+      ],
+      "median_ms": 138.68
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V3": {
+     "instantiate": {
+      "samples_ms": [
+       92.84,
+       77.09,
+       80.14,
+       81.5,
+       83.05,
+       75.66,
+       84.98
+      ],
+      "untimed_ms": 88.94,
+      "median_ms": 81.5,
+      "minimum_ms": 75.66,
+      "maximum_ms": 92.84,
+      "change_from_V0_median_percent": -18.0
+     },
+     "cold open": {
+      "samples_ms": [
+       4426.85,
+       4642.54,
+       4550.4,
+       4368.55,
+       4379.23,
+       4646.06,
+       4734.5
+      ],
+      "untimed_ms": 4470.76,
+      "median_ms": 4550.4,
+      "minimum_ms": 4368.55,
+      "maximum_ms": 4734.5,
+      "change_from_V0_median_percent": 15.2
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3961.27,
+       3960.66,
+       3880.46,
+       3947.02,
+       3866.67,
+       4217.15,
+       4441.79
+      ],
+      "untimed_ms": 3828.02,
+      "median_ms": 3960.66,
+      "minimum_ms": 3866.67,
+      "maximum_ms": 4441.79,
+      "change_from_V0_median_percent": 8.2
+     },
+     "feature preview": {
+      "samples_ms": [
+       107.78,
+       103.55,
+       113.6,
+       101.38,
+       103.81,
+       105.75,
+       114.15
+      ],
+      "untimed_ms": 102.58,
+      "median_ms": 105.75,
+      "minimum_ms": 101.38,
+      "maximum_ms": 114.15,
+      "change_from_V0_median_percent": 18.2
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       145.77,
+       170.57,
+       164.97,
+       150.66,
+       145.72,
+       168.83,
+       199.94
+      ],
+      "median_ms": 164.97
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V2": {
+     "instantiate": {
+      "samples_ms": [
+       91.58,
+       104.89,
+       86.69,
+       105.67,
+       84.03,
+       100.3,
+       97.96
+      ],
+      "untimed_ms": 84.95,
+      "median_ms": 97.96,
+      "minimum_ms": 84.03,
+      "maximum_ms": 105.67,
+      "change_from_V0_median_percent": -1.5
+     },
+     "cold open": {
+      "samples_ms": [
+       3872.09,
+       4372.76,
+       3974.06,
+       4204.0,
+       4098.42,
+       4963.1,
+       4169.43
+      ],
+      "untimed_ms": 4034.46,
+      "median_ms": 4169.43,
+      "minimum_ms": 3872.09,
+      "maximum_ms": 4963.1,
+      "change_from_V0_median_percent": 5.5
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3791.78,
+       3698.14,
+       3671.51,
+       3709.36,
+       3760.04,
+       5032.06,
+       3697.75
+      ],
+      "untimed_ms": 3551.34,
+      "median_ms": 3709.36,
+      "minimum_ms": 3671.51,
+      "maximum_ms": 5032.06,
+      "change_from_V0_median_percent": 1.3
+     },
+     "feature preview": {
+      "samples_ms": [
+       93.62,
+       91.55,
+       91.24,
+       96.86,
+       91.68,
+       170.65,
+       90.15
+      ],
+      "untimed_ms": 97.43,
+      "median_ms": 91.68,
+      "minimum_ms": 90.15,
+      "maximum_ms": 170.65,
+      "change_from_V0_median_percent": 2.5
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       141.37,
+       147.69,
+       202.15,
+       180.92,
+       155.58,
+       232.32,
+       162.0
+      ],
+      "median_ms": 162.0
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V1": {
+     "instantiate": {
+      "samples_ms": [
+       114.07,
+       106.59,
+       91.19,
+       96.58,
+       92.84,
+       115.58,
+       88.06
+      ],
+      "untimed_ms": 85.67,
+      "median_ms": 96.58,
+      "minimum_ms": 88.06,
+      "maximum_ms": 115.58,
+      "change_from_V0_median_percent": -2.9
+     },
+     "cold open": {
+      "samples_ms": [
+       4616.76,
+       4535.53,
+       4760.27,
+       4506.97,
+       4351.32,
+       4846.99,
+       4952.58
+      ],
+      "untimed_ms": 4299.9,
+      "median_ms": 4616.76,
+      "minimum_ms": 4351.32,
+      "maximum_ms": 4952.58,
+      "change_from_V0_median_percent": 16.8
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3915.41,
+       3897.15,
+       3859.02,
+       4108.28,
+       4111.54,
+       4181.38,
+       4218.02
+      ],
+      "untimed_ms": 4107.0,
+      "median_ms": 4108.28,
+      "minimum_ms": 3859.02,
+      "maximum_ms": 4218.02,
+      "change_from_V0_median_percent": 12.2
+     },
+     "feature preview": {
+      "samples_ms": [
+       136.71,
+       99.31,
+       99.54,
+       119.27,
+       104.47,
+       98.55,
+       102.23
+      ],
+      "untimed_ms": 103.64,
+      "median_ms": 102.23,
+      "minimum_ms": 98.55,
+      "maximum_ms": 136.71,
+      "change_from_V0_median_percent": 14.3
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       128.12,
+       157.07,
+       120.39,
+       117.7,
+       142.38,
+       127.07,
+       143.33
+      ],
+      "median_ms": 128.12
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    },
+    "V0": {
+     "instantiate": {
+      "samples_ms": [
+       87.68,
+       108.33,
+       99.44,
+       89.33,
+       106.75,
+       92.23,
+       116.2
+      ],
+      "untimed_ms": 93.48,
+      "median_ms": 99.44,
+      "minimum_ms": 87.68,
+      "maximum_ms": 116.2,
+      "change_from_V0_median_percent": 0.0
+     },
+     "cold open": {
+      "samples_ms": [
+       3892.32,
+       3951.37,
+       3827.2,
+       4319.99,
+       4101.59,
+       4527.5,
+       3913.07
+      ],
+      "untimed_ms": 3966.73,
+      "median_ms": 3951.37,
+      "minimum_ms": 3827.2,
+      "maximum_ms": 4527.5,
+      "change_from_V0_median_percent": 0.0
+     },
+     "full rebuild": {
+      "samples_ms": [
+       3283.86,
+       3666.18,
+       3389.87,
+       3661.43,
+       3591.71,
+       3773.89,
+       3869.73
+      ],
+      "untimed_ms": 3495.72,
+      "median_ms": 3661.43,
+      "minimum_ms": 3283.86,
+      "maximum_ms": 3869.73,
+      "change_from_V0_median_percent": 0.0
+     },
+     "feature preview": {
+      "samples_ms": [
+       100.61,
+       88.99,
+       86.86,
+       88.32,
+       102.03,
+       111.43,
+       89.45
+      ],
+      "untimed_ms": 96.71,
+      "median_ms": 89.45,
+      "minimum_ms": 86.86,
+      "maximum_ms": 111.43,
+      "change_from_V0_median_percent": 0.0
+     },
+     "second instantiate (not a workload)": {
+      "samples_ms": [
+       158.38,
+       218.66,
+       150.03,
+       170.05,
+       184.17,
+       145.95,
+       188.33
+      ],
+      "median_ms": 170.05
+     },
+     "response_sha256": {
+      "cold open": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "full rebuild": {
+       "sha256": "10eb6f68f857f15cc5bb096344ff3dcf26661753c52af0b6725aaec5a23b4394",
+       "bytes": 2699192
+      },
+      "feature preview": {
+       "sha256": "8c7ce93d467ebdb625baf13a2f51e7de1ad6ccf6a29465babb98655041e46801",
+       "bytes": 227512
+      }
+     }
+    }
+   }
+  },
+  "pooled_sets_1_and_2": {
+   "V0": {
+    "instantiate": {
+     "median_ms": 92.43,
+     "minimum_ms": 81.79,
+     "maximum_ms": 116.2,
+     "change_from_V0_median_percent": 0.0
+    },
+    "cold open": {
+     "median_ms": 4050.99,
+     "minimum_ms": 3794.77,
+     "maximum_ms": 4527.5,
+     "change_from_V0_median_percent": 0.0
+    },
+    "full rebuild": {
+     "median_ms": 3563.24,
+     "minimum_ms": 3283.86,
+     "maximum_ms": 3869.73,
+     "change_from_V0_median_percent": 0.0
+    },
+    "feature preview": {
+     "median_ms": 89.95,
+     "minimum_ms": 86.86,
+     "maximum_ms": 143.81,
+     "change_from_V0_median_percent": 0.0
+    }
+   },
+   "V1": {
+    "instantiate": {
+     "median_ms": 92.47,
+     "minimum_ms": 84.36,
+     "maximum_ms": 115.58,
+     "change_from_V0_median_percent": 0.0
+    },
+    "cold open": {
+     "median_ms": 4512.28,
+     "minimum_ms": 4288.36,
+     "maximum_ms": 4952.58,
+     "change_from_V0_median_percent": 11.4
+    },
+    "full rebuild": {
+     "median_ms": 3957.1,
+     "minimum_ms": 3801.22,
+     "maximum_ms": 4218.02,
+     "change_from_V0_median_percent": 11.1
+    },
+    "feature preview": {
+     "median_ms": 101.97,
+     "minimum_ms": 98.55,
+     "maximum_ms": 141.77,
+     "change_from_V0_median_percent": 13.4
+    }
+   },
+   "V2": {
+    "instantiate": {
+     "median_ms": 94.35,
+     "minimum_ms": 82.14,
+     "maximum_ms": 105.67,
+     "change_from_V0_median_percent": 2.1
+    },
+    "cold open": {
+     "median_ms": 4121.07,
+     "minimum_ms": 3872.09,
+     "maximum_ms": 4963.1,
+     "change_from_V0_median_percent": 1.7
+    },
+    "full rebuild": {
+     "median_ms": 3712.51,
+     "minimum_ms": 3568.8,
+     "maximum_ms": 5032.06,
+     "change_from_V0_median_percent": 4.2
+    },
+    "feature preview": {
+     "median_ms": 92.49,
+     "minimum_ms": 89.95,
+     "maximum_ms": 170.65,
+     "change_from_V0_median_percent": 2.8
+    }
+   },
+   "V3": {
+    "instantiate": {
+     "median_ms": 80.17,
+     "minimum_ms": 75.44,
+     "maximum_ms": 92.84,
+     "change_from_V0_median_percent": -13.3
+    },
+    "cold open": {
+     "median_ms": 4596.95,
+     "minimum_ms": 4289.87,
+     "maximum_ms": 4821.35,
+     "change_from_V0_median_percent": 13.5
+    },
+    "full rebuild": {
+     "median_ms": 4024.52,
+     "minimum_ms": 3856.19,
+     "maximum_ms": 4441.79,
+     "change_from_V0_median_percent": 12.9
+    },
+    "feature preview": {
+     "median_ms": 105.53,
+     "minimum_ms": 96.51,
+     "maximum_ms": 124.5,
+     "change_from_V0_median_percent": 17.3
+    }
+   },
+   "V4": {
+    "instantiate": {
+     "median_ms": 77.14,
+     "minimum_ms": 69.76,
+     "maximum_ms": 120.56,
+     "change_from_V0_median_percent": -16.5
+    },
+    "cold open": {
+     "median_ms": 5120.04,
+     "minimum_ms": 4717.25,
+     "maximum_ms": 5403.1,
+     "change_from_V0_median_percent": 26.4
+    },
+    "full rebuild": {
+     "median_ms": 4667.06,
+     "minimum_ms": 4389.36,
+     "maximum_ms": 5115.0,
+     "change_from_V0_median_percent": 31.0
+    },
+    "feature preview": {
+     "median_ms": 114.56,
+     "minimum_ms": 108.02,
+     "maximum_ms": 122.25,
+     "change_from_V0_median_percent": 27.4
+    }
+   },
+   "V5": {
+    "instantiate": {
+     "median_ms": 82.0,
+     "minimum_ms": 71.96,
+     "maximum_ms": 102.44,
+     "change_from_V0_median_percent": -11.3
+    },
+    "cold open": {
+     "median_ms": 4842.46,
+     "minimum_ms": 4596.87,
+     "maximum_ms": 5175.48,
+     "change_from_V0_median_percent": 19.5
+    },
+    "full rebuild": {
+     "median_ms": 4498.22,
+     "minimum_ms": 4216.77,
+     "maximum_ms": 4957.95,
+     "change_from_V0_median_percent": 26.2
+    },
+    "feature preview": {
+     "median_ms": 112.22,
+     "minimum_ms": 105.49,
+     "maximum_ms": 163.64,
+     "change_from_V0_median_percent": 24.8
+    }
+   }
+  }
+ },
+ "timing_chromium_p1": {
+  "reported": "set 2 (round 2), whose dists' files all have recorded SHA-256; set 1 (round 1) is kept, its dists' hashes were not recorded",
+  "set_2": {
+   "V0": {
+    "samples_ms": [
+     538.46,
+     507.04,
+     483.43,
+     478.98,
+     504.13,
+     548.77,
+     468.81
+    ],
+    "untimed_ms": 497.55,
+    "median_ms": 504.13,
+    "minimum_ms": 468.81,
+    "maximum_ms": 548.77
+   },
+   "V4": {
+    "samples_ms": [
+     603.96,
+     630.03,
+     636.81,
+     651.4,
+     720.21,
+     695.08,
+     649.95
+    ],
+    "untimed_ms": 632.38,
+    "median_ms": 649.95,
+    "minimum_ms": 603.96,
+    "maximum_ms": 720.21,
+    "change_from_V0_median_ms": 145.82,
+    "change_from_V0_median_percent": 28.9
+   },
+   "all_exits_zero": true,
+   "round_loads": [
+    "round 0 load 1.52 1.40 1.19 1/116 12903 2026-11-19T03:56:18Z",
+    "round 1 load 1.48 1.39 1.19 1/125 13318 2026-11-19T03:56:26Z",
+    "round 2 load 1.40 1.38 1.18 1/125 13726 2026-11-19T03:56:34Z",
+    "round 3 load 1.45 1.39 1.19 4/122 14129 2026-11-19T03:56:41Z",
+    "round 4 load 1.54 1.41 1.20 1/122 14529 2026-11-19T03:56:48Z",
+    "round 5 load 1.58 1.42 1.20 1/125 14942 2026-11-19T03:56:56Z",
+    "round 6 load 1.81 1.47 1.22 1/122 15351 2026-11-19T03:57:04Z",
+    "round 7 load 1.83 1.48 1.23 1/123 15756 2026-11-19T03:57:12Z"
+   ],
+   "set_loads": [
+    "before P-1 set 2: 1.52 1.40 1.19 1/115 12894 2026-11-19T03:56:18Z",
+    "after P-1 set 2: 2.02 1.53 1.24 1/125 16164 2026-11-19T03:57:19Z",
+    "dist-V0 unchanged",
+    "dist-V4 unchanged"
+   ],
+   "dist_sha256": {
+    "V0": {
+     "./THIRD-PARTY-NOTICES.txt": "0e85732185581514471def6f9b086375e62305cfc11edf228bb4fef420ae3e78",
+     "./_headers": "8e50423107b4d1ef99202b8e32d5cc217664943d8e410ca0137b93421aa185dd",
+     "./assets/SketchOverlay-BN1PDV5y.js": "5fa01150225b7203170bc83abc61abecd44fdf8a2f64bcdeb6f485a3d9dd42cb",
+     "./assets/SketchOverlay-BN1PDV5y.js.map": "3c6d53e9ce9c68c008c9a6d6582e422c65f7023e87f2af45d6cb1e28218256f9",
+     "./assets/core.worker-BLo9uWXv.js": "a2ccc310f8ec15b6bfe3cf7b9afe9b02c951ac9b0b00832556bb2c1ada2195d3",
+     "./assets/core.worker-BLo9uWXv.js.map": "cfe3473525d52fa90baf30a1179a36256545ea0c499b792b4f1b7e7df5744961",
+     "./assets/index--_c0dt0g.css": "09fc91b816d319a7f8e5f75f8d603723adb4417b4a0158b69b49aa753c4e8799",
+     "./assets/index-a6wIYtwq.js": "ada210a3cdcd254e41a00c74b1ee6a629fbd3d198f8038e6a0ad882ed64a950a",
+     "./assets/index-a6wIYtwq.js.map": "06e636cd85189fdda0bffb72b44880b5df7a93ccfcced6a63cbbc68ba967f7c9",
+     "./core/partsmith_core.mjs": "7f247d4e61387cc79469193bb2d463e4f9ca959f7d89d30b75939df488ef1e94",
+     "./core/partsmith_core.wasm": "da10b8f2b35924770f3fd3c80be1fa8031d5745acf88e429730fe693b5b2be88",
+     "./fonts/Geist-OFL.txt": "930853ee1daa68554d9e35c8a9175affb74f699fad9a5da6ee5ebe76379d9137",
+     "./fonts/Geist-Variable.woff2": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+     "./fonts/JetBrainsMono-OFL.txt": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad",
+     "./fonts/JetBrainsMono-Variable.woff2": "4b7bb5bad76ad8b93fb40d378f76184e84f3f08b504b7034bb14f6eb92ac3f46",
+     "./index.html": "3d0aa22c8e54361f4de820ba3d360c028568df2ee245ad995f55a9a91cdc1ed2"
+    },
+    "V4": {
+     "./THIRD-PARTY-NOTICES.txt": "0e85732185581514471def6f9b086375e62305cfc11edf228bb4fef420ae3e78",
+     "./_headers": "8e50423107b4d1ef99202b8e32d5cc217664943d8e410ca0137b93421aa185dd",
+     "./assets/SketchOverlay-BN1PDV5y.js": "5fa01150225b7203170bc83abc61abecd44fdf8a2f64bcdeb6f485a3d9dd42cb",
+     "./assets/SketchOverlay-BN1PDV5y.js.map": "3c6d53e9ce9c68c008c9a6d6582e422c65f7023e87f2af45d6cb1e28218256f9",
+     "./assets/core.worker-BLo9uWXv.js": "a2ccc310f8ec15b6bfe3cf7b9afe9b02c951ac9b0b00832556bb2c1ada2195d3",
+     "./assets/core.worker-BLo9uWXv.js.map": "cfe3473525d52fa90baf30a1179a36256545ea0c499b792b4f1b7e7df5744961",
+     "./assets/index--_c0dt0g.css": "09fc91b816d319a7f8e5f75f8d603723adb4417b4a0158b69b49aa753c4e8799",
+     "./assets/index-a6wIYtwq.js": "ada210a3cdcd254e41a00c74b1ee6a629fbd3d198f8038e6a0ad882ed64a950a",
+     "./assets/index-a6wIYtwq.js.map": "06e636cd85189fdda0bffb72b44880b5df7a93ccfcced6a63cbbc68ba967f7c9",
+     "./core/partsmith_core.mjs": "0c74ec6d7d20144a35614828ece87829e425799aac87bf2fc28ba20505f13eb5",
+     "./core/partsmith_core.wasm": "1e6372dcb3e2f24e221a40566d5c32bee25eb041c953f29dedcacf9cfbae786a",
+     "./fonts/Geist-OFL.txt": "930853ee1daa68554d9e35c8a9175affb74f699fad9a5da6ee5ebe76379d9137",
+     "./fonts/Geist-Variable.woff2": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+     "./fonts/JetBrainsMono-OFL.txt": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad",
+     "./fonts/JetBrainsMono-Variable.woff2": "4b7bb5bad76ad8b93fb40d378f76184e84f3f08b504b7034bb14f6eb92ac3f46",
+     "./index.html": "3d0aa22c8e54361f4de820ba3d360c028568df2ee245ad995f55a9a91cdc1ed2"
+    }
+   }
+  },
+  "set_1": {
+   "V0": {
+    "samples_ms": [
+     555.27,
+     580.96,
+     499.44,
+     630.63,
+     499.13,
+     512.0,
+     540.79
+    ],
+    "untimed_ms": 547.38,
+    "median_ms": 540.79,
+    "minimum_ms": 499.13,
+    "maximum_ms": 630.63
+   },
+   "V4": {
+    "samples_ms": [
+     658.36,
+     706.18,
+     671.65,
+     713.31,
+     789.33,
+     669.55,
+     753.33
+    ],
+    "untimed_ms": 690.19,
+    "median_ms": 706.18,
+    "minimum_ms": 658.36,
+    "maximum_ms": 789.33,
+    "change_from_V0_median_ms": 165.39,
+    "change_from_V0_median_percent": 30.6
+   },
+   "all_exits_zero": true,
+   "round_loads": [
+    "round 0 load 1.23 1.28 1.42 1/112 4327 2026-11-19T02:34:06Z",
+    "round 1 load 1.24 1.28 1.42 1/121 4728 2026-11-19T02:34:22Z",
+    "round 2 load 1.13 1.26 1.41 1/116 5141 2026-11-19T02:34:30Z",
+    "round 3 load 1.12 1.25 1.41 1/118 5538 2026-11-19T02:34:38Z",
+    "round 4 load 1.10 1.24 1.40 1/118 5932 2026-11-19T02:34:46Z",
+    "round 5 load 1.31 1.29 1.42 1/121 6333 2026-11-19T02:34:55Z",
+    "round 6 load 1.20 1.26 1.41 1/118 6728 2026-11-19T02:35:03Z",
+    "round 7 load 1.17 1.25 1.40 1/118 7125 2026-11-19T02:35:11Z"
+   ],
+   "set_loads": [
+    "before P-1 set: 1.23 1.28 1.42 2/113 4315 2026-11-19T02:34:06Z",
+    "after P-1 set: 1.68 1.36 1.44 2/119 7523 2026-11-19T02:35:19Z"
+   ]
+  }
+ },
+ "p1_method": "ui.md 6.7 P-1 (load the app once, reload, ps:usable after timeOrigin), PARTSMITH_PERF=1, Playwright 1.64.0 with /opt/pw-browsers/chromium; one untimed round, then 7 rounds alternating V0 and V4, each served by vite preview --outDir <dist> on port 4173, which Playwright reuses. Set 1: the UI built in the worktree (pnpm -C ui build) once with V0's core and once with V4's in ui/public/core, each dist copied out (the two differ only in core/). Set 2: pnpm -C ui run build --outDir <scratch>/p1-set2/dist-<variant> --emptyOutDir with that variant's two files in ui/public/core (checked by SHA-256), every dist file's SHA-256 recorded before the set and checked after it (round2/p1-dists.sh, round2/p1-rounds.sh)",
+ "round_2": {
+  "check": "round 1's check: sound, no blocking problem, seven minor ones (M1 to M7); all seven fixed, no variant rebuilt, no size changed",
+  "M1": "reproducibility: see reproducibility",
+  "M2": "emcc at -Oz adds -lc_optz before -lc; both are linked, libc_optz's symbols override libc's (variants.V1.binaryen_in_emcc)",
+  "M3": "data figures now as the file holds them, attributed by address (breakdown_V0.data_in_file_by_origin, step_2_estimate); STEP's Unicode tables are 203,762 bytes in the file (651,296 in the map), and the fixed OCCT tables (VBMatrix 839,994 and those) about 1.04 MB, not 1.5 MB",
+  "M4": "harness.mjs renames doc to handle (commit 79dfbac); answers and both Node sets rerun with it",
+  "M5": "see notes_for_next_builder",
+  "M6": "ui/test-results deleted; P-1 set 2 with every dist file's SHA-256 recorded; the 90 cargo units this spike created deleted (620,437,504 bytes freed); pnpm install --frozen-lockfile removed pyodide 314.0.7 from the worktree's ui/node_modules, so whoever checks out spike/pyodide again must reinstall its packages",
+  "M7": "V2's speed cost is now given as its range over the four workloads, from sets 3 and 4"
+ },
+ "notes_for_next_builder": [
+  "cargo writes the Emscripten binary to wasm32-unknown-emscripten/wasm-release/deps/partsmith_core.wasm and .js with no hash in the file name, so opt-level s and z builds (different partsmith-wasm units) write the same two files, and a build cargo finds fresh copies out whatever the last link wrote. Every variant of this record was relinked (each emcc log holds its own link). Whoever switches opt-level or OCCT prefix in one target directory should force a relink (for example touch crates/partsmith-wasm/src/main.rs) and confirm a link ran (emcc's log or the binary's modification time).",
+  "round 2 deleted the cargo units this spike created in /home/user/partsmith-spike-target: 54 opt-level z units of wasm32-unknown-emscripten/wasm-release (created 00:34:02) and 36 host test units of debug (created 01:20:51), found as the fingerprint directories created after 00:20, with their deps and build outputs; the next opt-level z build there links afresh. The opt-level s units predate the spike and are kept; their output file is now the check's V0 rebuild (3b5e72ab..., same size and answers as the kept V0)."
+ ]
+}

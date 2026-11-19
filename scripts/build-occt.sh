@@ -105,12 +105,12 @@ case "$target" in
     # Native wasm exception handling, matching the Rust wasm32-unknown-emscripten target.
     # OCC_CONVERT_SIGNALS puts setjmp inside try blocks, which Emscripten compiles to invalid
     # wasm with -fwasm-exceptions; the shim never installs signal handlers, so it is not needed.
-    # Release builds optimize for size to stay under the 25 MiB per-file hosting limit.
+    # Release builds optimize for size (-Oz, ADR 0076) to stay under the 25 MiB per-file limit.
     emcmake cmake "${cmake_args[@]}" \
       -DCMAKE_CXX_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS" \
       -DCMAKE_C_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS" \
-      -DCMAKE_CXX_FLAGS_RELEASE="-Os -DNDEBUG" \
-      -DCMAKE_C_FLAGS_RELEASE="-Os -DNDEBUG"
+      -DCMAKE_CXX_FLAGS_RELEASE="-Oz -DNDEBUG" \
+      -DCMAKE_C_FLAGS_RELEASE="-Oz -DNDEBUG"
     ;;
   *)
     echo "unknown target: $target" >&2

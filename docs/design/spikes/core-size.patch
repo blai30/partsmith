@@ -1,0 +1,557 @@
+diff --git a/spike/core-size/harness.mjs b/spike/core-size/harness.mjs
+new file mode 100644
+index 0000000..9e511ff
+--- /dev/null
++++ b/spike/core-size/harness.mjs
+@@ -0,0 +1,551 @@
++// The core size spike's harness (docs/spec/delivery.md section 3.5, step 1 of its plan). It loads one build of the
++// web core module from a directory, as ui/src/core/bridge.ts and crates/partsmith-wasm/tests/node/core.mjs do, and
++// times it or records what it answers.
++//
++// Usage:
++//   node harness.mjs time <rounds> <output.json> <variant directory>...
++//     One untimed round, then <rounds> timed rounds. A round runs one new Node process per variant, in the order
++//     given, so the variants alternate. Writes every sample with the medians and ranges, and prints the medians.
++//   node harness.mjs sample <variant directory>
++//     Takes one sample of each workload in this process and prints it as JSON.
++//   node harness.mjs answers <variant directory> <output directory>
++//     Sends the same requests for every example (the benchmark among them) and writes each response frame to
++//     frames.bin, after its length as a little-endian u32, and what each frame answers, with its SHA-256, to
++//     answers.json.
++//   node harness.mjs compare <output directory> <output directory>
++//     Compares the frames that two answers runs wrote, frame by frame, and prints how each differing frame differs.
++//
++// Each variant directory holds partsmith_core.mjs and partsmith_core.wasm.
++
++import assert from 'node:assert/strict'
++import { spawnSync } from 'node:child_process'
++import { createHash } from 'node:crypto'
++import {
++  appendFileSync,
++  mkdirSync,
++  readFileSync,
++  readdirSync,
++  rmSync,
++  writeFileSync,
++} from 'node:fs'
++import { basename, join } from 'node:path'
++import { fileURLToPath, pathToFileURL } from 'node:url'
++
++import { callCore } from '../../crates/partsmith-wasm/tests/node/core.mjs'
++
++/** The repository root, two folders above this file. */
++const ROOT = fileURLToPath(new URL('../../', import.meta.url))
++
++/** The 50-feature benchmark part of technical design section 14. */
++const REFERENCE_PART = join(ROOT, 'examples/bench/fifty-features/model.ptsm')
++
++/** The parameter of the reference part that drives its last five features. */
++const LAST_FIVE_PARAMETER = 'lid_width'
++
++/** The lid width that the feature preview sets, a value the document does not hold. */
++const PREVIEW_LID_WIDTH = '24.5 mm'
++
++/** The workloads of one sample, in the order a sample runs them. */
++const WORKLOADS = ['instantiate', 'cold open', 'full rebuild', 'feature preview']
++
++/** The protocol version of every frame. */
++const PROTOCOL_VERSION = 1
++
++/** The bytes of the frame magic. */
++const MAGIC = new TextEncoder().encode('PSM1')
++
++/** The bytes before a frame's header: the magic and the header's length. */
++const PREAMBLE_LENGTH = 8
++
++/** The zero bytes that align `length` bytes to 8. */
++function paddingAfter(length) {
++  return (8 - (length % 8)) % 8
++}
++
++/** Encodes a frame holding one request with `id` and `command`, and the u8 `buffers` it names by index. */
++function requestFrame(id, command, buffers = []) {
++  const infos = []
++  let end = 0
++  for (const buffer of buffers) {
++    const offset = end + paddingAfter(end)
++    infos.push({ offset, length: buffer.length, element_type: 'u8' })
++    end = offset + buffer.length
++  }
++  const header = new TextEncoder().encode(
++    JSON.stringify({
++      protocol_version: PROTOCOL_VERSION,
++      messages: [{ kind: 'request', id, command }],
++      buffers: infos,
++    }),
++  )
++  const bufferStart = PREAMBLE_LENGTH + header.length + paddingAfter(header.length)
++  const frame = new Uint8Array(bufferStart + end)
++  frame.set(MAGIC, 0)
++  new DataView(frame.buffer).setUint32(4, header.length, true)
++  frame.set(header, PREAMBLE_LENGTH)
++  buffers.forEach((buffer, index) => {
++    frame.set(buffer, bufferStart + infos[index].offset)
++  })
++  return frame
++}
++
++/** The JSON header of a response frame and the byte offset where its buffers start. */
++function decodeFrame(frame) {
++  assert.equal(new TextDecoder().decode(frame.subarray(0, 4)), 'PSM1', 'the response magic')
++  const headerLength = new DataView(frame.buffer, frame.byteOffset).getUint32(4, true)
++  const header = JSON.parse(
++    new TextDecoder('utf-8', { fatal: true }).decode(
++      frame.subarray(PREAMBLE_LENGTH, PREAMBLE_LENGTH + headerLength),
++    ),
++  )
++  return { header, bufferStart: PREAMBLE_LENGTH + headerLength + paddingAfter(headerLength) }
++}
++
++/** The result of the response that ends `frame`; fails unless it succeeded. */
++function okResult(frame, label) {
++  const { header } = decodeFrame(frame)
++  const response = header.messages.at(-1)
++  assert.equal(response?.kind, 'response', `${label} ends with its response`)
++  assert.equal(response.result.kind, 'ok', `${label} succeeded: ${JSON.stringify(response.result)}`)
++  return { header, result: response.result }
++}
++
++/** The SHA-256 of `bytes` in hexadecimal. */
++function sha256(bytes) {
++  return createHash('sha256').update(bytes).digest('hex')
++}
++
++/** The median of `values`: the middle one, or the mean of the two middle ones. */
++function median(values) {
++  const sorted = values.toSorted((first, second) => first - second)
++  const middle = Math.floor(sorted.length / 2)
++  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
++}
++
++/** A web core module instance of the variant in `directory`, made from `wasm`, and how long making it took. */
++async function instantiate(directory, wasm) {
++  const { default: createPartsmithCore } = await import(
++    pathToFileURL(join(directory, 'partsmith_core.mjs')).href
++  )
++  const start = performance.now()
++  // As the tests do: Node's fetch cannot read file URLs, so the factory gets the bytes. main creates the session.
++  const core = await createPartsmithCore({ wasmBinary: wasm })
++  return { core, milliseconds: performance.now() - start }
++}
++
++/** Sends `frame` through `core` as bridge.ts does and returns the response frame with the time the call took. */
++function timedCall(core, frame) {
++  const start = performance.now()
++  const response = callCore(core, frame)
++  return { response, milliseconds: performance.now() - start }
++}
++
++/** How many features of the only `recomputed` event among `messages` have each status. */
++function statusCounts(messages) {
++  const recomputed = messages.filter(
++    (message) => message.kind === 'event' && message.type === 'recomputed',
++  )
++  assert.equal(recomputed.length, 1, 'the open sends exactly one recomputed event')
++  const counts = {}
++  for (const feature of recomputed[0].features) {
++    counts[feature.status] = (counts[feature.status] ?? 0) + 1
++  }
++  return counts
++}
++
++/** Opens the reference part in `core` as request `id`, checks that every feature built, and times the call. */
++function openReferencePart(core, id, text, label) {
++  const { response, milliseconds } = timedCall(
++    core,
++    requestFrame(id, { type: 'open_document', text, assets: [] }),
++  )
++  const { header, result } = okResult(response, label)
++  const statuses = statusCounts(header.messages)
++  assert.equal(statuses.error ?? 0, 0, `${label}: no feature failed`)
++  assert.equal(statuses.not_run ?? 0, 0, `${label}: every feature ran`)
++  return {
++    handle: result.doc,
++    milliseconds,
++    statuses,
++    sha256: sha256(response),
++    bytes: response.length,
++  }
++}
++
++/**
++ * One sample of each workload in this process: (a) the module's compilation and instantiation; (b) the cold open of
++ * the reference part, the first request of that instance; (c) the full rebuild, the same open in a second instance
++ * made in this process after (b), whose session holds no cached result while V8 reuses the module's compiled code;
++ * (d) technical design section 14's feature preview after a value change, in the second instance: apply_edits inside
++ * a transaction giving the parameter that drives the reference part's last five features a new value.
++ */
++async function sample(directory) {
++  const wasm = readFileSync(join(directory, 'partsmith_core.wasm'))
++  const text = readFileSync(REFERENCE_PART, 'utf8')
++  const first = await instantiate(directory, wasm)
++  const coldOpen = openReferencePart(first.core, 1, text, 'cold open')
++  const second = await instantiate(directory, wasm)
++  const fullRebuild = openReferencePart(second.core, 1, text, 'full rebuild')
++  okResult(
++    callCore(
++      second.core,
++      requestFrame(2, { type: 'begin_transaction', doc: fullRebuild.handle, label: 'Lid' }),
++    ),
++    'begin_transaction',
++  )
++  const recipe = JSON.parse(text)
++  const parameter = recipe.parameters.find((candidate) => candidate.name === LAST_FIVE_PARAMETER)
++  const preview = timedCall(
++    second.core,
++    requestFrame(3, {
++      type: 'apply_edits',
++      doc: fullRebuild.handle,
++      edits: [{ type: 'update_parameter', parameter: { ...parameter, expr: PREVIEW_LID_WIDTH } }],
++    }),
++  )
++  okResult(preview.response, 'feature preview')
++  return {
++    workloads: {
++      instantiate: first.milliseconds,
++      'cold open': coldOpen.milliseconds,
++      'full rebuild': fullRebuild.milliseconds,
++      'feature preview': preview.milliseconds,
++    },
++    second_instantiate: second.milliseconds,
++    statuses: coldOpen.statuses,
++    responses: {
++      'cold open': { sha256: coldOpen.sha256, bytes: coldOpen.bytes },
++      'full rebuild': { sha256: fullRebuild.sha256, bytes: fullRebuild.bytes },
++      'feature preview': { sha256: sha256(preview.response), bytes: preview.response.length },
++    },
++  }
++}
++
++/** Runs one sample of the variant in `directory` in a new Node process and returns what it printed. */
++function sampleInNewProcess(directory) {
++  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), 'sample', directory], {
++    encoding: 'utf8',
++    maxBuffer: 16 * 1024 * 1024,
++  })
++  assert.equal(run.status, 0, `the sample of ${directory} failed:\n${run.stderr}`)
++  return JSON.parse(run.stdout)
++}
++
++/** The 1-, 5- and 15-minute load averages and the run queue, as /proc/loadavg reads. */
++function loadAverage() {
++  return readFileSync('/proc/loadavg', 'utf8').trim()
++}
++
++/** Times every variant in `directories`: one untimed round, then `rounds` rounds, the variants alternating. */
++function time(rounds, outputPath, directories) {
++  const variants = directories.map((directory) => ({
++    name: basename(directory),
++    directory,
++    untimed: null,
++    samples: [],
++  }))
++  const roundLoads = []
++  for (let round = 0; round <= rounds; round++) {
++    roundLoads.push({ round, before: loadAverage(), started: new Date().toISOString() })
++    for (const variant of variants) {
++      const taken = sampleInNewProcess(variant.directory)
++      if (round === 0) {
++        variant.untimed = taken
++      } else {
++        variant.samples.push({ round, ...taken })
++      }
++    }
++  }
++  const summary = variants.map((variant) => ({
++    name: variant.name,
++    workloads: Object.fromEntries(
++      WORKLOADS.map((workload) => {
++        const values = variant.samples.map((taken) => taken.workloads[workload])
++        return [
++          workload,
++          { median: median(values), minimum: Math.min(...values), maximum: Math.max(...values) },
++        ]
++      }),
++    ),
++  }))
++  writeFileSync(
++    outputPath,
++    `${JSON.stringify({ rounds, node: process.version, roundLoads, variants, summary }, null, 1)}\n`,
++  )
++  for (const variant of summary) {
++    const cells = WORKLOADS.map((workload) => {
++      const { median: middle, minimum, maximum } = variant.workloads[workload]
++      return `${workload} ${middle.toFixed(1)} (${minimum.toFixed(1)} to ${maximum.toFixed(1)})`
++    })
++    console.log(`${variant.name}: ${cells.join(', ')} ms`)
++  }
++}
++
++/** The `.ptsm` files under the examples folder, outside `assets/` folders, as paths from the root in path order. */
++function examplePaths() {
++  const paths = []
++  const pending = ['examples']
++  while (pending.length > 0) {
++    const folder = pending.pop()
++    for (const entry of readdirSync(join(ROOT, folder), { withFileTypes: true })) {
++      const path = `${folder}/${entry.name}`
++      if (entry.isDirectory() && entry.name !== 'assets') {
++        pending.push(path)
++      } else if (entry.isFile() && entry.name.endsWith('.ptsm')) {
++        paths.push(path)
++      }
++    }
++  }
++  return paths.toSorted()
++}
++
++/** The files of the `assets/` folder beside the document at `path`, by name in name order, with their bytes. */
++function assetsOf(path) {
++  const folder = join(ROOT, path, '..', 'assets')
++  let names
++  try {
++    names = readdirSync(folder, { withFileTypes: true })
++      .filter((entry) => entry.isFile())
++      .map((entry) => entry.name)
++  } catch {
++    return []
++  }
++  return names.toSorted().map((name) => ({ name, bytes: readFileSync(join(folder, name)) }))
++}
++
++/**
++ * Sends, for every example, `open_document` with its assets, then `measure` and `list_elements` of each body,
++ * `analyze_print`, a binary STL `export` and `close_document`, and records every response frame.
++ */
++async function answers(directory, outputDirectory) {
++  mkdirSync(outputDirectory, { recursive: true })
++  const framesPath = join(outputDirectory, 'frames.bin')
++  rmSync(framesPath, { force: true })
++  const { core } = await instantiate(
++    directory,
++    readFileSync(join(directory, 'partsmith_core.wasm')),
++  )
++  const records = []
++  let id = 0
++  const send = (document, command, buffers = []) => {
++    id += 1
++    const response = callCore(core, requestFrame(id, command, buffers))
++    const record = new Uint8Array(4 + response.length)
++    new DataView(record.buffer).setUint32(0, response.length, true)
++    record.set(response, 4)
++    appendFileSync(framesPath, record)
++    records.push({
++      document,
++      command: command.type,
++      id,
++      bytes: response.length,
++      sha256: sha256(response),
++    })
++    return decodeFrame(response).header
++  }
++  for (const document of examplePaths()) {
++    const text = readFileSync(join(ROOT, document), 'utf8')
++    const assets = assetsOf(document)
++    const opened = send(
++      document,
++      {
++        type: 'open_document',
++        text,
++        assets: assets.map(({ name }, index) => ({ name, data: index })),
++      },
++      assets.map(({ bytes }) => bytes),
++    )
++    const response = opened.messages.at(-1)
++    if (response.result.kind !== 'ok') {
++      continue
++    }
++    const handle = response.result.doc
++    const changed = opened.messages.find((message) => message.type === 'document_changed')
++    const bodies = (changed?.document.bodies ?? []).map((body) => body.id)
++    for (const body of bodies) {
++      send(document, { type: 'measure', doc: handle, targets: [{ kind: 'body', body }] })
++      send(document, { type: 'list_elements', doc: handle, body })
++    }
++    send(document, { type: 'analyze_print', doc: handle, orientation: { kind: 'as_modeled' } })
++    send(document, {
++      type: 'export',
++      doc: handle,
++      format: { kind: 'stl', binary: true, per_body: false },
++    })
++    send(document, { type: 'close_document', doc: handle })
++  }
++  writeFileSync(join(outputDirectory, 'answers.json'), `${JSON.stringify(records, null, 1)}\n`)
++  const documents = new Set(records.map((record) => record.document)).size
++  console.log(
++    JSON.stringify({
++      documents,
++      frames: records.length,
++      bytes: records.reduce((sum, record) => sum + record.bytes, 0),
++      sha256: sha256(readFileSync(framesPath)),
++    }),
++  )
++}
++
++/** The frames of a frames file, each after its length as a little-endian u32, in order. */
++function readFrames(path) {
++  const bytes = readFileSync(path)
++  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
++  const frames = []
++  let offset = 0
++  while (offset < bytes.length) {
++    const end = offset + 4 + view.getUint32(offset, true)
++    frames.push(bytes.subarray(offset + 4, end))
++    offset = end
++  }
++  return frames
++}
++
++/** Adds to `difference` every place where the JSON values `first` and `second` differ, under `pointer`. */
++function compareValues(pointer, first, second, difference) {
++  if (typeof first === 'number' && typeof second === 'number') {
++    if (first !== second) {
++      const absolute = Math.abs(first - second)
++      const relative = absolute / Math.max(Math.abs(first), Math.abs(second))
++      difference.numbers += 1
++      difference.largestAbsolute = Math.max(difference.largestAbsolute, absolute)
++      difference.largestRelative = Math.max(difference.largestRelative, relative)
++      if (difference.examples.length < 5) {
++        difference.examples.push({ pointer, first, second })
++      }
++    }
++  } else if (Array.isArray(first) && Array.isArray(second) && first.length === second.length) {
++    first.forEach((value, index) => {
++      compareValues(`${pointer}/${index}`, value, second[index], difference)
++    })
++  } else if (
++    first !== null &&
++    second !== null &&
++    typeof first === 'object' &&
++    typeof second === 'object' &&
++    !Array.isArray(first) &&
++    !Array.isArray(second) &&
++    JSON.stringify(Object.keys(first)) === JSON.stringify(Object.keys(second))
++  ) {
++    for (const key of Object.keys(first)) {
++      compareValues(`${pointer}/${key}`, first[key], second[key], difference)
++    }
++  } else if (JSON.stringify(first) !== JSON.stringify(second)) {
++    difference.other += 1
++    if (difference.examples.length < 5) {
++      difference.examples.push({ pointer, first, second })
++    }
++  }
++}
++
++/** Compares the buffers of two frames whose headers list the same buffers, element by element. */
++function compareBuffers(first, second, difference) {
++  const firstFrame = decodeFrame(first)
++  const secondFrame = decodeFrame(second)
++  firstFrame.header.buffers.forEach((info, index) => {
++    const other = secondFrame.header.buffers[index]
++    const firstBytes = first.subarray(
++      firstFrame.bufferStart + info.offset,
++      firstFrame.bufferStart + info.offset + info.length,
++    )
++    const secondBytes = second.subarray(
++      secondFrame.bufferStart + other.offset,
++      secondFrame.bufferStart + other.offset + other.length,
++    )
++    if (Buffer.compare(firstBytes, secondBytes) === 0) {
++      return
++    }
++    difference.buffers += 1
++    if (info.element_type === 'f32' && info.length === other.length) {
++      const firstValues = new Float32Array(Uint8Array.from(firstBytes).buffer)
++      const secondValues = new Float32Array(Uint8Array.from(secondBytes).buffer)
++      firstValues.forEach((value, i) => {
++        if (value !== secondValues[i]) {
++          difference.bufferElements += 1
++          difference.largestBufferAbsolute = Math.max(
++            difference.largestBufferAbsolute,
++            Math.abs(value - secondValues[i]),
++          )
++        }
++      })
++    } else {
++      difference.bufferElements += Math.max(info.length, other.length)
++    }
++  })
++}
++
++/** Compares the answers that two runs wrote to `firstDirectory` and `secondDirectory`. */
++function compare(firstDirectory, secondDirectory) {
++  const records = JSON.parse(readFileSync(join(firstDirectory, 'answers.json'), 'utf8'))
++  const firstFrames = readFrames(join(firstDirectory, 'frames.bin'))
++  const secondFrames = readFrames(join(secondDirectory, 'frames.bin'))
++  assert.equal(firstFrames.length, secondFrames.length, 'both runs wrote as many frames')
++  const differing = []
++  firstFrames.forEach((first, index) => {
++    const second = secondFrames[index]
++    if (Buffer.compare(first, second) === 0) {
++      return
++    }
++    const difference = {
++      ...records[index],
++      firstBytes: first.length,
++      secondBytes: second.length,
++      numbers: 0,
++      other: 0,
++      largestAbsolute: 0,
++      largestRelative: 0,
++      buffers: 0,
++      bufferElements: 0,
++      largestBufferAbsolute: 0,
++      examples: [],
++    }
++    const firstHeader = decodeFrame(first).header
++    const secondHeader = decodeFrame(second).header
++    compareValues('', firstHeader.messages, secondHeader.messages, difference)
++    if (firstHeader.buffers.length === secondHeader.buffers.length) {
++      compareBuffers(first, second, difference)
++    } else {
++      difference.other += 1
++    }
++    differing.push(difference)
++  })
++  console.log(
++    JSON.stringify(
++      { frames: firstFrames.length, identical: firstFrames.length - differing.length, differing },
++      null,
++      1,
++    ),
++  )
++}
++
++const [mode, ...rest] = process.argv.slice(2)
++switch (mode) {
++  case 'time':
++    assert.ok(
++      rest.length >= 3,
++      'usage: node harness.mjs time <rounds> <output.json> <variant directory>...',
++    )
++    time(Number(rest[0]), rest[1], rest.slice(2))
++    break
++  case 'sample':
++    assert.equal(rest.length, 1, 'usage: node harness.mjs sample <variant directory>')
++    console.log(JSON.stringify(await sample(rest[0])))
++    break
++  case 'answers':
++    assert.equal(
++      rest.length,
++      2,
++      'usage: node harness.mjs answers <variant directory> <output directory>',
++    )
++    await answers(rest[0], rest[1])
++    break
++  case 'compare':
++    assert.equal(
++      rest.length,
++      2,
++      'usage: node harness.mjs compare <output directory> <output directory>',
++    )
++    compare(rest[0], rest[1])
++    break
++  default:
++    throw new Error('usage: node harness.mjs time|sample|answers|compare ...')
++}
