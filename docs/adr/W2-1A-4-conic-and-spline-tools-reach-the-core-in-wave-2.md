@@ -17,7 +17,7 @@ Status: Accepted (owner's rule of 2026-11-05): the M2 plan's open choices "How i
 
 ## Alternatives considered
 
-Each choice is Accepted (owner's rule of 2026-11-05): the most open-source approach, then the safest, then the industry standard, then this work's recommendation. Every option is in-house code under Apache-2.0, so the first criterion ties.
+Each choice is Accepted (owner's rule of 2026-11-05): the most open-source approach, then the safest, then the industry standard, then this work's recommendation. Every option is in-house code under Apache-2.0: the first criterion ties.
 
 1. *How the tools reach the core.* (i) Item 14 lands `apply_recipe`, command 39 and `sketch_operation_failed` with its own variants, and item 24 adds M1's in wave 3; (ii) the conic and spline tools wait for wave 3; (iii) the UI builds the records in TypeScript, as `recipes.ts` does. The rule takes (i), the safest. (iii) goes against choice 4 and would need a second B-spline and conic implementation in TypeScript, which ADR 0066 decision 8 rules out. (ii) moves gate 2's conic and spline E-tests out of wave 2. (i) keeps one implementation for the UI and Python.
 2. *Previews.* (i) `sketch_recipe` and then `solve_sketch` on a candidate through `LatestOnly` on each pointer move; (ii) a preview option on command 39 that returns polylines with the change; (iii) the scaffold only, with the curve drawn after the click; (iv) UI evaluation of conics and splines for previews only, amending D15. The rule takes (i), the safest: no protocol change and no change to D15. (ii) adds a protocol member for display data. (iv) puts a second evaluator in the UI. (iii) is what (i) shows while an answer is on its way. The frame cost of (i) is measured as a sketch.md section 5.1 row.
