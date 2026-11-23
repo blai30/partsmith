@@ -1,6 +1,6 @@
 # Feature: revolve
 
-Status: M1 spec. Type name `revolve`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.3. Kernel operation: [kernel.md](../kernel.md) section 3.4.4.
+Status: M1 spec, with M2 item 17's two sides and symmetric angles (since M2, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md) and [ADR W2-1C-5](../../adr/W2-1C-5-names-of-the-new-faces-and-the-order-of-the-through-all-checks.md)) and item 14's profile curves. Type name `revolve`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.3. Kernel operation: [kernel.md](../kernel.md) section 3.4.4.
 
 ## 1. Purpose and scope
 
@@ -14,13 +14,17 @@ Revolve sweeps closed regions of one sketch around an axis that lies in the sket
 - `reverse` to revolve in the negative sense.
 - Ops `new`, `join`, `cut`, `intersect`.
 
+### In M2
+
+- Extents `two_sides` (an angle each way, `expr` in the revolve's sense and `opposite_expr` against it) and `symmetric` (half of `expr` each way), the M2 plan's item 17 ([ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md)). A total of a full turn is `full`.
+- Profiles with item 14's curves (ellipses, elliptical arcs, parabolas, hyperbolas, conics and splines), checked against the axis by their exact extremes (section 3.3 step 3).
+
 ### Later
 
-- Two-sided and symmetric angles.
-- Revolve to a face.
-- Axes that do not lie in the sketch plane.
-- Thin-wall revolve.
-- Revolving body faces instead of sketch regions.
+- Revolve to a face: spike 8.10 measures its construction (kernel.md section 8.10), and track 4A specifies it in M2 from the recorded results, or a cut ADR moves it to M3 (m2-plan.md section 6 item 11).
+- Axes that do not lie in the sketch plane: M3.
+- Thin-wall revolve: M3.
+- Revolving body faces instead of sketch regions: M3.
 
 ## 2. Public API
 
@@ -50,12 +54,17 @@ pub struct RevolveParams {
 }
 
 /// How far a revolve turns.
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RevolveExtent {
     /// Turn by `expr`. Angle, greater than 0 and at most 360 deg.
     Angle { expr: Expr },
     /// A full turn.
     Full,
+    /// `expr` in the revolve's sense and `opposite_expr` against it. Angles, at least 0, not both 0, together at most
+    /// 360 deg. Since M2.
+    TwoSides { expr: Expr, opposite_expr: Expr },
+    /// Total angle `expr`, half on each side of the profile. Angle, greater than 0 and at most 360 deg. Since M2.
+    Symmetric { expr: Expr },
 }
 ```
 
@@ -67,7 +76,7 @@ JSON:
  "axis": {"kind": "origin", "axis": "Z"}, "extent": {"kind": "angle", "expr": "90 deg"}, "op": "new"}
 ```
 
-Full turn: `"extent": {"kind": "full"}`.
+Full turn: `"extent": {"kind": "full"}`. Since M2: `{"kind": "two_sides", "expr": "90 deg", "opposite_expr": "45 deg"}` and `{"kind": "symmetric", "expr": "90 deg"}`.
 
 ### Manifest
 
@@ -79,8 +88,9 @@ Description (since M2, [ADR 0065](../../adr/0065-feature-help-start-values-and-n
 | --- | --- | --- | --- | --- | --- |
 | `profile` | Profile | yes | | `sketch_region` | |
 | `axis` | Axis | yes | | `axis` | |
-| `extent.kind` | Extent | yes | | | `angle` Angle, `full` Full |
+| `extent.kind` | Extent | yes | | | `angle` Angle, `full` Full, `two_sides` Two sides, `symmetric` Symmetric |
 | `extent.expr` | Angle | yes | angle | | |
+| `extent.opposite_expr` | Opposite angle | yes | angle | | |
 | `op` | Operation | yes | | | `new` New body, `join` Join, `cut` Cut, `intersect` Intersect |
 | `reverse` | Reverse | yes | | | |
 | `body` | Body | no | | `body` | |
@@ -90,23 +100,24 @@ Help, start values and new bodies (since M2, features.md section 2.3). A field t
 | Path | Help | Start value | New body |
 | --- | --- | --- | --- |
 | `axis` | The line to spin around: an origin axis, a sketch line or a straight edge. | | |
-| `extent.kind` | Full makes a complete turn. Angle stops part way. | `choice` `full` | |
+| `extent.kind` | Full makes a complete turn. Angle stops part way, Two sides sets an angle each way, and Symmetric turns the same angle both ways. | `choice` `full` | |
 | `op` | New body makes a separate part. Join adds to the body, Cut removes from it, and Intersect keeps only the overlap. | | |
 | `reverse` | Turns the other way around the axis. | | |
 | `body` | The body that Join, Cut and Intersect change. | | |
 
-Since M2 the manifest marks `reverse` essential. The inspector places it beside the extent field it belongs to (ui.md section 2.12).
+Since M2 the manifest marks `reverse` essential. The inspector places it beside the extent field it belongs to (ui.md section 2.12). The `two_sides` and `symmetric` options and the `extent.opposite_expr` row are since M2 item 17. A full turn and `symmetric` ignore `reverse`, and the inspector hides it for them (track 2C).
 
 ### Python
 
-Dedicated form: `revolve(profile, axis, angle=None, regions=..., reverse=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
+Dedicated form: `revolve(profile, axis, angle=None, regions=..., reverse=..., op=...)` (python-api.md section 2.7), and since M2 the keywords `symmetric=` and `opposite_angle=` after `regions`, in that order, named after the GUI's option and field ([ADR 0048](../../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md) decision 1, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md) decision 7). The hook produces it with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
 
 - `profile`: as for extrude (the sketch's variable, plus `regions=` when needed).
 - `axis`: `PythonValue::axis` (`Axis.Z`, a sketch line's variable, or `Ref(..., part=...)`).
 - `angle`: `extent.expr` for an `angle` extent; omitted for `full`.
+- Since M2: `two_sides`: `angle` is `extent.expr`, plus `opposite_angle=` with `extent.opposite_expr`. `symmetric`: `angle` is `extent.expr`, plus `symmetric=True`.
 - `reverse=True` when `reverse` is true; `op` when it differs from the default op of `body`.
 
-With `f-sk1` as `sketch_1` and op `new` as the default, the JSON above is `revolve(sketch_1, Axis.Z, 90*deg, id="f-rev1")`. Generic form:
+With `f-sk1` as `sketch_1` and op `new` as the default, the JSON above is `revolve(sketch_1, Axis.Z, 90*deg, id="f-rev1")`, and with the two-sided and symmetric extents above it is `revolve(sketch_1, Axis.Z, 90*deg, opposite_angle=45*deg, id="f-rev1")` and `revolve(sketch_1, Axis.Z, 90*deg, symmetric=True, id="f-rev1")`. Generic form:
 
 ```python
 feature(
@@ -130,16 +141,21 @@ feature(
 
 - `features`: `[profile.sketch]`, plus `axis.sketch` for a `sketch_line` axis in another sketch (no duplicates).
 - `bodies_written`: `[body]`. `bodies_read`: the axis body for an `edge` or `face` axis, unless it is `body`.
-- `expressions`: `angle`: `("extent.expr", expr, Angle)`; `full`: none.
+- `expressions`: `angle` and `symmetric`: `("extent.expr", expr, Angle)`; `two_sides`: `("extent.expr", expr, Angle)`, `("extent.opposite_expr", opposite_expr, Angle)`; `full`: none.
 
 ### 3.3 Build
 
 1. Resolve the profile (`ctx.profile("profile", ...)`) and the axis (`ctx.axis("axis", ...)`, features.md section 3.6). Their warnings and notices go into the output, and the profile match's successions go to naming in step 6. An `edge` or `face` axis keeps the side the user picked: it is oriented by its stored `direction` moved with the part, or else by its fingerprint, never by the sign of its components, so a small edit that tilts the edge never reverses the revolve (corpus R38); every resolved edge must lie on one line, else `NotCollinear`.
 2. The axis must lie in the sketch plane: abs(normal · direction) ≤ 1e-9 and the distance from the axis origin to the plane ≤ 1e-6 mm, else `AxisNotInPlane`.
-3. The union of the resolved regions must lie in one closed half-plane of the sketch plane bounded by the axis line: its boundary points' signed distances to the axis (measured along normal × direction) are all ≥ -1e-6 mm or all ≤ 1e-6 mm, else `ProfileCrossesAxis`.
-4. Angle θ: for `angle`, θ = `extent.expr` in radians; θ > 1e-9 (the angular tolerance, within which the kernel sweeps nothing, kernel.md section 3.4.4) else `OutOfRange`: `GreaterThan(0)` when θ ≤ 0, else `GreaterThan(1e-9)`, the bound the check applies, as for lengths (features.md section 3.4); θ ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`, rendered `360 deg`). If abs(θ - 2π) ≤ 1e-9 the revolve is treated as `full`.
-5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. A full revolve ignores `reverse`.
-6. Kernel `revolve(profile, axis, ±θ)` (2π for full), name (section 3.4) with the profile sketch's motion as the new faces' motion (`SketchResult::motion`, features.md section 3.9), and `apply_op(ctx, body, op, vec![tool], None)`: a revolve has no straight direction, so a cut that changes nothing is `Beside` (features.md section 3.15). For a partial revolve, `reverse_hits` revolves the profile by the opposite angle and checks that it reaches the body, so Turn on Reverse is offered only when it works; a full revolve has no Reverse to offer.
+3. The union of the resolved regions must lie in one closed half-plane of the sketch plane bounded by the axis line: its boundary points' signed distances to the axis (measured along normal × direction) are all ≥ -1e-6 mm or all ≤ 1e-6 mm, else `ProfileCrossesAxis`. Since M2 the test takes each boundary piece's smallest and largest signed distance over the whole piece, never over its control points: for a line its ends; for an arc, an ellipse, an elliptical arc, a parabola or a hyperbola its ends and the points where its tangent is parallel to the axis, in closed form; for a conic or a spline (sketch.md section 3.20, carried as a B-spline) its ends and the zeros of the derivative of the signed distance in each span, found to within 1e-9 mm. So a spline whose control polygon crosses the axis while the curve stays on one side is accepted, and one that crosses it is refused.
+4. Angles [α0, α1], measured in the revolve's sense from the profile's plane:
+   - `angle`: θ = `extent.expr` in radians; θ > 1e-9 (the angular tolerance, within which the kernel sweeps nothing, kernel.md section 3.4.4) else `OutOfRange`: `GreaterThan(0)` when θ ≤ 0, else `GreaterThan(1e-9)`, the bound the check applies, as for lengths (features.md section 3.4); θ ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`, rendered `360 deg`). Angles [0, θ].
+   - `symmetric` (since M2): θ checked as for `angle`; angles [-θ/2, θ/2].
+   - `two_sides` (since M2): a = `extent.expr` and b = `extent.opposite_expr`, each ≥ 0 else `OutOfRange` (`AtLeast(0)`) on its field; a ≤ 2π + 1e-9 else `OutOfRange` (`AtMost(2π)`) on `extent.expr`; b ≤ 2π - a + 1e-9 else `OutOfRange` on `extent.opposite_expr` with `AtMost(2π - a)` and the bound name `what is left of a full turn`; a + b > 1e-9 else `BothAnglesZero`. Angles [-b, a].
+   - `full`: angles [0, 2π].
+   A total α1 - α0 within 1e-9 of 2π is a full turn: the revolve is treated as `full`.
+5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. The kernel then gets the axis with its direction negated, so [α0, α1] keep their meaning in the turned sense and the kernel's `StartCap` is the cap at α0. A full revolve and a `symmetric` one ignore `reverse`.
+6. Kernel `revolve(profile, axis, α0, α1)` (kernel.md section 2.6; since M2 the call takes a start and an end angle, track 1B's ADR W2-1B-2), name (section 3.4) with the profile sketch's motion as the new faces' motion (`SketchResult::motion`, features.md section 3.9), and `apply_op(ctx, body, op, vec![tool], None)`: a revolve has no straight direction, so a cut that changes nothing is `Beside` (features.md section 3.15). For a partial revolve, `reverse_hits` revolves the profile over [α0, α1] about the axis turned the other way and checks that it reaches the body, so Turn on Reverse is offered only when it works; a full revolve and a symmetric one have no Reverse to offer.
 7. **No caps at a full turn.** A full revolve (including an angle within 1e-9 of 360 deg) records `AbsentFace { name: <id>/start-cap, why: FullTurn }` and the same for `<id>/end-cap` in `FeatureOutput::absent` (features.md section 2.7), so a reference to a cap is explained as `is no longer made by 'Revolve 1', which turns all the way round` (corpus R57).
 
 Boundary pieces that lie on the axis generate no face (the solid closes on the axis). As for extrude, the union merges consecutive pieces of one entity that continue the same line or circle before `make_profile`, so a union of regions has the faces of the single region covering the same area.
@@ -149,8 +165,8 @@ Boundary pieces that lie on the axis generate no face (the solid closes on the a
 | Name | Face |
 | --- | --- |
 | `<id>/lateral/<entity id>` | Surface of revolution swept by the boundary piece that sketch entity `<entity id>` produced. |
-| `<id>/start-cap` | The profile face at angle 0. Partial revolves only. |
-| `<id>/end-cap` | The profile face at angle θ. Partial revolves only. |
+| `<id>/start-cap` | The profile turned to the start angle: 0 for `angle`, -θ/2 for `symmetric`, the opposite angle against the sense for `two_sides`. Partial revolves only. |
+| `<id>/end-cap` | The profile turned to the end angle: θ, θ/2, or `extent.expr` in the sense. Partial revolves only. |
 
 Successions of the profile match are passed to `NamingMap::build` as `added_successions` of the lateral faces, kept apart from merge aliases (naming.md section 3.6.2), as for extrude ([extrude.md](extrude.md) section 3.4), so references follow with a notice or a warning (tests 31 to 34).
 
@@ -161,6 +177,9 @@ Successions of the profile match are passed to `NamingMap::build` as `added_succ
 | No regions | `EmptySelection` | `Select at least one region for Profile.` |
 | Angle ≤ 0 | `OutOfRange` | `Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.` |
 | Angle > 360 deg | `OutOfRange` | `Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.` |
+| Two sides past a full turn (since M2) | `OutOfRange` | `Opposite angle must be at most what is left of a full turn (90 deg), but it is 100 deg. Use 90 deg or less.` |
+| A two-sides angle < 0 (since M2) | `OutOfRange` | `Opposite angle must be at least 0 deg, but it is -10 deg. Use 0 deg or more.` |
+| Both angles 0 (their sum within 1e-9 rad, since M2) | `BothAnglesZero` | `Both angles of the revolve add up to less than 0.000000058 deg. Give at least one side an angle.` |
 | Expression or dimension error | `Expression` | `Angle: Expected an angle, but this expression gives a length.` |
 | Axis outside the sketch plane | `AxisNotInPlane` | `The revolve axis does not lie in the sketch plane. Pick a line in the sketch, or an axis that lies in the sketch plane.` |
 | A region crosses the axis | `ProfileCrossesAxis` | `The profile crosses the revolve axis. Move the profile to one side of the axis, or pick another axis.` |
@@ -177,6 +196,7 @@ Successions of the profile match are passed to `NamingMap::build` as `added_succ
 
 - Op `new` of a 4-curve profile: 5 ms. 50-curve profile: 20 ms.
 - With a boolean against a 200-face body: 60 ms.
+- Since M2: two sides and symmetric take the rows of an angle (the same kernel revolve between two angles, track 1B's ADR W2-1B-2).
 
 ## 6. Acceptance tests
 
@@ -225,8 +245,35 @@ Bodies `[b-1]` unless stated.
 34. **A side line replaced by a notch (corpus R66 for revolve).** Test 33's document before its edit. Edit: delete `e-2` and add `e-9` (20,0)-(20,10), `e-10` (20,10)-(16,10), `e-11` (16,10)-(16,20), `e-12` (16,20)-(20,20) and `e-13` (20,20)-(20,30) (a groove 4 deep), each `{"id": ..., "type": "line", "start": ..., "end": ...}`. Expected: the profile matches by `Boundary` with the succession `e-2 -> [e-9, e-10, e-11, e-12, e-13]`; f-rev1 ok, volume 23750.440461; f-sh1 status warning (`reference_widened`: the cylinders and flat rings of the notch do not lie on one carrier) at `/remove_faces/0`, with the fixes `KeepMatch`, `UseReferences` with `f-rev1/lateral/e-9` alone (as a pick stores it just before f-sh1), then `Pick`; every notch face is removed until the user chooses, so b-1 volume is 7363.893180, as in test 33.
 35. **Join.** `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "15", "height": "10", "position": ["0", "0", "-5"], "op": "new"}` (a disc spanning z -5..5), `SK-RING`, `REV(AXIS-Z, {"kind": "full"}, "join")`, as `examples/revolve/join`. The ring overlaps the disc between radius 10 and 15 and z 0..5. Expected: ok; volume 33379.421944 (10625π), 7 faces, 1 solid, bbox [-20,-20,-5]-[20,20,30]; change `Join`. Faces: `f-cyl1/bottom` area 706.858347 (plane z=-5); `f-cyl1/side` area 471.238898 (cylinder radius 15, z -5..0); `f-cyl1/top` area 314.159265 (plane z=5, inside the ring); `f-rev1/lateral/e-1` area 549.778714 (plane z=0, radius 15 to 20); `f-rev1/lateral/e-2` area 3769.911184 (cylinder radius 20); `f-rev1/lateral/e-3` area 942.477796 (plane z=30); `f-rev1/lateral/e-4` area 1570.796327 (cylinder radius 10, z 5..30).
 36. **Axis from a round face.** Bodies `[b-1, b-2]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-2", "radius": "5", "height": "10", "op": "new"}` (its axis is the Z axis); `SK-RING`; `REV({"kind": "face", "body": "b-2", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5|adj=2,3"}, "direction": [0, 0, 1]}, {"kind": "angle", "expr": "90 deg"}, "new")` (as a pick stores it), as `examples/revolve/face-axis`. The face's axis lies in the sketch plane, and the stored direction (body coordinates; b-2 has not moved) orients the axis, +Z (features.md section 3.6). Expected: ok; b-1 identical to test 2 (volume 7068.583471, 6 faces, bbox [0,0,0]-[20,20,30], `f-rev1/end-cap` in plane x=0 with y between 10 and 20); b-2 unchanged; dependencies `bodies_read == ["b-2"]`.
-37. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `revolve` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("revolve")` has the description of the Manifest section. Each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential.
+37. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `revolve` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("revolve")` has the description of the Manifest section. Each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential. Since M2 item 17 the tables hold the `two_sides` and `symmetric` options and the `extent.opposite_expr` row, so the test checks them too.
+
+**Two sides and symmetric (M2 item 17, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md)).** Tests 38 to 51 are item 17's options, which m2-plan.md section 6 item 11 may cut; tests 52 to 57 check item 14's curves against the axis, which no cut moves.
+
+38. **Symmetric.** `SK-RING`, `REV(AXIS-Z, {"kind": "symmetric", "expr": "90 deg"}, "new")`, as `examples/revolve/symmetric`. Expected: ok; volume 7068.583471, 6 faces, bbox [7.071068,-14.142136,0]-[20,14.142136,30]; `f-rev1/start-cap` area 300 in the plane x + y = 0 with y < 0; `f-rev1/end-cap` area 300 in the plane x - y = 0 with y > 0.
+39. **Symmetric ignores reverse.** As 38 with `"reverse": true`. Expected: identical to 38, including which face is `start-cap`.
+40. **Two sides.** `SK-RING`, `REV(AXIS-Z, {"kind": "two_sides", "expr": "90 deg", "opposite_expr": "45 deg"}, "new")`, as `examples/revolve/two-sides`. Expected: ok; volume 10602.875206, 6 faces, bbox [0,-14.142136,0]-[20,20,30]; `f-rev1/start-cap` in the plane x + y = 0 with y < 0; `f-rev1/end-cap` in the plane x = 0 with y between 10 and 20.
+41. **Two sides reversed.** As 40 with `"reverse": true`. Expected: volume 10602.875206, bbox [0,-20,0]-[20,14.142136,30]; `f-rev1/start-cap` in the plane x - y = 0 with y > 0; `f-rev1/end-cap` in the plane x = 0 with y between -20 and -10.
+42. **Two sides, one side zero.** As 40 with `"opposite_expr": "0"`. Expected: identical to test 2, including the names.
+43. **Two sides of a full turn.** As 40 with `"expr": "270 deg", "opposite_expr": "90 deg"`. Expected: identical to test 1 (4 faces, no caps); `FeatureOutput::absent` is `[{name: "f-rev1/end-cap", why: FullTurn}, {name: "f-rev1/start-cap", why: FullTurn}]`.
+44. **Past a full turn.** As 40 with `"expr": "270 deg", "opposite_expr": "100 deg"`. Expected: error `out_of_range`, field `extent.opposite_expr`, bound `AtMost(π/2)` with the bound name `what is left of a full turn`, rendered `Opposite angle must be at most what is left of a full turn (90 deg), but it is 100 deg. Use 90 deg or less.`, with the fix `SetField` of `extent.opposite_expr` to `90 deg` (Use 90 deg); b-1 empty. With `"expr": "400 deg", "opposite_expr": "0"`: `Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.`
+45. **A negative side.** As 40 with `"opposite_expr": "-10 deg"`. Expected: error `out_of_range`, field `extent.opposite_expr`, rendered `Opposite angle must be at least 0 deg, but it is -10 deg. Use 0 deg or more.`
+46. **Both angles zero.** As 40 with `"expr": "0", "opposite_expr": "0"`, and with `"expr": "0.00000001 deg", "opposite_expr": "0"`. Expected: error `both_angles_zero` rendered `Both angles of the revolve add up to less than 0.000000058 deg. Give at least one side an angle.`; b-1 empty.
+47. **Symmetric limits.** As 38 with `"expr": "360 deg"`: identical to test 1, with both caps absent `FullTurn`. With `"400 deg"`: error `out_of_range` rendered `Angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.` With `"0"`: `Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.`
+48. **Wrong dimension.** As 40 with `"opposite_expr": "10 mm"`. Expected: error `expression`, field `extent.opposite_expr`, rendered `Opposite angle: Expected an angle, but this expression gives a length.`
+49. **Dependencies and Python.** For test 40's record: `expressions == [("extent.expr", "90 deg", Angle), ("extent.opposite_expr", "45 deg", Angle)]`; with `f-sk1` as `sketch_1`, the dedicated form is `revolve(sketch_1, Axis.Z, 90*deg, opposite_angle=45*deg, id="f-rev1")`, and for test 38's `revolve(sketch_1, Axis.Z, 90*deg, symmetric=True, id="f-rev1")`. `{"kind": "symmetric", "expr": "90 deg", "opposite_expr": "45 deg"}` fails as invalid params.
+50. **A cap kept through an edit of the angles.** Test 40's document with `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [<the edge between f-rev1/end-cap and f-rev1/lateral/e-3, as a pick stores it>], "radius": "1"}`. Edit: set `opposite_expr` to `"90 deg"`, then `expr` to `"45 deg"`. Expected: after each edit f-fil1 ok with no message, with its fillet face `f-fil1/fillet/edge(f-rev1/end-cap|f-rev1/lateral/e-3)` on the end cap's top edge; after both, `f-rev1/end-cap` lies in the plane x - y = 0 and b-1 bbox is [0,-20,0]-[20,14.142136,30].
+51. **A two-sided cut.** `{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "30", "height": "30", "op": "new"}`, sketch on XZ `RECT(10, 20, 20, 30)` (fp `c=15,25|a=100`), `REV(AXIS-Z, {"kind": "two_sides", "expr": "90 deg", "opposite_expr": "90 deg"}, "cut")` with that profile. The groove runs half way round, from -90 to 90 deg. Expected: ok; volume 80110.612667 (the cylinder's 84823.001647 less 4712.38898), b-1 bbox [-30,-30,0]-[30,30,30]; `f-rev1/lateral/e-1` (the groove's floor at z=20), `f-rev1/start-cap` and `f-rev1/end-cap` (its two ends, in the plane x = 0) exist; `FeatureOutput::absent` is empty.
+
+**Profile curves against the axis (M2 item 14).**
+
+52. **An ellipse touching the axis.** Sketch `f-sk1` on XZ with `{"id": "e-1", "type": "ellipse", "center": [10, 15], "major": [0, 15], "minor_radius": 10}` (x 0..20, z 0..30), profile `{"sketch": "f-sk1", "regions": [{"key": "e-1", "fp": "c=10,15|a=471.238898"}]}`, `REV(AXIS-Z, {"kind": "full"}, "new")` with that profile. Expected: ok; volume 29608.813203, 1 face `f-rev1/lateral/e-1`, bbox [-20,-20,0]-[20,20,30].
+53. **An ellipse across the axis.** As 52 with the center at [9.5, 15] (fp `c=9.5,15|a=471.238898`). Expected: error `profile_crosses_axis`; b-1 empty.
+54. **An ellipse on the far side.** As 52 with the center at [-10, 15] (fp `c=-10,15|a=471.238898`): the whole profile lies at x ≤ 0. Expected: ok; volume 29608.813203.
+55. **A spline whose control polygon crosses the axis.** Sketch on XZ with points `e-11` (20, 0), `e-12` (-1, 10), `e-13` (-1, 20), `e-14` (20, 30) (`{"id": ..., "type": "point", "position": ...}`), `{"id": "e-1", "type": "bspline", "degree": 3, "poles": ["e-11", "e-12", "e-13", "e-14"], "knots": [0, 0, 0, 0, 1, 1, 1, 1]}` and `{"id": "e-2", "type": "line", "start": [20, 30], "end": [20, 0]}`. The curve's x is 20((1-t)³ + t³) - 3t(1-t), at least 4.25, while two poles lie at x = -1. Profile `{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2", "fp": "c=13.7,15|a=315"}]}`, `REV(AXIS-Z, {"kind": "full"}, "new")`. Expected: ok; volume 27115.086194, 2 faces, bbox [-20,-20,0]-[20,20,30].
+56. **A spline that crosses the axis.** As 55 with `e-12` and `e-13` at x = -10. The curve then reaches x = 20 · 0.25 - 3 · 10 · 0.25 = -2.5 at t = 0.5. Expected: error `profile_crosses_axis`.
+57. **An ellipse with Two sides.** Test 52's sketch and profile with `{"kind": "two_sides", "expr": "90 deg", "opposite_expr": "90 deg"}`. Expected: ok; volume 14804.406602 (half of test 52's), 3 faces; `f-rev1/start-cap` and `f-rev1/end-cap` each of area 471.238898 in the plane x = 0, the start cap at y < 0 and the end cap at y > 0.
 
 ## Open issues
 
 1. Requiring the axis to lie in the sketch plane follows Fusion and the kernel facade (kernel.md section 3.4.4). Revolving around an axis parallel to the plane but outside it is valid geometry and can be added later.
+2. **Revolve to a face has no construction yet.** Kernel.md section 8.5 built no revolve (its "Decision applied"). Spike 8.10 measures a split revolution (kernel.md section 8.10, track 1B's criteria), and track 4A writes its record, build, names and tests in stage 4 from the recorded results. If the spike fails, a cut ADR moves revolve to a face to M3 and adds it to gate 3's exceptions (m2-plan.md section 6 item 11, where revolve options come last).

@@ -13,6 +13,12 @@ Import puts the solids of a STEP file into a body. The file is stored next to th
 - Ops `new`, `join`, `cut`, `intersect` with the shared body semantics.
 - Faces named by the fallback rule and confirmed by fingerprint.
 
+### In M2: the hosts make import records
+
+- The UI's Import command (ui.md 3.19) and `partsmith import` (cli.md section 3.8) add the feature through the engine's `import_step`, as Python's `Document.import_step` does since M1 ([ADR W2-1D-2](../../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md)). Every host writes the same record: `op` `new`, a new body named by the engine's rule (engine.md section 3.14), and the asset named by its hash (tests 19 to 21).
+- The UI offers "Choose file..." with this feature's `asset_missing` message. It adds the file the user picks under the missing name, and the core stores it only when the bytes hash to that name (ui.md 3.19). The message's text is unchanged.
+- Generated Python adds the asset from the `assets` folder beside the script before the record ([ADR W2-1D-4](../../adr/W2-1D-4-export-to-python-in-the-app-and-assets-in-generated-scripts.md), python-api.md section 3.8 rule 13). The record keeps its generic form (Python, below; test 22).
+
 ### Later
 
 - Mesh import (STL, 3MF, OBJ).
@@ -65,7 +71,7 @@ No field has help, a start value or a new body (since M2, features.md section 2.
 
 ### Python
 
-No dedicated form: the hook returns `None`, because a script cannot carry the asset's bytes (python-api.md's `Document.import_step` adds the feature from a file instead). Generic form of the JSON above (features.md section 3.11; longer than 88 characters, so one argument per line):
+No dedicated form: the hook returns `None`, because a script cannot carry the asset's bytes (python-api.md's `Document.import_step` adds the feature from a file instead). Since M2 the script adds the asset itself before this call, from the `assets` folder beside it (python-api.md section 3.8 rule 13), and the record stays in the generic form. Generic form of the JSON above (features.md section 3.11; longer than 88 characters, so one argument per line):
 
 ```python
 feature(
@@ -162,9 +168,17 @@ The asset map is `{A: BYTES}` unless stated.
 17. **A solid without volume.** `IMP("new")` with the asset map `{A: SELF_VOID}`. Expected: status warning with one warning (`import_warning`), rendered as in test 13, with the detail of test 13, no pointer and no fixes; b-1 holds that solid as the kernel read it: 1 solid, 6 faces named `f-imp1/face#1` to `f-imp1/face#6`, volume 0 within 1e-9, area 2200, `is_valid()` false, bbox [0,0,0]-[10,20,30]; change `New`. The copy features refuse to copy it ([mirror.md](mirror.md) test 14, [linear_pattern.md](linear_pattern.md) test 25, [circular_pattern.md](circular_pattern.md) test 19). They refuse a body that holds it beside a solid with volume too (`TWO_SELF_VOID`, linear_pattern.md test 26, circular_pattern.md test 20).
 18. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `import` case of features.md tests 46, 48, 50 and 51. The manifest of `Registry::with_builtins().get("import")` has the description of the Manifest section. None of its hints has help, a start value or a new body.
 
+**The records the hosts write** (since M2, [ADR W2-1D-2](../../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md)). Not recompute tests: they run in `crates/partsmith-engine/tests/` through a headless `Session` (`SessionOptions::headless()`, `SequentialIds`), with `new_document` in millimeters and no printer, and the bytes of `S`'s file unless stated.
+
+19. **The record of a host import.** `import_step` with no name gives `Imported { feature: "f-000000000001", body: "b-000000000001" }`. The recipe holds exactly the body `{"id": "b-000000000001", "name": "Block"}` and the feature `{"id": "f-000000000001", "type": "import", "body": "b-000000000001", "asset": S, "op": "new"}`, which is `ok` with the volume, faces and bounding box of test 1. `save_document` gives the 378-byte text `IMPORTED` of cli.md section 6 (tests 88 to 108) and the one asset `S` with the file's bytes. The UI and `partsmith import` send this command this way (ui.md 3.19, cli.md section 3.8).
+20. **The body's name.** With no name, the body is named after the first solid's product: `Block` for `BYTES`, `A` for `TWO`. With `name` `Bracket`, `Bracket`. For `BYTES` written with the name `""`, `Imported` (engine.md section 3.14). No body has a `color`, since every file here was written with `color: None`.
+21. **One file imported twice.** Two `import_step` calls with `S`'s bytes give the bodies `b-000000000001` and `b-000000000002` and the features `f-000000000001` and `f-000000000002`, both with `asset` `S`. `save_document` returns `S` once.
+22. **Generated Python.** `export_python` of test 19's document gives the script of python-api.md test 140 with the ids, the body's name and its variable of test 19 (`block = Part("Block", id="b-000000000001")`). Run with `run_code` and a `filename` in a folder whose `assets` holds `S` (python-api.md section 3.9), it makes a document whose text is test 19's.
+
 ## Open issues
 
 1. One import makes one body. A STEP assembly with several parts becomes one body with several lumps; one body per part is later.
 2. Imported face names depend on the geometric order, so references to them rely on fingerprints, and importing a changed file (a new asset name) renumbers them. Relinking is later.
 3. **Import warnings word the kernel's counts (ADR 0045, accepted by the owner with option (b) on 2026-11-04).** Item IMP-1 of the M1 gap list, option (b): `ImportWarning` showed each string of `StepImport::warnings` as it was, kernel text that features.md test 14 keeps out of messages, counted with a plural only (`Skipped 1 shapes that are not closed solids.`) and naming a solid by its position in the file. `StepImport` now counts the shapes it leaves out and the solids it cannot repair (kernel.md sections 2.12 and 3.8.1), the feature words the counts (section 3.3 step 2, section 4, tests 10 and 12 to 16, features.md section 4.2 and test 18), and the kernel's sentences, its one-shape sentence now in the singular, are the warnings' detail. The owner accepted option (b) as built on 2026-11-04.
 4. **An import whose own boolean fails names no invalid solid.** When the kernel's boolean of `apply_op` (section 3.3 step 5) fails for a join, cut or intersect, the error is `Kernel`, rendered `Partsmith's geometry kernel could not build this import. {hint}`, and the warnings of step 2 are dropped with the rest of the output, so a file whose solid repair could not fix, the likeliest cause, is not named. No input that makes this boolean fail is known: `VOID_TWICE` joins, cuts and intersects the plate of test 7 without an error (test 15 for the join; the cut and the intersect gave the volumes of the valid `HOLLOW`, 14768 and 1232). Naming it, for example in the error's hint or detail when `invalid_solids` is not 0, changes `FeatureError` or the kernel's hints, a public API change for the next gate (ADR 0045).
+5. **Choosing a newer copy of the file (since M2).** The UI's "Choose file..." (ui.md 3.19) adds a file only when its bytes hash to the missing name. A file the CAD program exported again has other bytes, since a STEP header holds the time it was written, so the core does not store it, and the user deletes the import and imports the new file. Its faces then get new names (open issue 2), and references to them rely on fingerprints. Relinking (section 1, Later) would take the new file in place of the old one.

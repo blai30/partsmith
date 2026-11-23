@@ -679,16 +679,61 @@ The naming tests that change with the resolver (naming.md tests 61 to 77, 80 and
 - **Expect:** the reference still resolves to the right piece's front top edge (x 50..80, z=762) with no reference warning. `f-fil1` fails with `fillet_too_large`, and the message, besides the limit, says that "2" has no unit and now means 2 in because the document units changed from mm to in, offering "2 mm" (the previous size) as a one-click fix. After applying it, `f-fil1` is ok with a radius 2 mm fillet face `f-fil1/fillet/edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)`.
 - **Today:** the message gives only the limit in inches; nothing points at the units change.
 
+## N. Extents (M2)
+
+The M2 plan's item 17 ([features/extrude.md](../spec/features/extrude.md) and [features/revolve.md](../spec/features/revolve.md)). **SHELF** is bodies `[b-1, b-2]`, the parameter `shelf` = 40 mm, and `f-box2` box in `b-2`, size 100 x 100 x 10, position (40, 25, `shelf`): x -10..90, y -25..75, z 40..50. `f-sk1` is BLOCK's sketch on XY. Fillet volumes below use (4 - π) x 80 = 68.672588 for a radius-2 fillet along an 80 mm edge.
+
+### R67 An extrude up to a face that moves
+
+- **Setup:** SHELF. `f-ext1` extrude on `b-1` of BLOCK's region, extent up to face `{body: b-2, face: {q: f-box2/bottom, fp: plane|n=0,0,-1|c=40,25,40|a=10000|adj=4,4}}`, op new: x 0..80, y 0..50, z 0..40. `f-fil1` fillet radius 2 on `[{q: edge(f-ext1/end-cap|f-ext1/lateral/e-3), fp: line|n=1,0,0|c=40,50,40|l=80|adj=2,2}]` (the back top edge).
+- **Reference:** `f-ext1` extent.face; `f-fil1` edges[0].
+- **Edit:** set `shelf` to 60 mm.
+- **Expect:** the face reference resolves by its name with no message, and `f-ext1` ends at z=60. `f-fil1` keeps the back top edge, ok with no message: the fillet face's axis lies at y=48, z=58. Volume of `b-1` 239931.327412. This is m2-plan.md gate 6's "an extrude up to a face that moves".
+- **Today:** no extrude ends on a face before M2.
+
+### R68 An extrude up to a vertex that moves
+
+- **Setup:** SHELF. `f-ext1` as in R67 with the extent up to vertex `{body: b-2, vertex: {q: vertex(f-box2/bottom|f-box2/front|f-box2/left), fp: point|c=-10,-25,40|adj=3,3}}`. `f-fil1` as in R67.
+- **Reference:** `f-ext1` extent.vertex; `f-fil1` edges[0].
+- **Edit:** set `shelf` to 25 mm.
+- **Expect:** the vertex resolves by its name with no message, and `f-ext1` ends on the plane z=25, though the vertex lies outside the profile. `f-fil1` keeps the back top edge, ok with no message: the fillet face's axis lies at y=48, z=23. Volume of `b-1` 99931.327412.
+- **Today:** no extrude ends at a vertex before M2.
+
+### R69 A start face that moves
+
+- **Setup:** SHELF. `f-ext1` extrude on `b-1` of BLOCK's region, start on the face `{body: b-2, face: {q: f-box2/top, fp: plane|n=0,0,1|c=40,25,50|a=10000|adj=4,4}}`, distance 20, op new: z 50..70. `f-fil1` fillet radius 2 on `[{q: edge(f-ext1/lateral/e-3|f-ext1/start-cap), fp: line|n=1,0,0|c=40,50,50|l=80|adj=2,2}]` (the back bottom edge).
+- **Reference:** `f-ext1` start.face; `f-fil1` edges[0].
+- **Edit:** set `shelf` to 30 mm (the top moves to z=40).
+- **Expect:** `f-ext1` starts at z=40 and ends at z=60, ok with no message. `f-fil1` keeps the back bottom edge, ok with no message: the fillet face's axis lies at y=48, z=42. Volume of `b-1` 79931.327412.
+- **Today:** no extrude starts on a face before M2.
+
+### R70 A taper angle that changes under a fillet
+
+- **Setup:** BLOCK with `f-ext1`'s extent `{kind: distance, expr: 30, taper: 5 deg}`. `f-fil1` fillet radius 1 on the right top edge, `edge(f-ext1/end-cap|f-ext1/lateral/e-2)` as a pick stores it.
+- **Reference:** `f-fil1` edges[0].
+- **Edit:** (1) set the taper to 2 deg; (2) remove the taper.
+- **Expect:** after each edit `f-fil1` keeps the right top edge, ok with no message: a tapered side keeps its name `f-ext1/lateral/e-2` (naming.md section 3.6.2), and the fillet face `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-2)` exists. After (2) the volume of `b-1` is 119989.269908, BLOCK with a radius-1 fillet along its 50 mm right top edge.
+- **Today:** no extrude tapers before M2.
+
+### R71 A two-sided revolve whose angles change
+
+- **Setup:** bodies `[b-1]`. features/revolve.md's `SK-RING`, `f-rev1` revolve of its region about Z, extent `{kind: two_sides, expr: 90 deg, opposite_expr: 45 deg}`, op new. `f-fil1` fillet radius 1 on the end cap's top edge, `edge(f-rev1/end-cap|f-rev1/lateral/e-3)` as a pick stores it.
+- **Reference:** `f-fil1` edges[0].
+- **Edit:** (1) set `opposite_expr` to 90 deg; (2) set `expr` to 45 deg.
+- **Expect:** after each edit `f-fil1` keeps the end cap's top edge, ok with no message; after (2) the end cap lies in the plane x - y = 0 and the start cap in the plane x = 0 at y < 0 (features/revolve.md test 50).
+- **Today:** no revolve has two sides before M2.
+
 ## Coverage
 
 Downstream consumers:
 
-- Fillet edges: R01 to R08, R10, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R23, R24, R27, R28, R29, R30, R31, R41, R47, R48, R51, R52, R56, R61, R64, R65, R66.
+- Fillet edges: R01 to R08, R10, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R23, R24, R27, R28, R29, R30, R31, R41, R47, R48, R51, R52, R56, R61, R64, R65, R66, R67, R68, R69, R70, R71.
 - Chamfer edges, equal distance: R02, R11, R17, R18, R29, R31, R40, R42, R43, R45, R46, R57, R62, R63. Two distances: R22.
 - Shell removed faces: R09, R44, R49, R52, R53.
 - Sketch on a face: R01, R06, R13, R15, R26, R32, R33, R34, R35, R36, R55, R57.
 - Datum plane on a face: R15, R25, R37, R53, R54, R58.
 - Extrude profile regions: R01 to R07, R49, R50, R51, R64, R65, R66.
+- Extrude targets (M2): up to a face R67, up to a vertex R68; start face R69.
 - Revolve axis on an edge: R39, R59; on a round face: R39.
 - Mirror plane on a face: R60. Linear pattern direction on an edge: R38. Move body rotation axis on an edge: R39.
 - Split body plane through a datum: R15, R31, R58.
@@ -700,11 +745,11 @@ Downstream consumers:
 Edit types:
 
 - Sketch geometry: lines added (R01, R02, R49), removed (R03, R51), deleted and redrawn (R06, R07), a line replaced by several (R66), a crossing or inner circle (R04, R50), points moved (R11, R38, R42), overlapping outlines (R05), a corner rounded (R02, R64), entities reordered (R65), a conflicting constraint (R47).
-- Dimensions and parameters: R08, R09, R10, R12, R13, R14, R26, R36, R52, R61.
+- Dimensions and parameters: R08, R09, R10, R12, R13, R14, R26, R36, R52, R61, R67, R68, R69.
 - Features inserted upstream: R15 to R22, R31, R32, R33, R34, R35, R37, R39, R44, R53, R58, R59, R60, R62.
 - Suppress and unsuppress: R10, R20, R23, R24, R25, R27, R56. Delete: R10, R23, R26, R54.
 - Reorder: R24, R28, R29, R55.
-- Op and body changes: R30, R56. Flip and reverse: R31, R32. Extent: R12 (through), R57 (full turn).
+- Op and body changes: R30, R56. Flip and reverse: R31, R32. Extent: R12 (through), R57 (full turn), R70 (taper), R71 (revolve two sides).
 - Pattern count, spacing and directions: R40, R41, R52, R61. Hole points and type: R42, R43, R63.
 - Move body inserted or removed: R27, R32. Units: R48. Imported file revised: R45, R46. Renaming: R65.
 - Reverting an edit (undo trips): R23, R25, R28, R57, R61.

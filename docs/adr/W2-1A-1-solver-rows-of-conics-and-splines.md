@@ -1,0 +1,34 @@
+# W2-1A-1: Solver rows of conics and splines, hidden curve parameters and a separate property generator
+
+Status: Accepted (owner's rule of 2026-11-05): the M2 plan's open choices "Point on and tangent to a conic or spline in the solver" and "Property generator for the new kinds and item 15's constraints", decided as the wave 2 decisions of 2026-11-19 accept them, for the curve kinds of item 14 (wave 2). It changes neither the file format nor the protocol schema. It changes what degrees of freedom mean for the new kinds, which the ADR log records. It builds on [ADR 0058](0058-exact-trust-region-step.md)'s exact step and [ADR 0066](0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)'s parameter vector (sketch.md section 3.20.3).
+
+## Context
+
+- **Rows.** M1's rows are lengths in mm with analytic derivatives (sketch.md section 3.6.5). The exact step, the diagnosis and the drag all assume that (ADR 0058, sections 3.7.4 and 3.8).
+- **The new kinds' parameters.** An elliptical arc, a parabola and a hyperbola carry their end points as parameter pairs, which must stay on their curve. A conic carries its three points. A `bspline` and a `fit_spline` have no parameters of their own: their control points or fit points are point entities.
+- **Splines have no implicit form** that a row could use, and a fit spline's curve depends on its points through chord-length knots ([ADR W2-1A-2](W2-1A-2-fit-spline-interpolation-and-spline-tool-defaults.md)).
+- **Seeds.** Gate 8's scan, tests 189 to 194, 259 to 261 and 336 and the 20 million-seed scan pin the known-solution generator in `crates/partsmith-sketch/tests/common/generator.rs`. Any change to it changes every seed.
+
+## Decision
+
+1. **Curve functions in mm.** An ellipse, an elliptical arc, a parabola, a hyperbola and a conic each have a function that is zero exactly on the curve and scaled to mm by a constant taken at the warm start, as M1's angular scale is (sketch.md sections 3.6.3 and 3.20.3). The ellipse's equals M1's circle row when its axes are equal and its radius is the warm start's. The hyperbola's is zero only on the branch that opens along `major`. The conic's is its barycentric implicit form. Internal rows hold the end points of the elliptical arc, parabola and hyperbola on their curves. `point_on_object` uses the same functions.
+2. **Hidden curve parameters.** A point on a control-point spline, and a tangent without a touch point that names a new kind, take one hidden parameter per such curve, the PlaneGCS and FreeCAD method. It is a variable of the solve, warm-started by sampling and never stored, so a constraint with two rows and one hidden parameter removes one degree of freedom, as the user expects. Before a component's untouched test, its hidden parameters are refined with its entities held, so a sketch whose constraints hold still solves to itself bitwise (sketch.md sections 3.7.2 and 3.11). In a drag they carry over from frame to frame.
+3. **Tangents at a touch point** use the unit tangent of each curve at the point, from the implicit gradient, the end control leg of a conic or spline, or the hidden parameter's derivative.
+4. **Fit splines in M2** take no `point_on_object` and no `tangent`. They are placed through their point entities.
+5. **A separate generator.** The property tests of the new kinds use their own known-solution generator, `tests/common/curve_generator.rs`. `tests/common/generator.rs` stays as it is.
+
+## Alternatives considered
+
+Each choice is Accepted (owner's rule of 2026-11-05): the most open-source approach, then the safest, then the industry standard, then this work's recommendation. Every option is in-house Rust under Apache-2.0, so the first criterion ties.
+
+1. *Point on and tangent to a spline.* (a) A hidden curve parameter per constraint, warm-started and never stored, with implicit rows on the conic kinds; (b) a foot-point residual computed by an inner Newton solve; (c) splines take only coincidences and tangents at their ends in M2. The rule takes (a), the safest: smooth rows with analytic derivatives, which the exact step and the diagnosis handle, and an honest count of degrees of freedom. (b) is not smooth where the foot point jumps between two branches of the distance, and its derivative needs the inner solve's own derivative. (c) leaves a spline's interior unconstrainable. (a) is also FreeCAD's method.
+2. *Conics by implicit rows or by hidden parameters.* (i) Implicit rows on ellipses, parabolas, hyperbolas and conics; (ii) hidden parameters everywhere. The rule takes (i) for `point_on_object`, the recommendation: one row and no extra variable is the M1 pattern of a circle. Tangents without a touch point take hidden parameters on every new kind, because a tangency to a conic has no one-row form for every pair of kinds.
+3. *How a row is scaled.* (i) Each curve function scaled to mm with a constant factor taken at the warm start, `sqrt(a * b)` for the ellipse kinds; (ii) the exact distance to the curve; (iii) the factor of (i) recomputed from the current parameters. The rule takes (i), the safest. The distance to an ellipse has no closed form and is not smooth at its center. Under (iii) the factor's derivative enters every row away from the curve, so a solve that moves a point toward an ellipse also moves the ellipse's minor radius (sketch.md test 355). With (i) a residual differs from the distance by at most `sqrt(max(a, b) / min(a, b))`, so `SOLVER_TOLERANCE` holds a point within about 1e-9 mm of a 100 to 1 ellipse.
+4. *Fit splines in point and tangent rows.* (i) None in M2; (ii) a hidden parameter with the derivative of the curve through its chord-length knots. The rule takes (i), the safest. Under (ii) the derivative of every basis function with respect to its knots enters every row, a dense and error-prone Jacobian that the exact step relies on. sketch.md open issue 27 keeps (ii) for a later wave.
+5. *The property generator.* (a) A separate generator; (b) extending `tests/common/generator.rs`. The rule takes (a), the safest: gate 8's seeds and the tests that replay them stay bitwise.
+
+## Consequences
+
+- Specs: sketch.md sections 3.4, 3.6, 3.7, 3.8, 3.9, 3.20.3, 3.20.4 and 6.13, tests from 342, open issue 27.
+- No M1 row, test or seed changes.
+- The chain benchmark gains curve rows in sketch.md section 5.2 (gate 9).

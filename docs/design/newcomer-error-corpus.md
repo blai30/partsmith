@@ -35,7 +35,7 @@ Setups use BLOCK unless they say otherwise.
 - **Playwright** against the real core and UI: E-110 to E-121 (NC01 to NC12), including the Extrude disabled reason of NC01 and the units control of NC09, and E-170 (NC13).
 - **Crate tests** where the study puts them: features document tests for NC02 to NC06 and NC12, fillet and shell spec tests for NC05 and NC06, the sketch crate for the findings, issues and fixes of NC01, NC07 and NC08 (sketch.md tests 237, 243 and 251; a failed sketch is diagnosed where it was given, so NC08 is `sketch_not_solved` whatever the iterations did), the expression evaluator for NC10, Python for NC09 (`Document.set_units(..., keep_sizes=True)`), and the CLI for NC13 (cli.md test 81).
 
-NC01 to NC12 pass in phase 3 of the study's plan except the cause lines of NC08 and NC11, which pass in phase 4. NC13 is the first M2 mistake (m2-plan.md gate 7). It passes with M2 item 7.
+NC01 to NC12 pass in phase 3 of the study's plan except the cause lines of NC08 and NC11, which pass in phase 4. NC13 is the first M2 mistake (m2-plan.md gate 7). It passes with M2 item 7. NC14 passes with M2 item 17: recompute.md test 81, engine.md test 237 and features/extrude.md test 120, and an E-test whose number track 2C assigns in ui.md (stage 2).
 
 ## The five errors newcomers hit most
 
@@ -64,6 +64,7 @@ NC01 to NC12 pass in phase 3 of the study's plan except the cause lines of NC08 
 | NC11 | | `profile_not_found`, `body_empty` | A deleted sketch line | E-120 |
 | NC12 | 2 | `hole_misses_body` | Hole beside the body | E-121 |
 | NC13 | | `unknown_printer_profile` | A version 2 document naming a printer this machine lacks | E-170 |
+| NC14 | | `up_to_misses` | An extrude up to a face it never reaches | track 2C's |
 
 ## Scenarios
 
@@ -157,3 +158,10 @@ NC01 to NC12 pass in phase 3 of the study's plan except the cause lines of NC08 
 - **Expect:** `migrated_from` 2 and one document warning `unknown_printer_profile`: `Printer profile "my-printer" is not among your printers. Printer values and checks use the default FDM profile until you add that printer or pick another one.`, with no actions. `printer_profile` is `generic-fdm`. The UI's Problems row has the buttons "Choose printer" and "Add printer 'my-printer'". The CLI's `--printer-file` and Python's `printer=` mapping add it.
 - **Today:** `Printer profile "my-printer" is not installed, so the default FDM profile is used. Install it or pick another printer.`, which asks for an install that no M1 host offers.
 - **Where:** engine.md test 175, cli.md test 81, ui.md E-170. No recompute-crate assertion: profile resolution happens in the engine (engine.md section 3.7).
+
+### NC14 An extrude up to a face it never reaches
+
+- **Setup:** bodies `[b-1, b-2]`. BLOCK in `b-1`. `f-box1` box in `b-2`, size 40 x 40 x 10, position (140, 25, 60): x 120..160, y 5..45, z 60..70, the arm of another part off to the side of the block. `f-dp1` datum plane on XY, offset 30. `f-sk2` on `f-dp1` with circle `e-5` center (40,25) radius 10. `f-ext2` extrude on `b-1` of region `{key: e-5, fp: c=40,25|a=314.159265}`, extent up to face `{body: b-2, face: {q: f-box1/bottom, fp: plane|n=0,0,-1|c=140,25,60|a=1600|adj=4,4}}`, op join: the newcomer meant a boss up to the arm's underside, and the arm is not above the circle.
+- **Expect:** `f-ext2` error `up_to_misses`: `This extrude passes beside the bottom of 'Box 1' selected for End face and never reaches it.` [Pick a face again]. No Reverse action: reversed, the boss runs down into the block and never meets the face either. Volume of `b-1` 120000. With the box at position (40, 25, 60), over the circle, the same extrude builds: the boss stands at z 30..60, volume 129424.777961, status ok.
+- **Today:** no extrude ends on a face before M2 item 17. In the spike of kernel.md section 8.5 the splitter cuts at the face's extended plane and reports nothing; only the spike's own check refused this end, with `Only part of the profile reaches face 5, so the extrude cannot end on it.`, which names the face by a kernel index and says "part" of a profile that reaches none of it.
+- **Where:** recompute.md test 81, engine.md test 237, features/extrude.md test 120, and track 2C's E-test.

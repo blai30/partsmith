@@ -30,11 +30,16 @@ The CLI serves makers who script batch exports, CI jobs that validate models and
 - The CLI keeps passing every asset-named file of `assets/` to `open_document` (section 2.3). It sends no `add_assets`. Font assets (`<hash>.ttf`, `<hash>.otf`) already match the pattern of section 2.3.
 - `asset_mismatch` has new words that name the feature that reads the wrong file, with the file's name in the detail (engine.md section 4). `validate` reports it at that feature's asset field, and `rebuild` and `export` print it as the reason the file did not open (tests 86 and 87).
 
+**In M2: import** ([ADR W2-1D-2](../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md))
+
+- `partsmith import <STEP> -o <PTSM>`: a STEP file to a new `.ptsm` with its `assets/` folder, through the engine's `import_step` (section 3.8). The UI's Import command gives the same document and the same asset once generated ids are mapped (m2-plan.md gate 13, test 104).
+- The CLI writes an asset for the first time, with file-format.md section 3.11's entry check (section 3.7).
+
 **Later (not in M1)**
 
 - `partsmith merge-driver` for git, with validation after merge.
 - `partsmith diff` (visual and record-level diff).
-- `partsmith import` (STEP or mesh to a new `.ptsm`).
+- `partsmith import` of meshes, `.scad`, `.FCStd`, DXF and SVG files, as they land in the engine (m2-plan.md item 22), and an import into an existing document. M2 imports STEP into a new document (In M2: import, above).
 - `.ptsz` pack and unpack.
 - Watch mode and slicer handoff (`partsmith send`).
 - Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. A CLI session has only the built-in profiles, so in M1 `--printer` names `generic-fdm` or `generic-resin`. M2 adds `--printer-file` (In M2, above).
@@ -56,21 +61,22 @@ partsmith export <FILE> --output <PATH> [--format <FORMAT>] [--body <BODY>]... [
                  [--chord <MM>] [--angle <DEGREES>] [--printer <ID> | --printer-file <PATH>]
                  [--rotate <AXIS:DEGREES>]... [--allow-errors] [--json]
 partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
+partsmith import <STEP> --output <PTSM> [--name <NAME>] [--force] [--deny-warnings] [--json]
 ```
 
 | Option | Applies to | Meaning |
 | --- | --- | --- |
-| `<FILE>` | all but `schema` | A `.ptsm` path. `-` means standard input for `validate` and `fmt` (at most once). |
+| `<FILE>` | all but `import` and `schema` | A `.ptsm` path. `-` means standard input for `validate` and `fmt` (at most once). |
 | `--rebuild` | `validate` | Also rebuild geometry and report every feature message, with its actions and candidates (3.1). |
 | `--canonical` | `validate` | Report `not_canonical` when the file is not in canonical form. |
-| `--deny-warnings` | `validate`, `rebuild` | Treat every warning as a failure for the exit code. `validate` fails on a lost, ambiguous or guessed reference without it (3.1). |
-| `--json` | `validate`, `rebuild`, `export` | Print one JSON document on standard output instead of text. |
+| `--deny-warnings` | `validate`, `rebuild`, `import` | Treat every warning as a failure for the exit code. `validate` fails on a lost, ambiguous or guessed reference without it (3.1). |
+| `--json` | `validate`, `rebuild`, `export`, `import` | Print one JSON document on standard output instead of text. |
 | `--check` | `fmt`, `schema` | Do not write; fail when a file would change. |
 | `--checks` | `rebuild` | Also run print analysis and report findings. |
 | `--printer <ID>` | `rebuild`, `export` | Use this printer profile instead of the document's `printer` (for `printer.*` values, tessellation and checks). Not saved. An installed profile, which in M1 is a built-in one (`generic-fdm` or `generic-resin`, print.md section 3.3; custom profiles are Later, section 1). From M2 it may also be the document's own `printer` when the document stores that profile. It then changes nothing (3.3). |
 | `--printer-file <PATH>` | `rebuild`, `export` | Use the printer profile in this file instead of the document's `printer`: JSON text in print.md's input form (section 3.1 of print.md), such as a profile a script writes or a document's stored `printer_profile` saved as a file of its own. Not saved. Not with `--printer` (exit 2). `-` is not standard input here, but a file named `-`. |
 | `--rotate <AXIS:DEGREES>` | `rebuild`, `export` | Rotation about the model axis `x`, `y` or `z` (case-insensitive) by a finite number of degrees, for example `x:90`. Repeatable; each rotation applies after the previous ones, about fixed model axes. Gives an `Orientation::Matrix` for checks and export. |
-| `-o`, `--output <PATH>` | `export` | Output file, or output directory with `--per-body`. Required. |
+| `-o`, `--output <PATH>` | `export`, `import` | Output file, or output directory with `--per-body`. For `import`, the new `.ptsm` file (its name must end in `.ptsm`, compared without case). Required. |
 | `--format <FORMAT>` | `export` | `stl`, `3mf`, `obj`, `step` or `py`. Default: from the output extension. |
 | `--body <BODY>` | `export` | Export only this body, by exact id or else exact name. Repeatable. |
 | `--per-body` | `export` | One file per body (STL only). |
@@ -81,6 +87,9 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `--write` | `schema` | Write both schema files. |
 | `--out-dir <DIR>` | `schema` | Directory for `--write` and `--check`. Default `docs/format`, relative to the current directory. |
 | `<NAME>` | `schema` | `ptsm` or `protocol`: print that schema to standard output. |
+| `<STEP>` | `import` | A STEP file: its name must end in `.step` or `.stp`, compared without case. `-` is not standard input here, but a file named `-`, which that rule refuses. |
+| `--name <NAME>` | `import` | The imported body's name, in place of the engine's rule: the product name of the file's first solid, else `Imported` (engine.md section 3.14). Not empty. |
+| `--force` | `import` | Replace the output file when it exists. Without it, an existing output is refused before anything is read (3.8). |
 
 `partsmith --version` prints exactly `partsmith 0.1.0 (protocol 1, format 3, OCCT 7.9.3)` followed by a newline (`format 2` before format version 3), with the engine version, `PROTOCOL_VERSION`, the format version and the kernel string from `engine_info`.
 
@@ -89,9 +98,9 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | The model has problems: validation errors, warnings of a lost, ambiguous or guessed reference (3.1), other warnings with `--deny-warnings`, a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, a `--printer-file` whose profile the engine refuses, an engine error while exporting, or schema drift (`schema --check`). |
+| 1 | The model has problems: validation errors, an `import` the engine refuses or whose feature fails (3.8), warnings of a lost, ambiguous or guessed reference (3.1), other warnings with `--deny-warnings`, a file that is not canonical (`fmt --check`, `validate --canonical`), failed features in `rebuild` or `export` (without `--allow-errors`), an unknown or ambiguous `--body`, an unknown `--printer`, a `--printer-file` whose profile the engine refuses, an engine error while exporting, or schema drift (`schema --check`). |
 | 2 | Usage error: unknown command or option, missing or invalid value, or an option that does not apply to the chosen format. Printed by clap or in the same style. |
-| 3 | Input or output error: a file or directory cannot be read or written, or the write refuses it (a read-only file, a symbolic link that leads to no file, or a link that changed while the write followed it, 3.7). |
+| 3 | Input or output error: a file or directory cannot be read or written, or the write refuses it (a read-only file, a symbolic link that leads to no file, a link that changed while the write followed it, 3.7, or an output that `import` would replace without `--force`, 3.8). |
 | 4 | Internal error: a panic. `main` installs `std::panic::catch_unwind` around the run and prints `internal error: <message>` to standard error. |
 
 With several files, each file is processed independently and the exit code is the largest code any file produced.
@@ -113,7 +122,7 @@ With several files, each file is processed independently and the exit code is th
 
 ### 2.3 Assets
 
-For a document at path `P`, the CLI reads every regular file in `P`'s directory under `assets/` whose name matches `^[0-9a-f]{64}\.[a-z0-9]+$` and passes them to the engine, which uses only the referenced ones (engine.md 3.14). A missing `assets/` directory is not an error. A document read from standard input gets no assets.
+For a document at path `P`, the CLI reads every regular file in `P`'s directory under `assets/` whose name matches `^[0-9a-f]{64}\.[a-z0-9]+$` and passes them to the engine, which uses only the referenced ones (engine.md 3.14). A missing `assets/` directory is not an error. A document read from standard input gets no assets. Since M2, `import` writes the asset of the document it makes into `assets/` next to its output (sections 3.7 and 3.8).
 
 ## 3. Behavior
 
@@ -314,7 +323,7 @@ A parameter that failed to evaluate has `error` instead of `value` and `dimensio
 
 ### 3.7 Writing files
 
-`fmt` (3.2), `export` (3.4) and `schema --write` (3.5) write every file through one write, `files::write` in `crates/partsmith-cli/src/files.rs`. Each error names the file by the path as given or derived from a given path (section 4), never a temporary file or the file a link points to. The write stops at the first step that fails:
+`fmt` (3.2), `export` (3.4), `schema --write` (3.5) and, since M2, the document of `import` (3.8) write every file through one write, `files::write` in `crates/partsmith-cli/src/files.rs`. Each error names the file by the path as given or derived from a given path (section 4), never a temporary file or the file a link points to. The write stops at the first step that fails:
 
 1. **The target.** When the path is a symbolic link (`std::fs::symlink_metadata`), the write first looks at the file through the link with `std::fs::metadata`. The operating system follows the link for that look, under its own limits. On Linux, `fs.protected_symlinks` (on by default in Ubuntu, Debian and Fedora) refuses a link in a sticky folder that everyone can write, such as `/tmp`, when another user owns the link. The write then fails with the system's text. A link that leads to no file (its chain ends at a missing entry) fails with `it is a symbolic link to a file that does not exist. Create that file first, or remove the link.`: the look's `NotFound` becomes `io::Error::new(io::ErrorKind::NotFound, <that text>)`. A loop of links fails with the system's text. The target is then the file `std::fs::canonicalize` names, which follows every link of the chain. On Linux and macOS it must be the file the look reached: the same device and inode (`std::os::unix::fs::MetadataExt`). The device and inode of the file `canonicalize` named come from `std::fs::metadata` of that path. That call's own error is the write's error. When it is another file (a link on the way changed between the two calls), the write fails with `the symbolic link changed while Partsmith was following it. Try again.`, an `io::Error` of kind `StaleNetworkFileHandle` with that text. On Windows, `canonicalize` opens the file through the link itself. The system's own rules apply to that open. No comparison is made there. Every failure of this step comes before anything is created. The link stays as it is: the same entry, pointing at the same path. A path that is not a link, does not exist or cannot be looked at is the target itself. For such a path, any error comes from the steps below. The step is this private item of `files.rs`. `files::write` calls it with `std::fs::metadata` and `std::fs::canonicalize`. Test 70 passes its own. The lifetime `'path` lets the two generic functions be passed as they are (with `impl FnOnce(&Path)`, which asks for every lifetime, the compiler refuses them):
 
@@ -341,6 +350,58 @@ A parameter that failed to evaluate has `error` instead of `value` and `dimensio
 
 A link that leads to a file is written through: the file it points to is replaced, and the link stays (test 68). Before wave G, a link that led to no file was replaced by a regular file (open issue 12), the target was found with `canonicalize` alone (open issue 13), a read-only file was replaced and kept read-only (open issue 14), and a failure of the temporary file named that file as well (` at path "<folder>/.partsmith-<random>"`, test 71).
 
+**Assets** (since M2, [ADR W2-1D-2](../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md)). `import` writes its asset with `files::write_asset(document: &Path, name: &str, bytes: &[u8])`, file-format.md section 3.11 step 1 for one asset, before the document. The folder is `assets` in the folder of the document path as given (its parent, or the current folder for a bare name). The write stops at the first step that fails, and each error names the folder or the asset by its path as derived from the given document path (`assets` or `out/assets/<name>`), never a temporary file:
+
+1. **The folder.** When `assets` does not exist (`symlink_metadata` gives `NotFound`), it is created with `std::fs::create_dir`, never its parents. An existing `assets` that is a folder, or a symbolic link to one, is used. Any other entry fails with the system's text of the `create_dir` or the look.
+2. **The entry check.** The entry `assets/<name>` is looked at with `std::fs::symlink_metadata`, which follows no link. No entry: the asset is written (step 3). A regular file of the asset's length is read and compared with `bytes`. Equal bytes keep it, and the asset step is done. A folder fails with `it is a folder. Move it away, then import again.`, an `io::Error` of kind `IsADirectory` with that text. Any other entry is replaced: a regular file of another length or with other bytes, a symbolic link, whether or not it resolves, and any other kind of entry. A regular file with other bytes that is read-only (`Permissions::readonly`) is refused with step 2's text of the document write, `the file is read-only. Make it writable first.`, as every file the CLI would replace is (open issue 14, open issue 15).
+3. **The write.** Step 3 of the document write in `assets`, with the default permissions, then a rename over the entry itself. A link under the asset's name is replaced by the regular file. The file it pointed to is left as it is. On any failure the temporary file is removed.
+
+### 3.8 `import`
+
+Since M2 ([ADR W2-1D-2](../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md)). `partsmith import <STEP> -o <PTSM>` makes a new document that holds the solids of a STEP file in one body, the way the UI's Import command and Python's `Document.import_step` do (engine.md section 3.14). It stops at the first step that fails, and writes nothing before step 6:
+
+1. **Names.** `<STEP>` must end in `.step` or `.stp` and `<PTSM>` in `.ptsm`, each compared without case. Otherwise exit 2 with `error: "<path>" is not a STEP file. partsmith import reads .step and .stp files.` or `error: "<path>" does not end in .ptsm. Name the new document <name>.ptsm.` An empty `--name` exits 2 with `error: --name needs a name.`
+2. **An existing output.** Without `--force`, a `<PTSM>` that exists as any entry (`std::fs::symlink_metadata` succeeds: a file, a folder, or a symbolic link whether or not it resolves) exits 3 with `error: cannot write "<PTSM>": the file exists. Pass --force to replace it.` before the STEP file is read.
+3. **Read.** The STEP file's bytes (`std::fs::read`; exit 3 with `error: cannot read "<STEP>": <os message>`). A STEP file needs no folder of its own: the CLI reads no `assets/` for it.
+4. **Import.** In the invocation's headless session (`SequentialIds`): `new_document` in millimeters with no printer, then `import_step` with the bytes and `--name` when given. The engine's error exits 1 with `error: <message>`, for example `error: Import failed. The file is not a valid STEP file.` (`import_failed`, engine.md section 4) or `error: Import failed. The STEP file contains no solid bodies.`.
+5. **The import's status.** The status of the import feature in the document's statuses, as `rebuild` reads them (3.3). With status `error`, each of its messages prints as a diagnostic `<STEP>: error[<code>]: <message>` (2.2), with its actions and candidates under it, and the command exits 1 with nothing written. Its warnings and info notices are kept for steps 7 and 8.
+6. **Write.** `save_document` gives the text and the one asset. The asset is written first (3.7, Assets), then the document with the write of 3.7. Without `--force`, the document's rename is `NamedTempFile::persist_noclobber`, which refuses an entry that appeared since step 2 with the same message as step 2. With `--force`, an existing output is replaced as `export` replaces its file: through a symbolic link, and a read-only file is refused (3.7). A failed write exits 3 with the error of section 4. The asset written before a failed document write stays, since it is valid (file-format.md section 3.11).
+7. **Human output.** The written paths on standard output, one per line: the asset's path (`assets/<name>` next to `<PTSM>` as given, also when step 2 of 3.7's Assets kept an equal file), then `<PTSM>`. Then each warning and info notice of the import, on standard error, as `warning[<code>]: <message>` or `info[<code>]: <message>`, in the feature's message order. For the committed block `S` (test 88):
+
+```text
+assets/b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step
+block.ptsm
+```
+
+8. **JSON output.** `files`, as `export` reports them (3.4 item 8): the asset with `media_type` `model/step` and then the document with `application/json`, each with the length in bytes of the file now at its path; then `feature`, the import feature's id; `body`, the body's `id` and `name`; and `messages`, the import's warnings and info notices as feature messages of `rebuild --json` (3.3 item 5), empty when there are none:
+
+```json
+{
+  "files": [
+    {
+      "path": "assets/b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step",
+      "media_type": "model/step",
+      "bytes": 15303
+    },
+    {
+      "path": "block.ptsm",
+      "media_type": "application/json",
+      "bytes": 378
+    }
+  ],
+  "feature": "f-000000000001",
+  "body": {
+    "id": "b-000000000001",
+    "name": "Block"
+  },
+  "messages": []
+}
+```
+
+9. **Exit.** 0 when the files are written, also with warnings. With `--deny-warnings`, a warning gives exit 1 after the files are written, as for `rebuild` (3.3 item 6). An info notice never changes the exit code.
+
+The document is the engine's canonical text of the new document, so it is byte-identical for the same STEP bytes and `--name` on every run and platform (3.6). Its ids are the session's first body and feature ids, `b-000000000001` and `f-000000000001`. The UI's import of the same file gives the same document with its own random ids in their place, and the same asset (m2-plan.md gate 13, test 104, delivery.md section 2.8).
+
 ## 4. Errors
 
 | Situation | Message (standard error unless `--json`) | Exit |
@@ -363,6 +424,13 @@ A link that leads to a file is written through: the file it points to is replace
 | Option not valid for format | `error: --<option> does not apply to <format> export.` | 2 |
 | Invalid `--rotate` | `error: --rotate takes <axis>:<degrees>, for example x:90.` | 2 |
 | Second `-` | `error: Standard input can be read only once.` | 2 |
+| `import` of a file whose name does not end in `.step` or `.stp` | `error: "<path>" is not a STEP file. partsmith import reads .step and .stp files.` | 2 |
+| `import` to an output whose name does not end in `.ptsm` | `error: "<path>" does not end in .ptsm. Name the new document <name>.ptsm.` | 2 |
+| `import` with an empty `--name` | `error: --name needs a name.` | 2 |
+| `import` onto an existing output without `--force` (3.8 steps 2 and 6) | `error: cannot write "<path>": the file exists. Pass --force to replace it.` | 3 |
+| `import` of a file the engine cannot import (3.8 step 4) | `error: <engine message>`, for example `error: Import failed. The file is not a valid STEP file.` | 1 |
+| `import` whose feature fails (3.8 step 5) | `<path>: error[<code>]: <message>` per message (2.2) | 1 |
+| A folder under an asset's name (3.7, Assets) | `error: cannot write "<path>": it is a folder. Move it away, then import again.` | 3 |
 | Schema drift | `<path> is out of date. Run: partsmith schema --write` (standard output) | 1 |
 | Panic | `internal error: <message>` | 4 |
 
@@ -379,8 +447,9 @@ Release build, reference machine (technical design section 14), wall time includ
 | `partsmith rebuild` and `export` | the engine budgets (engine.md section 5) of the work they ask of the engine, plus 100 ms |
 | `partsmith rebuild` of the reference part (engine.md section 5) | 2.3 s: `open_document` of the reference part, cold session (2.2 s), plus 100 ms |
 | `partsmith export` of the reference part to binary STL at standard quality | 2.6 s: `open_document` of the reference part, cold session (2.2 s), and `export` of the reference part to binary STL at standard quality (300 ms), plus 100 ms |
+| `partsmith import` of the committed STEP block (since M2) | 410 ms: two `read_step` of the part (150 ms each, kernel.md section 5; `import_step` reads the file once for the body's name and once when the import builds, delivery.md section 2.8), the import's build of a 6-face body (10 ms, features/import.md section 5), plus 100 ms |
 
-The 100 ms covers starting the process, reading the document, writing what the command writes and, for `rebuild`, measuring the bodies, which has no engine budget. The CLI's session is headless (section 2), so its `open_document` meshes no body for display, which the engine's row, run in a display session, does; its `export` meshes the bodies instead. The last two rows of the table, rows 5 and 6 below, follow engine.md section 5's `open_document of the reference part, cold session` and `export of the reference part to binary STL at standard quality` rows: a change to either changes them in the same change. The first follows the full rebuild's budget, with the open's share added, since 2026-11-05 (engine.md open issue 6, [ADR 0057](../adr/0057-budgets-set-from-the-measured-median-plus-20-percent.md)).
+The 100 ms covers starting the process, reading the document, writing what the command writes and, for `rebuild`, measuring the bodies, which has no engine budget. The CLI's session is headless (section 2), so its `open_document` meshes no body for display, which the engine's row, run in a display session, does; its `export` meshes the bodies instead. Rows 5 and 6 below follow engine.md section 5's `open_document of the reference part, cold session` and `export of the reference part to binary STL at standard quality` rows: a change to either changes them in the same change. Row 5 follows the full rebuild's budget, with the open's share added, since 2026-11-05 (engine.md open issue 6, [ADR 0057](../adr/0057-budgets-set-from-the-measured-median-plus-20-percent.md)).
 
 **How they are measured.** By `crates/partsmith-cli/benches/budgets.rs` (`harness = false`, `std::time::Instant`, no benchmark framework, decision D7 of `docs/spec/README.md`), on `partsmith-budgets` as the other crates' budget benchmarks are ([ADR 0027](../adr/0027-dev-only-workspace-crates.md)). `cargo bench -p partsmith-cli --bench budgets` runs every row below, or those whose names contain one of the words given after `--` (`-- validate fmt`; row 1 is selected with `version`, since the harness skips every argument that starts with `--`, which Cargo's own flags do). Cargo builds the `partsmith` binary with the `bench` profile, which is the release profile, and the bench runs that binary (`env!("CARGO_BIN_EXE_partsmith")`) through `std::process::Command`, in a temporary directory (`tempfile`) that holds every file the rows write, with standard input empty and standard output and error captured. A sample is the wall time of one `Command::output` call, from just before the process starts until it has exited and its output has been read. Each row runs its command once untimed, so that the binary and the row's inputs are in the file cache, as for a user who runs a command a second time, then 11 times timed, and records the median of the 11 samples (`median` of `partsmith-budgets`, the 6th smallest) against its budget; `Report` prints every row with its budget and fails the run when a row is over budget or not measured. Writing the inputs and the untimed run are outside the samples. Every run, untimed or timed, must exit with code 0, the code of a run that did all its work (a file that validates, a canonical file, schemas that match, a reference part with no failed feature, a written file). A run that does not leaves its row unmeasured, and the rows before and after it are still measured, so a run off the reference machine keeps every median it can take: the bench prints on standard error `<command> did not succeed (<status>), so "<row>" cannot be measured. It printed:` followed by the lines `--- standard output ---`, the run's standard output, `--- standard error ---` and its standard error (the layout of `Run::assert_code` in `tests/common/mod.rs`), records the row with `record_unmeasured`, skips the row's remaining runs and goes on with the next row; `finish` then lists it as `Not measured: <row>` and fails the run. `<command>` is `partsmith` followed by the arguments the bench passed, with the reference part's path as passed (`partsmith validate budget.ptsm`), `<status>` the run's exit status as Rust displays it (`exit status: 1`) and `<row>` the row's name; for row 4's untimed `schema --write`, `<command>` is `partsmith schema --write` and `<row>` row 4's name. A run that cannot be started (`Command::output` returns an error, as for a missing binary) is handled the same way, with the message `cannot run <command>: <error>`. No workflow runs the bench: like the other crates' budget benchmarks it runs by hand, the budgets hold on the reference machine, and a run elsewhere records its medians in open issue 11 without deciding anything.
 
@@ -392,6 +461,7 @@ The rows, each with its name as `Report` prints it, its command, run in the temp
 4. `partsmith schema --check`: `partsmith schema --check`, 200 ms. Before its runs, an untimed `partsmith schema --write` in the same directory writes `docs/format/ptsm.schema.json` and `docs/format/protocol.schema.json` there, so the row compares both schemas with files that match them whatever the checked-in files hold; test 53 checks those.
 5. `partsmith rebuild of the reference part`: `partsmith rebuild <reference part>`, where `<reference part>` is the absolute path of `examples/bench/fifty-features/model.ptsm`, read where it is (it has no `assets/` folder), 2.3 s.
 6. `partsmith export of the reference part to binary STL at standard quality`: `partsmith export <reference part> -o model.stl`, which writes every default body into one binary STL file at the standard tolerance, the request of the engine's row (`{"kind": "stl", "binary": true, "per_body": false}`), 2.6 s. Each run replaces `model.stl`.
+7. `partsmith import of the committed STEP block` (since M2): `partsmith import <block> -o block.ptsm --force`, where `<block>` is the absolute path of `examples/import/assets/b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step`, read where it is, 410 ms. Each run replaces `block.ptsm` and keeps the equal `assets/` file it wrote the first time. The row's word is `import`.
 
 **The 200 KB document** of rows 2 and 3, `budget.ptsm`, is written at run time from `budget_document()` (`pub fn budget_document() -> String`) in `crates/partsmith-cli/tests/common/workload.rs`. `tests/common/mod.rs` declares that file as `pub mod workload;`, and the bench includes it alone with `#[path = "../tests/common/workload.rs"]`, as the sketch solver bench includes `tests/common/benchmark.rs`. So the file uses nothing else of `tests/common`: it reads `plate.ptsm` itself from `crates/partsmith-engine/tests/fixtures/` (with `include_str!` relative to the file, or `env!("CARGO_MANIFEST_DIR")`), uses only `std`, `serde_json` and `partsmith_engine`, which the bench also has, and allows `dead_code` when the bench and the tests use different items of it, as `benchmark.rs` does. Test 64 runs it, so the document the bench times is checked on every test run. It is `plate.ptsm` (engine.md section 3.20) 133 times over: units `mm`, no parameters, bodies `b-1` to `b-133` named `Plate 1` to `Plate 133`, and, for each copy `k` from 1 to 133 in turn, plate's sketch as `f-sk<k>`, with its entities `e-<k>01` to `e-<k>04` for plate's `e-1` to `e-4` and its constraints `c-<k>01` to `c-<k>08` for `c-1` to `c-8`, then plate's extrude as `f-ext<k>`, into `b-<k>` and of `f-sk<k>`, with its region's `key` and `outline` both `e-<k>01,e-<k>02,e-<k>03,e-<k>04` and its region `fp`, extent and `op` unchanged. The two digits after `<k>` keep each copy's ids in the byte order a region key lists them in (sketch.md section 3.13.5), which `e-9` to `e-12` would not be. The text is that document's canonical form, as `Session::format` gives it and `partsmith fmt` writes it (engine.md section 2, file-format.md), so `fmt --check` prints nothing and `validate` prints `budget.ptsm: ok`; it has 200,745 bytes (2026-10-30), with 1 KB taken as 1,000 bytes as in delivery.md section 2.6, and test 64 holds it at 200,000 bytes or more and under 210,000. `validate` solves its 133 sketches, more sketches per kilobyte than the reference part has (10 in 31 KB).
 
@@ -561,9 +631,56 @@ Tests 66 to 69 and 71 are in `crates/partsmith-cli/tests/writes.rs`, declared `m
 86. Run in the folder `step-block`, `partsmith validate step-block.ptsm` exits 1 and prints the line `step-block.ptsm: error[asset_mismatch] at /features/0/asset: The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.` No line of its output holds the 64 hex digits of the asset's name.
 87. Run in the folder `step-block`, `partsmith rebuild step-block.ptsm` exits 1 and prints the line `step-block.ptsm: error[asset_mismatch]: The STEP file of 'Import 1' in the assets folder is not the file it imported. Copy the assets folder that came with the document next to it.` Until M2 the message was `Asset b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step does not match its content hash.`
 
+**Import** (since M2, [ADR W2-1D-2](../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md); section 3.8). Each test runs in an empty temporary folder `tmp`. `S` is the name `b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step`, and `block.step` is a copy of `examples/import/assets/S` (15,303 bytes, features/import.md section 6) in `tmp`. `IMPORTED` is this 378-byte text, with one LF at its end:
+
+```json
+{
+  "format": "partsmith",
+  "format_version": 3,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-000000000001", "name": "Block"}
+  ],
+  "features": [
+    {
+      "id": "f-000000000001",
+      "type": "import",
+      "body": "b-000000000001",
+      "asset": "b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step",
+      "op": "new"
+    }
+  ]
+}
+```
+
+"Nothing written" means that `tmp` holds the same entries with the same bytes afterwards.
+
+88. Import to a new file. `partsmith import block.step -o block.ptsm` exits 0, prints exactly the two lines of 3.8 item 7, and writes nothing to standard error. `tmp/block.ptsm` holds `IMPORTED` byte for byte, and `tmp/assets/S` holds the bytes of `block.step`.
+89. JSON output. `partsmith import --json block.step -o block.ptsm` exits 0 and prints exactly the JSON document of 3.8 item 8 and a newline. Standard error stays empty.
+90. The new document is whole. After test 88, `partsmith validate --rebuild block.ptsm` prints `block.ptsm: ok` and exits 0, and `partsmith rebuild --json block.ptsm` exits 0 with feature `f-000000000001` of type `import` and status `ok`, and body `b-000000000001` named `Block` with volume 6000 and 6 faces (volume within 1e-6 relative). `partsmith import block.step -o again.ptsm` then exits 0, `again.ptsm` holds `IMPORTED`, and `assets/S` is kept, not written again: its modification time is unchanged (3.7, Assets, step 2).
+91. `--name`. `partsmith import block.step -o block.ptsm --name Bracket` exits 0, and `block.ptsm` holds `IMPORTED` with `"name": "Block"` replaced by `"name": "Bracket"` (and so 380 bytes).
+92. Names compared without case. A copy of `block.step` named `BLOCK.STP` imports with `-o Block.PTSM`: exit 0, and `Block.PTSM` holds `IMPORTED`.
+93. Not a STEP file name. With `block.txt` a copy of `block.step`, `partsmith import block.txt -o block.ptsm` exits 2 with exactly `error: "block.txt" is not a STEP file. partsmith import reads .step and .stp files.` and a newline on standard error, and nothing written. The same for the input `-`, with `"-"` in the message.
+94. Not a `.ptsm` output. `partsmith import block.step -o block.json` exits 2 with exactly `error: "block.json" does not end in .ptsm. Name the new document <name>.ptsm.` and a newline on standard error, and nothing written.
+95. An empty name. `partsmith import block.step -o block.ptsm --name ""` exits 2 with exactly `error: --name needs a name.` and a newline, and nothing written. `partsmith import block.step` without `-o` exits 2 with clap's message for a missing required option, and nothing written.
+96. An existing output is refused first (3.8 step 2). With `tmp/block.ptsm` holding `old`, `partsmith import block.step -o block.ptsm` exits 3, prints nothing on standard output and exactly `error: cannot write "block.ptsm": the file exists. Pass --force to replace it.` and a newline on standard error. `block.ptsm` still holds `old`, and `tmp` holds no `assets`. `partsmith import missing.step -o block.ptsm`, with no `missing.step`, gives the same error: the STEP file is never read.
+97. (Unix) Other entries are refused too. Without `--force`, the same error and nothing written for `tmp/block.ptsm` a folder, a symbolic link to `real/part.ptsm` that exists, and a symbolic link to `gone/part.ptsm` that does not.
+98. `--force` replaces a file. With `tmp/block.ptsm` holding `old`, `partsmith import block.step -o block.ptsm --force` exits 0 and `block.ptsm` holds `IMPORTED`.
+99. (Unix) `--force` writes through a link and refuses a read-only file (3.7 steps 1 and 2). (a) With `tmp/real/part.ptsm` holding `old` and `tmp/link.ptsm` a link to `real/part.ptsm`, `partsmith import block.step -o link.ptsm --force` exits 0. `tmp/link.ptsm` is the same link, `tmp/real/part.ptsm` holds `IMPORTED`, and the asset is `tmp/assets/S`, next to the link (file-format.md section 3.11), with no `tmp/real/assets`. (b) With `tmp/block.ptsm` holding `old` and read-only, `partsmith import block.step -o block.ptsm --force` exits 3 with exactly `error: cannot write "block.ptsm": the file is read-only. Make it writable first.` and a newline on standard error. `block.ptsm` still holds `old` and is still read-only. `tmp/assets/S` holds the bytes of `block.step`, since the asset is written before the document.
+100. A STEP file that cannot be read. `partsmith import missing.step -o block.ptsm` exits 3 with a line on standard error that starts with `error: cannot read "missing.step": `, and nothing written.
+101. A file that is not STEP (3.8 step 4). With `bad.step` holding `hello`, `partsmith import bad.step -o block.ptsm` exits 1 with exactly `error: Import failed. The file is not a valid STEP file.` and a newline on standard error, prints nothing on standard output, and nothing written.
+102. Warnings (3.8 items 7 to 9). With `void.step` holding `SELF_VOID`, the STEP text of test 65, `partsmith import void.step -o void.ptsm` exits 0, prints the asset's path and `void.ptsm` on standard output, and exactly this line on standard error: `warning[import_warning]: This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.` The body is named `Block`, the product name `partsmith export` gave `box.ptsm`'s body. With `--deny-warnings`, in a new `tmp`, it exits 1 and writes both files, and with `--json` it prints `messages` holding one object with `severity` `warning`, `code` `import_warning`, that `message` and the `detail` of features/import.md test 13.
+103. The asset's entry check (3.7, Assets). In each case `partsmith import block.step -o block.ptsm` runs in a new `tmp`. (a) `tmp/assets/S` holding `stale`: exit 0, and `tmp/assets/S` holds the bytes of `block.step`. (b) `tmp/assets/S` already holding those bytes: exit 0, and its modification time is unchanged. (c) (Unix) `tmp/assets/S` a link to `../outside.step`, which holds `stale`: exit 0, `tmp/assets/S` is a regular file with the bytes of `block.step`, and `tmp/outside.step` still holds `stale`. (d) `tmp/assets/S` a folder: exit 3 with exactly `error: cannot write "assets/S": it is a folder. Move it away, then import again.` (with `S` written out) and a newline on standard error, no `block.ptsm`, and the folder is still there. (e) (Unix) `tmp/assets/S` holding `stale` and read-only: exit 3 with exactly `error: cannot write "assets/S": the file is read-only. Make it writable first.`, no `block.ptsm`, and the entry still holds `stale`. (f) `tmp/assets` a file holding `x`: exit 3 with a line on standard error that starts with `error: cannot write "assets": `, and no `block.ptsm`. No case leaves a file whose name starts with `.partsmith-` in `tmp` or `tmp/assets`.
+104. The UI's import gives the same document (m2-plan.md gate 13, delivery.md section 2.8). `ui/e2e/fixtures/gui/import.ptsm` and `ui/e2e/fixtures/gui/assets/S` are the document and the asset that ui.md's E-175 saved after importing `examples/import/assets/S`. `partsmith import` of a copy of `examples/import/assets/S` named `block.step`, with `-o block.ptsm`, exits 0. Then: (a) `tmp/assets/S` and `ui/e2e/fixtures/gui/assets/S` hold the same bytes; (b) `partsmith fmt --check ui/e2e/fixtures/gui/import.ptsm` exits 0; (c) the two documents are equal once ids are mapped in creation order. A document's ids in creation order are the `id` of each parameter in `parameters` order, then of each body in `bodies` order, then of each feature in `features` order. The two lists have the same length, and the k-th ids of both have the same prefix. Every JSON string of the UI's document, parsed, that equals its k-th id is replaced by the CLI document's k-th id. The result equals the CLI document, parsed, as JSON values. A failure lists each difference at its JSON Pointer, as `<pointer>: <UI value> in ui/e2e/fixtures/gui/import.ptsm and <CLI value> from partsmith import`. A missing fixture fails with `ui/e2e/fixtures/gui/import.ptsm is missing. Run: PARTSMITH_BLESS=1 pnpm -C ui e2e round-trip.spec.ts` (delivery.md section 4).
+105. A failed write. (a) `partsmith import block.step -o missing/block.ptsm`, where `tmp/missing` does not exist, exits 3 with a line on standard error that starts with `error: cannot write "missing/assets": `, and nothing written. (b) (Unix) With `tmp/block.ptsm` an empty folder, `partsmith import block.step -o block.ptsm --force` exits 3 with a line that starts with `error: cannot write "block.ptsm": `, and `tmp/assets/S` holds the bytes of `block.step` (3.8 step 6).
+106. Deterministic output. `partsmith import block.step -o a.ptsm` and `partsmith import --json block.step -o b.ptsm`, run twice each in new folders, give byte-identical standard output, standard error and files each time.
+107. The command list. `partsmith --help` lists `import` with the description `Import a STEP file into a new document`, and `partsmith import --help` exits 0.
+108. The budget row (section 5). `crates/partsmith-cli/benches/budgets.rs` lists row 7 with the name `partsmith import of the committed STEP block` and 410 ms, and `cargo bench -p partsmith-cli --bench budgets -- import` runs it alone.
+
 ## 7. Open issues
 
-1. **Command list.** The architecture names `validate | fmt | rebuild | export | schema`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command. STEP import is left to Python in M1 (`Document.import_step`, python-api.md); the UI's import (ui.md 1.2) and a `partsmith import` command (section 1, Later) come later, so the CLI has no import route in M1.
+1. **Command list.** Resolved in M2 by [ADR W2-1D-2](../adr/W2-1D-2-step-import-in-the-ui-and-the-cli-through-import-step.md): the architecture names `validate | fmt | rebuild | export | schema | import`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command. In M1 STEP import was left to Python (`Document.import_step`, python-api.md), and the CLI had no import route. Since M2 `partsmith import` makes a new document from a STEP file (section 3.8), as the UI's Import command adds one to the shown document (ui.md 3.19).
 2. **Asset discovery.** The CLI passes every hash-named file in `assets/` and relies on the engine ignoring unreferenced ones (engine.md 3.14). A large shared asset folder is read fully; a lazy asset source can come later.
 3. **`rebuild --json` and expected results.** Resolved by [delivery.md](delivery.md) section 2.8: an example's `<stem>.expected.json` is the `rebuild --checks --json` report without `path` and the findings' triangle lists.
 4. **Exit code for feature errors in `validate --rebuild` versus `rebuild`.** Both use exit 1; print findings never affect the exit code. A future `--deny-findings` can change that.
@@ -577,3 +694,4 @@ Tests 66 to 69 and 71 are in `crates/partsmith-cli/tests/writes.rs`, declared `m
 12. **A write onto a symbolic link that leads to no file.** Resolved: the owner chose option (a) on 2026-11-05. Wave G's link-writes track builds it. Before wave G, the atomic write (`write_atomically` in `crates/partsmith-cli/src/files.rs`) wrote to the path as given when `canonicalize` found no file. The rename then replaced the link with a regular file. That happened to `export --output` (section 3.4) and `schema --write` (section 3.5). `fmt` (section 3.2) failed before it wrote, since it reads the file first. Python and the desktop fail there and keep the link (python-api.md section 3.1, desktop.md section 3.4 step 4.1). [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s first amendment of 2026-11-04 gave the options: (a) the CLI fails like the hosts, exits 3 with its write error and keeps the link, or (b) the CLI stays as built. The owner chose (a) on 2026-11-05. The write now fails before anything is created, with a message that names the link (3.7 step 1, section 4). The link stays (tests 66 and 67). The read-only refusal that the owner's rule added the same day is open issue 14.
 13. **A link the operating system would refuse to follow.** Resolved by the owner's rule of 2026-11-05 ([ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s amendment of 2026-11-05, choice 4). Before wave G, `write_atomically` found the file a link points to with `std::fs::canonicalize` alone. On Linux that is glibc's `realpath`, which reads each link itself. Linux's `fs.protected_symlinks` never applied to it. `partsmith export --output /tmp/part.stl` onto a link another user owns there wrote the file the link names, where a plain write fails with `EACCES`. The write now looks through the link with `std::fs::metadata` first, under the system's own limits. On Linux and macOS it then checks that `canonicalize` names the file that look reached (3.7 step 1, test 70). Python does the same (python-api.md section 3.1). desktop.md open issue 14 was the same gap on the desktop and is closed the same way.
 14. **A read-only file the CLI would replace (decided by the owner's rule of 2026-11-05: refuse it).** Before wave G, the CLI's write did not check the target's permissions. Where a rename can replace a read-only file (Linux and macOS, where it needs write access to the folder only), `fmt`, `export` and `schema --write` replaced one and kept it read-only. Once Python refuses a read-only document or export file (python-api.md open issue 12, the owner's option (a)), the CLI would be the one Partsmith program that replaces one. [ADR 0037](../adr/0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md)'s second amendment of 2026-11-04 gives the options: (a) refuse every read-only file the CLI would replace, before it writes, as the desktop and Python do; (b) refuse a read-only document or export file and still replace a read-only schema file; (c) keep replacing them all. The owner's rule takes (a). It is the safest choice. Tools that rewrite files, such as rustfmt and Prettier, fail on a read-only file too. The write refuses one with `the file is read-only. Make it writable first.` (3.7 step 2, section 4, test 69). A file that needs no change is not written. A read-only file in canonical form and an up-to-date read-only schema file are not refused (3.2, 3.5). Closed: wave G's link-writes track builds it.
+15. **A read-only asset that holds other bytes (since M2).** The CLI refuses to replace it (3.7, Assets, step 2), as it refuses every read-only file it would replace (open issue 14) and as the desktop refuses one (desktop.md section 3.4 step 9). Python replaces it on Linux and macOS, where a rename needs write access to the folder only (python-api.md section 3.1, ADR 0037 decision 5). The same `assets/` folder therefore saves from Python and fails from the CLI and the desktop. One rule for all three hosts waits for a change of ADR 0037 decision 5, which the owner made for M1.
