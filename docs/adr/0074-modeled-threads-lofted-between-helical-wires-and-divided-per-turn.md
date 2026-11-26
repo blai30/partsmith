@@ -34,6 +34,7 @@ Every option is open source, built on OCCT. The first criterion of the rule pick
 
 - features/thread.md (wave 2, item 20) specifies item 1's construction, its history and its tests from kernel.md section 8.2's Results.
 - History: the crest and root helix edges are `ThruSections`' section edges (kernel.md section 8.2). `ThruSections::Generated` misnames a flank line on a wire walked reversed (kernel.md open issue 22). features/thread.md therefore builds its section wires with every edge forward, or names the flank lines by their two faces (kernel.md open issue 21 (a)).
+  - Note (2026-11-23): by [ADR 0084](0084-wrap-curves-and-modeled-threads-in-the-kernel.md) (Accepted (owner's rule of 2026-11-05)), the kernel's `modeled_thread`, not features/thread.md, builds the section wires, each with every edge forward (kernel.md section 3.4.14 item 5.4). This settles kernel.md open issue 21 (a) for the kernel. features/thread.md still chooses whether the flank lines are named by these generators or by their two faces (naming.md section 3.6).
 - Crest and root faces split per turn, and their face-rule names are order dependent (m2-plan.md risk 3). The roles `crest` and `root` sit on edges, which the builder names.
 - features/thread.md's tests check that a thread's boolean kept both arguments, which `Shape::is_valid()` does not see (kernel.md open issue 22). Item 1's division removes the faces on which `Shape::volume` misreads.
 - The thread's time grows with its turns (kernel.md section 8.2). Its budget needs the median of three sets.

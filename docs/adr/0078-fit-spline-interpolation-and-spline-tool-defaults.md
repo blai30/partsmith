@@ -18,12 +18,12 @@ Status: Accepted (owner's rule of 2026-11-05): the M2 plan's open choices "Fit-s
 
 Each choice is Accepted (owner's rule of 2026-11-05): the most open-source approach, then the safest, then the industry standard, then this work's recommendation. Every option is in-house Rust under Apache-2.0 and deterministic: the first two criteria tie unless a choice says otherwise.
 
-1. *Parameters.* (a) Chord length; (b) centripetal; (c) uniform. The rule takes (a), the industry standard: OCCT's interpolator and most CAD use it, and a fit spline built here agrees with one OCCT builds from the same points.
+1. *Parameters.* (a) Chord length; (b) centripetal; (c) uniform. The rule takes (a), the industry standard of the kernel this product uses: OCCT's interpolator uses it, and a fit spline built here agrees with one OCCT builds from the same points.
 2. *End conditions of an open spline.* (i) Not-a-knot; (ii) natural; (iii) the end derivatives of the cubic Lagrange polynomial through four end points, OCCT's rule. The rule takes (iii), the industry standard of the kernel this product uses. The plan recommended (i) "checked against OCCT's Geom2dAPI_Interpolate before writing". The check found that OCCT uses (iii). (iii) also gives each end tangent in closed form from four points.
 3. *Periodic splines.* (i) The C2 periodic cubic interpolant; (ii) OCCT's periodic path. The rule takes (i), the safest: its curve does not depend on which point is first, which a user cannot see in a closed loop of points. (ii) estimates one tangent at the first point.
 4. *Repeated points.* (i) Consecutive points within the tolerance count once; (ii) the record is invalid. The rule takes (i), the safest: a solve that makes two fit points meet does not make a valid record invalid. The tool refuses such points (`RepeatedPoint`).
 5. *The tool's degree.* (a) `min(3, poles - 1)` with clamped uniform knots; (b) a degree the user picks in the tool. The rule takes (a), the industry standard of Fusion and FreeCAD, and fewer options on screen (engineering principle 5). The inspector can edit a stored spline's degree and knots once item 15's spec allows it.
-6. *The tool's periodic option.* (i) A toggle; (ii) closing on the first pole. The rule takes (i), the recommendation: a click on the first pole stays a snap, as in M1's line tool.
+6. *The tool's periodic option.* (i) A toggle; (ii) closing on the first pole. The two are as safe as each other. No industry standard decides between them. The rule takes (i), this work's recommendation: a click on the first pole stays a snap, as in M1's line tool.
 
 ## Consequences
 

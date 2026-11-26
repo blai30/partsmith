@@ -1,6 +1,6 @@
 # 0004: Native Rust sketch solver instead of PlaneGCS
 
-Status: Accepted (owner, 2026-11-04), signed off as built. Drag frames that do not converge with the weak pin are solved again without it, as amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md). The trust region takes the exact step in place of dog-leg's blend, as amended by [ADR 0058](0058-exact-trust-region-step.md) (2026-11-07, Accepted (owner's rule of 2026-11-05)).
+Status: Accepted (owner, 2026-11-04), signed off as built. Drag frames that do not converge with the weak pin are solved again without it, as amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md). The trust region takes the exact step in place of dog-leg's blend, as amended by [ADR 0058](0058-exact-trust-region-step.md) (2026-11-07, Accepted (owner's rule of 2026-11-05)). The rows of M2 item 14's conics and splines and their hidden curve parameters extend the solver, as [ADR 0077](0077-solver-rows-of-conics-and-splines.md) decides (2026-11-23, Accepted (owner's rule of 2026-11-05)). A hidden curve parameter is a variable of the solve, and degrees of freedom count it.
 
 ## Context
 

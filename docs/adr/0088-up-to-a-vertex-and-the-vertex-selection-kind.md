@@ -6,7 +6,7 @@ Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate
 
 - **Item 17** names "up to a face, body or vertex". Fusion's "To Object" takes a vertex and ends the extrude on the plane through it, normal to the extrude direction.
 - **Vertices already resolve.** `BuildContext::resolve` takes `ElementKind::Vertex` (features.md section 2.6), and a vertex is named by its faces (naming.md section 3.3 step 5). No field picks one: `SelectionKind` has `body`, `sketch`, `sketch_region`, `sketch_point`, `face`, `edge`, `plane` and `axis` (model.md section 2.12).
-- **ADR 0066 decision 9** adds `sketch_chain`, `sketch_text`, `path`, `rail` and `section`, and leaves each one's value and UI rule to the spec of the first feature that uses it. model.md section 2.12 adds that they "land together, with the first item that uses one (the sweep's `path`, M2 item 18, wave 2)", and model.md tests 113 and 114 pin it, with 13 values.
+- **ADR 0066 decision 9** adds `sketch_chain`, `sketch_text`, `path`, `rail` and `section`, and leaves each one's value and UI rule to the spec of the first feature that uses it. model.md section 2.12 added (read at 0f578c1) that they "land together, with the first item that uses one (the sweep's `path`, M2 item 18, wave 2)", and model.md tests 113 and 114 pinned it, with 13 values.
 - **Feature track order.** The wave 2 decisions put the feature track's code after `PlanarCurve` in the order extents, threads, tapped holes, sweep, coil. Item 17 now lands before item 18.
 
 ## Decision
@@ -28,6 +28,6 @@ Every option is open source and adds no dependency. The first criterion of the r
 ## Consequences
 
 - model.md section 2.12 gains the value and tests 113 and 114 change by spec first. protocol.schema.json is regenerated with the code.
-- protocol.md section 1's list of M2 selection kinds gains `vertex` (stage 1 integrator). ui.md section 3.7 gains a placeholder for `vertex` and its pick rule (track 2C).
-- ADR 0066 gets a one-line "Amended by" back-reference at the stage close. Gate 19's review list holds the protocol addition and the amendment.
+- protocol.md section 1's list of M2 selection kinds names `vertex`. ui.md section 3.7 gains a placeholder for `vertex` and its pick rule (track 2C).
+- ADR 0066 carries a one-line "Amended by" back-reference. Gate 19's review list holds the protocol addition and the amendment.
 - The engine's fix label `Pick a vertex again` already exists for a stored vertex reference. engine.md section 3.22's list of selection-kind nouns gains it, and the five kinds' nouns move from item 18 to item 17.

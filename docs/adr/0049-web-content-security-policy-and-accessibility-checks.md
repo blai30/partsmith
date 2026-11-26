@@ -2,6 +2,8 @@
 
 Status: Accepted (owner, 2026-11-04), as built. Decision 1, the security review of gap list item UI-2, takes option (a), the five headers enforced. Decision 2 takes option (a), focus to the 3D view. Decision 3 takes option (a) for M1: the marks keep their sizes. The owner knows that the sketch's glyphs (18 pixels, stacked 20 apart) and its dimension labels stay under WCAG 2.2's 24-pixel minimum and its spacing exception. This is revisited after M1. No file format, protocol, license, dependency or desktop capability change.
 
+Amended by [ADR 0090](0090-sketch-glyphs-and-dimension-labels-get-24-pixel-targets.md) (2026-11-23, Accepted (owner's rule of 2026-11-05), needs human review at the M2 gate): decision 3 takes option (b) for the sketch's constraint glyphs and dimension labels, with 24-pixel targets whose offsets and stack steps follow each curve's direction on screen. The rollback marker, the view cube's cells and the repair candidate markers keep this ADR's exceptions.
+
 ## Context
 
 - **The web build had no policy.** `ui/public/_headers` set only `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` (delivery.md 2.7), while the desktop has a strict content security policy and a dev policy (desktop.md 2.8). Cloudflare Pages adds `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `Access-Control-Allow-Origin: *` to every response by default, and a header named in `_headers` replaces its default (Cloudflare's Pages documentation, "Serving Pages" and "Headers", read 2026-10-30). `pnpm dev` and `pnpm preview`, against which the E-tests run, sent neither a policy nor those two headers.

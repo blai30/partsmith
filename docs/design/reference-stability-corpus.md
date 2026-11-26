@@ -2,7 +2,7 @@
 
 This corpus is the test plan for two promises in [the guidelines](../guidelines/README.md): references that survive edits, and errors that help. In FreeCAD a fillet or a sketch stores a number such as Edge7 or Face6, and the slightest change to an earlier step can make that number point at another element, often with no message at all. Partsmith stores a semantic name plus a geometric fingerprint ([naming.md](../spec/naming.md)), but a name scheme is only as good as the edits it has been tested against. Each scenario below is one such edit: an exact model, one reference in it, one change made earlier in the timeline, and the exact result and message the user must get.
 
-The scenarios were merged from 113 candidates written against [technical design](technical-design.md) section 5, naming.md, [features.md](../spec/features.md) sections 3.6 to 3.8 and 4, and the feature specs. Ids are in priority order: R01 to R48 are high, R49 to R64 medium, R65 low. R66, added after [the reference stability study](reference-stability-and-errors.md), is high. Within a priority they follow the category order of this document.
+The scenarios were merged from 113 candidates written against [technical design](technical-design.md) section 5, naming.md, [features.md](../spec/features.md) sections 3.6 to 3.8 and 4, and the feature specs. Ids are in priority order: R01 to R48 are high, R49 to R64 medium, R65 low. R66, added after [the reference stability study](reference-stability-and-errors.md), is high. R67 to R71 were added for M2 item 17 (section N). R67 is high: m2-plan.md gate 6 names it. R68 to R71 are medium. Within a priority they follow the category order of this document.
 
 ## How to read a scenario
 
@@ -36,7 +36,8 @@ The scenarios were merged from 113 candidates written against [technical design]
 
 ## Where the assertions run
 
-- **Recompute tests** in `crates/partsmith-recompute/tests/`: `reference_stability_1.rs` (R01 to R22), `reference_stability_2.rs` (R23 to R44) and `reference_stability_3.rs` (R45 to R66), in the crate's normal test suite since all of them pass (until then they were behind the crate feature `stability-study`). They check everything the document alone determines: geometry, statuses, codes, pointers, the structural message recompute renders from its loss diagnosis, and the message's actions. Recompute cannot know that a feature was deleted, only that it is not in the document, so where a scenario says "deleted" (R23b, R26, R54) the structural message says "a feature that is not in this document".
+- **Recompute tests** in `crates/partsmith-recompute/tests/`: `reference_stability_1.rs` (R01 to R22), `reference_stability_2.rs` (R23 to R44) and `reference_stability_3.rs` (R45 to R66), in the crate's normal test suite since all of them pass (until then they were behind the crate feature `stability-study`). `reference_stability_4.rs` (R67 to R71) joins that suite from M2 item 17's code pull request on. They check everything the document alone determines: geometry, statuses, codes, pointers, the structural message recompute renders from its loss diagnosis, and the message's actions. Recompute cannot know that a feature was deleted, only that it is not in the document, so where a scenario says "deleted" (R23b, R26, R54) the structural message says "a feature that is not in this document".
+- **Extents of M2** (section N): `reference_stability_4.rs` runs R67 to R71 (recompute.md test 69). features/extrude.md test 121 also runs R67, the scenario m2-plan.md gate 6 names.
 - **Engine twins** in `crates/partsmith-engine/tests/reference_causes.rs`, one each for R03, R10a, R12, R13, R16, R23b, R26, R30a, R30b, R33, R41, R48, R54, R57 and R63a. Each opens the setup, applies the edit with `apply_edits`, and checks the cause line ("This started after you ...") and its actions, which need the session; R23b, R26 and R54 check "This started after you deleted the former '...'" (in each a feature that is still in the document now has the deleted feature's label), and R30a, R30b and R63a the changed Operation or hole type, which no structural message names.
 
 ## Amendments after the study (decision D6)
@@ -124,6 +125,11 @@ The naming tests that change with the resolver (naming.md tests 61 to 77, 80 and
 | R64 | medium | wrong result | An inside corner already rounded upstream |
 | R65 | low | guard | Reordering sketch entities and renaming features change nothing |
 | R66 | high | wrong result | A side line replaced by a notch |
+| R67 | high | new in M2 | An extrude up to a face that moves |
+| R68 | medium | new in M2 | An extrude up to a vertex that moves |
+| R69 | medium | new in M2 | A start face that moves |
+| R70 | medium | new in M2 | A taper angle that changes under a fillet |
+| R71 | medium | new in M2 | A two-sided revolve whose angles change |
 
 ## A. Sketch edits
 
@@ -709,17 +715,17 @@ The M2 plan's item 17 ([features/extrude.md](../spec/features/extrude.md) and [f
 
 ### R70 A taper angle that changes under a fillet
 
-- **Setup:** BLOCK with `f-ext1`'s extent `{kind: distance, expr: 30, taper: 5 deg}`. `f-fil1` fillet radius 1 on the right top edge, `edge(f-ext1/end-cap|f-ext1/lateral/e-2)` as a pick stores it.
+- **Setup:** BLOCK with `f-ext1`'s extent `{kind: distance, expr: 30, taper: 5}`. `f-fil1` fillet radius 1 on the right top edge, `edge(f-ext1/end-cap|f-ext1/lateral/e-2)` as a pick stores it.
 - **Reference:** `f-fil1` edges[0].
-- **Edit:** (1) set the taper to 2 deg; (2) remove the taper.
+- **Edit:** (1) set the taper to 2; (2) remove the taper.
 - **Expect:** after each edit `f-fil1` keeps the right top edge, ok with no message: a tapered side keeps its name `f-ext1/lateral/e-2` (naming.md section 3.6.2), and the fillet face `f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-2)` exists. After (2) the volume of `b-1` is 119989.269908, BLOCK with a radius-1 fillet along its 50 mm right top edge.
 - **Today:** no extrude tapers before M2.
 
 ### R71 A two-sided revolve whose angles change
 
-- **Setup:** bodies `[b-1]`. features/revolve.md's `SK-RING`, `f-rev1` revolve of its region about Z, extent `{kind: two_sides, expr: 90 deg, opposite_expr: 45 deg}`, op new. `f-fil1` fillet radius 1 on the end cap's top edge, `edge(f-rev1/end-cap|f-rev1/lateral/e-3)` as a pick stores it.
+- **Setup:** bodies `[b-1]`. features/revolve.md's `SK-RING`, `f-rev1` revolve of its region about Z, extent `{kind: two_sides, expr: 90, opposite_expr: 45}`, op new. `f-fil1` fillet radius 1 on the end cap's top edge, `edge(f-rev1/end-cap|f-rev1/lateral/e-3)` as a pick stores it.
 - **Reference:** `f-fil1` edges[0].
-- **Edit:** (1) set `opposite_expr` to 90 deg; (2) set `expr` to 45 deg.
+- **Edit:** (1) set `opposite_expr` to 90; (2) set `expr` to 45.
 - **Expect:** after each edit `f-fil1` keeps the end cap's top edge, ok with no message; after (2) the end cap lies in the plane x - y = 0 and the start cap in the plane x = 0 at y < 0 (features/revolve.md test 50).
 - **Today:** no revolve has two sides before M2.
 

@@ -2,6 +2,8 @@
 
 Status: Accepted (owner, 2026-11-04): for Python (PY-1), and for the web and desktop hosts as [ADR 0037](0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md) decides them (option (a) on the desktop, which follows no link in `assets/`)
 
+Noted by [ADR 0092](0092-a-download-save-also-downloads-the-imported-files.md) (2026-11-23, Accepted (owner's rule of 2026-11-05)): a Save to a download target writes into no folder and downloads the document before its assets. This ADR's order binds every write into a folder.
+
 ## Context
 
 `save_document` returns the canonical text and every asset the document references, with their bytes (engine.md section 3.14). The host writes them: the text to the document's file, each asset to `assets/<64 hex digits of its BLAKE3 hash>.<extension>` next to it (file-format.md section 3.11). Python was the only host that wrote assets. Its `Document.save` replaced the `.ptsm` first and then wrote each asset whose name was not in `assets/` yet, trusting that a file under a hash name holds those bytes. That fails in two ways:

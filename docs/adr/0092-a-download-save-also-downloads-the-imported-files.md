@@ -33,7 +33,7 @@ For the order: **the assets first**, as file-format.md 3.11 orders a folder writ
 ## Consequences
 
 - A download Save of a document with imports puts more than one file in the downloads folder, and the user moves the asset files by hand. A renamed duplicate (`<hash> (1).step`) does not match its name: "Choose file..." still adds it, since the core checks bytes, not file names.
-- A download Save writes the document before its assets, the reverse of a folder write. file-format.md 3.11's order still binds every write into a folder, and its sentence that a download carries no assets gets a dated note.
+- A download Save writes the document before its assets, the reverse of a folder write. file-format.md 3.11's order still binds every write into a folder, and its sentence on downloads says what a download Save writes since M2.
 - Wave 3's fonts follow the same steps with no change to this ADR.
 - M4's `.ptsz` bundles end the hand move. This ADR is then superseded for documents saved as bundles.
 - The browsers' prompts are not measured in CI. ui.md open issue 47 records what the gate's human check finds.

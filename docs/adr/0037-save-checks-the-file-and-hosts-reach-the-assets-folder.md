@@ -4,6 +4,8 @@ Status: Accepted (owner, 2026-11-04). Decisions 1, 7 and 8 change no schema, pro
 
 Amends [ADR 0014](0014-desktop-host-and-dependencies.md): its "six commands" become eight, and its "No fs plugin" bullet, under which the webview reaches files only through `read_file` and `write_file` and only files the user picked, gains the asset-named files next to a picked document.
 
+Noted by [ADR 0091](0091-step-import-in-the-ui-and-the-cli-through-import-step.md) (2026-11-23, alternative 10, Accepted (owner's rule of 2026-11-05)): `partsmith import` refuses a read-only asset entry that holds other bytes, as the desktop does under decision 5. Python still replaces such an entry under decision 5 (cli.md open issue 15).
+
 ## Context
 
 Gap list items B-5 and B-6 share one review of the desktop's commands:
