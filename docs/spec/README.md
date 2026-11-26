@@ -34,6 +34,7 @@ Per-feature specs in [features/](features/), one per built-in feature type, each
 | [features/extrude.md](features/extrude.md) | Sweeps sketch regions along the sketch normal (distance, symmetric, two sides, through all). |
 | [features/revolve.md](features/revolve.md) | Sweeps sketch regions around an axis in the sketch plane (angle or full turn). |
 | [features/hole.md](features/hole.md) | Simple, counterbore and countersink holes at sketch points. |
+| [features/thread.md](features/thread.md) | Modeled and cosmetic threads on round faces (M2), with the thread and clearance-hole tables, the print profile and the clearance that tapped holes share. |
 | [features/import.md](features/import.md) | Puts the solids of a STEP asset into a body. |
 | [features/box.md](features/box.md) | Box primitive. |
 | [features/cylinder.md](features/cylinder.md) | Cylinder primitive. |

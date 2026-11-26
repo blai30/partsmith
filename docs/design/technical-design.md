@@ -336,7 +336,7 @@ with Part("Enclosure", material="PETG") as box:
         Rectangle(80, 50, rounded=4)
     extrude(s, 30)
     shell(faces().top(), thickness=wall)
-    hole(box.faces().bottom(), at=grid(2, 2, 60, 30), kind=Hole.counterbore(M3))
+    hole(box.faces().bottom(), at=grid(2, 2, 60, 30), clearance="M3", counterbore=(6.5*mm, 3.3*mm))
 
 with Part("Lid") as lid:
     lip = offset(box.faces().top().outer_wire(), -(wall + clear))

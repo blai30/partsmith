@@ -42,6 +42,11 @@ Custom printer profiles in every host ([ADR 0062](../adr/0062-custom-printer-pro
 - `PrinterValues` gives a reason for `printer.nozzle` on a resin profile (section 3.5), through expressions.md's `EvaluationContext::reason`.
 - The hosts keep profiles: the web and desktop apps in a library in the webview's IndexedDB (ui.md, desktop.md), the CLI from a profile file (`--printer-file`, cli.md), Python from a mapping (`printer=`, python-api.md). The engine puts them into the session and stores them in documents (engine.md sections 3.3 and 3.7). This crate stays free of storage.
 
+Threads and tapped holes (the M2 plan's items 20 and 21, [features/thread.md](features/thread.md)):
+
+- The `thread` feature and the tapped and clearance holes of features/hole.md read the fit classes through a clearance expression whose start value is `printer.fit.slip` (sections 3.2 and 3.5, [ADR W2-2D-2](../adr/W2-2D-2-the-printer-clearance-of-threads-and-holes.md)). No profile value is added.
+- Thread flanks in the overhang check: `AnalysisOptions::thread_flanks` lists the faces of modeled threads, whose triangles are flagged only beyond `THREAD_FLANK_ANGLE` (sections 2.1, 2.5 and 3.9.5, [ADR W2-2D-3](../adr/W2-2D-3-the-modeled-thread-profile.md)).
+
 ## 2. Public API
 
 Everything below is exported from the crate root. Lengths are millimeters and angles radians (architecture conventions); messages show angles in degrees for people. Crate dependencies: `partsmith-model`, `partsmith-mesh`, `serde`, `serde_json`, `schemars`, `thiserror`.
@@ -63,6 +68,8 @@ pub const THICKNESS_RAY_START: f64 = 1e-5;
 pub const WALL_FACING_ANGLE: f64 = std::f64::consts::FRAC_PI_6;
 /// Overhang and thin wall regions smaller than this many mm² are shown in the overlay but not reported (needs human review, section 8).
 pub const MIN_REPORTED_AREA: f64 = 1.0;
+/// A triangle of a thread flank (`AnalysisOptions::thread_flanks`) is flagged by the overhang check only above this angle plus `ANGLE_TOLERANCE`: 70 degrees, a 60-degree thread's flank with its axis vertical plus the 10 degrees a draft mesh's triangle may lean (since M2, section 3.9.5; needs human review, section 8).
+pub const THREAD_FLANK_ANGLE: f64 = 7.0 * std::f64::consts::PI / 18.0;
 /// At most this many findings are listed per check; the rest are counted in `omitted` (needs human review, section 8).
 pub const MAX_FINDINGS_PER_CHECK: usize = 50;
 /// Overlay value meaning "no measurement here".
@@ -365,6 +372,10 @@ pub struct AnalysisOptions {
     pub rotation: Rotation,
     /// Checks to run; default `CheckKind::ALL`. Duplicates are ignored and results follow canonical order.
     pub checks: Vec<CheckKind>,
+    /// Since M2: face ids of the mesh whose triangles are thread flanks (section 3.9.5); default empty,
+    /// left out of the JSON when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub thread_flanks: Vec<u32>,
 }
 
 /// Runs the requested checks on one body's mesh (section 3.7).
@@ -375,6 +386,7 @@ pub fn analyze(mesh: &Mesh, profile: &PrinterProfile, options: &AnalysisOptions)
 {"rows": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]}
 {"rotation": {"rows": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]}, "checks": ["mesh_validity", "bed_fit", "first_layer_contact", "islands", "overhangs", "thin_walls", "small_features", "trapped_volumes"]}
 {"checks": ["overhangs"]}
+{"checks": ["overhangs"], "thread_flanks": [3, 4]}
 ```
 
 ### 2.6 Results
@@ -704,6 +716,8 @@ A clearance is the gap per side between mating surfaces: a pin of diameter `d` g
 
 `FitClasses::defaults(technology)` returns these; `clearance(class)` returns the matching field.
 
+Since M2, threads, tapped holes and ISO 273 clearance holes take this gap per side from a clearance expression that starts at `printer.fit.slip`: a modeled thread's diameters move by twice it away from its mate, and a clearance hole grows by twice it ([features/thread.md](features/thread.md) section 6, [ADR W2-2D-2](../adr/W2-2D-2-the-printer-clearance-of-threads-and-holes.md)).
+
 ### 3.3 Built-in profiles
 
 `builtin_profiles()` returns exactly the two profiles of section 2.2, sorted by id. Built-in ids are reserved: the engine rejects a session profile that reuses one (`profile_id_reserved`, protocol spec). `generic_fdm()` and `generic_resin()` pass `validate()`. A document never stores a built-in profile: it names one by id (engine.md section 3.3).
@@ -728,6 +742,8 @@ A clearance is the gap per side between mating surfaces: a pin of diameter `d` g
 Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, resolves to `None`; the expression evaluator then reports `UnknownValue` (expressions spec).
 
 **The reason for `printer.nozzle`** (M2, [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md)). On a resin profile `printer.nozzle` resolves to `None`, and `reason("printer.nozzle")` is `printer.nozzle has no value with '{name}', a resin printer with no nozzle. Pick an FDM printer, or write a length instead.`, with `{name}` the profile's `name`. The evaluator then reports `UnavailableValue` with that text (expressions.md section 3.12), in place of the `UnknownValue` of M1. `reason` of every other name is `None`, and so is `reason("printer.nozzle")` on an FDM profile. `names()` returns the supported names sorted by byte order: `printer.fit.loose`, `printer.fit.press`, `printer.fit.slip`, `printer.fit.snug`, `printer.layer_height`, then `printer.nozzle` for FDM. The engine builds one `PrinterValues` from the document's resolved profile and uses it as the evaluation context for every recompute and `evaluate` call, so changing printers re-tunes every expression that uses these names.
+
+The fit classes exist on both technologies. Since M2 a manifest's start value may name them (features.md section 3.3): the clearance of a thread or a hole starts at `printer.fit.slip` and re-tunes with the printer ([features/thread.md](features/thread.md) section 6). `printer.nozzle` and `printer.layer_height` stay out of start values.
 
 ### 3.6 Check thresholds
 
@@ -774,7 +790,7 @@ Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, res
 | `overhangs` | `overhang_angle` | `max_overhang_angle` | `above` | the overhang angle `a_t` of section 3.9.5 | 0 |
 | `thin_walls` | `wall_thickness` | `min_wall` | `below` | the thickness `w_t` of section 3.9.6 | `OVERLAY_NO_VALUE` |
 
-Values cover every triangle, including those in regions too small to report, so the color map shows the whole picture.
+Values cover every triangle, including those in regions too small to report and the thread flanks that section 3.9.5 does not flag, so the color map shows the whole picture.
 
 `per_vertex(indices, vertex_count)` turns per-triangle values into per-vertex values for any index buffer in the analyzed mesh's triangle order, such as `Mesh::triangles` flattened or `RenderBuffers::indices`:
 
@@ -875,7 +891,7 @@ Because islands are found from the exact mesh topology rather than from sampled 
 #### 3.9.5 Overhangs (`overhangs`)
 
 1. For each triangle `t` of `W` with normal `n`: the overhang angle `a_t = asin(min(1, -n.z))` when `n.z < 0` and `t` does not rest on the bed (not all three vertices at print z `<= BED_CONTACT_TOLERANCE`); otherwise `a_t = 0`. A vertical wall has angle 0, a horizontal ceiling π/2.
-2. `t` is flagged when `a_t > T.max_overhang_angle + ANGLE_TOLERANCE`, so a 45° chamfer passes a 45° limit.
+2. `t` is flagged when `a_t > T.max_overhang_angle + ANGLE_TOLERANCE`, so a 45° chamfer passes a 45° limit. Since M2, a triangle whose input face id is in `options.thread_flanks` is flagged only when also `a_t > THREAD_FLANK_ANGLE + ANGLE_TOLERANCE` ([ADR W2-2D-3](../adr/W2-2D-3-the-modeled-thread-profile.md)). A flank of a 60-degree thread makes 30° with a radius. With the thread's axis vertical, its downward side overhangs at 60°, past both technologies' limits, and a helix's lead makes it less steep. Each downward flank spans only the thread's depth `5H/8` across (0.68 mm for M8x1.25), and threads print upright without supports on FDM and on resin. On FDM, a 0.2 mm layer steps such a flank out by 0.35 mm, less than a 0.4 mm line. A triangle of a listed face past `THREAD_FLANK_ANGLE`, from a thread tilted from vertical or a coarse mesh, is flagged with the profile's limit as any overhang. Face ids that no triangle has are ignored.
 3. Regions of flagged triangles with area `>= MIN_REPORTED_AREA` each give an `overhang` finding: `Overhang steeper than {deg(limit)} degrees over {num1(area)} mm². Add supports, add a chamfer, or reorient the part.` Value: the largest `a_t` in the region. Order: region order (section 3.7). Capped.
 
 #### 3.9.6 Thin walls (`thin_walls`)
@@ -1221,6 +1237,14 @@ In tests 128 to 135, `E11P` is the `printer_profile` object of file-format.md's 
 137. The reason names the profile: for the resin profile of the input `{"id": "my-mars", "name": "My Mars", "technology": "resin"}`, `reason("printer.nozzle")` is the text of test 136 with `'My Mars'` in place of `'Generic resin MSLA'`.
 138. No other reason: on the resin profile, `reason` of `printer.fit.slip`, `printer.speed`, `printer` and `printer.nozzle ` (with a trailing space) is `None`; on `generic_fdm()`, `reason("printer.nozzle")` is `None`.
 
+### 6.20 Thread flanks (M2)
+
+Section 3.9.5 and [ADR W2-2D-3](../adr/W2-2D-3-the-modeled-thread-profile.md). `FLANK(a)` is `prism_y([(0,0),(10,0),(10 + 10 sin a, 10 cos a),(10 + 10 sin a, 12),(0,12)], 0, 10)`: an underside of 100 mm² whose overhang angle is `a`, the side quad of profile edge 1. `FLANKS` is `Mesh::concat` of `FLANK(60°)` with every face id set to 3 and `FLANK(60°)` moved by (40, 0, 0) with every face id set to 4 (`Mesh::remap_ids`). `run_flanks(mesh, profile, faces)` is `analyze` with `checks: ["overhangs"]`, the identity rotation and `thread_flanks: faces`.
+
+139. Listed flanks are not flagged up to the limit. `run_flanks(&FLANKS, &FDM, [])` gives two `overhang` findings, each over 100 mm² with value π/3 (1.0471975511965976) and limit π/4, the first with `faces` `[3]`. With `[3]` it gives one finding, with `faces` `[4]`. With `[3, 4]`, and with `[4, 3, 3]`, `overhangs` is `ok` with no findings, and the overlay value of every underside triangle is still π/3 within 1e-9. `run_flanks(&FLANKS, &RESIN, [3, 4])` is `ok` too, and `[3, 4, 7]` gives the same as `[3, 4]`.
+140. The limit. With every face id of `FLANK(a)` set to 3 (`Mesh::remap_ids`, as in `FLANKS`) and `run_flanks` on `FDM` with `[3]`: `FLANK(70°)` is `ok`; `FLANK(71°)` gives one `overhang` finding with value 1.239183768915974 (71° within 1e-9), limit π/4 and the message `Overhang steeper than 45 degrees over 100 mm². Add supports, add a chamfer, or reorient the part.`; on `RESIN` its limit is π/6 and its message starts `Overhang steeper than 30 degrees`. `THREAD_FLANK_ANGLE` is 1.2217304763960306 (70°).
+141. The options' JSON. `serde_json::to_string(&AnalysisOptions::default())` is still test 34's text, with no `thread_flanks` member. `{"thread_flanks": [4, 3]}` deserializes with the default rotation and checks and `thread_flanks == [4, 3]`, and the options with `thread_flanks: vec![3]` serialize to test 34's text with `,"thread_flanks":[3]` before its last `}`. `{"thread_flanks": [-1]}` and `{"thread_flanks": 3}` fail to deserialize.
+
 ## 7. Open issues
 
 1. **No reason channel in `EvaluationContext`.** The model's trait returns `Option<Quantity>`, so `printer.nozzle` on a resin profile surfaces as the generic `Unknown value 'printer.nozzle'. Check the spelling; printer values look like printer.fit.slip.` A clearer message ("Resin printers have no nozzle...") needs the trait to return a reason; left to the model spec's owner. Resolved on 2026-11-07 for M2 by [ADR 0062](../adr/0062-custom-printer-profiles-stored-in-documents-and-kept-by-every-host.md): the trait gains `reason` (expressions.md), and section 3.5 gives `printer.nozzle` on a resin profile its own message (tests 27 and 136 to 138).
@@ -1233,6 +1257,8 @@ In tests 128 to 135, `E11P` is the `printer_profile` object of file-format.md's 
 8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (AGENTS.md invariant).
 9. **Thin walls budget not met.** Measured on the shared 4-core development machine: about 90 ms to build the bounding volume hierarchy for 200,000 triangles plus about 2.3 µs per ray, so `thin_walls` takes about 450 to 600 ms against its 120 ms budget, and all checks about 700 ms against 250 ms. Both mesh numbers are within mesh.md's own budgets (400 ms per million triangles, 3 µs per ray), so the two specs disagree. Options: a faster ray traversal in partsmith-mesh (a packet or SIMD traversal, or fewer rays per triangle), or a revised budget. Analysis runs on a background thread and never blocks modeling (technical design section 11), so the gap delays the health badge, not editing. Profiled again on 2026-10-12 (release, medians of alternated runs on the loaded machine): the 200,000-triangle sphere gives `thin_walls` 560 ms and all checks 708 ms; the reference part bench50 (engine.md section 5; two analyzed bodies of 46,564 and 3,540 triangles) takes 1.0 s per `analyze_print` once its meshes exist (1.4 s for the first call of a headless session, whose extra 0.4 s is the kernel tessellation). Of bench50's instructions, 82% are `thin_walls` rays, 15% `small_features` (mostly `Mesh::slice_many`), and every other check together 2.5%, so this crate's own code is not the bottleneck. Its rays cost 16 µs each (random rays from the same centroids 8.9 µs), against about 2.3 µs on the sphere: in partsmith-mesh, the grazing cone of any hierarchy node whose triangles face several directions widens to every direction, so on a machined part almost every node is padded by the wide `3e-2 · R` (4 to 7 mm on bench50, whose base reaches 120 mm from the origin) for every ray. A copy of the hierarchy with that padding at `1e-9 · R` returned the same hits on bench50 at 4.6 µs per thickness ray, which shows the size of the gain, but drops the exactness argument of mesh.md section 3.10. The fix belongs in partsmith-mesh (a padding bound that does not grow with mixed orientations, such as per-triangle grazing tests at leaves), together with a revised budget. The engine's 200,000-triangle budget row is a sphere 500 mm tall analyzed with `generic-resin`, so `small_features` slices 10,000 layers: there it took 71% of 2.42 s, half of all instructions in `Mesh::slice_many` (most of them sorting segment keys per layer to chain the loops) and a fifth in this crate's convex hulls and widths of loops far wider than any limit. `small_features` now skips the hull of a loop whose sampled widths already prove it wide enough (`geometry::minimum_width_bound`, a lower bound on the minimum width, so no result changes), which brought that row to 2.12 s and the 250-layer sphere's `small_features` from 35 to 28 ms; the slicing itself is partsmith-mesh's to speed up. Since 2026-11-05 the engine's row times a batch of 20 balls that fits `generic-fdm`, 1.38 to 1.40 s here against a budget of 1.7 s. The 500 mm sphere is a stress row of its own, 2.01 to 2.07 s against 2.5 s (engine.md section 5 and open issue 6). The same day this crate's `analyze, all checks, 200k triangles` read 633 ms against its 250 ms. A plate of 5 x 5 knobs, spheres of radius 5 mm on a 2 mm plate for `generic-resin` (194,287 triangles), took 3.36 to 3.46 s per `analyze_print`. A profile of its print check put 67% of the instructions in `thin_walls`, almost all of them in the hierarchy's `first_hit`. The likely cause (not confirmed) is the plate's two flat faces: they are triangulated into long triangles whose boxes span the plate, and every ray visits them. That is later work in partsmith-mesh, with the padding above.
 10. **Acute edges are not thin walls.** Since ADR 0041 a thickness ray measures only a face within `WALL_FACING_ANGLE` (30°) of opposite its own (3.9.6), so a part whose faces all meet at wider angles, such as a small pyramid, a cone, or a wedge whose faces meet at between 30° and 90°, gets no thickness value there however small it is; small features (3.9.7) report such a detail in the layers it spans when it spans at least two, but the thin edge of a wide loop (a vertical blade) is reported by neither check. Walls within the angle that taper still report a smallest value that depends on where their centroids fall, and so on the triangulation, which cocircular nodes leave to the platform's last bits (kernel.md open issue 14). A measure that does not sample centroids (the largest inscribed sphere at each vertex, or rays from the vertices) would remove both, at more cost per triangle.
+11. **Parser text in `Json`.** `ProfileError::Json` carries serde's description (test 8: the message names `nozle_diameter` and holds serde's backticks). The message lint of the error guidelines forbids it. In M1 only the engine's tests sent profiles. In M2 the CLI's `--printer-file` and Python's `printer=` mapping show it to users (cli.md, python-api.md). Options: keep it, since it names the member to fix; split it into a sentence in plain words (`A member of the printer profile has the wrong form.`) and a detail with serde's text, as engine.md section 4 does for a document's `parse_error`; or add variants for the common cases (an unknown member, a missing required member, a value of the wrong type). Left for the print track's next change. The engine already words a stored profile's `Json` error in plain words (engine.md section 3.2).
+12. **Threads the engine does not name.** `thread_flanks` lists the flanks that the `thread` and `hole` features make, by their names (track 3A). A thread modeled by hand (a sweep or a coil of a 60-degree section, or a revolve) or imported in a STEP file has no such names, and its downward flanks still give `overhang` findings that advise supports. Options: leave it, since such threads are rare in M2; detect helical faces of 60-degree flanks in the mesh (no check recognizes the kind of a surface today); or let the user mark faces as self-supporting, a feature and format change. Left for the print track's next change.
 
 ## 8. Needs human review
 
@@ -1250,4 +1276,7 @@ Decided by the owner on 2026-11-04: every value below is accepted as built for M
 - Analysis bounds that keep every input finite and bounded: `CoordinatesTooLarge` above 1e100 mm (section 3.7); no split suggestion when an axis (or, for the footprint, either axis) needs more than 1000 pieces (section 3.9.2); at most 200,000 slice heights for small features (section 3.9.7).
 - The `thin_walls` budget of section 5 (see open issue 9).
 - `WALL_FACING_ANGLE` 30° (sections 2.1 and 3.9.6, ADR 0041): the widest angle between two faces at which a thickness ray still measures a wall. 45° or more would make the rims of pointed cones and 45° wedges walls again, and their findings would follow the platform's triangulation (delivery.md open issue 1 (d)).
-11. **Parser text in `Json`.** `ProfileError::Json` carries serde's description (test 8: the message names `nozle_diameter` and holds serde's backticks). The message lint of the error guidelines forbids it. In M1 only the engine's tests sent profiles. In M2 the CLI's `--printer-file` and Python's `printer=` mapping show it to users (cli.md, python-api.md). Options: keep it, since it names the member to fix; split it into a sentence in plain words (`A member of the printer profile has the wrong form.`) and a detail with serde's text, as engine.md section 4 does for a document's `parse_error`; or add variants for the common cases (an unknown member, a missing required member, a value of the wrong type). Left for the print track's next change. The engine already words a stored profile's `Json` error in plain words (engine.md section 3.2).
+
+Since M2, for review at the M2 gate:
+
+- `THREAD_FLANK_ANGLE` 70° (sections 2.1 and 3.9.5, [ADR W2-2D-3](../adr/W2-2D-3-the-modeled-thread-profile.md)): a thread flank's triangle is flagged only above it. 60° alone would flag a draft mesh's flank triangles. They lean up to the draft quality's 10° angular deviation from the surface (engine.md section 3.7).
