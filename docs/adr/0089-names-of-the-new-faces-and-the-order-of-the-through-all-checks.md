@@ -1,4 +1,4 @@
-# W2-1C-5: Names of the new faces, and the order of the through-all checks
+# 0089: Names of the new faces, and the order of the through-all checks
 
 Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate: it adds naming rules to naming.md sections 3.6.2 and 3.6.3 (decisions 1 to 5), and it changes an M1 acceptance test by spec first (decision 6, features/extrude.md test 61). It settles features/extrude.md open issue 6.
 
@@ -10,7 +10,7 @@ Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate
 
 ## Decision
 
-1. **The up-to end is the end cap.** Every face the kernel gives the `EndCap` role, the image of the cutting face up to a face, and every face it gives the role `Target { face }`, a piece of a face of the body up to a body (track 1B's ADR W2-1B-2 decision 4), is named `<id>/end-cap`. The face index of `Target` never enters a name. Several are numbered `<id>/end-cap#n` by naming.md section 3.4. A start face or a start offset leaves the start cap `<id>/start-cap`.
+1. **The up-to end is the end cap.** Every face the kernel gives the `EndCap` role, the image of the cutting face up to a face, and every face it gives the role `Target { face }`, a piece of a face of the body up to a body (track 1B's ADR 0083 decision 4), is named `<id>/end-cap`. The face index of `Target` never enters a name. Several are numbered `<id>/end-cap#n` by naming.md section 3.4. A start face or a start offset leaves the start cap `<id>/start-cap`.
 2. **Merges with the target.** When a join or cut makes the end cap one face with a face of the body the extrude writes, the merge rule of naming.md section 3.3 step 2 applies unchanged: the merged face takes the smaller name, and the other becomes its alias.
 3. **Tapered faces keep their names.** A tapered lateral face is `<id>/lateral/<entity id>`, as the untapered one, through the draft's `Modified`. A taper of 0 gives the same faces and names as no taper.
 4. **Through all both ways** names its caps as through all does: the start cap at the far side against the direction, the end cap at the far side along it. A cut through all both ways records both caps absent with `Through` when neither is in the result.
@@ -26,6 +26,6 @@ Every option is open source and adds no dependency. The first criterion of the r
 
 ## Consequences
 
-- naming.md sections 3.6.2 and 3.6.3 state these rules, with tests 201 to 214. Two-sided tapers wait ([ADR W2-1C-3](W2-1C-3-taper.md)), and no rule names the halves of a lateral face that one would split. features/extrude.md section 3.4 and features/revolve.md section 3.4 list the names.
+- naming.md sections 3.6.2 and 3.6.3 state these rules, with tests 201 to 214. Two-sided tapers wait ([ADR 0087](0087-taper.md)), and no rule names the halves of a lateral face that one would split. features/extrude.md section 3.4 and features/revolve.md section 3.4 list the names.
 - features/extrude.md test 61 changes by spec first, and open issue 6 is resolved. The critic checks that the test is not weakened: it keeps `body_not_empty`'s message and its single fix, now reached after Turn on Reverse.
 - Order-dependent `end-cap#n` names for up-to-body ends are measured by the naming metric (gate 6) over corpus.md's brackets models, and naming.md open issue 8 records the alternative.

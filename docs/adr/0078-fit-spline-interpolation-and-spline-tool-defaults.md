@@ -1,4 +1,4 @@
-# W2-1A-2: Fit spline interpolation and the control-point spline tool's defaults
+# 0078: Fit spline interpolation and the control-point spline tool's defaults
 
 Status: Accepted (owner's rule of 2026-11-05): the M2 plan's open choices "Fit-spline interpolation" and "Defaults of the control-point spline tool", decided as the wave 2 decisions of 2026-11-19 accept them, with the interpolation checked against OCCT 7.9.3's `Geom2dAPI_Interpolate` as the plan asked. It fixes what a stored `fit_spline` record means, and what a `bspline` record the tool writes holds, in format version 3 ([ADR 0061](0061-format-version-3-for-the-records-of-m2.md), [ADR 0066](0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md)). Both go to human review at the M2 gate with format version 3 (m2-plan.md gate 19).
 

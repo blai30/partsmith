@@ -1,4 +1,4 @@
-# W2-1C-4: Up to a vertex and the vertex selection kind
+# 0088: Up to a vertex and the vertex selection kind
 
 Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate: it adds a value to the protocol schema's `SelectionKind` (additive, `PROTOCOL_VERSION` stays 1, m2-plan.md section 7.3 choice 2) and it amends [ADR 0066](0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md) decision 9, a decision of wave 1's spec round. It settles how `up_to_vertex` ends and when the new selection kinds land.
 
@@ -13,7 +13,7 @@ Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate
 
 1. **Up to a vertex is a distance.** `up_to_vertex` ends on the plane through the vertex, normal to the extrude direction. Its length is the vertex's signed position along the direction, less the start's. The tool is the plain prism (or the drafted one, with a taper) over that interval, and every profile a distance takes works. No split runs.
 2. **Where the vertex lies.** A length of at least `LINEAR_TOLERANCE` builds. A vertex behind the start fails with `up_to_misses` and Turn on Reverse, which always works for a vertex. A vertex within `LINEAR_TOLERANCE` of the start plane fails with `up_to_misses`, whose message says the extrude would have no length. A reference that resolves to several vertices is used when they all lie within `LINEAR_TOLERANCE` of one plane normal to the direction, and otherwise fails with `up_to_ambiguous`, which offers each vertex as a fix.
-3. **What a vertex is.** A vertex of a body, stored as a naming `Reference` beside its `body` ([ADR W2-1C-1](W2-1C-1-extent-records-of-extrude-and-revolve.md) decision 1). Sketch points and datum points are later work: a sketch point would need a second record shape, and datum points come with M3's datums.
+3. **What a vertex is.** A vertex of a body, stored as a naming `Reference` beside its `body` ([ADR 0085](0085-extent-records-of-extrude-and-revolve.md) decision 1). Sketch points and datum points are later work: a sketch point would need a second record shape, and datum points come with M3's datums.
 4. **The selection kind.** `SelectionKind` gains `vertex` ("A vertex of a body"), after `section`. The engine's fix label noun for it is `a vertex` (engine.md section 3.22, already written for a stored vertex reference).
 5. **The six kinds land with item 17.** ADR 0066 decision 9 is amended: its five kinds now land in `SelectionKind` with item 17, together with `vertex`, before any feature fills in their value. The spec of the first feature that uses each still gives its value and the UI's rule, as decision 9 says. model.md section 2.12's landing sentence changes to match. `vertex` gets its rule from features/extrude.md and ui.md (track 2C). model.md tests 113 and 114 change by spec first: 14 values, written with item 17.
 

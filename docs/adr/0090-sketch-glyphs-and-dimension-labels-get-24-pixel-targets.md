@@ -1,4 +1,4 @@
-# W2-1D-1: Sketch glyphs and dimension labels get 24-pixel targets
+# 0090: Sketch glyphs and dimension labels get 24-pixel targets
 
 Status: Accepted (owner's rule of 2026-11-05): the M2 plan's item 16 and section 7.3 item 22, option (b), with the offsets of the choices below. It amends [ADR 0049](0049-web-content-security-policy-and-accessibility-checks.md) decision 3, a decision the owner made for M1 (option (a), the marks keep their sizes). It goes to human review at the M2 gate (m2-plan.md gate 19, which names this ADR). No file format, protocol, naming, license, dependency or desktop capability change. It resolves ui.md open issue 42 for the glyphs and the labels. The rollback marker, the view cube's cells and the repair candidate markers keep ADR 0049's exceptions.
 

@@ -1,4 +1,4 @@
-# W2-1A-4: The conic and spline tools reach the core in wave 2, with previews from the core
+# 0080: The conic and spline tools reach the core in wave 2, with previews from the core
 
 Status: Accepted (owner's rule of 2026-11-05): the M2 plan's open choices "How item 14's drawing tools reach the core in wave 2" and "Live previews of conic and spline tools without curve evaluation in the UI", decided as the wave 2 decisions of 2026-11-19 accept them. It amends [ADR 0066](0066-sketch-entities-of-format-version-3-operations-and-display-polylines.md) decision 11. It changes the protocol schema earlier than ADR 0066 planned: command 39 `sketch_recipe`, the `SketchRecipe` type and the error code `sketch_operation_failed` land with item 14 in wave 2 instead of item 24 in wave 3. That change is additive (`PROTOCOL_VERSION` stays 1, ADR 0024) and goes to human review at the M2 gate with ADR 0066 (m2-plan.md gate 19). It changes no file format.
 
@@ -26,5 +26,6 @@ Each choice is Accepted (owner's rule of 2026-11-05): the most open-source appro
 ## Consequences
 
 - Specs: sketch.md sections 2.13, 3.21 and 3.21.1, section 4.1's `InvalidToolInput` and tests 332 to 334 and 341 (relabeled to item 14); protocol.md command 39, section 4's `sketch_operation_failed`, tests 34, 37 and 118 to 120 (relabeled to item 14) and its examples. engine.md section 3.27 and tests 228, 229 and 236 move to item 14 in their owner's stage (track 2A). ui.md gets the tools and previews from track 2C.
+- Each recipe has its tool example, `examples/sketch/tool-<kind>.ptsm` (features/sketch.md tests 53 to 59), as runner test 11 of delivery.md section 2.8 requires (an [ADR 0051](0051-corpus-coverage-checks.md) note). sketch.md tests 367, 393, 401 and 409 run each recipe and compare its entities with the example's first entities.
 - Gate 19 reviews command 39 and the error code with ADR 0066, now in wave 2.
 - ADR 0066 decision 11 reads, after this ADR: item 14 builds the curve kinds, their roles, profiles, chains, display polylines, the `curve_*` buffers, `apply_recipe` with its own variants, command 39 and `sketch_operation_failed`; item 24 adds the recipes of M1's tools.

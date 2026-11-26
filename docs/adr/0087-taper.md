@@ -1,6 +1,6 @@
-# W2-1C-3: Taper
+# 0087: Taper
 
-Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate through the `taper` key of format version 3 ([ADR W2-1C-1](W2-1C-1-extent-records-of-extrude-and-revolve.md) decision 2). It settles the taper's sign, range, neutral plane, the extents that take one, and the steep inward taper of kernel.md open issue 21 (d).
+Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate through the `taper` key of format version 3 ([ADR 0085](0085-extent-records-of-extrude-and-revolve.md) decision 2). It settles the taper's sign, range, neutral plane, the extents that take one, and the steep inward taper of kernel.md open issue 21 (d).
 
 ## Context
 
@@ -13,10 +13,10 @@ Status: Accepted (owner's rule of 2026-11-05); needs human review at the M2 gate
 1. **Sign.** A positive taper angle widens the extrude along its direction, and a negative one narrows it: each lateral face turns by the angle away from the extrude direction, outward for a positive angle. This is Fusion's convention and the spike's.
 2. **Range.** The angle is greater than -90 deg and less than 90 deg, checked as `OutOfRange` on `extent.taper`. An angle within 1e-9 rad of 0 builds the plain prism: the same solid and names as no taper.
 3. **Neutral plane.** The taper's neutral plane is the start cap's plane, the sketch plane or the start the `start` key sets. The start cap keeps the profile's size, and the end cap grows or shrinks.
-4. **Extents.** `distance`, `through_all`, `up_to_vertex` and `up_to_face` on a flat face take a taper. Up to a flat face, the drafted prism is split as the plain one is, the case kernel.md section 8.5 measured on a tilted face. A taper up to a body or a cylindrical face, which the spike did not measure and the kernel refuses (track 1B's ADR W2-1B-2 decision 2), fails with `taper_target`, whose fix clears the taper. The `up_to_body` record keeps its `taper` key for track 4A to widen from spike 8.10. `symmetric`, `two_sides` and `through_all_both` take none; their schema refuses the key.
+4. **Extents.** `distance`, `through_all`, `up_to_vertex` and `up_to_face` on a flat face take a taper. Up to a flat face, the drafted prism is split as the plain one is, the case kernel.md section 8.5 measured on a tilted face. A taper up to a body or a cylindrical face, which the spike did not measure and the kernel refuses (track 1B's ADR 0083 decision 2), fails with `taper_target`, whose fix clears the taper. The `up_to_body` record keeps its `taper` key for track 4A to widen from spike 8.10. `symmetric`, `two_sides` and `through_all_both` take none; their schema refuses the key.
 5. **Profiles.** A taper takes a profile whose union is one face of lines, arcs and circles, holes allowed. Several faces, or a conic or B-spline curve, are refused with `taper_profile`, whose fix clears the taper.
 6. **A taper that closes the profile.** With a taper, a kernel error of kind `Failed`, `InvalidResult` or `EmptyResult` makes the extrude fail with `taper_too_steep`: `A taper of {angle} closes part of the profile before the end of {this}. Use a smaller taper, or a shorter extrude.` The kernel error goes to the detail. There is no precheck. The kernel reports no kind of its own for a failed draft. Up to a flat face, a failed split takes the same message until track 4A narrows the mapping, once spike 8.10 or a later kernel round gives the draft's failure a kind of its own. The outcome is provisional until spike 8.10's Results: kernel.md section 3.4.3 leaves the detection of a closing taper to that spike, and track 4A confirms or changes features/extrude.md test 107 by spec first. An outward taper closes a hole of the profile the same way, and the message covers both.
-7. **Names.** A tapered lateral face keeps `<id>/lateral/<entity id>`: the draft's `Modified` carries each prism face to its drafted face. Caps keep `start-cap` and `end-cap` ([ADR W2-1C-5](W2-1C-5-names-of-the-new-faces-and-the-order-of-the-through-all-checks.md)).
+7. **Names.** A tapered lateral face keeps `<id>/lateral/<entity id>`: the draft's `Modified` carries each prism face to its drafted face. Caps keep `start-cap` and `end-cap` ([ADR 0089](0089-names-of-the-new-faces-and-the-order-of-the-through-all-checks.md)).
 
 ## Alternatives considered
 

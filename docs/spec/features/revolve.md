@@ -1,6 +1,6 @@
 # Feature: revolve
 
-Status: M1 spec, with M2 item 17's two sides and symmetric angles (since M2, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md) and [ADR W2-1C-5](../../adr/W2-1C-5-names-of-the-new-faces-and-the-order-of-the-through-all-checks.md)) and item 14's profile curves. Type name `revolve`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.3. Kernel operation: [kernel.md](../kernel.md) section 3.4.4.
+Status: M1 spec, with M2 item 17's two sides and symmetric angles (since M2, [ADR 0085](../../adr/0085-extent-records-of-extrude-and-revolve.md) and [ADR 0089](../../adr/0089-names-of-the-new-faces-and-the-order-of-the-through-all-checks.md)) and item 14's profile curves. Type name `revolve`. Shared contracts: [features.md](../features.md). Naming rule: [naming.md](../naming.md) section 3.6.3. Kernel operation: [kernel.md](../kernel.md) section 3.4.4.
 
 ## 1. Purpose and scope
 
@@ -16,7 +16,7 @@ Revolve sweeps closed regions of one sketch around an axis that lies in the sket
 
 ### In M2
 
-- Extents `two_sides` (an angle each way, `expr` in the revolve's sense and `opposite_expr` against it) and `symmetric` (half of `expr` each way), the M2 plan's item 17 ([ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md)). A total of a full turn is `full`.
+- Extents `two_sides` (an angle each way, `expr` in the revolve's sense and `opposite_expr` against it) and `symmetric` (half of `expr` each way), the M2 plan's item 17 ([ADR 0085](../../adr/0085-extent-records-of-extrude-and-revolve.md)). A total of a full turn is `full`.
 - Profiles with item 14's curves (ellipses, elliptical arcs, parabolas, hyperbolas, conics and splines), checked against the axis by their exact extremes (section 3.3 step 3).
 
 ### Later
@@ -109,7 +109,7 @@ Since M2 the manifest marks `reverse` essential. The inspector places it beside 
 
 ### Python
 
-Dedicated form: `revolve(profile, axis, angle=None, regions=..., reverse=..., op=...)` (python-api.md section 2.7), and since M2 the keywords `symmetric=` and `opposite_angle=` after `regions`, in that order, named after the GUI's option and field ([ADR 0048](../../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md) decision 1, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md) decision 7). The hook produces it with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
+Dedicated form: `revolve(profile, axis, angle=None, regions=..., reverse=..., op=...)` (python-api.md section 2.7), and since M2 the keywords `symmetric=` and `opposite_angle=` after `regions`, in that order, named after the GUI's option and field ([ADR 0048](../../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md) decision 1, [ADR 0085](../../adr/0085-extent-records-of-extrude-and-revolve.md) decision 7). The hook produces it with the shared rules of features.md section 3.11. An omitted angle maps to `{"kind": "full"}` and a given angle to `{"kind": "angle", "expr"}`:
 
 - `profile`: as for extrude (the sketch's variable, plus `regions=` when needed).
 - `axis`: `PythonValue::axis` (`Axis.Z`, a sketch line's variable, or `Ref(..., part=...)`).
@@ -155,7 +155,7 @@ feature(
    - `full`: angles [0, 2π].
    A total α1 - α0 within 1e-9 of 2π is a full turn: the revolve is treated as `full`, with angles [0, 2π] and its seam in the profile's own half-plane (kernel.md section 3.4.4).
 5. Sense: positive rotation about the axis direction by the right-hand rule; negative when `reverse` is true. The kernel then gets the axis with its direction negated. [α0, α1] keep their meaning in the turned sense, and the kernel's `StartCap` is the cap at α0. A full revolve and a `symmetric` one ignore `reverse`.
-6. Kernel `revolve(profile, axis, α0, α1)` (kernel.md section 2.6; since M2 the call takes a start and an end angle, track 1B's ADR W2-1B-2), name (section 3.4) with the profile sketch's motion as the new faces' motion (`SketchResult::motion`, features.md section 3.9), and `apply_op(ctx, body, op, vec![tool], None)`: a revolve has no straight direction, so a cut that changes nothing is `Beside` (features.md section 3.15). For a partial revolve, `reverse_hits` revolves the profile over [α0, α1] about the axis turned the other way and checks that it reaches the body: Turn on Reverse is offered only when it works; a full revolve and a symmetric one have no Reverse to offer.
+6. Kernel `revolve(profile, axis, α0, α1)` (kernel.md section 2.6; since M2 the call takes a start and an end angle, track 1B's ADR 0083), name (section 3.4) with the profile sketch's motion as the new faces' motion (`SketchResult::motion`, features.md section 3.9), and `apply_op(ctx, body, op, vec![tool], None)`: a revolve has no straight direction, so a cut that changes nothing is `Beside` (features.md section 3.15). For a partial revolve, `reverse_hits` revolves the profile over [α0, α1] about the axis turned the other way and checks that it reaches the body: Turn on Reverse is offered only when it works; a full revolve and a symmetric one have no Reverse to offer.
 7. **No caps at a full turn.** A full revolve (including an angle within 1e-9 of 360 deg) records `AbsentFace { name: <id>/start-cap, why: FullTurn }` and the same for `<id>/end-cap` in `FeatureOutput::absent` (features.md section 2.7), so a reference to a cap is explained as `is no longer made by 'Revolve 1', which turns all the way round` (corpus R57).
 
 Boundary pieces that lie on the axis generate no face (the solid closes on the axis). As for extrude, the union merges consecutive pieces of one entity that continue the same line or circle before `make_profile`, so a union of regions has the faces of the single region covering the same area.
@@ -196,7 +196,7 @@ Successions of the profile match are passed to `NamingMap::build` as `added_succ
 
 - Op `new` of a 4-curve profile: 5 ms. 50-curve profile: 20 ms.
 - With a boolean against a 200-face body: 60 ms.
-- Since M2: two sides and symmetric take the rows of an angle (the same kernel revolve between two angles, track 1B's ADR W2-1B-2).
+- Since M2: two sides and symmetric take the rows of an angle (the same kernel revolve between two angles, track 1B's ADR 0083).
 
 ## 6. Acceptance tests
 
@@ -247,7 +247,7 @@ Bodies `[b-1]` unless stated.
 36. **Axis from a round face.** Bodies `[b-1, b-2]`; `{"id": "f-cyl1", "type": "cylinder", "body": "b-2", "radius": "5", "height": "10", "op": "new"}` (its axis is the Z axis); `SK-RING`; `REV({"kind": "face", "body": "b-2", "face": {"q": "f-cyl1/side", "fp": "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5|adj=2,3"}, "direction": [0, 0, 1]}, {"kind": "angle", "expr": "90 deg"}, "new")` (as a pick stores it), as `examples/revolve/face-axis`. The face's axis lies in the sketch plane, and the stored direction (body coordinates; b-2 has not moved) orients the axis, +Z (features.md section 3.6). Expected: ok; b-1 identical to test 2 (volume 7068.583471, 6 faces, bbox [0,0,0]-[20,20,30], `f-rev1/end-cap` in plane x=0 with y between 10 and 20); b-2 unchanged; dependencies `bodies_read == ["b-2"]`.
 37. **The manifest's description, help, start values and new bodies** (since M2, features.md section 2.3, [ADR 0065](../../adr/0065-feature-help-start-values-and-new-body-fields-in-the-manifests.md)). Not a document test: it lives in `crates/partsmith-features/tests/registry_registration.rs`, as the `revolve` case of features.md tests 46, 48, 50, 51 and 52. The manifest of `Registry::with_builtins().get("revolve")` has the description of the Manifest section. Each of its hints has exactly the help, start value and new body that the second table of the Manifest section lists, and none of the three when the table leaves the hint out. Its `reverse` hint is essential. Since M2 item 17 the tables hold the `two_sides` and `symmetric` options and the `extent.opposite_expr` row, and the test checks them too.
 
-**Two sides and symmetric (M2 item 17, [ADR W2-1C-1](../../adr/W2-1C-1-extent-records-of-extrude-and-revolve.md)).** Tests 38 to 51 are item 17's options, which m2-plan.md section 6 item 11 may cut; tests 52 to 57 check item 14's curves against the axis, which no cut moves.
+**Two sides and symmetric (M2 item 17, [ADR 0085](../../adr/0085-extent-records-of-extrude-and-revolve.md)).** Tests 38 to 51 are item 17's options, which m2-plan.md section 6 item 11 may cut; tests 52 to 57 check item 14's curves against the axis, which no cut moves.
 
 38. **Symmetric.** `SK-RING`, `REV(AXIS-Z, {"kind": "symmetric", "expr": "90 deg"}, "new")`, as `examples/revolve/symmetric`. Expected: ok; volume 7068.583471, 6 faces, bbox [7.071068,-14.142136,0]-[20,14.142136,30]; `f-rev1/start-cap` area 300 in the plane x + y = 0 with y < 0; `f-rev1/end-cap` area 300 in the plane x - y = 0 with y > 0.
 39. **Symmetric ignores reverse.** As 38 with `"reverse": true`. Expected: identical to 38, including which face is `start-cap`.

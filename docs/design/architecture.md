@@ -215,7 +215,7 @@ It projects recompute's messages into diagnostics: each fix becomes an action th
 
 - **Web:** `partsmith-wasm` targets `wasm32-unknown-emscripten`. It exports C ABI functions (`ps_alloc`, `ps_free`, `ps_call`) that take and return protocol frames; they are its only `unsafe` code, and its one `Session` lives in a `thread_local!` owned by the host (ADR 0010). A Web Worker loads it; the UI talks to the worker through `postMessage`. Since M2, a cross-origin isolated page also shares an 8-byte cancel word with the worker. partsmith-occt-sys reads the word through the JavaScript import `partsmith_cancel_word` while `ps_call` runs. No export is added, and the module still has no shared memory (ADR 0063).
 - **Desktop:** Tauri 2 runs the engine in-process and exposes one `call` command carrying protocol frames. Since M2, it also exposes `cancel_call`. That command stores a request id in the host's cancel flag without the session's mutex. The running call stops at its next check (ADR 0063).
-- **CLI:** `partsmith validate | fmt | rebuild | export | schema | import`. Since M2, `import` makes a new document from a STEP file through the engine's `import_step` and writes its asset (cli.md section 3.8, ADR W2-1D-2).
+- **CLI:** `partsmith validate | fmt | rebuild | export | schema | import`. Since M2, `import` makes a new document from a STEP file through the engine's `import_step` and writes its asset (cli.md section 3.8, ADR 0091).
 - **Python:** `partsmith-py` (PyO3, abi3, Python 3.12+) exposes the engine; the pure-Python `partsmith` package adds the build123d-style API on top.
 
 ## UI (`ui/`)
