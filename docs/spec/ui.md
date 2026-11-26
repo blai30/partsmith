@@ -57,6 +57,12 @@ Two features are used where they exist and done without elsewhere: `@starting-st
 - Export to Python (`file.export_python`): the document as a Python script that rebuilds it, saved as a `.py` file (3.18, [ADR 0093](../adr/0093-export-to-python-in-the-app-and-assets-in-generated-scripts.md)), with the file kind `py` (2.15).
 - Constraint glyphs and dimension labels are 24-pixel targets, placed clear of the curves they mark, and stacked glyphs touch without overlapping (3.16.2, 3.24, [ADR 0090](../adr/0090-sketch-glyphs-and-dimension-labels-get-24-pixel-targets.md)). This resolves open issue 42.
 
+**In M2: curves and extents** (m2-plan.md items 14, 17 and 32). These join the slice of 1.1 in M2 too.
+
+- Sketch tools for the curves of format version 3: Ellipse, Elliptical arc, Parabola, Hyperbola, Conic, Control point spline and Fit point spline (3.16.12, [ADR W2-2C-1](../adr/W2-2C-1-conic-and-spline-tools-in-the-sketch-ui.md)). The core's recipes make the curves (protocol.md command 39, [ADR 0080](../adr/0080-conic-and-spline-tools-reach-the-core-in-wave-2.md)), and the core's solves draw them while the tool runs. Ellipse and the two splines are in the Sketch toolbar, the other four in the palette.
+- The points of the new curves (vertex, focus, control point and the ends of the axes, [ADR 0081](../adr/0081-axis-roles-of-ellipses-and-hyperbolas.md)) are drawn, picked, constrained, dimensioned and dragged like line ends (3.16.12).
+- Extrude's new extents (up to a face, a body or a vertex, through all both ways), its start and its taper, and Revolve's two sides and symmetric, through the generic inspector with the rules of 2.12 for selection fields inside an extent, optional starts and optional tapers. Vertex fields take a vertex of a body (`vertex`, 2.12, 3.7).
+
 ### 1.2 Later (not in M1)
 
 - Onboarding tutorial and looping tool-tip animations. The "Coming from Fusion / FreeCAD" mapping is part of M1 as the palette's tagged keywords (2.10), not as a separate panel.
@@ -70,9 +76,9 @@ Two features are used where they exist and done without elsewhere: `@starting-st
 - Dependency marks drawn on every timeline item, and reorder drops that refuse to break a dependency. M1 warns while a drop would break a use and lists "Used by" in the item's menu, from `list_uses` (3.9); a drop is never refused.
 - Navigation presets SolidWorks, Blender and Onshape; trackpad gestures beyond pinch zoom and the secondary-button drag of 3.13 (two-finger scroll to pan or orbit); touch-optimized layout.
 - FreeCAD shortcut preset, user shortcut rebinding and user-pinned toolbar tools.
-- Remaining sketch tools (3-point and rounded rectangle, 2-point, 3-point and tangent circle, center and tangent arc, tangent-arc toggle in the line tool, conics, splines, polygon, slots, text, image, DXF and SVG import), modify tools (trim, extend, split, sketch fillet and chamfer, offset, mirror, patterns, move and copy) and reference geometry (project, intersect, carbon copy).
+- Remaining sketch tools (3-point and rounded rectangle, 2-point, 3-point and tangent circle, center and tangent arc, tangent-arc toggle in the line tool, polygon, slots, text, image, DXF and SVG import; M2 adds the conic and spline tools, 1.1), modify tools (trim, extend, split, sketch fillet and chamfer, offset, mirror, patterns, move and copy) and reference geometry (project, intersect, carbon copy).
 - Remaining constraints (smooth, block, arc length, angle to an axis as its own type, Snell's law, B-spline constraints).
-- Dragging sketch curves (translating a line, resizing a circle); M1 drags points only.
+- Dragging sketch curves (translating a line, resizing a circle); M1 drags points only, and M2 adds the points of its new curves (3.16.12).
 - Face edges of the model as sketch snap and dimension targets (sketch.md and engine changes).
 - Window and crossing box selection in the Model context (M1 has it in sketch mode only).
 - Keyboard picking of faces, edges and vertices.
@@ -1171,7 +1177,7 @@ Feature command availability (`FEATURE_REQUIREMENTS` in `src/commands/features.t
 - `boolean`: disabled with `needs_two_bodies` when fewer than two bodies have model-layer geometry.
 - Every other type is always enabled.
 
-`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of line icons drawn in the lucide style (24 by 24 `viewBox`, stroke width 2, round caps and joins, `currentColor`), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols.
+`src/commands/icons.ts` maps manifest icon names (features.md 3.13) to lucide icons: `sketch` PencilRuler, `extrude` ArrowUpFromLine, `revolve` Rotate3d, `hole` CircleDot, `box` Box, `cylinder` Cylinder, `sphere` Globe, `cone` Cone, `torus` Torus, `fillet` SquareRoundCorner, `chamfer` Octagon, `shell` PackageOpen, `boolean` Combine, `move-body` Move3d, `split-body` SquareSplitVertical, `mirror` FlipHorizontal2, `linear-pattern` Columns3, `circular-pattern` Orbit, `datum-plane` Layers2, `import` FileInput. Constraint glyphs are an in-house set of line icons drawn in the lucide style (24 by 24 `viewBox`, stroke width 2, round caps and joins, `currentColor`), one per constraint type, because lucide has no parallel, perpendicular or coincident symbols. Since M2 the tools of 3.16.12 take lucide icons too: Ellipse and Elliptical arc `Ellipse`, Parabola, Hyperbola and Conic `Spline`, Control point spline `SplinePointer`, Fit point spline `Waypoints`, and the toolbar group "Spline" `SplinePointer` (lucide-react 1.55.0 has each).
 
 `COMMAND_KEYWORDS` (`src/commands/keywords.ts`) holds the keywords of every command, feature and built-in alike, by command id; a command without an entry has none. It replaces the former `FEATURE_KEYWORDS`, because built-in commands (sketch tools, view commands, Finish sketch) need other apps' names too. A tagged keyword is written "Word (App)" below and stored as `{word: 'Word', app: 'App'}`; it is how someone coming from Fusion or FreeCAD finds a command by its old name and sees the mapping in the option itself.
 
@@ -1202,6 +1208,13 @@ Feature command availability (`FEATURE_REQUIREMENTS` in `src/commands/features.t
 | `sketch.circle` | Center Diameter Circle (Fusion) |
 | `sketch.arc_3point` | 3-Point Arc (Fusion) |
 | `sketch.point` | hole center |
+| `sketch.ellipse` | Ellipse (Fusion), Ellipse by center (FreeCAD), oval (since M2) |
+| `sketch.elliptical_arc` | Arc of ellipse (FreeCAD), partial ellipse (since M2) |
+| `sketch.parabola` | Arc of parabola (FreeCAD), conic (since M2) |
+| `sketch.hyperbola` | Arc of hyperbola (FreeCAD), conic (since M2) |
+| `sketch.conic` | Conic Curve (Fusion), rho conic (since M2) |
+| `sketch.control_point_spline` | Control Point Spline (Fusion), B-spline (FreeCAD), spline, NURBS, Bezier (since M2) |
+| `sketch.fit_point_spline` | Fit Point Spline (Fusion), B-spline by interpolation (FreeCAD), spline, interpolate (since M2) |
 | `sketch.construction` | Toggle Construction (FreeCAD), construction geometry, reference |
 | `sketch.dimension` | Sketch Dimension (Fusion), Constrain Distance (FreeCAD), distance, length, radius, diameter, angle |
 | `sketch.constrain_fix` | Lock (FreeCAD), Block (FreeCAD), fixed, ground |
@@ -1238,6 +1251,13 @@ A feature command's `description` is its manifest's `description` (features.md s
 | `sketch.circle` | Draws a circle from its center and a point on it. |
 | `sketch.arc_3point` | Draws an arc through its start, its end and a point on it. |
 | `sketch.point` | Places a point, for example to mark a hole center. |
+| `sketch.ellipse` | Draws an ellipse from its center, the end of one axis and a point that sets its width. (since M2) |
+| `sketch.elliptical_arc` | Draws part of an ellipse: its center, axis and width, then where the arc starts and ends. (since M2) |
+| `sketch.parabola` | Draws part of a parabola from its vertex and focus, then where it starts and ends. (since M2) |
+| `sketch.hyperbola` | Draws part of a hyperbola from its center, the vertex of its branch and its width, then its ends. (since M2) |
+| `sketch.conic` | Draws a curve from its start to its end that bends toward a control point. Rho sets how far. (since M2) |
+| `sketch.control_point_spline` | Draws a smooth curve shaped by control points it passes near. Enter ends it. (since M2) |
+| `sketch.fit_point_spline` | Draws a smooth curve through every point you click. Enter ends it. (since M2) |
 | `sketch.construction` | Turns lines and curves into construction geometry, which guides the shape but is not part of it. |
 | `sketch.dimension` | Sets an exact length, distance, diameter, radius or angle. Type a value or a parameter name. |
 | `sketch.finish` | Leaves the sketch and returns to the 3D model. |
@@ -2736,10 +2756,10 @@ The card follows the document only: it disappears with the first feature, return
 | Context | Entries in order |
 | --- | --- |
 | Model | Sketch (`feature.sketch`), Extrude, Revolve, Hole, Fillet, Chamfer, Shell, group "Shapes" (`cuboid` icon: Box, Cylinder, Sphere, Cone, Torus), group "Pattern" (`grid-3x3` icon: Linear pattern, Circular pattern), Mirror, Boolean |
-| Sketch | Line, group "Rectangle" (`rectangle-horizontal`: 2-point rectangle, Center rectangle), Circle, Arc, Point, Construction, Dimension, group "Constrain" (`magnet`: the 13 constraint commands in the order of 3.16.6), separator, Finish sketch (primary style) |
+| Sketch | Line, group "Rectangle" (`rectangle-horizontal`: 2-point rectangle, Center rectangle), Circle, Arc, since M2 Ellipse and group "Spline" (`spline-pointer`: Fit point spline, Control point spline; [ADR W2-2C-1](../adr/W2-2C-1-conic-and-spline-tools-in-the-sketch-ui.md)), Point, Construction, Dimension, group "Constrain" (`magnet`: the 13 constraint commands in the order of 3.16.6), separator, Finish sketch (primary style) |
 | Print | Printer (menu button showing "Printer: {name}"), Overhang map (toggle), Checks (popover), Print check (opens the print check panel; shows the finding count), Lay on face (toggle, 3.17), separator, Export 3MF (primary style), group "Export" (`file-output`: STL, OBJ, STEP) |
 
-A separator shows only between two shown controls, so the Sketch toolbar shows none while a plane is picked and it has no buttons. Datum plane, Move body and Split body are in the palette only; the selection inspector also suggests them for what is selected (3.8). A group button opens a menu (`role="menu"`) of its commands with icon, title and shortcut. Disabled toolbar commands render with `aria-disabled="true"`, keep their place, show the reason in their tooltip, and show it as an info notification when clicked (as their shortcut does, 2.10). A group button whose commands are all disabled is disabled the same way with the first command's reason.
+A separator shows only between two shown controls, so the Sketch toolbar shows none while a plane is picked and it has no buttons. Datum plane, Move body and Split body are in the palette only, and so are, since M2, the sketch tools Elliptical arc, Parabola, Hyperbola and Conic (3.16.12); the selection inspector also suggests them for what is selected (3.8). A group button opens a menu (`role="menu"`) of its commands with icon, title and shortcut. Disabled toolbar commands render with `aria-disabled="true"`, keep their place, show the reason in their tooltip, and show it as an info notification when clicked (as their shortcut does, 2.10). A group button whose commands are all disabled is disabled the same way with the first command's reason.
 
 Context rules:
 
@@ -2821,6 +2841,7 @@ Commands without a default shortcut (ids and titles; all listed in the palette i
 | `view.filter.body`, `view.filter.face`, `view.filter.edge`, `view.filter.vertex` | Select bodies, Select faces, Select edges, Select vertices (toggles) | model, print |
 | `view.lock`, `view.unlock` | Lock selection, Unlock selection | model, print |
 | `sketch.rectangle_center`, `sketch.arc_3point`, `sketch.point` | Center rectangle, Arc, Point | sketch |
+| `sketch.ellipse`, `sketch.elliptical_arc`, `sketch.parabola`, `sketch.hyperbola`, `sketch.conic`, `sketch.control_point_spline`, `sketch.fit_point_spline` (since M2, 3.16.12) | Ellipse, Elliptical arc, Parabola, Hyperbola, Conic, Control point spline, Fit point spline | sketch |
 | `sketch.constrain_<type>` for the constraints without a key | Point on object, Parallel, Perpendicular, Tangent, Collinear, Concentric, Equal, Symmetric, Midpoint, Fix | sketch |
 | `sketch.show_constraints` | Show constraints (toggle) | sketch |
 | `print.printer`, `print.overhangs`, `print.checks`, `print.check_now`, `print.lay_on_face` | Choose printer, Overhang map (toggle), Checks, Check print, Lay on face (toggle, 3.17) | print (`print.check_now` all) |
